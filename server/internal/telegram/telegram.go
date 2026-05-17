@@ -14,6 +14,57 @@ import (
 	"github.com/ovh-buy/server/internal/app"
 )
 
+// VerifyConfig 检查 Telegram 是否可用:Token / Chat ID 是否填写 + bot 是否能 getMe + chat 是否可访问。
+// 用于 AddSubscription 等"必须 TG 有效"的强制校验。
+// 返回 (ok, 失败原因)。所有失败原因都是面向终端用户的中文短句。
+func VerifyConfig(state *app.State) (bool, string) {
+	cfg := state.Config.Get()
+	token := strings.TrimSpace(cfg.TgToken)
+	chatID := strings.TrimSpace(cfg.TgChatID)
+	if token == "" {
+		return false, "未配置 Telegram Bot Token"
+	}
+	if chatID == "" {
+		return false, "未配置 Telegram Chat ID"
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// 1) getMe 验 token
+	resp, err := client.Get("https://api.telegram.org/bot" + token + "/getMe")
+	if err != nil {
+		return false, "无法连接 Telegram API: " + err.Error()
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	var r1 map[string]interface{}
+	_ = json.Unmarshal(body, &r1)
+	if ok, _ := r1["ok"].(bool); !ok {
+		desc, _ := r1["description"].(string)
+		if desc == "" {
+			desc = "未知错误"
+		}
+		return false, "Telegram Token 无效: " + desc
+	}
+
+	// 2) getChat 验 chat_id (bot 是否能访问这个 chat)
+	resp2, err := client.Get("https://api.telegram.org/bot" + token + "/getChat?chat_id=" + chatID)
+	if err != nil {
+		return false, "无法连接 Telegram API: " + err.Error()
+	}
+	body2, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	var r2 map[string]interface{}
+	_ = json.Unmarshal(body2, &r2)
+	if ok, _ := r2["ok"].(bool); !ok {
+		desc, _ := r2["description"].(string)
+		if desc == "" {
+			desc = "未知错误"
+		}
+		return false, "Telegram Chat ID 不可达: " + desc + " (请先给 bot 发一条消息)"
+	}
+	return true, ""
+}
+
 // SendMessage 对应 Python: send_telegram_msg
 func SendMessage(state *app.State, message string, replyMarkup map[string]interface{}) bool {
 	cfg := state.Config.Get()

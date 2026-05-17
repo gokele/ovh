@@ -19,7 +19,34 @@ import (
 var (
 	runningMu sync.Mutex
 	running   bool
+
+	// TG 健康检查节流。loop 每 5 分钟 verify 一次,失败自停。
+	tgCheckMu   sync.Mutex
+	lastTGCheck time.Time
 )
+
+const tgRecheckInterval = 5 * time.Minute
+
+// checkTGOrStop 节流后 verify Telegram,失败则 Stop()。
+// 返回 true=继续 loop,false=已自停。
+func checkTGOrStop(state *app.State) bool {
+	tgCheckMu.Lock()
+	due := time.Since(lastTGCheck) >= tgRecheckInterval
+	tgCheckMu.Unlock()
+	if !due {
+		return true
+	}
+	ok, reason := telegram.VerifyConfig(state)
+	tgCheckMu.Lock()
+	lastTGCheck = time.Now()
+	tgCheckMu.Unlock()
+	if !ok {
+		state.Logger.Error("Telegram 通知失效,自动停止 VPS 监控: "+reason, "vps_monitor")
+		Stop(state)
+		return false
+	}
+	return true
+}
 
 // CheckVPSDCAvailability 对应 Python: check_vps_datacenter_availability
 func CheckVPSDCAvailability(state *app.State, planCode, ovhSubsidiary string) map[string]interface{} {
@@ -145,6 +172,11 @@ func MonitorLoop(state *app.State) {
 		isRunning := running
 		runningMu.Unlock()
 		if !isRunning {
+			break
+		}
+
+		// TG 失效 → 自停。checkTGOrStop 内部 5min 节流。
+		if !checkTGOrStop(state) {
 			break
 		}
 
@@ -330,6 +362,10 @@ func Start(state *app.State) bool {
 	}
 	running = true
 	runningMu.Unlock()
+	// 重置 TG 检查时间戳,保证启动后第一轮一定 verify
+	tgCheckMu.Lock()
+	lastTGCheck = time.Time{}
+	tgCheckMu.Unlock()
 	go MonitorLoop(state)
 	state.Logger.Info(fmt.Sprintf("VPS监控已启动 (检查间隔: %d秒)", state.VPSCheckInterval), "vps_monitor")
 	return true

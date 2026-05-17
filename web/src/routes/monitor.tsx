@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Bell,
   BellOff,
@@ -8,6 +8,7 @@ import {
   History as HistoryIcon,
   ChevronUp,
   Plus,
+  AlertTriangle,
 } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -38,6 +39,7 @@ import {
   useMonitorHistory,
   type MonitorSubscription,
 } from "@/hooks/use-monitor";
+import { useTelegramVerify } from "@/hooks/use-telegram";
 import { toast } from "sonner";
 
 /** 服务器监控订阅 */
@@ -354,6 +356,8 @@ function AddSubscriptionDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const create = useCreateMonitorSubscription();
+  const tgVerify = useTelegramVerify();
+  const tgBlocked = tgVerify.data ? !tgVerify.data.ok : false;
   const [planCode, setPlanCode] = useState("");
   const [datacenters, setDatacenters] = useState("");
   const [notifyAvailable, setNotifyAvailable] = useState(true);
@@ -422,6 +426,26 @@ function AddSubscriptionDialog({
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-4">
+          {tgBlocked && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div className="text-xs flex-1 min-w-0">
+                <div className="font-medium text-amber-900 dark:text-amber-200">
+                  Telegram 通知未配置或无效
+                </div>
+                <div className="text-amber-800/80 dark:text-amber-200/80 mt-0.5 break-words">
+                  {tgVerify.data?.reason || "请先在设置页配置可用的 Telegram Bot Token 和 Chat ID"}
+                </div>
+                <Link
+                  to="/settings"
+                  className="inline-block mt-1 text-amber-900 dark:text-amber-200 underline underline-offset-2"
+                >
+                  去配置 →
+                </Link>
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1.5">
               服务器型号 <span className="text-destructive">*</span>
@@ -510,8 +534,12 @@ function AddSubscriptionDialog({
             >
               取消
             </Button>
-            <Button type="submit" disabled={create.isPending}>
-              {create.isPending ? "提交中…" : "确认添加"}
+            <Button
+              type="submit"
+              disabled={create.isPending || tgBlocked || tgVerify.isPending}
+              title={tgBlocked ? "Telegram 通知无效,无法添加订阅" : undefined}
+            >
+              {create.isPending ? "提交中…" : tgVerify.isPending ? "校验通知…" : "确认添加"}
             </Button>
           </DialogFooter>
         </form>

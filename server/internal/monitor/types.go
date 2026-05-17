@@ -29,6 +29,11 @@ type Monitor struct {
 	messageUUIDCacheTTL time.Duration
 
 	cacheLock sync.Mutex
+
+	// TG 健康检查时间戳:loop 每 5 分钟 verify 一次,失败就自停。
+	// 不放 subsMu 下,简单用单独的锁。
+	tgCheckMu   sync.Mutex
+	lastTGCheck time.Time
 }
 
 type CachedOptions struct {

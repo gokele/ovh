@@ -9,7 +9,34 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/ovh-buy/server/internal/telegram"
 )
+
+// tgRecheckInterval loop 内 TG 健康检查节流间隔。5 分钟 verify 一次,
+// 失败立即调 Stop() 自停监控。
+const tgRecheckInterval = 5 * time.Minute
+
+// checkTGOrStop 节流后 verify Telegram,失败则调 Stop() 让 loop 退出。
+// 返回 true=继续 loop,false=已自停,loop 应该 break。
+func (m *Monitor) checkTGOrStop() bool {
+	m.tgCheckMu.Lock()
+	due := time.Since(m.lastTGCheck) >= tgRecheckInterval
+	m.tgCheckMu.Unlock()
+	if !due {
+		return true
+	}
+	ok, reason := telegram.VerifyConfig(m.state)
+	m.tgCheckMu.Lock()
+	m.lastTGCheck = time.Now()
+	m.tgCheckMu.Unlock()
+	if !ok {
+		m.state.Logger.Error("Telegram 通知失效,自动停止服务器监控: "+reason, "monitor")
+		m.Stop()
+		return false
+	}
+	return true
+}
 
 // CheckNewServers 对应 Python: check_new_servers
 func (m *Monitor) CheckNewServers(currentServerList []map[string]interface{}) {
@@ -61,6 +88,11 @@ func (m *Monitor) monitorLoop() {
 		running := m.running
 		m.subsMu.Unlock()
 		if !running {
+			break
+		}
+
+		// TG 失效 → 自停。checkTGOrStop 内部已节流 5 分钟,且失败时调 Stop()。
+		if !m.checkTGOrStop() {
 			break
 		}
 
@@ -156,6 +188,10 @@ func (m *Monitor) Start() bool {
 	}
 	m.running = true
 	m.subsMu.Unlock()
+	// 重置 TG 检查时间戳,保证启动后第一轮一定 verify
+	m.tgCheckMu.Lock()
+	m.lastTGCheck = time.Time{}
+	m.tgCheckMu.Unlock()
 	go m.monitorLoop()
 	m.state.Logger.Info(fmt.Sprintf("服务器监控已启动 (检查间隔: %d秒)", m.checkInterval), "monitor")
 	m.state.MonitorRunning = true

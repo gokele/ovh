@@ -23,6 +23,11 @@ func GetSubscriptions(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 // AddSubscription POST /api/monitor/subscriptions
 func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 监控订阅必须有可用的 Telegram 通知,否则没意义
+		if ok, reason := telegram.VerifyConfig(state); !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Telegram 通知未配置或无效:" + reason})
+			return
+		}
 		var body struct {
 			PlanCode           string   `json:"planCode"`
 			Datacenters        []string `json:"datacenters"`
@@ -90,6 +95,11 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 // BatchAddAll POST /api/monitor/subscriptions/batch-add-all
 func BatchAddAll(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 同 AddSubscription:批量添加也要求 TG 有效
+		if ok, reason := telegram.VerifyConfig(state); !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Telegram 通知未配置或无效:" + reason})
+			return
+		}
 		state.ServerPlansMu.RLock()
 		hasServers := len(state.ServerPlans) > 0
 		state.ServerPlansMu.RUnlock()
@@ -220,12 +230,27 @@ func GetSubscriptionHistory(state *app.State, mon *monitor.Monitor) gin.HandlerF
 // StartMonitor POST /api/monitor/start
 func StartMonitor(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 启动前先验 TG,broken TG 不让起,免得起来一圈检查发不出去白跑
+		if ok, reason := telegram.VerifyConfig(state); !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Telegram 通知未配置或无效,无法启动监控:" + reason})
+			return
+		}
 		if mon.Start() {
 			state.Logger.Info("用户启动服务器监控", "")
 			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "监控已启动"})
 		} else {
 			c.JSON(http.StatusOK, gin.H{"status": "info", "message": "监控已在运行中"})
 		}
+	}
+}
+
+// VerifyTelegram GET /api/telegram/verify
+// 前端添加订阅对话框打开时调一次,决定是否允许提交。
+// 后端不缓存,每次请求都真去 telegram API 探一下,前端 React Query 控频率(5min staleTime)。
+func VerifyTelegram(state *app.State) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ok, reason := telegram.VerifyConfig(state)
+		c.JSON(http.StatusOK, gin.H{"ok": ok, "reason": reason})
 	}
 }
 

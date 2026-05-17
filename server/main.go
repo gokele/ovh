@@ -129,6 +129,7 @@ func main() {
 		api.GET("/monitor/status", handlers.GetMonitorStatus(state, mon))
 		api.PUT("/monitor/interval", handlers.SetMonitorInterval(state, mon))
 		api.POST("/monitor/test-notification", handlers.TestNotification(state))
+		api.GET("/telegram/verify", handlers.VerifyTelegram(state))
 
 		// Telegram
 		api.POST("/telegram/set-webhook", handlers.SetTelegramWebhook(state))

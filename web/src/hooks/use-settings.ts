@@ -42,6 +42,8 @@ export function useSaveSettings() {
     mutationFn: async (payload: SettingsConfig) => (await api.post("/settings", payload)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.settings.config() });
+      // TG 配置可能变了,让监控对话框下次打开重新 verify
+      qc.invalidateQueries({ queryKey: ["telegram", "verify"] });
       toast.success("设置已保存");
     },
     onError: (e: any) => toast.error(e.response?.data?.error || "保存失败"),
