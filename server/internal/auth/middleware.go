@@ -17,11 +17,12 @@ type Config struct {
 	WhitelistPaths map[string]struct{}
 }
 
-// DefaultWhitelist 与 Python 端 WHITELIST_PATHS 保持一致
+// DefaultWhitelist 不需要 X-API-Key 即可访问的路径
 func DefaultWhitelist() map[string]struct{} {
 	return map[string]struct{}{
 		"/health":                      {},
 		"/api/health":                  {},
+		"/api/version":                 {}, // 前端启动时拉版本号,登录前可见
 		"/api/internal/monitor/price":  {},
 		"/api/telegram/webhook":        {},
 	}

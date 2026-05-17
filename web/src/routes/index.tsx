@@ -25,7 +25,7 @@ import { Skeleton } from "@/components/common/Skeleton";
 import { MetricRing } from "@/components/common/MetricRing";
 import { useStats } from "@/hooks/use-stats";
 import { useQueueList, type QueueItem } from "@/hooks/use-queue";
-import { useSystemMetrics } from "@/hooks/use-system-metrics";
+import { useSystemMetrics, useAppVersion } from "@/hooks/use-system-metrics";
 
 /** 仪表盘:3 KPI + 活跃队列 / 系统状态 + 系统监控(CPU / 内存 / 磁盘 / 网络) */
 export const Route = createFileRoute("/")({
@@ -36,6 +36,7 @@ function DashboardPage() {
   const stats = useStats();
   const queue = useQueueList();
   const sys = useSystemMetrics();
+  const version = useAppVersion();
 
   const activeQueue: QueueItem[] = (queue.data || [])
     .filter((i) => ["running", "pending", "paused"].includes(i.status))
@@ -174,7 +175,7 @@ function DashboardPage() {
                   <Info className="w-3.5 h-3.5" />
                   系统版本
                 </div>
-                <span className="text-xs font-mono font-semibold">v3.0.0</span>
+                <span className="text-xs font-mono font-semibold">v{version.data || "—"}</span>
               </div>
             </div>
           </CardContent>

@@ -1,6 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
+/** 后端二进制版本*/
+export function useAppVersion() {
+  return useQuery({
+    queryKey: ["app", "version"],
+    queryFn: async () => (await api.get<{ version: string }>("/version")).data.version,
+    staleTime: Infinity, // 进程跑起来版本号不会变,缓存到 unmount
+    gcTime: Infinity,
+    retry: 0,
+  });
+}
+
 export interface SystemMetrics {
   cpu: { percent: number; cores: number };
   memory: { totalBytes: number; usedBytes: number; percent: number };
