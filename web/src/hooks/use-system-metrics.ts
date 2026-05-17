@@ -12,6 +12,36 @@ export function useAppVersion() {
   });
 }
 
+/** GitHub releases 上游更新检查结果 */
+export interface UpdateCheck {
+  current: string;
+  latest: string;
+  tag: string;
+  name: string;
+  hasUpdate: boolean;
+  url: string;
+  publishedAt: string;
+  body: string;
+  prerelease: boolean;
+  checkedAt: string;
+}
+
+/** 检查上游 (gokele/ovh) 是否有新版本。
+ *  - 后端不缓存,收到请求就直连 GitHub
+ *  - 前端 staleTime 1 小时,同一会话内访问仪表盘不会反复打 GitHub(避免触发 60 次/小时未鉴权限速)
+ *  - 不监听 focus、不轮询,仅在组件 mount 且 stale 时触发一次
+ */
+export function useUpdateCheck() {
+  return useQuery<UpdateCheck>({
+    queryKey: ["app", "update-check"],
+    queryFn: async () => (await api.get<UpdateCheck>("/version/check-update")).data,
+    staleTime: 60 * 60 * 1000, // 1h
+    gcTime: 24 * 60 * 60 * 1000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export interface SystemMetrics {
   cpu: { percent: number; cores: number };
   memory: { totalBytes: number; usedBytes: number; percent: number };
