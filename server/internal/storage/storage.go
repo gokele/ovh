@@ -15,12 +15,20 @@ type Paths struct {
 	LogsDir  string
 }
 
-// DefaultPaths 从环境变量读取，否则使用相对默认值
+// DefaultPaths 从环境变量读取，否则用当前工作目录下的相对路径。
+// 默认全部落在 ./data 下：
+//   data/         SQLite (sniper.db)
+//   data/cache/   OVH catalog 等缓存文件
+//   data/logs/    运行日志
+//
+// 行为：在哪儿执行命令，data/ 就出现在哪儿（Windows / Linux / macOS 一致）。
+// 想固定到别的位置就设 DATA_DIR / CACHE_DIR / LOGS_DIR 环境变量。
 func DefaultPaths() Paths {
+	dataDir := envOr("DATA_DIR", "data")
 	return Paths{
-		DataDir:  envOr("DATA_DIR", "data"),
-		CacheDir: envOr("CACHE_DIR", "cache"),
-		LogsDir:  envOr("LOGS_DIR", "logs"),
+		DataDir:  dataDir,
+		CacheDir: envOr("CACHE_DIR", filepath.Join(dataDir, "cache")),
+		LogsDir:  envOr("LOGS_DIR", filepath.Join(dataDir, "logs")),
 	}
 }
 

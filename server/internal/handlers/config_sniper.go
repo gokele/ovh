@@ -16,7 +16,6 @@ import (
 	"github.com/ovh-buy/server/internal/numconv"
 	"github.com/ovh-buy/server/internal/price"
 	"github.com/ovh-buy/server/internal/sniper"
-	"github.com/ovh-buy/server/internal/storage"
 	"github.com/ovh-buy/server/internal/types"
 )
 
@@ -216,7 +215,7 @@ func CreateConfigSniperTask(state *app.State) gin.HandlerFunc {
 		cp := make([]types.ConfigSniperTask, len(state.ConfigSniperTasks))
 		copy(cp, state.ConfigSniperTasks)
 		state.ConfigSniperMu.Unlock()
-		_ = storage.WriteJSON(state.Paths.File("config_sniper_tasks.json"), cp)
+		_ = state.DB.ReplaceSniperTasks(cp)
 		state.Logger.Info("创建配置绑定任务: "+body.API1PlanCode+" - "+message, "config_sniper")
 
 		c.JSON(http.StatusOK, gin.H{
@@ -249,7 +248,7 @@ func DeleteConfigSniperTask(state *app.State) gin.HandlerFunc {
 		cp := make([]types.ConfigSniperTask, len(state.ConfigSniperTasks))
 		copy(cp, state.ConfigSniperTasks)
 		state.ConfigSniperMu.Unlock()
-		_ = storage.WriteJSON(state.Paths.File("config_sniper_tasks.json"), cp)
+		_ = state.DB.ReplaceSniperTasks(cp)
 		state.Logger.Info("删除配置绑定任务: "+api1, "config_sniper")
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "任务已删除"})
 	}
@@ -280,7 +279,7 @@ func ToggleConfigSniperTask(state *app.State) gin.HandlerFunc {
 		cp := make([]types.ConfigSniperTask, len(state.ConfigSniperTasks))
 		copy(cp, state.ConfigSniperTasks)
 		state.ConfigSniperMu.Unlock()
-		_ = storage.WriteJSON(state.Paths.File("config_sniper_tasks.json"), cp)
+		_ = state.DB.ReplaceSniperTasks(cp)
 		state.Logger.Info(status+"配置绑定任务: "+found.API1PlanCode, "config_sniper")
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
@@ -453,7 +452,7 @@ func CheckConfigSniperTask(state *app.State) gin.HandlerFunc {
 		cp := make([]types.ConfigSniperTask, len(state.ConfigSniperTasks))
 		copy(cp, state.ConfigSniperTasks)
 		state.ConfigSniperMu.Unlock()
-		_ = storage.WriteJSON(state.Paths.File("config_sniper_tasks.json"), cp)
+		_ = state.DB.ReplaceSniperTasks(cp)
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": "检查完成",

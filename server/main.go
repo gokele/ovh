@@ -1,7 +1,9 @@
 package main
 
 import (
+	"io/fs"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/auth"
 	"github.com/ovh-buy/server/internal/config"
+	"github.com/ovh-buy/server/internal/db"
 	"github.com/ovh-buy/server/internal/handlers"
 	"github.com/ovh-buy/server/internal/logger"
 	"github.com/ovh-buy/server/internal/monitor"
@@ -35,12 +38,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	sqliteDB, err := db.Open(paths.DataDir)
+	if err != nil {
+		console.Error("open sqlite", "err", err)
+		os.Exit(1)
+	}
+	defer sqliteDB.Close()
+
 	lg := logger.New(paths.LogFile("app.log.json"), console)
-	cfgStore := config.New(paths.File("config.json"))
-	state := app.NewState(paths, cfgStore, lg)
+	cfgStore := config.New(sqliteDB)
+	state := app.NewState(paths, cfgStore, lg, sqliteDB)
 	state.APIKey = os.Getenv("API_SECRET_KEY")
 	if state.APIKey == "" {
-		state.APIKey = "ovh-phantom-sniper-2024-secret-key"
+		state.APIKey = "123456"
 	}
 	state.Port = os.Getenv("PORT")
 	if state.Port == "" {
@@ -50,11 +60,9 @@ func main() {
 
 	// 监控器
 	mon := monitor.New(state)
-	mon.LoadFromFile(paths.File("subscriptions.json"))
-	// 1:1 对应 Python app.py:9276-9277：启动时显式强制 interval=5 并立即写回文件，
-	// 防止旧 subscriptions.json 里残留的 check_interval 不是 5
+	mon.LoadFromDB()
 	mon.SetCheckInterval(5)
-	mon.SaveToFile(paths.File("subscriptions.json"))
+	mon.SaveToDB()
 	console.Info("监控检查间隔已强制设置为: 5秒（全局固定值）")
 
 	// Gin
@@ -111,12 +119,11 @@ func main() {
 		api.DELETE("/purchase-history", handlers.ClearPurchaseHistory(state))
 
 		// Monitor
-		subsFile := paths.File("subscriptions.json")
 		api.GET("/monitor/subscriptions", handlers.GetSubscriptions(state, mon))
-		api.POST("/monitor/subscriptions", handlers.AddSubscription(state, mon, subsFile))
-		api.POST("/monitor/subscriptions/batch-add-all", handlers.BatchAddAll(state, mon, subsFile))
-		api.DELETE("/monitor/subscriptions/clear", handlers.ClearSubscriptions(state, mon, subsFile))
-		api.DELETE("/monitor/subscriptions/:planCode", handlers.RemoveSubscription(state, mon, subsFile))
+		api.POST("/monitor/subscriptions", handlers.AddSubscription(state, mon))
+		api.POST("/monitor/subscriptions/batch-add-all", handlers.BatchAddAll(state, mon))
+		api.DELETE("/monitor/subscriptions/clear", handlers.ClearSubscriptions(state, mon))
+		api.DELETE("/monitor/subscriptions/:planCode", handlers.RemoveSubscription(state, mon))
 		api.GET("/monitor/subscriptions/:planCode/history", handlers.GetSubscriptionHistory(state, mon))
 		api.POST("/monitor/start", handlers.StartMonitor(state, mon))
 		api.POST("/monitor/stop", handlers.StopMonitor(state, mon))
@@ -133,10 +140,10 @@ func main() {
 		api.GET("/servers", handlers.GetServers(state))
 		api.GET("/availability/*planCode", availabilityHandler(handlers.GetAvailability(state)))
 		api.POST("/availability/*planCode", availabilityHandler(handlers.GetAvailability(state)))
-		api.POST("/servers/*planCode", serverPriceHandler(handlers.GetServerPrice(state)))
 		api.POST("/internal/monitor/price", handlers.MonitorPrice(state))
 		api.GET("/cache/info", handlers.CacheInfo(state))
 		api.POST("/cache/clear", handlers.ClearCache(state))
+		api.GET("/catalog", handlers.GetCatalog(state))
 
 		// Config sniper
 		api.GET("/config-sniper/options/:planCode", handlers.GetConfigOptions(state))
@@ -268,10 +275,13 @@ func main() {
 		api.GET("/ovh/account/bills", handlers.GetAccountBills(state))
 	}
 
+	// 前端静态文件（仅 `-tags ui` 构建时生效）
+	mountEmbeddedUI(r)
+
 	// 后台线程
 	go purchase.ProcessQueueLoop(state)
 	go sniper.MonitorLoop(state)
-	go handlers.AutoRefreshCacheLoop(state)
+	// 服务器目录走懒加载：访问到且缓存过期时才打 OVH，无后台定时刷新
 
 	// 自动启动监控（如果有订阅）
 	if len(mon.Snapshot()) > 0 {
@@ -280,12 +290,64 @@ func main() {
 	}
 
 	state.Logger.Info("Server started", "system")
-	addr := ":" + state.Port
-	console.Info("Listening", "addr", addr, "auth", enableAuth, "dataDir", paths.DataDir)
+	// 默认监听所有网卡（双栈 IPv4+IPv6），这样 localhost / 127.0.0.1 / 局域网 IP 都能访问。
+	// Windows 上 localhost 常先解析到 ::1，单绑 127.0.0.1 会被浏览器拒连。
+	// 如果只想锁本机回环，设 LISTEN_HOST=127.0.0.1
+	host := os.Getenv("LISTEN_HOST")
+	addr := host + ":" + state.Port
+	console.Info("Listening", "addr", addr, "auth", enableAuth, "ui", hasUI(), "dataDir", paths.DataDir)
 	if err := r.Run(addr); err != nil {
 		console.Error("server run", "err", err)
 		os.Exit(1)
 	}
+}
+
+// mountEmbeddedUI 把嵌入的前端挂到根路径。
+// 没启用 -tags ui 时 hasUI() 为 false，不注册任何 NoRoute；
+// 启用时：/api/* 未匹配 → 404 JSON；命中具体文件 → 直接 serve；其余 → 返回 index.html 让 SPA 路由接管。
+//
+// 注意：index.html 不能交给 http.FileServer 去 serve，否则它会把 /index.html 301 重定向到 /，
+// 触发与我们 SPA fallback 的相互重定向死循环（ERR_TOO_MANY_REDIRECTS）。
+// 直接读出来缓存到内存，命中 SPA 路径时手工写回，绕开 FileServer 的内部行为。
+func mountEmbeddedUI(r *gin.Engine) {
+	if !hasUI() {
+		return
+	}
+	distFS := webDistFS()
+	indexHTML, err := fs.ReadFile(distFS, "index.html")
+	if err != nil {
+		// 没构出 index.html，等于没 UI；退化为纯 API
+		return
+	}
+	fileServer := http.FileServer(http.FS(distFS))
+
+	serveIndex := func(c *gin.Context) {
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.Header("Cache-Control", "no-cache")
+		c.Status(http.StatusOK)
+		_, _ = c.Writer.Write(indexHTML)
+	}
+
+	r.NoRoute(func(c *gin.Context) {
+		reqPath := c.Request.URL.Path
+		if strings.HasPrefix(reqPath, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		clean := strings.TrimPrefix(reqPath, "/")
+		// 根路径或显式访问 index.html：直接写 index.html，绕开 FileServer 的 301 重定向
+		if clean == "" || clean == "index.html" {
+			serveIndex(c)
+			return
+		}
+		// 命中具体文件 → FileServer 处理（带正确 Content-Type + 缓存语义）
+		if info, err := fs.Stat(distFS, clean); err == nil && !info.IsDir() {
+			fileServer.ServeHTTP(c.Writer, c.Request)
+			return
+		}
+		// SPA 客户端路由：写 index.html，让前端 router 接管
+		serveIndex(c)
+	})
 }
 
 // availabilityHandler 用 *planCode 通配符处理像 "/api/availability/24sk20-ram-64g" 这样的路径
@@ -293,22 +355,6 @@ func availabilityHandler(h gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pc := c.Param("planCode")
 		pc = strings.TrimPrefix(pc, "/")
-		c.Params = append(c.Params[:0], gin.Param{Key: "planCode", Value: pc})
-		h(c)
-	}
-}
-
-func serverPriceHandler(h gin.HandlerFunc) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		pc := c.Param("planCode")
-		// 期望路径 /api/servers/<plancode>/price
-		// gin 的 *planCode 会捕获 "/24sk20/price"，需要剥离 /price 后缀
-		pc = strings.TrimPrefix(pc, "/")
-		pc = strings.TrimSuffix(pc, "/price")
-		if pc == "" {
-			c.JSON(404, gin.H{"error": "missing plan code"})
-			return
-		}
 		c.Params = append(c.Params[:0], gin.Param{Key: "planCode", Value: pc})
 		h(c)
 	}

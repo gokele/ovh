@@ -21,7 +21,7 @@ func GetSubscriptions(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 }
 
 // AddSubscription POST /api/monitor/subscriptions
-func AddSubscription(state *app.State, mon *monitor.Monitor, subsFile string) gin.HandlerFunc {
+func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
 			PlanCode          string   `json:"planCode"`
@@ -64,7 +64,7 @@ func AddSubscription(state *app.State, mon *monitor.Monitor, subsFile string) gi
 
 		mon.AddSubscription(body.PlanCode, body.Datacenters, notifyAvailable, notifyUnavailable,
 			serverName, nil, nil, body.AutoOrder, body.Quantity)
-		mon.SaveToFile(subsFile)
+		mon.SaveToDB()
 
 		if !mon.Running() {
 			mon.Start()
@@ -80,7 +80,7 @@ func AddSubscription(state *app.State, mon *monitor.Monitor, subsFile string) gi
 }
 
 // BatchAddAll POST /api/monitor/subscriptions/batch-add-all
-func BatchAddAll(state *app.State, mon *monitor.Monitor, subsFile string) gin.HandlerFunc {
+func BatchAddAll(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state.ServerPlansMu.RLock()
 		hasServers := len(state.ServerPlans) > 0
@@ -132,7 +132,7 @@ func BatchAddAll(state *app.State, mon *monitor.Monitor, subsFile string) gin.Ha
 			added++
 			state.Logger.Debug("批量添加订阅: "+pc+" ("+server.Name+")", "monitor")
 		}
-		mon.SaveToFile(subsFile)
+		mon.SaveToDB()
 		if !mon.Running() {
 			mon.Start()
 			state.Logger.Info("批量添加订阅后自动启动监控", "monitor")
@@ -157,11 +157,11 @@ func BatchAddAll(state *app.State, mon *monitor.Monitor, subsFile string) gin.Ha
 }
 
 // RemoveSubscription DELETE /api/monitor/subscriptions/:planCode
-func RemoveSubscription(state *app.State, mon *monitor.Monitor, subsFile string) gin.HandlerFunc {
+func RemoveSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		planCode := c.Param("planCode")
 		if mon.RemoveSubscription(planCode) {
-			mon.SaveToFile(subsFile)
+			mon.SaveToDB()
 			state.Logger.Info("删除服务器订阅: "+planCode, "")
 			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "已取消订阅 " + planCode})
 			return
@@ -171,10 +171,10 @@ func RemoveSubscription(state *app.State, mon *monitor.Monitor, subsFile string)
 }
 
 // ClearSubscriptions DELETE /api/monitor/subscriptions/clear
-func ClearSubscriptions(state *app.State, mon *monitor.Monitor, subsFile string) gin.HandlerFunc {
+func ClearSubscriptions(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		count := mon.ClearSubscriptions()
-		mon.SaveToFile(subsFile)
+		mon.SaveToDB()
 		state.Logger.Info("清空所有订阅 ("+strconv.Itoa(count)+" 项)", "")
 		c.JSON(http.StatusOK, gin.H{"status": "success", "count": count, "message": "已清空 " + strconv.Itoa(count) + " 个订阅"})
 	}

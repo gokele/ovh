@@ -89,8 +89,7 @@ export function Sidebar() {
           <Shield className="w-4 h-4" />
         </div>
         <div className="min-w-0">
-          <div className="text-[15px] font-semibold text-foreground leading-tight truncate">幻影狙击手</div>
-          <div className="text-[11px] text-muted-foreground leading-tight">OVH 控制台</div>
+          <div className="text-[15px] font-semibold text-foreground leading-tight truncate">OVH 控制台</div>
         </div>
       </Link>
 
@@ -133,9 +132,8 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 h-10 flex items-center justify-between border-t border-border flex-shrink-0">
-        <span className="text-[11px] text-muted-foreground font-mono">v3.0.0</span>
-        <span className="text-[11px] text-muted-foreground">Phantom Sniper</span>
+      <div className="px-4 h-10 flex items-center justify-end border-t border-border flex-shrink-0">
+        <span className="text-[11px] text-muted-foreground">可乐</span>
       </div>
     </aside>
   );

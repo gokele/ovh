@@ -60,11 +60,11 @@ function ServerControlPage() {
           <div className="flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={toggle} aria-label={hidden ? "显示 IP / MAC" : "隐藏 IP / MAC"}>
+                <Button variant="outline" size="icon" onClick={toggle} aria-label={hidden ? "显示 IP / MAC" : "隐藏 IP"}>
                   {hidden ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{hidden ? "已隐藏敏感信息 · 点击显示" : "隐藏 IP / MAC"}</TooltipContent>
+              <TooltipContent>{hidden ? "已隐藏敏感信息 · 点击显示" : "隐藏 IP"}</TooltipContent>
             </Tooltip>
             <Button variant="outline" onClick={() => q.refetch()} disabled={q.isFetching}>
               <RefreshCw className={`w-4 h-4 ${q.isFetching ? "animate-spin" : ""}`} />

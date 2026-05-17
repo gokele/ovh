@@ -1,4 +1,4 @@
-# OVH Phantom Sniper
+# OVH 控制台
 
 OVH 独立服务器 / VPS / Eco 系列**抢购 + 监控 + 管理**控制台。
 

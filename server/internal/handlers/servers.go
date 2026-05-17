@@ -3,8 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -194,30 +192,6 @@ func GetAvailability(state *app.State) gin.HandlerFunc {
 	}
 }
 
-// GetServerPrice POST /api/servers/:plancode/price
-func GetServerPrice(state *app.State) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		planCode := c.Param("planCode")
-		var body struct {
-			Datacenter string   `json:"datacenter"`
-			Options    []string `json:"options"`
-		}
-		_ = c.ShouldBindJSON(&body)
-		if body.Datacenter == "" {
-			body.Datacenter = "gra"
-		}
-		result := price.GetInternal(state, planCode, body.Datacenter, body.Options)
-		status := http.StatusOK
-		if !result.Success {
-			status = http.StatusInternalServerError
-			if strings.Contains(result.Error, "未配置OVH API密钥") {
-				status = http.StatusUnauthorized
-			}
-		}
-		c.JSON(status, result)
-	}
-}
-
 // MonitorPrice POST /api/internal/monitor/price (本地白名单)
 func MonitorPrice(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -257,6 +231,8 @@ func CacheInfo(state *app.State) gin.HandlerFunc {
 			a := int(time.Since(*state.ServerCache.Timestamp).Seconds())
 			age = &a
 		}
+		sqliteCount, _ := state.DB.ServerCount()
+		sqliteUpdatedMs, _ := state.DB.ServersUpdatedAt()
 		c.JSON(http.StatusOK, gin.H{
 			"backend": gin.H{
 				"hasCachedData": len(cached) > 0,
@@ -266,23 +242,26 @@ func CacheInfo(state *app.State) gin.HandlerFunc {
 				"serverCount":   len(cached),
 				"cacheValid":    valid,
 			},
+			"sqlite": gin.H{
+				"serverCount": sqliteCount,
+				"updatedAtMs": sqliteUpdatedMs, // 0 表示从没刷新过
+				"path":        state.DB.Path,
+			},
 			"storage": gin.H{
 				"dataDir":  state.Paths.DataDir,
 				"cacheDir": state.Paths.CacheDir,
 				"logsDir":  state.Paths.LogsDir,
-				"files": gin.H{
-					"config":  fileExists(state.Paths.File("config.json")),
-					"servers": fileExists(state.Paths.File("servers.json")),
-					"logs":    fileExists(state.Paths.LogFile("app.log.json")),
-					"queue":   fileExists(state.Paths.File("queue.json")),
-					"history": fileExists(state.Paths.File("history.json")),
-				},
 			},
 		})
 	}
 }
 
 // ClearCache POST /api/cache/clear
+// type:
+//   "memory" → 只清进程内存（ServerCache + ServerPlans），下次刷新若有 SQLite 缓存仍会用
+//   "sqlite" → 只清 SQLite servers 表（重启后不会回灌旧目录），内存里如果还有照常用
+//   "all"    → 内存 + SQLite 都清
+// 注意：queue / history / monitor / vps / sniper 这些是业务数据，不算"缓存"，不在清理范围内。
 func ClearCache(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
@@ -296,8 +275,6 @@ func ClearCache(state *app.State) gin.HandlerFunc {
 		cleared := []string{}
 
 		if cacheType == "all" || cacheType == "memory" {
-			// 1:1 对应 Python app.py:1319-1321 的反向：先清 server_plans 再清 server_list_cache。
-			// 否则 ServerCache 已清空但 CountAvailableServers 仍读 ServerPlans 出现统计抖动
 			state.ServerPlansMu.Lock()
 			state.ServerPlans = []types.ServerPlan{}
 			state.ServerPlansMu.Unlock()
@@ -307,26 +284,19 @@ func ClearCache(state *app.State) gin.HandlerFunc {
 			state.Logger.Info("已清除内存缓存", "")
 		}
 
-		if cacheType == "all" || cacheType == "files" {
-			serversFile := state.Paths.File("servers.json")
-			if _, err := os.Stat(serversFile); err == nil {
-				_ = os.Remove(serversFile)
-				cleared = append(cleared, "servers_file")
+		if cacheType == "all" || cacheType == "sqlite" {
+			if err := state.DB.ClearServers(); err != nil {
+				state.Logger.Error("清除 SQLite 服务器缓存失败: "+err.Error(), "")
+			} else {
+				cleared = append(cleared, "sqlite_servers")
+				state.Logger.Info("已清除 SQLite 服务器缓存", "")
 			}
-			cacheFiles := []string{"ovh_catalog_raw.json"}
-			for _, name := range cacheFiles {
-				p := state.Paths.CacheFile(name)
-				if _, err := os.Stat(p); err == nil {
-					_ = os.Remove(p)
-					cleared = append(cleared, name)
-				}
+			if err := state.DB.ClearCatalogs(); err != nil {
+				state.Logger.Error("清除 SQLite catalog 缓存失败: "+err.Error(), "")
+			} else {
+				cleared = append(cleared, "sqlite_catalogs")
+				state.Logger.Info("已清除 SQLite catalog 缓存", "")
 			}
-			serversCacheDir := filepath.Join(state.Paths.CacheDir, "servers")
-			if _, err := os.Stat(serversCacheDir); err == nil {
-				_ = os.RemoveAll(serversCacheDir)
-				cleared = append(cleared, "servers_cache_dir")
-			}
-			state.Logger.Info("已清除缓存文件: "+strings.Join(cleared, ", "), "")
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -334,35 +304,6 @@ func ClearCache(state *app.State) gin.HandlerFunc {
 			"cleared": cleared,
 			"message": "已清除缓存: " + strings.Join(cleared, ", "),
 		})
-	}
-}
-
-func fileExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
-}
-
-// AutoRefreshCacheLoop 对应 Python: auto_refresh_cache_loop
-func AutoRefreshCacheLoop(state *app.State) {
-	state.Logger.Info("服务器列表自动刷新已启动（每2小时更新一次）", "auto_refresh")
-	for {
-		time.Sleep(2 * time.Hour)
-		if !state.Config.HasCredentials() {
-			state.Logger.Warn("未配置API，跳过自动刷新", "auto_refresh")
-			continue
-		}
-		state.Logger.Info("开始自动刷新服务器列表...", "auto_refresh")
-		apiServers := catalog.LoadServerList(state)
-		if len(apiServers) > 0 {
-			state.ServerPlansMu.Lock()
-			state.ServerPlans = apiServers
-			state.ServerPlansMu.Unlock()
-			state.ServerCache.Set(apiServers)
-			_ = state.SaveServers()
-			state.Logger.Info("自动刷新完成：已更新 "+strconv.Itoa(len(apiServers))+" 台服务器", "auto_refresh")
-		} else {
-			state.Logger.Warn("自动刷新失败：API返回空数据", "auto_refresh")
-		}
 	}
 }
 

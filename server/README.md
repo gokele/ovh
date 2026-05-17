@@ -1,4 +1,4 @@
-# OVH Phantom Sniper · 后端
+# OVH 控制台 · 后端
 
 Go (Gin) 实现的后端服务，配套 `../web/` 前端使用。
 

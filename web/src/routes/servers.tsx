@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useServers, useAddToMonitor, type ServerPlan, type ServerOption } from "@/hooks/use-servers";
 import { useAccountInfo } from "@/hooks/use-account";
 import { useCreateQueueItem } from "@/hooks/use-queue";
+import { useCacheInfo } from "@/hooks/use-settings";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -129,19 +130,33 @@ function ServersPage() {
       <PageHeader
         icon={Server}
         title="服务器列表"
-        description="实时可用性来自 OVH 公开接口，1 分钟自动刷新"
+        description="目录、价格、可用性全部走访问触发的缓存，2 小时内复用"
         action={
-          <Button
-            variant="outline"
-            onClick={() => {
-              q.refetch();
-              availQ.refetch();
-            }}
-            disabled={q.isFetching || availQ.isFetching}
-          >
-            <RefreshCw className={`w-4 h-4 ${q.isFetching || availQ.isFetching ? "animate-spin" : ""}`} />
-            刷新
-          </Button>
+          <div className="flex items-center gap-2">
+            <CacheBadge />
+            <Button
+              variant="outline"
+              onClick={() => {
+                // 一键刷三件套：目录强刷（清后端缓存）、catalog（价格）refetch、可用性 refetch
+                q.forceRefresh();
+                catalogQ.refetch();
+                availQ.refetch();
+              }}
+              // 只看手动刷新状态：q.isRefreshing 是 forceRefresh 期间的 mutation pending；
+              // *Q.isRefetching 是 refetch 后的状态。不引入 isFetching/isLoading，
+              // 这样首次加载的菊花不会显示在这个按钮上，避免误导。
+              disabled={q.isRefreshing || catalogQ.isRefetching || availQ.isRefetching}
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${
+                  q.isRefreshing || catalogQ.isRefetching || availQ.isRefetching
+                    ? "animate-spin"
+                    : ""
+                }`}
+              />
+              刷新
+            </Button>
+          </div>
         }
       />
 
@@ -226,7 +241,6 @@ function ServersPage() {
               server={srv}
               realtimeDcMap={availMap[srv.planCode]}
               price={priceMap[srv.planCode]}
-              priceLoading={catalogQ.isPending}
               onView={() => setDetailPlanCode(srv.planCode)}
             />
           ))}
@@ -242,7 +256,6 @@ function ServersPage() {
               realtimeDcMap={availMap[detailServer.planCode]}
               defaultPrice={priceMap[detailServer.planCode]}
               catalogIdx={catalogIdx}
-              priceLoading={catalogQ.isPending}
               subsidiary={subsidiary}
               onClose={() => setDetailPlanCode(null)}
             />
@@ -258,13 +271,11 @@ function ServerCard({
   server,
   realtimeDcMap,
   price,
-  priceLoading,
   onView,
 }: {
   server: ServerPlan;
   realtimeDcMap?: Record<string, string>;
   price?: PriceInfo;
-  priceLoading?: boolean;
   onView: () => void;
 }) {
   const addMon = useAddToMonitor();
@@ -302,12 +313,10 @@ function ServerCard({
             <h3 className="font-mono text-[15px] font-semibold truncate">{server.planCode}</h3>
             <p className="text-[12px] text-muted-foreground truncate mt-0.5">{server.name}</p>
             <div className="text-[13px] font-semibold mt-1 tabular-nums">
-              {priceLoading && !price ? (
-                <span className="text-muted-foreground font-normal">— · 价格加载中</span>
-              ) : price ? (
+              {price ? (
                 formatPrice(price)
               ) : (
-                <span className="text-muted-foreground font-normal">价格未知</span>
+                <span className="text-muted-foreground font-normal">— · 价格加载中</span>
               )}
             </div>
           </div>
@@ -387,7 +396,6 @@ function DetailContent({
   realtimeDcMap,
   defaultPrice,
   catalogIdx,
-  priceLoading,
   subsidiary,
   onClose,
 }: {
@@ -397,7 +405,6 @@ function DetailContent({
   defaultPrice?: PriceInfo;
   /** 目录索引：用户切配置时实时算价用 */
   catalogIdx: CatalogIndex;
-  priceLoading?: boolean;
   /** 仅用于价格展示的 subsidiary（顶部下拉决定）。实际下单 subsidiary 由后端 cfg.Zone 决定，在设置页改 */
   subsidiary: string;
   onClose: () => void;
@@ -489,7 +496,7 @@ function DetailContent({
               </span>
             </div>
             <div className="text-2xl font-bold tabular-nums mt-0.5">
-              {priceLoading && !price ? "—" : price ? formatPrice(price) : "价格未知"}
+              {price ? formatPrice(price) : <span className="text-muted-foreground font-normal text-base">— · 价格加载中</span>}
             </div>
           </div>
           {price && (
@@ -760,5 +767,44 @@ function SpecCard({ icon, label, value }: { icon: React.ReactNode; label: string
         <div className="text-[13px] font-semibold truncate" title={value}>{value}</div>
       </div>
     </div>
+  );
+}
+
+/** 服务器目录缓存状态徽章：基于 /api/cache/info 显示当前数据是几分钟前的缓存还是已过期 */
+function CacheBadge() {
+  const info = useCacheInfo();
+  const backend = info.data?.backend;
+  if (!backend || !backend.hasCachedData) {
+    return <span className="text-[11px] text-muted-foreground">尚未加载</span>;
+  }
+  const ageSec = backend.cacheAge ?? 0;
+  const valid = !!backend.cacheValid;
+
+  let text: string;
+  if (ageSec < 60) {
+    text = `${ageSec} 秒前`;
+  } else if (ageSec < 3600) {
+    text = `${Math.floor(ageSec / 60)} 分钟前`;
+  } else {
+    const h = Math.floor(ageSec / 3600);
+    const m = Math.floor((ageSec % 3600) / 60);
+    text = m > 0 ? `${h} 小时 ${m} 分钟前` : `${h} 小时前`;
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border ${
+        valid
+          ? "border-border text-muted-foreground bg-muted/40"
+          : "border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-50/60 dark:bg-amber-950/30"
+      }`}
+      title={
+        valid
+          ? "数据来自缓存，过期后再次访问才会重新调 OVH"
+          : "缓存已过期，下次访问或点刷新会调 OVH 拉新数据"
+      }
+    >
+      {valid ? "缓存" : "缓存已过期"} · {text}
+    </span>
   );
 }

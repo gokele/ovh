@@ -76,7 +76,7 @@ export function useTelegramWebhookInfo() {
 export function useClearCache() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (type: "all" | "memory" | "files") =>
+    mutationFn: async (type: "all" | "memory" | "sqlite") =>
       (await api.post("/cache/clear", { type })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.settings.cacheInfo() });

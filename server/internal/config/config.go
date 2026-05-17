@@ -4,24 +4,29 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ovh-buy/server/internal/storage"
+	"github.com/ovh-buy/server/internal/db"
 	"github.com/ovh-buy/server/internal/types"
 )
 
 // Store 配置存取（线程安全，对应 Python 全局 config dict）
 type Store struct {
-	mu   sync.RWMutex
-	cfg  types.Config
-	path string
+	mu  sync.RWMutex
+	cfg types.Config
+	db  *db.DB
 }
 
-// New 从文件加载配置；不存在则使用默认值
-func New(path string) *Store {
+const kvConfigKey = "config"
+
+// New 从 SQLite kv 表加载配置；不存在则使用默认值
+func New(database *db.DB) *Store {
 	s := &Store{
-		cfg:  types.DefaultConfig(),
-		path: path,
+		cfg: types.DefaultConfig(),
+		db:  database,
 	}
-	_ = storage.ReadJSON(path, &s.cfg)
+	if _, err := s.db.GetKV(kvConfigKey, &s.cfg); err != nil {
+		// 加载失败时退回默认值（避免阻塞启动）
+		s.cfg = types.DefaultConfig()
+	}
 	// 兜底默认值
 	if s.cfg.Endpoint == "" {
 		s.cfg.Endpoint = "ovh-eu"
@@ -51,7 +56,7 @@ func (s *Store) Set(c types.Config) error {
 	s.cfg = c
 	snapshot := s.cfg
 	s.mu.Unlock()
-	return storage.WriteJSON(s.path, snapshot)
+	return s.db.SetKV(kvConfigKey, snapshot)
 }
 
 // HasCredentials 判断是否已配置 OVH 凭据

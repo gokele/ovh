@@ -2,15 +2,17 @@ import { QueryClient } from "@tanstack/react-query";
 
 /**
  * 统一 QueryClient + 默认缓存策略：
- * - 列表/统计：30s staleTime，避免列表频繁闪
- * - 错误重试 1 次，超时不重试
+ * - staleTime 30s：列表/统计默认 30 秒后才算过期
+ * - gcTime 24h：组件 unmount / 切页面后，query 数据在内存里保留 24 小时
+ *   （之前 5 分钟太短，切走 5 分钟回来就要重新拉，跟"走了缓存还是要加载"对得上）
+ * - 错误重试 1 次
  * - 窗口聚焦不自动 refetch（控制台型应用，用户不喜欢晃）
  */
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      gcTime: 5 * 60_000,
+      gcTime: 24 * 60 * 60_000,
       retry: 1,
       refetchOnWindowFocus: false,
     },
@@ -29,8 +31,6 @@ export const qk = {
   servers: {
     list: (showApiServers: boolean) => ["servers", "list", { showApiServers }] as const,
     availability: (planCode: string) => ["servers", "availability", planCode] as const,
-    price: (planCode: string, datacenter: string, options: string[]) =>
-      ["servers", "price", planCode, datacenter, options] as const,
   },
 
   // 实时可用性（OVH 公共 API 直查）

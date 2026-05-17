@@ -12,7 +12,6 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/numconv"
-	"github.com/ovh-buy/server/internal/storage"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -21,8 +20,6 @@ var (
 	runningMu sync.Mutex
 	running   bool
 )
-
-const subsFilename = "vps_subscriptions.json"
 
 // CheckVPSDCAvailability 对应 Python: check_vps_datacenter_availability
 func CheckVPSDCAvailability(state *app.State, planCode, ovhSubsidiary string) map[string]interface{} {
@@ -55,19 +52,19 @@ func CheckVPSDCAvailability(state *app.State, planCode, ovhSubsidiary string) ma
 	return data
 }
 
-// SaveSubscriptions 保存订阅文件（与 Python 一致格式）
+// SaveSubscriptions 把订阅 + check_interval 写回 SQLite
 func SaveSubscriptions(state *app.State) error {
 	state.VPSSubsMu.Lock()
 	subs := make([]types.VPSSubscription, len(state.VPSSubscriptions))
 	copy(subs, state.VPSSubscriptions)
 	interval := state.VPSCheckInterval
 	state.VPSSubsMu.Unlock()
-	data := map[string]interface{}{
-		"subscriptions":  subs,
-		"check_interval": interval,
-	}
-	if err := storage.WriteJSON(state.Paths.File(subsFilename), data); err != nil {
+	if err := state.DB.ReplaceVPSSubscriptions(subs); err != nil {
 		state.Logger.Error("保存VPS订阅时出错: "+err.Error(), "")
+		return err
+	}
+	if err := state.DB.SetKV("vps_check_interval", interval); err != nil {
+		state.Logger.Error("保存VPS检查间隔时出错: "+err.Error(), "")
 		return err
 	}
 	state.Logger.Info(fmt.Sprintf("已保存 %d 个VPS订阅", len(subs)), "")

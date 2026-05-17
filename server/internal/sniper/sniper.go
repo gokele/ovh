@@ -11,12 +11,9 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
-	"github.com/ovh-buy/server/internal/storage"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 )
-
-const tasksFilename = "config_sniper_tasks.json"
 
 // FindMatchingAPI2Plans 对应 Python: find_matching_api2_plans
 func FindMatchingAPI2Plans(state *app.State, memoryStd, storageStd, targetPlanCode string) []string {
@@ -409,7 +406,7 @@ func saveTasks(state *app.State) error {
 	cp := make([]types.ConfigSniperTask, len(state.ConfigSniperTasks))
 	copy(cp, state.ConfigSniperTasks)
 	state.ConfigSniperMu.Unlock()
-	if err := storage.WriteJSON(state.Paths.File(tasksFilename), cp); err != nil {
+	if err := state.DB.ReplaceSniperTasks(cp); err != nil {
 		state.Logger.Error("保存配置狙击任务时出错: "+err.Error(), "")
 		return err
 	}

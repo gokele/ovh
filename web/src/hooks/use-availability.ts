@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
-import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
 
 export interface DatacenterInfo {
   datacenter: string;
@@ -33,25 +32,11 @@ async function getApiBaseUrl(): Promise<string> {
   }
 }
 
-/** 同一 endpoint 读出来 + 默认 subsidiary（catalog 接口需要传 ovhSubsidiary 参数） */
-async function getRegionInfo(): Promise<{ baseUrl: string; subsidiary: string }> {
-  const res = await api.get("/settings");
-  const endpoint = res.data?.endpoint || "ovh-eu";
-  // 用户可能在 settings 里显式配置了 subsidiary（如 FR / DE / UK / PL / ASIA），优先用
-  const explicit = (res.data?.subsidiary as string | undefined)?.toUpperCase();
-  switch (endpoint) {
-    case "ovh-us":
-      return { baseUrl: "https://api.us.ovhcloud.com", subsidiary: explicit || "US" };
-    case "ovh-ca":
-      // ovh-ca 站点同时服务加拿大 + 亚太：默认 CA（加元），亚太用户可在设置里改 ASIA
-      return { baseUrl: "https://ca.api.ovh.com", subsidiary: explicit || "CA" };
-    default:
-      // ovh-eu 站点下属多个子公司（IE / FR / DE / UK / PL / IT / ES…），默认 IE 用 EUR 无 VAT
-      return { baseUrl: "https://eu.api.ovh.com", subsidiary: explicit || "IE" };
-  }
-}
-
-/** 直接查询 OVH 公开 API 的实时可用性 */
+/** 查询 OVH 公开 API 的实时可用性。
+ *  - 1 分钟新鲜期：访问触发；过期才会再请求
+ *  - 不做后台轮询：服务器列表页右上角"刷新"按钮会一并 refetch 这个 query
+ *  - 切 tab / 切窗口都不会自动重发
+ */
 export function useAvailability() {
   return useQuery({
     queryKey: qk.availability.all("auto"),
@@ -64,7 +49,8 @@ export function useAvailability() {
       return res.data;
     },
     staleTime: 60_000,
-    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
@@ -147,36 +133,24 @@ export interface PriceInfo {
 
 /**
  * 拉取 OVH 公共目录（每个 subsidiary 各自一份：不同币、不同税、不同促销价）。
- * - subsidiary 不传时：由后端 settings.endpoint 推断默认（EU→IE / US→US / CA→CA）
- * - subsidiary 显式传入时（用户切了地区选择器）：用指定的子公司
- * - baseUrl 也跟 subsidiary 所在站点联动：IE/FR/… → eu.api.ovh.com；US → api.us.ovhcloud.com；CA/ASIA/AU/SG/IN → ca.api.ovh.com
+ * - 走我们的后端 /api/catalog?subsidiary=XX：后端 SQLite 缓存 2 小时，
+ *   首次拉完落库，之后 F5 / 新 tab / 换浏览器都能秒回（~10ms）。
+ * - subsidiary 不传时后端按 config.Zone 兜底，前端不需要先调 settings。
+ * - 缓存策略与 useServers 对齐：2 小时新鲜、24 小时 gc、不自动 refetch
  */
 export function useOvhCatalog(subsidiary?: string) {
   return useQuery({
     queryKey: ["ovh-catalog", "eco", subsidiary || "auto"] as const,
     queryFn: async () => {
-      let baseUrl: string;
-      let sub: string;
-      if (subsidiary) {
-        // 显式指定：根据 subsidiary 反查所属站点
-        const meta = OVH_SUBSIDIARIES.find((s) => s.code === subsidiary);
-        sub = subsidiary;
-        if (meta?.endpoint === "ovh-us") baseUrl = "https://api.us.ovhcloud.com";
-        else if (meta?.endpoint === "ovh-ca") baseUrl = "https://ca.api.ovh.com";
-        else baseUrl = "https://eu.api.ovh.com";
-      } else {
-        const r = await getRegionInfo();
-        baseUrl = r.baseUrl;
-        sub = r.subsidiary;
-      }
-      const res = await axios.get<CatalogData>(
-        `${baseUrl}/v1/order/catalog/public/eco?ovhSubsidiary=${encodeURIComponent(sub)}`,
-        { timeout: 30000 }
-      );
+      const params: Record<string, string> = {};
+      if (subsidiary) params.subsidiary = subsidiary;
+      const res = await api.get<CatalogData>("/catalog", { params });
       return res.data;
     },
-    staleTime: 30 * 60_000,
+    staleTime: 2 * 60 * 60_000,
     gcTime: 24 * 60 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 

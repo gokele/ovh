@@ -55,7 +55,7 @@ func SaveSettings(state *app.State) gin.HandlerFunc {
 			changed := newCfg.TgToken != prev.TgToken || newCfg.TgChatID != prev.TgChatID
 			if changed || prev.TgToken == "" || prev.TgChatID == "" {
 				state.Logger.Info("Telegram Token或Chat ID已更新/设置。尝试发送Telegram测试消息到 Chat ID: "+newCfg.TgChatID, "")
-				if telegram.SendMessage(state, "OVH Phantom Sniper: Telegram 通知已成功配置 (来自 Go 后端测试)", nil) {
+				if telegram.SendMessage(state, "OVH 控制台: Telegram 通知已成功配置 (来自 Go 后端测试)", nil) {
 					state.Logger.Info("Telegram 测试消息发送成功。", "")
 				} else {
 					state.Logger.Warn("Telegram 测试消息发送失败。请检查 Token 和 Chat ID 以及后端日志。", "")

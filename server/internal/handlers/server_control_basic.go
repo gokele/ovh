@@ -236,13 +236,31 @@ func GetOSTemplates(state *app.State) gin.HandlerFunc {
 	}
 }
 
-// installOSCache 防止 install 重复执行
-var installOSCache sync.Mutex
+// installOSLocks 按 service_name 分别加锁，防同一台机器并发重装。
+// 不同机器互不阻塞。TryLock 失败立即返回 409，不让前端干等。
+var installOSLocks sync.Map // service_name → *sync.Mutex
+
+func acquireInstallLock(svc string) (*sync.Mutex, bool) {
+	v, _ := installOSLocks.LoadOrStore(svc, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	return mu, mu.TryLock()
+}
 
 // InstallOS POST /api/server-control/:service_name/install
 func InstallOS(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
+
+		mu, ok := acquireInstallLock(svc)
+		if !ok {
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   "该服务器已有重装任务正在执行，请等待完成后再试",
+			})
+			return
+		}
+		defer mu.Unlock()
+
 		client, err := state.OVH.Client()
 		if err != nil {
 			noOVHResp(c)

@@ -5,13 +5,14 @@ import (
 	"time"
 
 	"github.com/ovh-buy/server/internal/config"
+	"github.com/ovh-buy/server/internal/db"
 	"github.com/ovh-buy/server/internal/logger"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/storage"
 	"github.com/ovh-buy/server/internal/types"
 )
 
-// ServerListCache 服务器列表内存缓存（对应 Python server_list_cache）
+// ServerListCache 服务器列表内存缓存
 type ServerListCache struct {
 	mu        sync.RWMutex
 	Data      []types.ServerPlan
@@ -19,7 +20,7 @@ type ServerListCache struct {
 	TTL       time.Duration
 }
 
-// NewServerListCache 默认 2 小时 TTL
+// NewServerListCache 默认 2 小时 TTL（懒加载：仅访问触发刷新，无后台定时器）
 func NewServerListCache() *ServerListCache {
 	return &ServerListCache{TTL: 2 * time.Hour}
 }
@@ -37,67 +38,65 @@ func (s *ServerListCache) Get() ([]types.ServerPlan, bool) {
 	return cp, valid
 }
 
-// Set 更新缓存
+// Set 更新缓存，时间戳=NOW
 func (s *ServerListCache) Set(data []types.ServerPlan) {
+	s.SetAt(data, time.Now())
+}
+
+// SetAt 用指定时间戳更新缓存。
+// 启动时从 SQLite 回灌历史数据要用这个，保留真实的 updated_at，
+// 否则旧数据被当作刚拉的，过期判断会出错。
+func (s *ServerListCache) SetAt(data []types.ServerPlan, ts time.Time) {
 	s.mu.Lock()
-	now := time.Now()
 	s.Data = data
-	s.Timestamp = &now
+	s.Timestamp = &ts
 	s.mu.Unlock()
 }
 
-// State 聚合所有共享运行状态（取代 Python 模块级全局变量）
+// State 聚合所有共享运行状态
 type State struct {
 	Paths       storage.Paths
 	Config      *config.Store
 	OVH         *ovh.Factory
 	Logger      *logger.Logger
 	ServerCache *ServerListCache
+	DB          *db.DB // SQLite 持久化层
 
-	// 启动时配置（来自 .env / 环境变量）
-	APIKey string // 用于内部 HTTP 回调时的 X-API-Key
-	Port   string // 本地监听端口（默认 19998），用于监控器回调自身
+	APIKey string
+	Port   string
 
-	// 抢购队列
 	QueueMu sync.Mutex
 	Queue   []types.QueueItem
 
-	// 抢购历史
 	HistoryMu sync.Mutex
 	History   []types.PurchaseHistoryEntry
 
-	// 服务器目录（最近一次刷新结果）
 	ServerPlansMu sync.RWMutex
 	ServerPlans   []types.ServerPlan
 
-	// 删除任务标记
 	DeletedTaskIDsMu sync.Mutex
 	DeletedTaskIDs   map[string]struct{}
 
-	// 配置绑定狙击任务
 	ConfigSniperMu    sync.Mutex
 	ConfigSniperTasks []types.ConfigSniperTask
 
-	// VPS 订阅
 	VPSSubsMu        sync.Mutex
 	VPSSubscriptions []types.VPSSubscription
 	VPSCheckInterval int
 
-	// 监控运行状态（监控线程会在后续批次填充）
-	MonitorRunning bool
-
-	// 队列处理器是否在运行（守护线程，主程序里始终 true）
+	MonitorRunning        bool
 	QueueProcessorRunning bool
 }
 
-// NewState 构造应用状态
-func NewState(paths storage.Paths, cfg *config.Store, lg *logger.Logger) *State {
+// NewState 构造应用状态。DB 必须已 Open。
+func NewState(paths storage.Paths, cfg *config.Store, lg *logger.Logger, sqliteDB *db.DB) *State {
 	return &State{
 		Paths:                 paths,
 		Config:                cfg,
 		Logger:                lg,
 		OVH:                   ovh.NewFactory(cfg),
 		ServerCache:           NewServerListCache(),
+		DB:                    sqliteDB,
 		DeletedTaskIDs:        make(map[string]struct{}),
 		Queue:                 []types.QueueItem{},
 		History:               []types.PurchaseHistoryEntry{},
@@ -109,47 +108,70 @@ func NewState(paths storage.Paths, cfg *config.Store, lg *logger.Logger) *State 
 	}
 }
 
-// LoadAll 启动时从文件加载全部持久化数据
-// 与 Python 端语义一致：列表字段在任何情况下都不能是 nil（保证 JSON 序列化为 [] 而不是 null）
+// LoadAll 启动时从 SQLite 加载全部持久化数据到内存。
+// 列表字段保证非 nil（JSON 序列化为 [] 而非 null）。
 func (s *State) LoadAll() {
 	// queue
-	_ = storage.ReadJSON(s.Paths.File("queue.json"), &s.Queue)
+	if items, err := s.DB.ListQueue(); err == nil {
+		s.Queue = items
+	} else {
+		s.Logger.Error("load queue: "+err.Error(), "system")
+	}
 	if s.Queue == nil {
 		s.Queue = []types.QueueItem{}
 	}
+
 	// history
-	_ = storage.ReadJSON(s.Paths.File("history.json"), &s.History)
+	if items, err := s.DB.ListHistory(); err == nil {
+		s.History = items
+	} else {
+		s.Logger.Error("load history: "+err.Error(), "system")
+	}
 	if s.History == nil {
 		s.History = []types.PurchaseHistoryEntry{}
 	}
+
 	// servers
-	if err := storage.ReadJSON(s.Paths.File("servers.json"), &s.ServerPlans); err == nil && len(s.ServerPlans) > 0 {
-		s.ServerCache.Set(s.ServerPlans)
-		s.Logger.Info("已从文件加载 servers.json 并同步到缓存", "system")
+	if plans, err := s.DB.ListServers(); err == nil && len(plans) > 0 {
+		s.ServerPlans = plans
+		// 用 SQLite 里真实的 updated_at 重建缓存时间戳，
+		// 这样过期的旧数据下次访问能正确触发刷新；NOW 会导致旧数据被当作"刚刷的"。
+		if tsMs, err := s.DB.ServersUpdatedAt(); err == nil && tsMs > 0 {
+			s.ServerCache.SetAt(plans, time.UnixMilli(tsMs))
+		} else {
+			s.ServerCache.Set(plans)
+		}
+		s.Logger.Info("已从 SQLite 加载服务器目录并同步到缓存", "system")
+	} else if err != nil {
+		s.Logger.Error("load servers: "+err.Error(), "system")
 	}
 	if s.ServerPlans == nil {
 		s.ServerPlans = []types.ServerPlan{}
 	}
+
 	// config sniper
-	_ = storage.ReadJSON(s.Paths.File("config_sniper_tasks.json"), &s.ConfigSniperTasks)
+	if tasks, err := s.DB.ListSniperTasks(); err == nil {
+		s.ConfigSniperTasks = tasks
+	} else {
+		s.Logger.Error("load config sniper: "+err.Error(), "system")
+	}
 	if s.ConfigSniperTasks == nil {
 		s.ConfigSniperTasks = []types.ConfigSniperTask{}
 	}
-	// vps subscriptions (兼容 Python 的存储格式)
-	var vpsBundle struct {
-		Subscriptions []types.VPSSubscription `json:"subscriptions"`
-		CheckInterval int                     `json:"check_interval"`
-	}
-	if err := storage.ReadJSON(s.Paths.File("vps_subscriptions.json"), &vpsBundle); err == nil {
-		if vpsBundle.Subscriptions != nil {
-			s.VPSSubscriptions = vpsBundle.Subscriptions
-		}
-		if vpsBundle.CheckInterval > 0 {
-			s.VPSCheckInterval = vpsBundle.CheckInterval
-		}
+
+	// vps subscriptions
+	if subs, err := s.DB.ListVPSSubscriptions(); err == nil {
+		s.VPSSubscriptions = subs
+	} else {
+		s.Logger.Error("load vps subs: "+err.Error(), "system")
 	}
 	if s.VPSSubscriptions == nil {
 		s.VPSSubscriptions = []types.VPSSubscription{}
+	}
+	// vps check interval 存 kv
+	var ci int
+	if ok, _ := s.DB.GetKV("vps_check_interval", &ci); ok && ci > 0 {
+		s.VPSCheckInterval = ci
 	}
 }
 
@@ -197,29 +219,31 @@ func (s *State) CountPurchase() (success, failed int) {
 	return
 }
 
-// SaveQueue/SaveHistory/SaveServers 落盘
+// SaveQueue 把内存中 Queue 整表覆盖写入 SQLite
 func (s *State) SaveQueue() error {
 	s.QueueMu.Lock()
 	cp := make([]types.QueueItem, len(s.Queue))
 	copy(cp, s.Queue)
 	s.QueueMu.Unlock()
-	return storage.WriteJSON(s.Paths.File("queue.json"), cp)
+	return s.DB.ReplaceQueue(cp)
 }
 
+// SaveHistory 把内存中 History 整表覆盖写入 SQLite
 func (s *State) SaveHistory() error {
 	s.HistoryMu.Lock()
 	cp := make([]types.PurchaseHistoryEntry, len(s.History))
 	copy(cp, s.History)
 	s.HistoryMu.Unlock()
-	return storage.WriteJSON(s.Paths.File("history.json"), cp)
+	return s.DB.ReplaceHistory(cp)
 }
 
+// SaveServers 把内存中 ServerPlans 整表覆盖写入 SQLite
 func (s *State) SaveServers() error {
 	s.ServerPlansMu.RLock()
 	cp := make([]types.ServerPlan, len(s.ServerPlans))
 	copy(cp, s.ServerPlans)
 	s.ServerPlansMu.RUnlock()
-	return storage.WriteJSON(s.Paths.File("servers.json"), cp)
+	return s.DB.ReplaceServers(cp)
 }
 
 // SaveAll 一次性保存所有数据

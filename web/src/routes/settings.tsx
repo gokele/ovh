@@ -19,6 +19,12 @@ import {
 } from "@/hooks/use-settings";
 import { getApiSecretKey, setApiSecretKey } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
+
+/** 根据 zone 推 endpoint */
+function endpointForZone(zone: string): string {
+  return OVH_SUBSIDIARIES.find((s) => s.code === zone)?.endpoint || "ovh-eu";
+}
 
 /** API 设置：左 sub-nav 200px + 右 form sections */
 export const Route = createFileRoute("/settings")({
@@ -51,7 +57,9 @@ function SettingsPage() {
 
   const onSave = () => {
     if (apiKey) setApiSecretKey(apiKey);
-    save.mutate(form);
+    // 提交前根据 zone 自动同步 endpoint，避免两者不一致
+    const zone = form.zone || "IE";
+    save.mutate({ ...form, zone, endpoint: endpointForZone(zone) });
   };
 
   return (
@@ -118,18 +126,20 @@ function SettingsPage() {
                 <Field label="CONSUMER KEY">
                   <Input type="password" value={form.consumerKey || ""} onChange={(e) => set("consumerKey", e.target.value)} placeholder="xxxxxxxxxxxxxxxx" />
                 </Field>
-                <Field label="Endpoint">
-                  <Select value={form.endpoint || "ovh-eu"} onValueChange={(v) => set("endpoint", v)}>
+                <Field
+                  label="OVH 子公司 (Zone)"
+                  hint={`Endpoint ${endpointForZone(form.zone || "IE")} · IAM go-ovh-${(form.zone || "IE").toLowerCase()} 由子公司自动派生`}
+                >
+                  <Select value={form.zone || "IE"} onValueChange={(v) => set("zone", v)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ovh-eu">ovh-eu （欧洲）</SelectItem>
-                      <SelectItem value="ovh-us">ovh-us （美国）</SelectItem>
-                      <SelectItem value="ovh-ca">ovh-ca （加拿大）</SelectItem>
+                      {OVH_SUBSIDIARIES.map((s) => (
+                        <SelectItem key={s.code} value={s.code}>
+                          {s.code} · {s.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
-                </Field>
-                <Field label="Zone / Subsidiary">
-                  <Input value={form.zone || "IE"} onChange={(e) => set("zone", e.target.value)} placeholder="IE / US / CA" />
                 </Field>
               </Section>
             ) : active === "telegram" ? (
@@ -309,28 +319,42 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 function CacheSection() {
   const info = useCacheInfo();
   const clear = useClearCache();
+  const sqliteUpdated = info.data?.sqlite?.updatedAtMs
+    ? new Date(info.data.sqlite.updatedAtMs).toLocaleString("zh-CN")
+    : "从未刷新";
   return (
     <Section title="缓存管理">
       {info.isPending ? (
         <Skeleton className="h-32 rounded-2xl" />
       ) : (
-        <div className="border border-border rounded-2xl p-4 space-y-3 text-[13px]">
-          <Row label="服务器数量缓存" value={info.data?.backend?.serverCount ?? 0} />
-          <Row label="缓存状态" value={info.data?.backend?.cacheValid ? "有效" : "已过期"} />
+        <div className="border border-border rounded-2xl p-4 space-y-2.5 text-[13px]">
+          <Row label="内存缓存条数" value={info.data?.backend?.serverCount ?? 0} />
+          <Row label="内存缓存状态" value={info.data?.backend?.cacheValid ? "有效" : "已过期"} />
+          <Row label="SQLite 缓存条数" value={info.data?.sqlite?.serverCount ?? 0} />
+          <Row label="SQLite 最近刷新" value={<span className="text-[12px]">{sqliteUpdated}</span>} />
           <Row
-            label="存储位置"
+            label="数据库位置"
             value={
               <code className="text-[11px] font-mono">
-                {info.data?.storage?.dataDir || "—"}
+                {info.data?.sqlite?.path || info.data?.storage?.dataDir || "—"}
               </code>
             }
           />
         </div>
       )}
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={() => clear.mutate("memory")} disabled={clear.isPending}>清除内存缓存</Button>
-        <Button variant="outline" onClick={() => clear.mutate("files")} disabled={clear.isPending}>清除文件缓存</Button>
-        <Button variant="destructive" onClick={() => clear.mutate("all")} disabled={clear.isPending}>清除全部</Button>
+      <p className="text-[11px] text-muted-foreground">
+        缓存只指 OVH 服务器目录。订阅 / 队列 / 历史 等业务数据不在此清理范围内。
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" onClick={() => clear.mutate("memory")} disabled={clear.isPending}>
+          清除内存缓存
+        </Button>
+        <Button variant="outline" onClick={() => clear.mutate("sqlite")} disabled={clear.isPending}>
+          清除 SQLite 缓存
+        </Button>
+        <Button variant="destructive" onClick={() => clear.mutate("all")} disabled={clear.isPending}>
+          清除全部
+        </Button>
       </div>
     </Section>
   );

@@ -39,7 +39,9 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground",
+        // z-[110]：高于全屏遮罩（AuthGate z-100 / OvhCredsGate z-90 / Dialog z-50），
+        // 保证 Select 弹层在任何 overlay 内打开都浮在最上面，不会被盖住。
+        "relative z-[110] max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
         className

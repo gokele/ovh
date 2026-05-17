@@ -29,7 +29,6 @@ Thumbs.db
 !*.env.example
 
 # ============== 日志 ==============
-logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -43,15 +42,22 @@ server/server.exe
 server/main
 server/main.exe
 *.exe
-# 运行时数据（含密钥 / 状态）
+# 运行时数据（含密钥 / 状态 / 缓存 / 日志，全部落在 data/ 下）
 server/data/
-server/cache/
+# 旧版本残留的运行时目录（迁移到 data/logs 后保留 ignore 防回流）
 server/logs/
+server/cache/
+# 前端构建产物（由 web/vite.config.ts 输出到这里，供 -tags ui 的 //go:embed 使用）
+server/web/
 # Go 本地缓存
 server/vendor/
 # 测试覆盖率
 *.test
 *.out
+
+# ============== 打包脚本 / 本地工具（不入库） ==============
+build.ps1
+build.sh
 
 # ============== 前端 (web/) ==============
 # 主要由 web/.gitignore 处理，这里加双保险

@@ -20,6 +20,12 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // 直接输出到 server/web，配合 server/webembed_ui.go 的 //go:embed
+    // 让 `go build -tags ui` 自动把整个前端打进二进制
+    outDir: path.resolve(__dirname, "../server/web"),
+    emptyOutDir: true,
+  },
   plugins: [
     TanStackRouterVite({
       routesDirectory: "./src/routes",
