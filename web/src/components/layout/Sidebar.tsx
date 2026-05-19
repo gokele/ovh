@@ -66,23 +66,23 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-/**
- * 左侧固定导航：固定 256px 宽，独立滚动，分 5 组。
- * 当前路由用 useRouterState 判断高亮，匹配规则：完全相等或当前路径以 to 开头（不含根 /）
- */
-export function Sidebar() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+export { NAV_GROUPS };
 
+/** 导航主体 —— 桌面侧栏和移动抽屉共用。
+ *  - onItemClick:移动抽屉里点条目要关抽屉,桌面端不传就 noop。
+ */
+export function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isActive = (to: string) => {
     if (to === "/") return pathname === "/";
     return pathname.startsWith(to);
   };
-
   return (
-    <aside className="hidden lg:flex w-64 flex-col border-r border-border bg-background flex-shrink-0">
+    <>
       {/* Logo header */}
       <Link
         to="/"
+        onClick={onItemClick}
         className="flex items-center gap-3 px-4 h-16 border-b border-border hover:bg-muted transition-colors flex-shrink-0"
       >
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary text-primary-foreground">
@@ -108,6 +108,7 @@ export function Sidebar() {
                   <Link
                     key={item.to}
                     to={item.to}
+                    onClick={onItemClick}
                     className={cn(
                       "group relative flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[14px] transition-colors border-l-2",
                       active
@@ -135,6 +136,18 @@ export function Sidebar() {
       <div className="px-4 h-10 flex items-center justify-end border-t border-border flex-shrink-0">
         <span className="text-[11px] text-muted-foreground">可乐</span>
       </div>
+    </>
+  );
+}
+
+/**
+ * 左侧固定导航:lg 及以上显示,固定 256px 宽。
+ * 移动 / 平板下用 <MobileMenu> 的抽屉版本。
+ */
+export function Sidebar() {
+  return (
+    <aside className="hidden lg:flex w-64 flex-col border-r border-border bg-background flex-shrink-0">
+      <SidebarContent />
     </aside>
   );
 }

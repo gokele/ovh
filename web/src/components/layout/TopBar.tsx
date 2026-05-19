@@ -1,5 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
+import { MobileMenu } from "./MobileMenu";
 
 /**
  * 顶部 56px 细 bar：只显示面包屑。⌘K 命令面板入口已移除，
@@ -27,7 +28,8 @@ export function TopBar() {
     { group: "", label: "" };
 
   return (
-    <header className="sticky top-0 z-30 h-14 flex items-center px-5 sm:px-8 bg-background/95 backdrop-blur-sm border-b border-border">
+    <header className="sticky top-0 z-30 h-14 flex items-center gap-2 px-3 sm:px-8 bg-background/95 backdrop-blur-sm border-b border-border">
+      <MobileMenu />
       <div className="flex items-center gap-2.5 min-w-0">
         <Link to="/" className="text-sm text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap">
           首页

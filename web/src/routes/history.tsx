@@ -127,25 +127,33 @@ function HistoryPage() {
           <EmptyState icon={Clock} title="没有匹配的订单" />
         </Card>
       ) : (
-        <Card>
-          <table className="w-full">
-            <thead>
-              <tr className="text-left text-[11px] font-medium text-muted-foreground border-b border-border">
-                <th className="px-4 py-3">型号</th>
-                <th className="px-4 py-3">机房</th>
-                <th className="px-4 py-3">配置</th>
-                <th className="px-4 py-3">价格</th>
-                <th className="px-4 py-3">状态</th>
-                <th className="px-4 py-3">时间</th>
-                <th className="px-4 py-3">剩余</th>
-                <th className="px-4 py-3">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filtered.map((item) => <HistoryRow key={item.id} item={item} now={now} />)}
-            </tbody>
-          </table>
-        </Card>
+        <>
+          {/* 桌面 / 平板:横向表格 */}
+          <Card className="hidden md:block overflow-x-auto">
+            <table className="w-full min-w-[760px]">
+              <thead>
+                <tr className="text-left text-[11px] font-medium text-muted-foreground border-b border-border">
+                  <th className="px-4 py-3">型号</th>
+                  <th className="px-4 py-3">机房</th>
+                  <th className="px-4 py-3">配置</th>
+                  <th className="px-4 py-3">价格</th>
+                  <th className="px-4 py-3">状态</th>
+                  <th className="px-4 py-3">时间</th>
+                  <th className="px-4 py-3">剩余</th>
+                  <th className="px-4 py-3">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((item) => <HistoryRow key={item.id} item={item} now={now} />)}
+              </tbody>
+            </table>
+          </Card>
+
+          {/* 手机:卡片堆叠,每条订单一张卡 */}
+          <div className="md:hidden space-y-2">
+            {filtered.map((item) => <HistoryCard key={item.id} item={item} now={now} />)}
+          </div>
+        </>
       )}
 
       <Dialog open={confirmClear} onOpenChange={setConfirmClear}>
@@ -245,5 +253,72 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
         ) : "—"}
       </td>
     </tr>
+  );
+}
+
+/** 手机端的订单卡片渲染。跟 HistoryRow 字段一一对应,但堆叠成卡片。 */
+function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
+  const showCountdown = item.status === "success" && !!item.orderId;
+  const remainingMs = showCountdown ? getExpirationMs(item) - now : 0;
+  const isExpired = showCountdown && remainingMs <= 0;
+  const isUrgent = showCountdown && !isExpired && remainingMs < 24 * 60 * 60 * 1000;
+  return (
+    <Card className={isExpired ? "opacity-60" : ""}>
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span className={`font-mono font-semibold text-[13px] ${isExpired ? "line-through" : ""}`}>{item.planCode}</span>
+            <AccountChip accountId={item.accountId} />
+            <Chip tone="default" className="text-[10px]">{item.datacenter.toUpperCase()}</Chip>
+          </div>
+          {item.status === "success" ? (
+            <Chip tone="success">成功</Chip>
+          ) : (
+            <Chip tone="danger">失败</Chip>
+          )}
+        </div>
+        <div className={`text-[11px] text-muted-foreground break-all ${isExpired ? "line-through" : ""}`}>
+          {item.options && item.options.length > 0 ? item.options.join(", ") : "默认配置"}
+        </div>
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+          <span className="text-muted-foreground font-mono">
+            {new Date(item.purchaseTime).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+          </span>
+          {item.price?.withTax != null ? (
+            <span className={`font-mono font-medium text-success ${isExpired ? "line-through" : ""}`}>
+              {item.price.withTax} {item.price.currencyCode || "EUR"}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          {showCountdown ? (
+            <Chip tone={isExpired ? "danger" : isUrgent ? "warning" : "info"}>
+              <Hourglass className="w-3 h-3" />
+              {formatCountdown(remainingMs)}
+            </Chip>
+          ) : <span />}
+          {item.status === "success" && item.orderUrl ? (
+            <a
+              href={item.orderUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`inline-flex items-center gap-1 text-foreground hover:underline text-[12px] ${isExpired ? "pointer-events-none opacity-50" : ""}`}
+            >
+              <ExternalLink className="w-3 h-3" />
+              订单
+            </a>
+          ) : item.status === "failed" && item.errorMessage ? (
+            <button
+              type="button"
+              onClick={() => toast.info(item.errorMessage)}
+              className="inline-flex items-center gap-1 text-destructive hover:underline text-[12px]"
+            >
+              <AlertCircle className="w-3 h-3" />
+              错误详情
+            </button>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

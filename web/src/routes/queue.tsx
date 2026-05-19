@@ -354,7 +354,7 @@ function CreateQueueDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>新建抢购任务</DialogTitle>
           <DialogDescription>
@@ -415,7 +415,7 @@ function CreateQueueDialog({
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 border border-border rounded-2xl p-3 max-h-56 overflow-y-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 border border-border rounded-2xl p-3 max-h-56 overflow-y-auto">
               {OVH_DATACENTERS.map((dc) => {
                 const checked = datacenters.includes(dc.code);
                 return (
@@ -607,7 +607,7 @@ function QueueRow({
 
   return (
     <Card>
-      <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center gap-3">
+      <CardContent className="p-3 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="font-mono font-semibold text-sm">{item.planCode}</span>

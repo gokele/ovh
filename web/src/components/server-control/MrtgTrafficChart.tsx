@@ -162,7 +162,7 @@ function InterfaceChart({
       <p className="text-[12px] text-muted-foreground mb-3">{summary}</p>
 
       {/* 双向统计卡 */}
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
         <StatBlock label="下载" tone="success" icon={<ArrowDown className="w-3.5 h-3.5" />} cur={stats.dlCur} avg={stats.dlAvg} max={stats.dlMax} />
         <StatBlock label="上传" tone="warning" icon={<ArrowUp className="w-3.5 h-3.5" />} cur={stats.ulCur} avg={stats.ulAvg} max={stats.ulMax} />
       </div>
@@ -256,7 +256,7 @@ function StatBlock({
         {icon}
         {label}带宽
       </div>
-      <div className="grid grid-cols-3 gap-2 text-[11px]">
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-[11px]">
         <Slot label="当前" value={formatBandwidth(cur)} />
         <Slot label="平均" value={formatBandwidth(avg)} bold />
         <Slot label="峰值" value={formatBandwidth(max)} />

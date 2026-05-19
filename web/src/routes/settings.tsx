@@ -88,8 +88,8 @@ function SettingsPage() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr] gap-4">
-        {/* 左 sub-nav */}
-        <nav className="space-y-1">
+        {/* sub-nav:桌面竖向左栏,手机横向滚动 tab */}
+        <nav className="lg:space-y-1 flex lg:flex-col overflow-x-auto lg:overflow-visible gap-1 lg:gap-0 -mx-3 px-3 lg:mx-0 lg:px-0">
           {SECTIONS.map((s) => {
             const Icon = s.icon;
             const a = active === s.id;
@@ -99,8 +99,11 @@ function SettingsPage() {
                 type="button"
                 onClick={() => setActive(s.id)}
                 className={cn(
-                  "w-full flex items-center gap-2 px-3 py-2 rounded-md text-[13px] transition-colors border-l-2",
-                  a ? "bg-secondary text-foreground font-medium border-l-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground border-l-transparent"
+                  "flex items-center gap-2 px-3 py-2 rounded-md text-[13px] transition-colors whitespace-nowrap flex-shrink-0",
+                  "lg:w-full lg:border-l-2",
+                  a
+                    ? "bg-secondary text-foreground font-medium lg:border-l-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground lg:border-l-transparent"
                 )}
               >
                 <Icon className="w-4 h-4" />
@@ -112,7 +115,7 @@ function SettingsPage() {
 
         {/* 右内容 */}
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-6">
             {cfg.isPending ? (
               <Skeleton className="h-64 rounded-2xl" />
             ) : active === "password" ? (
@@ -448,7 +451,7 @@ function AccountCard({ acc, onEdit }: { acc: OVHAccount; onEdit: () => void }) {
       </div>
 
       <Dialog open={confirming} onOpenChange={setConfirming}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-md">
           <DialogHeader>
             <DialogTitle>确认删除账户 {acc.name}?</DialogTitle>
             <DialogDescription className="text-destructive">
@@ -509,7 +512,7 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="w-[95vw] sm:w-full sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{isEdit ? `编辑账户 ${acc!.name}` : "添加 OVH 账户"}</DialogTitle>
           <DialogDescription>填三个 OVH 密钥 + 选子公司,保存时会自动调 /me 验证凭据。</DialogDescription>

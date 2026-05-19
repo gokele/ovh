@@ -31,7 +31,7 @@ export function TimeslotsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="w-5 h-5" />
@@ -43,7 +43,7 @@ export function TimeslotsDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <label className="text-[11px] text-muted-foreground block mb-1">开始（ISO8601）</label>
               <Input value={start} onChange={(e) => setStart(e.target.value)} className="font-mono text-[12px]" />

@@ -39,7 +39,7 @@ export function OverviewTab({ server }: { server: OwnedServer }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
         <InfoCard icon={<Cpu className="w-4 h-4" />} label="处理器" value={cpuText} loading={hw.isPending} />
         <InfoCard icon={<MemoryStick className="w-4 h-4" />} label="内存" value={memText} loading={hw.isPending} />
         <InfoCard icon={<HardDrive className="w-4 h-4" />} label="磁盘" value={diskText} loading={hw.isPending} />
@@ -47,7 +47,7 @@ export function OverviewTab({ server }: { server: OwnedServer }) {
       </div>
 
       {/* 网络：IP 列表 + 接口 + MRTG 流量 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
         {/* IP 列表 */}
         <div className="border border-border rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-border flex items-center gap-2">

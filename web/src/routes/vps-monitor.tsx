@@ -456,7 +456,7 @@ function AddVPSDialog({
         onOpenChange(v);
       }}
     >
-      <DialogContent className="max-w-xl">
+      <DialogContent className="w-[95vw] sm:w-full sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>添加 VPS 订阅</DialogTitle>
           <DialogDescription>选择 VPS 型号与可选条件</DialogDescription>

@@ -200,7 +200,7 @@ function ServersPage() {
             <select
               value={subsidiary}
               onChange={(e) => changeSubsidiary(e.target.value)}
-              className="h-9 rounded-full border border-border bg-background px-3 text-[12px] font-medium focus:outline-none focus:ring-2 focus:ring-ring max-w-[260px]"
+              className="h-9 rounded-full border border-border bg-background px-3 text-[12px] font-medium focus:outline-none focus:ring-2 focus:ring-ring w-full sm:max-w-[260px]"
               title={
                 accountSub
                   ? `价格地区。账户当前绑定 ${accountSub}，实际下单按账户结算`
@@ -263,7 +263,7 @@ function ServersPage() {
 
       {/* 详情弹窗 */}
       <Dialog open={!!detailServer} onOpenChange={(v) => !v && setDetailPlanCode(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
           {detailServer ? (
             <DetailContent
               server={detailServer}
@@ -551,7 +551,7 @@ function DetailContent({
         </div>
 
         {/* 规格 4 卡 */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
           <SpecCard icon={<Cpu className="w-4 h-4" />} label="CPU" value={server.cpu} />
           <SpecCard icon={<MemoryStick className="w-4 h-4" />} label="内存" value={server.memory} />
           <SpecCard icon={<HardDrive className="w-4 h-4" />} label="硬盘" value={server.storage} />
@@ -604,7 +604,7 @@ function DetailContent({
               </Button>
             </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5 sm:gap-2">
             {OVH_DATACENTERS.map((dc) => {
               const status = lookupDcStatus(dcMap, dc);
               const isOk = !!status && status !== "unavailable" && status !== "unknown";

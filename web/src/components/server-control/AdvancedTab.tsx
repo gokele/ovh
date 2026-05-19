@@ -25,16 +25,16 @@ import { toast } from "sonner";
 export function AdvancedTab({ server }: { server: OwnedServer }) {
   return (
     <Tabs defaultValue="burst" className="space-y-4">
-      <TabsList className="flex-wrap">
-        <TabsTrigger value="burst"><Zap className="w-3.5 h-3.5 mr-1" />Burst</TabsTrigger>
-        <TabsTrigger value="firewall"><Shield className="w-3.5 h-3.5 mr-1" />防火墙</TabsTrigger>
-        <TabsTrigger value="ftp"><FolderArchive className="w-3.5 h-3.5 mr-1" />Backup FTP</TabsTrigger>
-        <TabsTrigger value="dns"><Globe className="w-3.5 h-3.5 mr-1" />二级 DNS</TabsTrigger>
-        <TabsTrigger value="vmac"><Wifi className="w-3.5 h-3.5 mr-1" />虚拟 MAC</TabsTrigger>
-        <TabsTrigger value="vrack"><Network className="w-3.5 h-3.5 mr-1" />vRack</TabsTrigger>
-        <TabsTrigger value="orderable"><ShoppingBag className="w-3.5 h-3.5 mr-1" />可订购</TabsTrigger>
-        <TabsTrigger value="options"><Settings className="w-3.5 h-3.5 mr-1" />附加选项</TabsTrigger>
-        <TabsTrigger value="ip"><MapPin className="w-3.5 h-3.5 mr-1" />IP 规格</TabsTrigger>
+      <TabsList className="grid grid-cols-3 sm:grid-cols-5 lg:flex lg:flex-wrap h-auto gap-1 p-1">
+        <TabsTrigger value="burst" className="text-[11px] sm:text-[12px] px-2"><Zap className="w-3.5 h-3.5 mr-1" />Burst</TabsTrigger>
+        <TabsTrigger value="firewall" className="text-[11px] sm:text-[12px] px-2"><Shield className="w-3.5 h-3.5 mr-1" />防火墙</TabsTrigger>
+        <TabsTrigger value="ftp" className="text-[11px] sm:text-[12px] px-2"><FolderArchive className="w-3.5 h-3.5 mr-1" />FTP</TabsTrigger>
+        <TabsTrigger value="dns" className="text-[11px] sm:text-[12px] px-2"><Globe className="w-3.5 h-3.5 mr-1" />二级 DNS</TabsTrigger>
+        <TabsTrigger value="vmac" className="text-[11px] sm:text-[12px] px-2"><Wifi className="w-3.5 h-3.5 mr-1" />虚拟 MAC</TabsTrigger>
+        <TabsTrigger value="vrack" className="text-[11px] sm:text-[12px] px-2"><Network className="w-3.5 h-3.5 mr-1" />vRack</TabsTrigger>
+        <TabsTrigger value="orderable" className="text-[11px] sm:text-[12px] px-2"><ShoppingBag className="w-3.5 h-3.5 mr-1" />可订购</TabsTrigger>
+        <TabsTrigger value="options" className="text-[11px] sm:text-[12px] px-2"><Settings className="w-3.5 h-3.5 mr-1" />附加</TabsTrigger>
+        <TabsTrigger value="ip" className="text-[11px] sm:text-[12px] px-2"><MapPin className="w-3.5 h-3.5 mr-1" />IP 规格</TabsTrigger>
       </TabsList>
 
       <TabsContent value="burst"><BurstPane serviceName={server.serviceName} /></TabsContent>
@@ -226,10 +226,10 @@ function VirtualMacPane({ serviceName }: { serviceName: string }) {
     <Pane title="虚拟 MAC（VMware / Hyper-V 等使用）" icon={Wifi}>
       <div className="border border-border rounded-2xl divide-y divide-border">
         {data.map((m: any, idx: number) => (
-          <div key={idx} className="px-4 py-3 grid grid-cols-3 gap-2 items-center text-[13px]">
-            <code className="font-mono">{m.macAddress || "—"}</code>
+          <div key={idx} className="px-3 sm:px-4 py-2.5 sm:py-3 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2 sm:items-center text-[12px] sm:text-[13px]">
+            <code className="font-mono break-all">{m.macAddress || "—"}</code>
             <span className="text-muted-foreground">{m.type || "—"}</span>
-            <code className="font-mono text-muted-foreground text-right">{m.ipAddress || "—"}</code>
+            <code className="font-mono text-muted-foreground sm:text-right break-all">{m.ipAddress || "—"}</code>
           </div>
         ))}
       </div>

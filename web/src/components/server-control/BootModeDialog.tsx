@@ -46,14 +46,14 @@ export function BootModeDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>启动模式</DialogTitle>
           <DialogDescription>选择服务器的启动模式。切换后将自动重启服务器以生效。</DialogDescription>
         </DialogHeader>
 
         {q.isPending ? (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[0, 1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-28 rounded-2xl" />
             ))}
@@ -61,7 +61,7 @@ export function BootModeDialog({
         ) : (q.data || []).length === 0 ? (
           <EmptyState icon={HardDrive} title="暂无可选启动模式" />
         ) : (
-          <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[70vh] sm:max-h-[60vh] overflow-y-auto pr-1">
             {(q.data || []).map((mode) => {
               const Icon = pickIcon(mode.bootType);
               const isConfirming = confirmingId === mode.id;

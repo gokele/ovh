@@ -56,7 +56,7 @@ export function HardwareReplaceDialog({
         if (!v) reset();
       }}
     >
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Cpu className="w-5 h-5" />
@@ -68,7 +68,7 @@ export function HardwareReplaceDialog({
         {!type ? (
           <div className="space-y-3">
             <p className="text-[13px] font-medium">请选择要更换的硬件类型：</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <TypeCard
                 icon={HardDrive}
                 title="硬盘"
