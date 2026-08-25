@@ -110,6 +110,22 @@ export function useRemoveVPSSubscription() {
   });
 }
 
+/** 修改已有 VPS 订阅（PUT，只改配置不重置历史） */
+export function useUpdateVPSSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: Partial<VPSSubscription> & { id: string }) =>
+      (await api.put(`/vps-monitor/subscriptions/${encodeURIComponent(id)}`, patch)).data,
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: qk.vpsMonitor.list() });
+      qc.invalidateQueries({ queryKey: qk.vpsMonitor.status() });
+      toast.success(data?.message || "订阅已更新");
+    },
+    onError: (e: any) =>
+      toast.error(e.response?.data?.message || e.response?.data?.error || "更新失败"),
+  });
+}
+
 /** 清空 VPS 订阅 */
 export function useClearVPSMonitor() {
   const qc = useQueryClient();

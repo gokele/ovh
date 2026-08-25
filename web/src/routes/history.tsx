@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Chip } from "@/components/common/Chip";
 import { AccountChip } from "@/components/common/AccountChip";
+import { TimingChip } from "@/components/common/TimingChip";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import {
@@ -211,6 +212,7 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
         <div className="flex items-center gap-2 flex-wrap">
           {item.planCode}
           <AccountChip accountId={item.accountId} />
+          <TimingChip totalMs={item.totalMs} phases={item.timing} />
         </div>
       </td>
       <td className={`px-4 py-3 ${isExpired ? "line-through" : ""}`}>{item.datacenter.toUpperCase()}</td>
@@ -288,6 +290,7 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
             <span className={`font-mono font-semibold text-[13px] ${isExpired ? "line-through" : ""}`}>{item.planCode}</span>
             <AccountChip accountId={item.accountId} />
             <Chip tone="default" className="text-[10px]">{item.datacenter.toUpperCase()}</Chip>
+            <TimingChip totalMs={item.totalMs} phases={item.timing} />
           </div>
           {item.status === "success" ? (
             <Chip tone="success">成功</Chip>

@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/notify"
 	"github.com/ovh-buy/server/internal/numconv"
 	"github.com/ovh-buy/server/internal/ovh"
-	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 )
 
@@ -62,21 +62,22 @@ func clearCheckFailure(subID string) {
 	lastCheckErrMu.Unlock()
 }
 
-// checkTGOrStop 节流后 verify Telegram,失败则 Stop()。
+// checkNotifyOrStop 节流后体检所有通知通道,全挂才 Stop()。
 // 返回 true=继续 loop,false=已自停。
-func checkTGOrStop(state *app.State) bool {
+func checkNotifyOrStop(state *app.State) bool {
 	tgCheckMu.Lock()
 	due := time.Since(lastTGCheck) >= tgRecheckInterval
 	tgCheckMu.Unlock()
 	if !due {
 		return true
 	}
-	ok, reason := telegram.VerifyConfig(state)
+	// 与服务器监控同一口径:所有通道都不可用才停,只挂一条不影响
+	ok, reason := notify.AnyAvailable(state, true)
 	tgCheckMu.Lock()
 	lastTGCheck = time.Now()
 	tgCheckMu.Unlock()
 	if !ok {
-		state.Logger.Error("Telegram 通知失效,自动停止 VPS 监控: "+reason, "vps_monitor")
+		state.Logger.Error("所有通知通道都不可用,自动停止 VPS 监控("+reason+")", "vps_monitor")
 		Stop(state)
 		return false
 	}
@@ -323,7 +324,7 @@ func SendSummaryNotification(state *app.State, planCode, ovhSubsidiary string, d
 	if changeType == "available" {
 		sb.WriteString("\n💡 快去抢购吧！")
 	}
-	result := telegram.SendMessage(state, sb.String(), nil)
+	result := notify.Broadcast(state, sb.String(), nil) > 0
 	if result {
 		state.Logger.Info(fmt.Sprintf("✅ VPS汇总通知发送成功: %s (%d个机房)", planCode, len(dcs)), "vps_monitor")
 	} else {
@@ -342,8 +343,8 @@ func MonitorLoop(state *app.State) {
 			break
 		}
 
-		// TG 失效 → 自停。checkTGOrStop 内部 5min 节流。
-		if !checkTGOrStop(state) {
+		// TG 失效 → 自停。checkNotifyOrStop 内部 5min 节流。
+		if !checkNotifyOrStop(state) {
 			break
 		}
 

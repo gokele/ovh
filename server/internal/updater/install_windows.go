@@ -12,7 +12,7 @@ import (
 // 所以只能先把自己改名让路 —— 改名对运行中的 exe 是允许的 ——
 // 再把新文件放到原来的位置。旧文件留到下次启动时由 CleanupStale 删掉。
 func Install(tmpPath, exePath string) error {
-	backup := exePath + ".old"
+	backup := exePath + backupSuffix
 	_ = os.Remove(backup)
 	if err := os.Rename(exePath, backup); err != nil {
 		os.Remove(tmpPath)

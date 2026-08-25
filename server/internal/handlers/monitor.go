@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/monitor"
+	"github.com/ovh-buy/server/internal/notify"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -25,8 +27,8 @@ func GetSubscriptions(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 监控订阅必须有可用的 Telegram 通知,否则没意义
-		if ok, reason := telegram.VerifyConfig(state); !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Telegram 通知未配置或无效:" + reason})
+		if ok, reason := notify.AnyAvailable(state, true); !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "没有可用的通知通道(Telegram / Webhook 至少配一个):" + reason})
 			return
 		}
 		var body struct {
@@ -113,8 +115,8 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 func BatchAddAll(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 同 AddSubscription:批量添加也要求 TG 有效
-		if ok, reason := telegram.VerifyConfig(state); !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Telegram 通知未配置或无效:" + reason})
+		if ok, reason := notify.AnyAvailable(state, true); !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "没有可用的通知通道(Telegram / Webhook 至少配一个):" + reason})
 			return
 		}
 		state.ServerPlansMu.RLock()
@@ -248,7 +250,7 @@ func GetSubscriptionHistory(state *app.State, mon *monitor.Monitor) gin.HandlerF
 func StartMonitor(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 启动前先验 TG,broken TG 不让起,免得起来一圈检查发不出去白跑
-		if ok, reason := telegram.VerifyConfig(state); !ok {
+		if ok, reason := notify.AnyAvailable(state, true); !ok {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Telegram 通知未配置或无效,无法启动监控:" + reason})
 			return
 		}
@@ -320,15 +322,41 @@ func SetMonitorInterval(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 }
 
 // TestNotification POST /api/monitor/test-notification
+// 逐条通道发测试消息并返回结果 —— 只说"发送失败"没用,用户需要知道是哪条挂了。
 func TestNotification(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		msg := "🔔 服务器监控测试通知\n\n时间: " + time.Now().Format("2006-01-02 15:04:05") + "\n\n✅ Telegram通知配置正常！"
-		if telegram.SendMessage(state, msg, nil) {
-			state.Logger.Info("Telegram测试通知发送成功", "monitor")
-			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "测试通知已发送，请检查Telegram"})
-		} else {
-			state.Logger.Warn("Telegram测试通知发送失败", "monitor")
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "发送失败，请检查Telegram配置和日志"})
+		msg := "🔔 OVH 控制台通知测试\n\n时间: " + time.Now().Format("2006-01-02 15:04:05") +
+			"\n\n收到这条说明该通道可用。"
+		delivered := notify.Broadcast(state, msg, nil)
+		chans := notify.Status(state, false)
+		if delivered > 0 {
+			state.Logger.Info(fmt.Sprintf("测试通知已送达 %d 个通道", delivered), "monitor")
+			c.JSON(http.StatusOK, gin.H{
+				"status": "success", "delivered": delivered, "channels": chans,
+				"message": fmt.Sprintf("已发往 %d 个通道，请检查是否收到", delivered),
+			})
+			return
 		}
+		state.Logger.Warn("测试通知一个通道都没送达", "monitor")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": "error", "delivered": 0, "channels": chans,
+			"message": "没有任何通道送达。请在设置页配置 Telegram 或 Webhook",
+		})
+	}
+}
+
+// GetNotifyChannels GET /api/notify/channels
+// 通知通道体检。?verify=true 会真的去调远端(Telegram getMe / 向 webhook 发一条测试)
+func GetNotifyChannels(state *app.State) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		verify := strings.EqualFold(c.Query("verify"), "true")
+		chans := notify.Status(state, verify)
+		any := false
+		for _, ch := range chans {
+			if ch.Configured && ch.OK {
+				any = true
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"channels": chans, "anyAvailable": any, "verified": verify})
 	}
 }

@@ -1,0 +1,95 @@
+name: CI
+
+# 为什么要有这个:仓库里有 catalog / monitor / updater 等多个测试包,
+# 但在此之前它们从来不会自动跑 —— 全靠本地记得执行。
+# 而这个项目会真的花钱下单(addon 匹配错一档就是每月多付几十欧),
+# 也会自己替换自己的二进制,推个坏版本上去的代价不小。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: 后端 (build / vet / test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: gofmt 检查
+        run: |
+          # 只看本次仓库里的文件是否格式化,不自动改
+          unformatted="$(gofmt -l . | grep -v '^$' || true)"
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未格式化,请跑 gofmt -w:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # -short 跳过需要联网打 OVH 公开接口的用例:
+      # CI 不该因为 OVH 抖动或限流就变红,那种噪音会让人开始无视 CI。
+      # 联网用例在下面单独一个 job 里跑,失败不阻塞。
+      - name: go test (含 race)
+        run: go test -race -short ./...
+
+      # 发版靠交叉编译出三平台产物,这里提前验编译得过。
+      # 不带 -tags ui:CI 里没有 server/web/(前端产物不入库),//go:embed 会找不到目录。
+      - name: 交叉编译三平台(与发版产物一致)
+        run: |
+          set -e
+          build() {
+            echo "==> $1/$2"
+            GOOS="$1" GOARCH="$2" CGO_ENABLED=0 go build -trimpath -o /dev/null .
+          }
+          build windows amd64
+          build linux amd64
+          build linux arm64
+
+  frontend:
+    name: 前端 (tsc / build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: TypeScript 类型检查
+        run: npx tsc -b --noEmit
+      - name: 构建
+        run: npm run build
+
+  live-api:
+    name: OVH 公开接口契约(允许失败)
+    runs-on: ubuntu-latest
+    # 这些用例真的去打 OVH 的公开目录/可用性接口,验证我们对三区差异的理解没过期
+    # (比如美区 region 只接受 united_states)。OVH 侧抖动不该把 CI 弄红,
+    # 所以单独成 job 且不阻塞 —— 但它变红时值得认真看一眼。
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: 联网契约测试
+        run: go test -run 'Live' -v ./internal/catalog/

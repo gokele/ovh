@@ -31,6 +31,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/ovh-buy/server/internal/app"
 )
 
 const (
@@ -281,7 +283,8 @@ func CleanupStale() {
 	if err != nil {
 		return
 	}
-	_ = os.Remove(exe + ".old")
+	// 注意:.old 是回滚用的后路,由 MarkHealthy(启动正常)或 RollbackIfStale(启动失败)
+	// 决定去留,这里**不能**无脑删 —— 删了等于取消了回滚能力。
 	dir := filepath.Dir(exe)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -291,5 +294,104 @@ func CleanupStale() {
 		if strings.HasPrefix(e.Name(), ".ovh-server-new-") || e.Name() == ".ovh-server-update-probe" {
 			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
+	}
+}
+
+// backupSuffix 更新时旧二进制的备份后缀。
+// Windows 一直在用它(系统不允许覆盖运行中的 exe,只能先改名);
+// Unix 现在也留一份,作为"新版本起不来"时的后路。
+const backupSuffix = ".old"
+
+// copyFile 硬链接建不了时的退路
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	fi, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	return out.Close()
+}
+
+// MarkHealthy 新版本成功启动后调用:删掉上一版的备份。
+//
+// 这是"更新后回滚"的另一半 —— Install 留下备份,进程真的起来了才认为这次更新成功。
+// 没走到这里(启动就崩、端口占不上、panic)备份就一直在,下次启动时 RollbackIfStale
+// 会把它换回去。
+//
+// 注意时机:必须在**服务真正开始对外提供服务之后**才调,不能一进 main 就调 ——
+// 那样等于没有验证。
+func MarkHealthy(state *app.State) {
+	exe, err := selfPath()
+	if err != nil {
+		return
+	}
+	// 先删"启动中"标记 —— RollbackIfStale 的判据就是它。
+	// 备份可能因为磁盘/权限问题压根没建成,那种情况下标记要是留着,
+	// 下次启动虽然不会误回滚(没备份可回),文件却会一直躺在那儿。
+	_ = os.Remove(exe + pendingSuffix)
+
+	backup := exe + backupSuffix
+	if _, err := os.Stat(backup); err != nil {
+		return // 没有备份 = 这次不是更新后的首次启动
+	}
+	if err := os.Remove(backup); err == nil {
+		state.Logger.Info("[更新] 新版本启动正常,已清理上一版备份", "version")
+	}
+}
+
+// RollbackIfStale 启动时检查:上一次更新后是不是根本没跑起来。
+//
+// 判据是一个"启动中"标记文件:Install 之后、重启之前写下它,
+// MarkHealthy 时删掉。所以启动时如果同时看到「备份」和「启动中标记」,
+// 说明上一次换上去的新版本没能活到对外服务那一刻 —— 把备份换回去。
+//
+// 返回 true 表示已回滚(调用方应当直接用回滚后的二进制重启)。
+func RollbackIfStale(state *app.State) bool {
+	exe, err := selfPath()
+	if err != nil {
+		return false
+	}
+	backup := exe + backupSuffix
+	pending := exe + pendingSuffix
+	if _, err := os.Stat(backup); err != nil {
+		return false
+	}
+	if _, err := os.Stat(pending); err != nil {
+		// 有备份但没有"启动中"标记:说明上次是正常起来过的(只是 MarkHealthy 没删掉),
+		// 清掉备份即可,不要回滚 —— 那会把用户刚更新好的版本又换回旧的。
+		_ = os.Remove(backup)
+		return false
+	}
+
+	state.Logger.Error("[更新] 检测到上一次更新后未能正常启动,正在回滚到更新前的版本", "version")
+	_ = os.Remove(pending)
+	if err := os.Rename(backup, exe); err != nil {
+		state.Logger.Error("[更新] 回滚失败,请手动用备份文件替换: "+err.Error(), "version")
+		return false
+	}
+	state.Logger.Info("[更新] 已回滚。请检查新版本为什么起不来后再试", "version")
+	return true
+}
+
+// pendingSuffix "更新后待验证"标记
+const pendingSuffix = ".pending"
+
+// MarkPending 替换完二进制、准备重启前写下标记
+func MarkPending() {
+	if exe, err := selfPath(); err == nil {
+		_ = os.WriteFile(exe+pendingSuffix, []byte("1"), 0o644)
 	}
 }

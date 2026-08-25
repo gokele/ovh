@@ -2,9 +2,17 @@ package updater
 
 import (
 	"crypto/sha256"
+	"io"
+	"log/slog"
+
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/config"
+	"github.com/ovh-buy/server/internal/db"
+	"github.com/ovh-buy/server/internal/logger"
+	"github.com/ovh-buy/server/internal/storage"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -175,6 +183,9 @@ func TestAssetNameMatchesBuildScript(t *testing.T) {
 	}
 }
 
+// CleanupStale 清的是下载残骸,不包括 .old ——
+// 后者是"新版本起不来就换回去"的后路,删早了等于取消回滚能力。
+// 它的去留由 MarkHealthy(起来了)/ RollbackIfStale(没起来)决定。
 func TestCleanupStaleRemovesLeftovers(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "ovh-server-fake")
@@ -183,18 +194,46 @@ func TestCleanupStaleRemovesLeftovers(t *testing.T) {
 	selfPathFn = func() (string, error) { return exe, nil }
 	t.Cleanup(func() { selfPathFn = orig })
 
-	leftovers := []string{exe + ".old", filepath.Join(dir, ".ovh-server-new-123"), filepath.Join(dir, ".ovh-server-update-probe")}
-	for _, f := range leftovers {
+	backup := exe + backupSuffix
+	junk := []string{filepath.Join(dir, ".ovh-server-new-123"), filepath.Join(dir, ".ovh-server-update-probe")}
+	os.WriteFile(backup, []byte("old"), 0o755)
+	for _, f := range junk {
 		os.WriteFile(f, []byte("junk"), 0o644)
 	}
 	CleanupStale()
-	for _, f := range leftovers {
+	for _, f := range junk {
 		if _, err := os.Stat(f); !os.IsNotExist(err) {
-			t.Errorf("残骸未清理: %s", f)
+			t.Errorf("下载残骸未清理: %s", f)
 		}
+	}
+	if _, err := os.Stat(backup); err != nil {
+		t.Error("CleanupStale 不能删 .old:那是回滚用的备份")
 	}
 	if _, err := os.Stat(exe); err != nil {
 		t.Error("清理不能误删当前程序")
+	}
+}
+
+// 新版本活到对外服务那一刻 → 删掉 pending 标记和 .old 备份,回滚窗口关闭
+func TestMarkHealthyClearsBackup(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "ovh-server-fake")
+	os.WriteFile(exe, []byte("new"), 0o755)
+	orig := selfPathFn
+	selfPathFn = func() (string, error) { return exe, nil }
+	t.Cleanup(func() { selfPathFn = orig })
+
+	os.WriteFile(exe+backupSuffix, []byte("old"), 0o755)
+	MarkPending()
+	if _, err := os.Stat(exe + pendingSuffix); err != nil {
+		t.Fatal("MarkPending 应该写下待验证标记")
+	}
+	MarkHealthy(testUpdaterState(t))
+	if _, err := os.Stat(exe + pendingSuffix); !os.IsNotExist(err) {
+		t.Error("MarkHealthy 后待验证标记应该被清掉")
+	}
+	if _, err := os.Stat(exe + backupSuffix); !os.IsNotExist(err) {
+		t.Error("MarkHealthy 后 .old 备份应该被清掉")
 	}
 }
 
@@ -213,4 +252,100 @@ func TestFetchLatestParsesRelease(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil || rel.TagName != "v1.2.3" {
 		t.Fatalf("Release 解析失败: %v %+v", err, rel)
 	}
+}
+
+// ── 回滚 ───────────────────────────────────────────────────────────
+
+// 新版本没能起来(待验证标记还在)→ 下次启动必须换回旧版本。
+// 抢购服务停机就是错过补货,一次坏更新不能把机器撂在那儿。
+func TestRollbackIfStale_新版本起不来时回滚(t *testing.T) {
+	exe := withFakeExe(t, "新版本(起不来)")
+	os.WriteFile(exe+backupSuffix, []byte("旧版本(能跑)"), 0o755)
+	os.WriteFile(exe+pendingSuffix, []byte("1"), 0o644)
+
+	if !RollbackIfStale(testUpdaterState(t)) {
+		t.Fatal("有备份 + 有待验证标记时必须回滚")
+	}
+	got, _ := os.ReadFile(exe)
+	if string(got) != "旧版本(能跑)" {
+		t.Errorf("回滚后内容 = %q, 期望旧版本", string(got))
+	}
+	if _, err := os.Stat(exe + pendingSuffix); !os.IsNotExist(err) {
+		t.Error("回滚后应清掉待验证标记,否则会反复回滚")
+	}
+}
+
+// 新版本起来过(标记已被 MarkHealthy 删掉)→ 绝不能回滚,
+// 否则会把用户刚更新好的版本又换回旧的
+func TestRollbackIfStale_已验证过不回滚(t *testing.T) {
+	exe := withFakeExe(t, "新版本(正常)")
+	os.WriteFile(exe+backupSuffix, []byte("旧版本"), 0o755)
+	// 没有 pending 标记
+
+	if RollbackIfStale(testUpdaterState(t)) {
+		t.Fatal("没有待验证标记时不该回滚")
+	}
+	got, _ := os.ReadFile(exe)
+	if string(got) != "新版本(正常)" {
+		t.Errorf("不该动当前程序, 实际 = %q", string(got))
+	}
+	if _, err := os.Stat(exe + backupSuffix); !os.IsNotExist(err) {
+		t.Error("确认没问题后应顺手清掉备份")
+	}
+}
+
+// 没更新过(没有备份)→ 什么都不做
+func TestRollbackIfStale_没更新过(t *testing.T) {
+	exe := withFakeExe(t, "当前版本")
+	if RollbackIfStale(testUpdaterState(t)) {
+		t.Fatal("没有备份时不该回滚")
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "当前版本" {
+		t.Error("不该动当前程序")
+	}
+}
+
+// MarkHealthy 删掉备份 = 这次更新被确认成功
+func TestMarkHealthy清理备份(t *testing.T) {
+	exe := withFakeExe(t, "新版本")
+	os.WriteFile(exe+backupSuffix, []byte("旧版本"), 0o755)
+	MarkHealthy(testUpdaterState(t))
+	if _, err := os.Stat(exe + backupSuffix); !os.IsNotExist(err) {
+		t.Error("确认健康后应删掉备份")
+	}
+}
+
+// Install 必须留下备份 —— 不留后路的更新不能做
+func TestInstall留下备份(t *testing.T) {
+	newBin := []byte("新二进制")
+	srv, rel := fakeRelease(t, newBin, "")
+	defer srv.Close()
+	exe := withFakeExe(t, "旧二进制")
+
+	tmp, _, err := Prepare(rel, nil)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if err := Install(tmp, exe); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	backup, err := os.ReadFile(exe + backupSuffix)
+	if err != nil {
+		t.Fatalf("没有留下备份: %v", err)
+	}
+	if string(backup) != "旧二进制" {
+		t.Errorf("备份内容 = %q, 期望旧二进制", string(backup))
+	}
+}
+
+func testUpdaterState(t *testing.T) *app.State {
+	t.Helper()
+	dir := t.TempDir()
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatalf("打开测试库: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	lg := logger.New(filepath.Join(dir, "t.log"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return app.NewState(storage.Paths{DataDir: dir}, config.New(database), lg, database)
 }

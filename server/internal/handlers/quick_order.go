@@ -101,7 +101,7 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 					// availByConfig 为空 = /dedicated/server/datacenter/availabilities 返回了空数组。
 					// 拿别的站点的 planCode 查同样是 HTTP 200 + [](实测 24rise01-v1 在 US 站点 n=0),
 					// 和"这台机器暂时没货"长得一样 —— 交给 classifyPlan 分辨到底是哪种。
-					if _, hint := classifyPlan(state, body.AccountID, body.PlanCode); hint != "" {
+					if _, hint := catalog.ClassifyPlan(state, body.AccountID, body.PlanCode, "quick_order"); hint != "" {
 						err = hint
 					}
 				case !dcSeen:

@@ -8,7 +8,10 @@ import {
   History as HistoryIcon,
   ChevronUp,
   Plus,
-  AlertTriangle, User } from "lucide-react";
+  AlertTriangle,
+  Pencil,
+  User,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,11 +39,12 @@ import {
   useRemoveMonitorSubscription,
   useClearMonitor,
   useCreateMonitorSubscription,
+  useUpdateMonitorSubscription,
   useMonitorHistory,
   type MonitorSubscription,
   useSetMonitorInterval,
 } from "@/hooks/use-monitor";
-import { useTelegramVerify } from "@/hooks/use-telegram";
+import { useNotifyGate } from "@/hooks/use-notify-channels";
 import { toast } from "sonner";
 
 /** 服务器监控订阅 */
@@ -56,6 +60,8 @@ function MonitorPage() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [openAdd, setOpenAdd] = useState(false);
+  // 正在编辑的订阅。null = 新增模式,两种模式共用同一个对话框
+  const [editing, setEditing] = useState<MonitorSubscription | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const subs = list.data || [];
@@ -144,6 +150,10 @@ function MonitorPage() {
               onToggleExpand={() =>
                 setExpanded((curr) => (curr === s.planCode ? null : s.planCode))
               }
+              onEdit={() => {
+                setEditing(s);
+                setOpenAdd(true);
+              }}
               onDelete={() => setConfirmRemove(s.planCode)}
             />
           ))}
@@ -151,7 +161,15 @@ function MonitorPage() {
       )}
 
       {/* 添加订阅 Dialog */}
-      <AddSubscriptionDialog open={openAdd} onOpenChange={setOpenAdd} />
+      <AddSubscriptionDialog
+        open={openAdd}
+        editing={editing}
+        onOpenChange={(v) => {
+          setOpenAdd(v);
+          // 关掉就退出编辑模式,否则下次点"添加订阅"会带出上一条的内容
+          if (!v) setEditing(null);
+        }}
+      />
 
       {/* 删除确认 */}
       <Dialog open={!!confirmRemove} onOpenChange={(v) => !v && setConfirmRemove(null)}>
@@ -212,11 +230,13 @@ function SubRow({
   sub,
   expanded,
   onToggleExpand,
+  onEdit,
   onDelete,
 }: {
   sub: MonitorSubscription;
   expanded: boolean;
   onToggleExpand: () => void;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -264,6 +284,9 @@ function SubRow({
               ) : (
                 <HistoryIcon className="w-4 h-4" />
               )}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={onEdit} aria-label="编辑订阅" title="改机房 / 提醒方式 / 自动下单">
+              <Pencil className="w-4 h-4" />
             </Button>
             <Button variant="ghost" size="icon" onClick={onDelete} aria-label="删除">
               <X className="w-4 h-4" />
@@ -349,16 +372,26 @@ function formatTime(ts: string): string {
 
 /* ----------------------------- 添加订阅 Dialog ----------------------------- */
 
+/**
+ * 新增 / 编辑订阅共用一个对话框。
+ *
+ * 编辑模式下型号是只读的：型号就是订阅的身份，改它等于换一台机器，
+ * 那该走"删掉旧的、加个新的"，而不是把一条带着历史记录的订阅偷偷指向别处。
+ */
 function AddSubscriptionDialog({
   open,
   onOpenChange,
+  editing,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  editing?: MonitorSubscription | null;
 }) {
   const create = useCreateMonitorSubscription();
-  const tgVerify = useTelegramVerify();
-  const tgBlocked = tgVerify.data ? !tgVerify.data.ok : false;
+  const update = useUpdateMonitorSubscription();
+  const isEdit = !!editing;
+  // 门禁看的是「所有通道」,不是只看 Telegram —— 只配 webhook 的用户也该能订阅
+  const [notifyBlocked, notifyReason, notifyChecking] = useNotifyGate();
   const [planCode, setPlanCode] = useState("");
   const [datacenters, setDatacenters] = useState("");
   const [notifyAvailable, setNotifyAvailable] = useState(true);
@@ -381,6 +414,23 @@ function AddSubscriptionDialog({
     setQuantity(1);
   };
 
+  // 每次打开都按当前 editing 重灌一次表单。依赖里带上 open,
+  // 否则用户改了几个字段又取消,下次打开看到的还是上次改了一半的样子。
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setPlanCode(editing.planCode);
+      setDatacenters((editing.datacenters || []).join(", "));
+      setNotifyAvailable(editing.notifyAvailable);
+      setNotifyUnavailable(editing.notifyUnavailable);
+      setAutoOrder(!!editing.autoOrder);
+      setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
+    } else {
+      reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editing]);
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const code = planCode.trim();
@@ -397,23 +447,23 @@ function AddSubscriptionDialog({
       toast.error("开启自动下单时必须选择 OVH 账户(否则只通知不下单)");
       return;
     }
-    create.mutate(
-      {
-        planCode: code,
-        datacenters: dcs,
-        notifyAvailable,
-        notifyUnavailable,
-        autoOrder,
-        quantity: autoOrder ? quantity : undefined,
-        autoOrderAccountId: autoOrder ? autoOrderAccountId : "",
+    const payload = {
+      planCode: code,
+      datacenters: dcs,
+      notifyAvailable,
+      notifyUnavailable,
+      autoOrder,
+      quantity: autoOrder ? quantity : undefined,
+      autoOrderAccountId: autoOrder ? autoOrderAccountId : "",
+    };
+    const done = {
+      onSuccess: () => {
+        reset();
+        onOpenChange(false);
       },
-      {
-        onSuccess: () => {
-          reset();
-          onOpenChange(false);
-        },
-      }
-    );
+    };
+    if (isEdit) update.mutate(payload, done);
+    else create.mutate(payload, done);
   };
 
   return (
@@ -426,20 +476,24 @@ function AddSubscriptionDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>添加订阅</DialogTitle>
-          <DialogDescription>填写需要监控的服务器型号与可选条件</DialogDescription>
+          <DialogTitle>{isEdit ? "编辑订阅" : "添加订阅"}</DialogTitle>
+          <DialogDescription>
+            {isEdit
+              ? "只改配置，已记录的库存状态和历史不会重置"
+              : "填写需要监控的服务器型号与可选条件"}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-4">
-          {tgBlocked && (
+          {notifyBlocked && (
             <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5">
               <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
               <div className="text-xs flex-1 min-w-0">
                 <div className="font-medium text-amber-900 dark:text-amber-200">
-                  Telegram 通知未配置或无效
+                  没有可用的通知通道
                 </div>
                 <div className="text-amber-800/80 dark:text-amber-200/80 mt-0.5 break-words">
-                  {tgVerify.data?.reason || "请先在设置页配置可用的 Telegram Bot Token 和 Chat ID"}
+                  {notifyReason || "请先在设置页配置 Telegram 或自定义 Webhook,至少一条"}
                 </div>
                 <Link
                   to="/settings"
@@ -459,8 +513,15 @@ function AddSubscriptionDialog({
               value={planCode}
               onChange={(e) => setPlanCode(e.target.value)}
               placeholder="例如: 24ska01"
-              autoFocus
+              autoFocus={!isEdit}
+              readOnly={isEdit}
+              className={isEdit ? "bg-muted text-muted-foreground cursor-not-allowed" : undefined}
             />
+            {isEdit && (
+              <p className="text-[11px] text-muted-foreground mt-1">
+                型号不可改。要换机型请删掉这条订阅再新建
+              </p>
+            )}
           </div>
 
           <div>
@@ -551,10 +612,16 @@ function AddSubscriptionDialog({
             </Button>
             <Button
               type="submit"
-              disabled={create.isPending || tgBlocked || tgVerify.isPending}
-              title={tgBlocked ? "Telegram 通知无效,无法添加订阅" : undefined}
+              disabled={create.isPending || update.isPending || notifyBlocked || notifyChecking}
+              title={notifyBlocked ? "没有可用的通知通道,无法添加订阅" : undefined}
             >
-              {create.isPending ? "提交中…" : tgVerify.isPending ? "校验通知…" : "确认添加"}
+              {create.isPending || update.isPending
+                ? "提交中…"
+                : notifyChecking
+                  ? "校验通知…"
+                  : isEdit
+                    ? "保存修改"
+                    : "确认添加"}
             </Button>
           </DialogFooter>
         </form>

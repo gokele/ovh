@@ -244,3 +244,43 @@ func (m *Monitor) AddMessageUUID(id, planCode, datacenter string, options []stri
 		}
 	}
 }
+
+// SubscriptionConfig 取一份订阅配置的只读快照。
+// 为什么不直接把 *Subscription 交出去让调用方读字段:那些字段被检查 goroutine
+// 并发改着,裸读是数据竞争。这里在订阅自己的锁里拷一份出去。
+// 只拷配置字段 —— LastStatus / History 是状态,编辑接口不该碰。
+func (m *Monitor) SubscriptionConfig(planCode string) SubscriptionConfig {
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+	for _, s := range m.subscriptions {
+		if s.PlanCode != planCode {
+			continue
+		}
+		s.mu.Lock()
+		cfg := SubscriptionConfig{
+			PlanCode:           s.PlanCode,
+			Datacenters:        append([]string(nil), s.Datacenters...),
+			NotifyAvailable:    s.NotifyAvailable,
+			NotifyUnavailable:  s.NotifyUnavailable,
+			ServerName:         s.ServerName,
+			AutoOrder:          s.AutoOrder,
+			Quantity:           s.Quantity,
+			AutoOrderAccountID: s.AutoOrderAccountID,
+		}
+		s.mu.Unlock()
+		return cfg
+	}
+	return SubscriptionConfig{}
+}
+
+// SubscriptionConfig 订阅里「用户可改的那部分」
+type SubscriptionConfig struct {
+	PlanCode           string
+	Datacenters        []string
+	NotifyAvailable    bool
+	NotifyUnavailable  bool
+	ServerName         string
+	AutoOrder          bool
+	Quantity           int
+	AutoOrderAccountID string
+}

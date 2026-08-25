@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -39,6 +40,18 @@ func SaveSettings(state *app.State) gin.HandlerFunc {
 		newCfg.ConsumerKey = strings.TrimSpace(newCfg.ConsumerKey)
 		newCfg.TgToken = strings.TrimSpace(newCfg.TgToken)
 		newCfg.TgChatID = strings.TrimSpace(newCfg.TgChatID)
+		// 同样去空白:webhook 地址末尾带个换行,POST 出去就是 DNS 解析失败
+		newCfg.NotifyWebhookURL = strings.TrimSpace(newCfg.NotifyWebhookURL)
+		// 在保存这一步就把地址挡下来。放过去的话,用户要等到真有货那一刻
+		// 才会发现通知发不出去 —— 而那正是唯一不能出错的时刻。
+		if newCfg.NotifyWebhookURL != "" {
+			u, err := url.Parse(newCfg.NotifyWebhookURL)
+			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+				c.JSON(http.StatusBadRequest, gin.H{"status": "error",
+					"message": "通知 Webhook 地址不合法,必须是完整的 http:// 或 https:// 地址"})
+				return
+			}
+		}
 
 		// webhook secret 前端不可见也不可改（GetSettings 已抹掉），
 		// 这里必须从旧配置继承回来，否则前端保存一次设置就把 secret 清了，

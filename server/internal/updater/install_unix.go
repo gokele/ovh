@@ -12,7 +12,11 @@ import (
 //
 // Unix 上 rename 是原子的,而且允许覆盖正在执行的文件:内核按 inode 引用可执行文件,
 // 旧进程会继续用旧 inode 跑到退出为止,新进程启动时拿到的才是新文件。
-// 所以这里不需要先备份再改名那一套。
+//
+// **先备份再覆盖**:更新完要重启,新版本万一起不来(配置不兼容、平台差异、
+// 下载到的产物有问题),不留后路的话用户手上就没有一个能跑的程序了 ——
+// 而这台机器上跑的正是抢购,停机就是错过补货。备份由 MarkHealthy 在新进程
+// 确认起得来之后再删。
 func Install(tmpPath, exePath string) error {
 	// 保留原来的权限位(比如有人特意设了 setgid 或更严格的 750)
 	if fi, err := os.Stat(exePath); err == nil {
@@ -20,8 +24,20 @@ func Install(tmpPath, exePath string) error {
 	} else {
 		_ = os.Chmod(tmpPath, 0o755)
 	}
+
+	backup := exePath + backupSuffix
+	_ = os.Remove(backup)
+	// 用硬链接做备份:不额外占 16MB,而且和 rename 一样是同目录内的元数据操作。
+	// 硬链接建不了(比如某些网络文件系统)就退回复制,总之必须留下后路。
+	if err := os.Link(exePath, backup); err != nil {
+		if cerr := copyFile(exePath, backup); cerr != nil {
+			return fmt.Errorf("备份当前程序失败,已中止更新(不留后路的更新不能做): %w", cerr)
+		}
+	}
+
 	if err := os.Rename(tmpPath, exePath); err != nil {
 		os.Remove(tmpPath)
+		os.Remove(backup)
 		return fmt.Errorf("替换二进制失败: %w", err)
 	}
 	return nil

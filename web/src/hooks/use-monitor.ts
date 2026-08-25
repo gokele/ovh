@@ -81,6 +81,33 @@ export function useUpsertMonitorSubscription() {
   });
 }
 
+/**
+ * 修改已有订阅（PUT，只改配置不重置状态）。
+ *
+ * 为什么不复用上面的 POST：POST 语义上是"新增"，前端也是照着新增的表单发的整包。
+ * 而 PUT 只发改动过的字段，后端拿当前值兜底 —— 这样"只改一个数量"不会顺带
+ * 把机房列表覆盖成空。两边的状态（LastStatus / History）都不会动，
+ * 否则一台本来就有货的机器会在下一轮被当成"补货了"，发一条假通知外加真下单。
+ */
+export function useUpdateMonitorSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      planCode,
+      ...patch
+    }: Partial<MonitorSubscription> & { planCode: string }) =>
+      (await api.put(`/monitor/subscriptions/${encodeURIComponent(planCode)}`, patch)).data,
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: qk.monitor.list() });
+      qc.invalidateQueries({ queryKey: qk.monitor.status() });
+      if (data?.regionWarning) toast.warning(data.regionWarning);
+      else toast.success(data?.message || "订阅已更新");
+    },
+    onError: (e: any) =>
+      toast.error(e.response?.data?.message || e.response?.data?.error || "更新失败"),
+  });
+}
+
 /** 创建新订阅（对外更语义化的别名） */
 export const useCreateMonitorSubscription = useUpsertMonitorSubscription;
 

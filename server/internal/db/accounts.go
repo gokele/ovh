@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/ovh-buy/server/internal/secret"
 	"github.com/ovh-buy/server/internal/types"
 )
 
@@ -20,21 +21,34 @@ type accountRow struct {
 	CreatedAt   string `db:"created_at"`
 }
 
+// rowToAccount 出库时解密三个凭据字段。
+// 没有密文前缀的值原样返回 —— 老库里全是明文,不能一律当密文去解。
+// 解密失败(密钥换过 / .dbkey 被替换)时返回空串而不是乱码:
+// 空凭据会让 ClientFor 明确报"缺少凭据",而乱码会变成 OVH 那边一句
+// "Invalid signature",用户根本猜不到是密钥的问题。
 func rowToAccount(r accountRow) types.OVHAccount {
+	dec := func(v string) string {
+		out, err := secret.Decrypt(v)
+		if err != nil {
+			return ""
+		}
+		return out
+	}
 	return types.OVHAccount{
 		ID:          r.ID,
 		Name:        r.Name,
 		Endpoint:    r.Endpoint,
 		Zone:        r.Zone,
-		AppKey:      r.AppKey,
-		AppSecret:   r.AppSecret,
-		ConsumerKey: r.ConsumerKey,
+		AppKey:      dec(r.AppKey),
+		AppSecret:   dec(r.AppSecret),
+		ConsumerKey: dec(r.ConsumerKey),
 		IAM:         r.IAM,
 		IsDefault:   r.IsDefault == 1,
 		CreatedAt:   r.CreatedAt,
 	}
 }
 
+// accountToRow 入库时加密三个凭据字段(加密不可用时原样明文,与升级前行为一致)
 func accountToRow(a types.OVHAccount) accountRow {
 	bi := 0
 	if a.IsDefault {
@@ -45,9 +59,9 @@ func accountToRow(a types.OVHAccount) accountRow {
 		Name:        a.Name,
 		Endpoint:    a.Endpoint,
 		Zone:        a.Zone,
-		AppKey:      a.AppKey,
-		AppSecret:   a.AppSecret,
-		ConsumerKey: a.ConsumerKey,
+		AppKey:      secret.Encrypt(a.AppKey),
+		AppSecret:   secret.Encrypt(a.AppSecret),
+		ConsumerKey: secret.Encrypt(a.ConsumerKey),
 		IAM:         a.IAM,
 		IsDefault:   bi,
 		CreatedAt:   a.CreatedAt,

@@ -36,6 +36,30 @@ export function useQueueList() {
   });
 }
 
+export interface PurchaseTiming {
+  at: string;
+  totalMs: number;
+  phases: { name: string; ms: number }[];
+  /** ordered = 真的下单了；unavailable = 那一轮没货；failed = 中途出错 */
+  outcome: "ordered" | "unavailable" | "failed";
+}
+
+/**
+ * 每条抢购链路（机型@机房）最近一轮的阶段耗时。
+ *
+ * 抢购还在跑的时候，用户最想知道的是"我到底卡在哪一步" ——
+ * 是 OVH 一直没货（那就换机型），还是每轮建购物车要 3 秒（那就换台机器）。
+ * 轮询频率和队列一致，多一个请求换一个能直接采取行动的答案。
+ */
+export function usePurchaseTimings() {
+  return useQuery({
+    queryKey: ["queue", "timings"],
+    queryFn: async () =>
+      (await api.get<{ timings: Record<string, PurchaseTiming> }>("/queue/timings")).data.timings,
+    refetchInterval: 5000,
+  });
+}
+
 /**
  * 批量创建抢购任务：对每个 datacenter × quantity 调用 POST /queue。
  * 返回成功 / 失败计数。

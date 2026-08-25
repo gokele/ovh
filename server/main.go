@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/ovh-buy/server/internal/logger"
 	"github.com/ovh-buy/server/internal/monitor"
 	"github.com/ovh-buy/server/internal/purchase"
+	"github.com/ovh-buy/server/internal/secret"
 	"github.com/ovh-buy/server/internal/storage"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/updater"
@@ -42,12 +45,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 落盘加密:必须在打开数据库**之前**初始化,否则第一次读账户时解不开。
+	// 拿不到密钥不致命 —— 退化成明文(与升级前一致),但要明确告警,
+	// 不能让用户以为自己开了加密其实没开。
+	if err := secret.Init(paths.DataDir); err != nil {
+		console.Warn("凭据加密未启用，数据库里的 OVH 密钥与 Telegram Token 将以明文存储", "err", err)
+	} else if secret.FromEnv() {
+		console.Info("凭据加密已启用（密钥来自环境变量 " + secret.KeyEnv + "，不落盘）")
+	} else {
+		console.Info("凭据加密已启用（密钥文件 " + filepath.Join(paths.DataDir, ".dbkey") + "，请与数据库分开备份）")
+	}
+
 	sqliteDB, err := db.Open(paths.DataDir)
 	if err != nil {
 		console.Error("open sqlite", "err", err)
 		os.Exit(1)
 	}
 	defer sqliteDB.Close()
+
+	// 老库升级:把已有的明文凭据就地加密。幂等,不迁移也能跑(读的时候兼容明文)
+	if n, merr := sqliteDB.EncryptExistingSecrets(); merr != nil {
+		console.Warn("迁移明文凭据时出错（不影响启动）", "err", merr)
+	} else if n > 0 {
+		console.Info("已把数据库里的明文凭据加密", "账户数", n)
+	}
 
 	lg := logger.New(paths.LogFile("app.log.json"), console)
 	cfgStore := config.New(sqliteDB)
@@ -62,8 +83,34 @@ func main() {
 	}
 	state.LoadAll()
 
-	// 上一次更新留下的残骸(Windows 的 .old、中断的临时文件)在这里清掉
+	// 密钥对不上时凭据会全部解成空串。只静默显示"空账户"的话,用户看到的现象是
+	// "账户还在、但连不上 OVH",完全猜不到根因。这里大声说清楚,并给出可执行的下一步。
+	if n := secret.DecryptFailures(); n > 0 {
+		console.Error("有 " + fmt.Sprintf("%d", n) + " 个加密字段解不开 —— 密钥与数据库对不上。" +
+			"常见原因:只恢复了 sniper.db 却没恢复 .dbkey,或换过 " + secret.KeyEnv + "。" +
+			"把原来的密钥放回去即可;找不回来的话需要在设置页重新录入 OVH 凭据。")
+		state.Logger.Error(fmt.Sprintf("[加密] %d 个字段解密失败:密钥与数据库不匹配", n), "system")
+	} else if secret.KeyWasGenerated() && len(state.Accounts) > 0 {
+		console.Warn("新生成了加密密钥,但库里已有账户 —— 如果这些账户的凭据是空的,说明原密钥丢了")
+	}
+
+	// 上一次更新留下的残骸(中断的临时文件)在这里清掉
 	updater.CleanupStale()
+
+	// 上一次更新之后没能正常启动?换回更新前的版本再跑。
+	// 判据是"有备份 + 有待验证标记":新版本活到对外服务那一刻会把标记删掉,
+	// 标记还在说明它没撑到那一步(配置不兼容、平台问题、启动即崩)。
+	// 抢购服务停机就是错过补货,不能让一次坏更新把机器撂在那儿。
+	if updater.RollbackIfStale(state) {
+		if exe, err := os.Executable(); err == nil {
+			console.Warn("已回滚到更新前的版本，正在用它重启")
+			_ = sqliteDB.Close()
+			if err := updater.Restart(exe); err != nil {
+				console.Error("回滚后重启失败", "err", err)
+				os.Exit(1)
+			}
+		}
+	}
 
 	// gracefulRestart 由 SelfUpdate 在替换完二进制后调用。
 	// 必须先关监听端口和 SQLite 再 exec:端口不放新进程会撞 "address already in use",
@@ -121,6 +168,7 @@ func main() {
 
 		// Queue
 		api.GET("/queue", handlers.GetQueue(state))
+		api.GET("/queue/timings", handlers.GetPurchaseTimings(state))
 		api.POST("/queue", handlers.AddQueueItem(state))
 		api.DELETE("/queue/clear", handlers.ClearQueue(state))
 		api.DELETE("/queue/:id", handlers.RemoveQueueItem(state))
@@ -133,6 +181,7 @@ func main() {
 		// Monitor
 		api.GET("/monitor/subscriptions", handlers.GetSubscriptions(state, mon))
 		api.POST("/monitor/subscriptions", handlers.AddSubscription(state, mon))
+		api.PUT("/monitor/subscriptions/:planCode", handlers.UpdateSubscription(state, mon))
 		api.POST("/monitor/subscriptions/batch-add-all", handlers.BatchAddAll(state, mon))
 		api.DELETE("/monitor/subscriptions/clear", handlers.ClearSubscriptions(state, mon))
 		api.DELETE("/monitor/subscriptions/:planCode", handlers.RemoveSubscription(state, mon))
@@ -142,6 +191,8 @@ func main() {
 		api.GET("/monitor/status", handlers.GetMonitorStatus(state, mon))
 		api.PUT("/monitor/interval", handlers.SetMonitorInterval(state, mon))
 		api.POST("/monitor/test-notification", handlers.TestNotification(state))
+		// 通知通道体检:哪条配了、哪条能用。?verify=true 会真的去调远端
+		api.GET("/notify/channels", handlers.GetNotifyChannels(state))
 		api.GET("/telegram/verify", handlers.VerifyTelegram(state))
 
 		// Telegram
@@ -368,6 +419,7 @@ func main() {
 		// VPS monitor
 		api.GET("/vps-monitor/subscriptions", handlers.GetVPSSubscriptions(state))
 		api.POST("/vps-monitor/subscriptions", handlers.AddVPSSubscription(state))
+		api.PUT("/vps-monitor/subscriptions/:subscription_id", handlers.UpdateVPSSubscription(state))
 		api.DELETE("/vps-monitor/subscriptions/clear", handlers.ClearVPSSubscriptions(state))
 		api.DELETE("/vps-monitor/subscriptions/:subscription_id", handlers.RemoveVPSSubscription(state))
 		api.GET("/vps-monitor/subscriptions/:subscription_id/history", handlers.GetVPSSubscriptionHistory(state))
@@ -419,6 +471,15 @@ func main() {
 	console.Info("Listening", "addr", addr, "auth", enableAuth, "ui", hasUI(), "dataDir", paths.DataDir)
 
 	srv := &http.Server{Addr: addr, Handler: r}
+
+	// 端口真正 Listen 成功之后才标记"这一版能跑" —— 此时数据库已打开、路由已注册、
+	// 端口也占上了。太早标记等于没验证:启动就 panic、端口被占、数据库损坏,
+	// 恰恰是最需要回滚的几种情况。
+	go func() {
+		// 给 ListenAndServe 一点时间真正把端口占上;失败的话进程已经退出,这里不会执行
+		time.Sleep(3 * time.Second)
+		updater.MarkHealthy(state)
+	}()
 
 	// 自更新完成后走这里:先停止接受新请求并等在途请求收尾,再关数据库,最后换进程映像。
 	// 顺序不能反 —— 先 exec 的话,新进程会发现端口还被自己占着。

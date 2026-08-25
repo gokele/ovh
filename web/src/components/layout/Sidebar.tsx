@@ -11,6 +11,7 @@ import {
   FileText,
   Settings,
   Shield,
+  Github,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -137,8 +138,18 @@ export function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="px-4 h-10 flex items-center justify-end border-t border-border flex-shrink-0">
+      {/* Footer:项目仓库入口 + 署名 */}
+      <div className="px-3 h-10 flex items-center justify-between gap-2 border-t border-border flex-shrink-0">
+        <a
+          href="https://github.com/gokele/ovh"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          title="在 GitHub 上查看本项目(反馈问题、看更新说明)"
+        >
+          <Github className="w-3.5 h-3.5" />
+          GitHub
+        </a>
         <span className="text-[11px] text-muted-foreground">可乐</span>
       </div>
     </>
@@ -148,10 +159,15 @@ export function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
 /**
  * 左侧固定导航:lg 及以上显示,固定 256px 宽。
  * 移动 / 平板下用 <MobileMenu> 的抽屉版本。
+ *
+ * sticky top-0 + h-screen:页面往下滚时导航留在原地。
+ * 外层容器是 min-h-screen(不是 h-screen),内容一长整页就会滚,
+ * 不加 sticky 的话导航会跟着滚出视野,长列表页要回顶部才能换页面。
+ * 菜单本身过长时由内部 nav 的 overflow-y-auto 单独滚。
  */
 export function Sidebar() {
   return (
-    <aside className="hidden lg:flex w-64 flex-col border-r border-border bg-background flex-shrink-0">
+    <aside className="hidden lg:flex w-64 flex-col border-r border-border bg-background flex-shrink-0 sticky top-0 h-screen">
       <SidebarContent />
     </aside>
   );

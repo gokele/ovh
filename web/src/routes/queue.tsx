@@ -36,11 +36,14 @@ import {
   useClearQueue,
   useCreateQueueItem,
   type QueueItem,
+  usePurchaseTimings,
+  type PurchaseTiming,
 } from "@/hooks/use-queue";
 import { useServers } from "@/hooks/use-servers";
 import { OVH_DATACENTERS as OVH_DC_LIST } from "@/lib/datacenters";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
+import { TimingChip } from "@/components/common/TimingChip";
 import { AccountChip } from "@/components/common/AccountChip";
 import { PlanCodeCombobox } from "@/components/common/PlanCodeCombobox";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
@@ -69,6 +72,8 @@ const DEFAULT_RETRY_INTERVAL = 60;
 
 function QueuePage() {
   const queue = useQueueList();
+  // 每条链路上一轮的耗时,用来回答"我到底卡在哪一步"
+  const timings = usePurchaseTimings();
   const toggle = useToggleQueueItem();
   const remove = useRemoveQueueItem();
   const clear = useClearQueue();
@@ -138,6 +143,7 @@ function QueuePage() {
             <QueueRow
               key={q.id}
               item={q}
+              timing={timings.data?.[`${q.planCode}@${q.datacenter}`]}
               onToggle={() =>
                 toggle.mutate({
                   id: q.id,
@@ -582,10 +588,12 @@ function CreateQueueDialog({
 
 function QueueRow({
   item,
+  timing,
   onToggle,
   onDelete,
 }: {
   item: QueueItem;
+  timing?: PurchaseTiming;
   onToggle: () => void;
   onDelete: () => void;
 }) {
@@ -632,6 +640,7 @@ function QueueRow({
             {item.options && item.options.length > 0 && (
               <Chip tone="default">含 {item.options.length} 个可选配置</Chip>
             )}
+            <TimingChip totalMs={timing?.totalMs} phases={timing?.phases} />
           </div>
           <div className="text-[11px] text-muted-foreground flex items-center gap-2 flex-wrap">
             <Clock className="w-3 h-3" />
@@ -645,6 +654,21 @@ function QueueRow({
               <span>
                 下次尝试 {item.retryCount > 0 ? `${item.retryInterval}秒后（第 ${item.retryCount + 1} 次）` : "即将开始"}
               </span>
+            )}
+            {timing && (
+              <>
+                <span>·</span>
+                {/* 上一轮的结论。"没货"和"下单失败"是两件事:前者说明这台机器
+                    OVH 就是没放货,后者说明我们这边有问题,该看历史里的错误信息 */}
+                <span>
+                  上一轮
+                  {timing.outcome === "unavailable"
+                    ? "无货"
+                    : timing.outcome === "ordered"
+                      ? "已下单"
+                      : "出错"}
+                </span>
+              </>
             )}
             {typeof item.failureCount === "number" && item.failureCount > 0 && (
               <>

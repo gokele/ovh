@@ -16,6 +16,9 @@ type Config struct {
 	// X-Telegram-Bot-Api-Secret-Token 头，用它证明请求真的来自 Telegram。
 	// 首次需要时自动生成并落库；GetSettings 不会把它回给前端。
 	TgWebhookSecret string `json:"tgWebhookSecret,omitempty"`
+	// NotifyWebhookURL 第二条通知通道:一个接收 JSON POST 的地址(钉钉/飞书/Bark/自建都行)。
+	// 补货监控的全部价值就是"有货那一刻你能收到消息",单通道意味着 Telegram 一挂就全盲。
+	NotifyWebhookURL string `json:"notifyWebhookUrl,omitempty"`
 	// TgWebhookSecretRegistered secret 是否已经推给 Telegram（setWebhook 成功过）。
 	// false 时 webhook 处于兼容模式：不强制校验 secret，避免升级后老用户的按钮直接全挂。
 	TgWebhookSecretRegistered bool `json:"tgWebhookSecretRegistered,omitempty"`
@@ -116,6 +119,16 @@ type PurchaseHistoryEntry struct {
 	// expirationDate 是"订单未付款何时作废"，语义不同，混用会让用户把撤销期当成付款截止期。
 	RetractionTime string     `json:"retractionTime,omitempty"`
 	Price          *PriceInfo `json:"price,omitempty"`
+	// Timing 这一单每个阶段花了多久。抢购输了之后唯一有用的信息就是"慢在哪一步" ——
+	// 是 OVH 的库存接口慢、还是自己这台机器建购物车慢、还是最后 checkout 排队了。
+	Timing  []PhaseTiming `json:"timing,omitempty"`
+	TotalMs int64         `json:"totalMs,omitempty"`
+}
+
+// PhaseTiming 抢购链路上一个阶段的墙钟耗时
+type PhaseTiming struct {
+	Name string `json:"name"`
+	Ms   int64  `json:"ms"`
 }
 
 // Datacenter 服务器目录中单个机房可用性

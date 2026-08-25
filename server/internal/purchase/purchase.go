@@ -1,7 +1,6 @@
 package purchase
 
 import (
-	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -11,9 +10,9 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
+	"github.com/ovh-buy/server/internal/notify"
 	"github.com/ovh-buy/server/internal/numconv"
 	"github.com/ovh-buy/server/internal/ovh"
-	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 )
 
@@ -53,6 +52,10 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 	cartID := ""
 	var itemID int64
 
+	// 每一轮都打点。抢购的胜负常常只差几百毫秒,而"差在哪"没有数字就只能靠猜。
+	tl := newTimeline()
+	timingKey := TimingKey(item.PlanCode, item.Datacenter)
+
 	state.Logger.Info(fmt.Sprintf("开始为 %s 在 %s 的购买流程，选项: %v",
 		item.PlanCode, item.Datacenter, item.Options), "purchase")
 
@@ -61,11 +64,14 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 	q := url.Values{}
 	q.Set("planCode", item.PlanCode)
 	if err := client.Get("/dedicated/server/datacenter/availabilities?"+q.Encode(), &availabilities); err != nil {
+		tl.mark("查库存")
+		recordTiming(timingKey, tl, "failed")
 		errMsg := err.Error()
 		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, errMsg), "purchase")
 		recordFailure(state, item, errMsg)
 		return Outcome{Attempted: true}
 	}
+	tl.mark("查库存")
 
 	// 空数组 ≠ 暂时没货。OVH 三个站点的机型目录彼此独立,拿别的站点的 planCode 查
 	// /dedicated/server/datacenter/availabilities 同样是 HTTP 200 + [](实测:
@@ -74,7 +80,7 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 	// 日志里只有一句"当前无货",用户永远看不出是自己选错了区的机型。
 	// classifyPlan 给出确定性结论时直接判 Fatal:这类任务重试到天荒地老也不会变。
 	if len(availabilities) == 0 {
-		if verdict, msg := classifyPlan(state, item.AccountID, item.PlanCode); msg != "" {
+		if verdict, msg := catalog.ClassifyPlan(state, item.AccountID, item.PlanCode, "purchase"); msg != "" {
 			state.Logger.Error(fmt.Sprintf("%s（判定 %d）", msg, verdict), "purchase")
 			recordFailure(state, item, msg)
 			return Outcome{Fatal: true, Reason: msg}
@@ -104,6 +110,7 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 			// 这里退回全量判定就会重演"32G+HDD 有货 → 把 64G+NVMe 的单也下出去"。
 			state.Logger.Info(fmt.Sprintf("服务器 %s 没有任何配置组合同时包含所选硬件 %v，视为该配置无货",
 				item.PlanCode, wantedHW), "purchase")
+			recordTiming(timingKey, tl, "unavailable")
 			return Outcome{}
 		}
 	}
@@ -138,7 +145,8 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 		}
 	}
 	if !foundAvailable {
-		state.Logger.Info(fmt.Sprintf("服务器 %s 在数据中心 %s 当前无货", item.PlanCode, item.Datacenter), "purchase")
+		recordTiming(timingKey, tl, "unavailable")
+		state.Logger.Info(fmt.Sprintf("服务器 %s 在数据中心 %s 当前无货 (%s)", item.PlanCode, item.Datacenter, tl.String()), "purchase")
 		return Outcome{}
 	}
 
@@ -173,6 +181,7 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 		return Outcome{Attempted: true}
 	}
 	cartID, _ = cartResult["cartId"].(string)
+	tl.mark("建购物车")
 	state.Logger.Info("购物车创建成功，ID: "+cartID, "purchase")
 
 	// 抢购失败时清理 OVH 购物车,避免 OVH 侧堆积僵尸 cart(高频抢购累计能上千个,
@@ -204,6 +213,7 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 		recordFailure(state, item, errMsg)
 		return Outcome{Attempted: true}
 	}
+	tl.mark("绑定购物车")
 	state.Logger.Info("购物车绑定成功", "purchase")
 
 	// 添加基础商品 /eco。
@@ -249,6 +259,7 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 		recordFailure(state, item, errMsg)
 		return Outcome{Attempted: true}
 	}
+	tl.mark("加购商品")
 	state.Logger.Info(fmt.Sprintf("基础商品添加成功，项目 ID: %d", itemID), "purchase")
 
 	// 设置必需配置
@@ -331,6 +342,8 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 		}
 	}
 
+	tl.mark("必需配置")
+
 	// 硬件选项处理。effectiveOptions 已经包含了：
 	//   - 用户显式 options（如果有），或
 	//   - 从可用 FQN 推断的 addon planCode（用户没指定时）
@@ -362,7 +375,7 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 				// 分档匹配(matchEcoOption,与 price.go 同一口径):用户从前端选来的是完整
 				// planCode(第①档直接命中);用户没选配置时 filtered 是从 FQN 推来的短前缀,
 				// 精确匹配永远打不中,必须靠前缀/标准化档兜底,否则会被误判成"选项不存在"整单取消。
-				matchedOpt, matchedPC, tier := matchEcoOption(availableEcoOpts, wanted)
+				matchedOpt, matchedPC, tier := catalog.MatchEcoOption(availableEcoOpts, wanted)
 				if matchedOpt == nil {
 					missing = append(missing, wanted)
 					continue
@@ -420,6 +433,8 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 		state.Logger.Info("⚠️ 用户未提供任何硬件选项，将使用默认配置下单", "purchase")
 	}
 
+	tl.mark("加硬件选项")
+
 	// 直接结账 —— 跳过 /summary(它只是日志用的价格,2 秒开销),
 	// 价格 + 过期时间下面 checkout 成功后用 /me/order 异步补,不阻塞主流程。
 	state.Logger.Info("对购物车 "+cartID+" 执行结账", "purchase")
@@ -439,10 +454,14 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 			errMsg = fmt.Sprintf("%s（机房 %s 不在子公司 %s 的 %s 目录里；OVH 三站目录独立，同一机型在不同区可选的机房不同）",
 				errMsg, apiDC, subsidiary, item.PlanCode)
 		}
-		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, errMsg), "purchase")
+		tl.mark("下单")
+		recordTiming(timingKey, tl, "failed")
+		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s (%s)", item.PlanCode, errMsg, tl.String()), "purchase")
 		recordFailure(state, item, errMsg)
 		return Outcome{Attempted: true}
 	}
+	tl.mark("下单")
+	recordTiming(timingKey, tl, "ordered")
 
 	orderID := numconv.ToString(checkoutResult["orderId"])
 	orderURL, _ := checkoutResult["url"].(string)
@@ -452,6 +471,8 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 
 	// 立刻记成功 —— 价格和过期时间空着,后台异步补
 	recordSuccess(state, item, orderID, orderURL, "", nil)
+	recordTimingToHistory(state, item.ID, tl)
+	state.Logger.Info("[耗时] "+item.PlanCode+"@"+item.Datacenter+" 抢购成功 "+tl.String(), "purchase")
 
 	// 异步补:从 /me/order/{orderID} 读 expirationDate + 价格,写回 history
 	if orderID != "" {
@@ -470,7 +491,7 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 			msg += "自定义配置: " + strings.Join(item.Options, ", ") + "\n"
 		}
 		msg += "\n抢购任务ID: " + item.ID
-		telegram.SendMessage(state, msg, nil)
+		notify.Broadcast(state, msg, nil)
 		state.Logger.Info("已为订单 "+orderID+" 发送 Telegram 成功通知。", "purchase")
 	} else {
 		state.Logger.Info("未配置 Telegram Token 或 Chat ID，跳过成功通知发送。", "purchase")
@@ -501,71 +522,6 @@ func orderSubsidiary(state *app.State, acc types.OVHAccount, logTag string) stri
 		return fallback
 	}
 	return sub
-}
-
-// planVerdict 机型归属判定。与 handlers/queue.go 的同名类型必须保持同一口径
-// (那边挡入队、这边挡重试,两处口径一分裂就会出现"能入队但每轮都被判死"的任务)。
-//
-// 上一版把"不在 eco 目录"一律归因成"跨区 planCode",这是错的:eco 目录只回答
-// "本工具能不能用 /order/cart/{id}/eco 下单它",不回答"它属于哪个大区"。
-// 实测公开接口(2026-08):EU 站点 availabilities 有 244 个 planCode、eco 目录只有 99 个,
-// 145 个差集里整条 Scale / HCI / SDS / High-Grade 产品线都在;US 站点是 423 对 143。
-type planVerdict int
-
-const (
-	planVerdictOK          planVerdict = iota // 属于本区,而且本工具下得了单
-	planVerdictUnknown                        // 探测/目录失败 —— 不下结论,保持"无货"语义继续重试
-	planVerdictCrossRegion                    // ① 真跨区:别的大区才有它的库存记录
-	planVerdictNotEco                         // ② 本区有它,但不属于 Eco 系列,本工具下不了
-	planVerdictNoSuchPlan                     // ③ 三区都查不到:planCode 拼错 / 已下架
-)
-
-// classifyPlan 判定 planCode 对这个账户属于哪种情况,并给出面向用户的说明。
-// 说明为空 = 无需提示(OK / Unknown),调用方必须保持原来的"无货,下轮再来"语义。
-//
-// 顺序有讲究:先查本子公司的 eco 目录(2 小时内存缓存,不耗账户配额、命中时不发网络请求),
-// 有就直接放行 —— 抢购主链路上正常任务一次探测都不会多发。只有"目录里没有"才去探大区归属。
-func classifyPlan(state *app.State, accountID, planCode string) (planVerdict, string) {
-	acc, _ := state.FindAccount(accountID)
-	accRegion := ovh.EndpointRegion(acc.Endpoint)
-	subsidiary := catalog.SubsidiaryOfAccount(acc)
-
-	_, catErr := catalog.AddonFamiliesForPlan(state, accountID, planCode)
-	if catErr == nil {
-		return planVerdictOK, ""
-	}
-	if !errors.Is(catErr, catalog.ErrPlanNotInCatalog) {
-		// 目录拉不动(网络 / 429):不下结论,免得一次瞬断把正常任务判死
-		state.Logger.Warn(fmt.Sprintf("判定 %s 归属时目录拉取失败(子公司 %s)，本次不下结论: %s",
-			planCode, subsidiary, catErr.Error()), "purchase")
-		return planVerdictUnknown, ""
-	}
-
-	// 本区排第一:命中就立刻返回,只花一次公开请求
-	region, probeErr := catalog.RegionOfPlan(state, planCode, []string{accRegion, "EU", "US", "CA"})
-	if probeErr != nil {
-		state.Logger.Warn(fmt.Sprintf("探测 %s 的大区归属失败，本次不下结论: %s", planCode, probeErr.Error()), "purchase")
-		return planVerdictUnknown, ""
-	}
-
-	switch {
-	case region == "":
-		return planVerdictNoSuchPlan, fmt.Sprintf(
-			"机型 %s 在 OVH 的 EU / US / CA 三个站点都查不到任何库存记录（缺货的机型也会有记录）："+
-				"planCode 可能拼错了，或者这个机型已经下架。",
-			planCode)
-	case region != accRegion:
-		return planVerdictCrossRegion, fmt.Sprintf(
-			"机型 %s 属于 OVH 的 %s 区，而账户 %s 在 %s 区（%s）。三个站点的目录 / 库存 / 购物车互不相通"+
-				"（美区机型带 -us / -eu / -ca 后缀，欧区和加区不带），请改用本区的 planCode，或换一个 %s 区的账户下单。",
-			planCode, region, acc.Name, accRegion, acc.Endpoint, region)
-	}
-
-	return planVerdictNotEco, fmt.Sprintf(
-		"机型 %s 在本区（%s 区，子公司 %s）确实有库存记录，但它不在该子公司的 Eco 目录里 —— "+
-			"Scale / HCI / SDS / High-Grade 这些产品线都不走 Eco（实测欧区 244 个有库存的机型里 145 个如此）。"+
-			"本工具的下单链路只有 /order/cart/eco 一条，买不了这台，请到 OVH 官网下单。",
-		planCode, accRegion, subsidiary)
 }
 
 // regionAllowedValues 从 requiredConfiguration 响应里取 region 的合法取值 + 是否必填。
@@ -649,85 +605,6 @@ func fqnSegmentMatchesOption(seg, opt string) bool {
 		return false
 	}
 	return s == o || strings.HasPrefix(o, s+"-") || strings.HasPrefix(s, o+"-")
-}
-
-// matchEcoOption 把用户/FQN 给的一个 addon 标识,映射到 /order/cart/{id}/eco/options
-// 返回列表里唯一的那条 GenericOptionDefinition。返回 (选项对象, 它的完整 planCode, 命中档位)。
-//
-// 为什么不能"首个命中即 break":同一个 plan 里存在互为前缀的存储 addon,
-// 短 FQN 段会同时前缀命中两条。三区实测(公开 eco 目录 addonFamilies × availabilities
-// 的 FQN 段,2026-08):
-//
-//	EU / CA: 26sk50a-v1 的段 softraid-2x960nvme →
-//	         softraid-2x960nvme-26sk50a-v1          月付 €0
-//	         softraid-2x960nvme-2x6000sa-26sk50a-v1 月付 €24
-//	US     : 26sk50a-v1-ca / 26sk50a-v1-eu 同样各有一处
-//
-// 命中哪条取决于 OVH 返回数组的顺序,而这条直接决定账单和到手的盘 ——
-// 必须取"剩余最短"的那条:多出来的 -2x6000sa 是又编了一套盘,不是机型后缀。
-//
-// 分档口径与 catalog.matchAddonsForSegment / price.go 的同名函数完全一致,顺序不能换:
-//
-//	① 原始码相等 ② 原始码互为 "x-" 前缀 ③ 标准化后相等 ④ 标准化后互为前缀
-//
-// 原始码两档必须排在标准化之前:catalog.StandardizeConfig 会把机型后缀吃成粘连残渣
-// (…-26sk50a-v1 → …nvmea),正确项因此丢掉分隔符、反而掉到比错误项更低的档。
-// 标准化两档不能删:FQN 段与目录 addon 的内存频率经常对不上 —— 三区实测
-// EU/CA 各 25 段、US 49 段原始码匹配不上,其中 EU/CA 各 7 段、US 14 段靠标准化才认得出
-// (26sk10b-v1 的段 ram-32g-ecc-2133 → 目录 ram-32g-ecc-2400-26sk10b-v1),
-// 这些在旧实现里全是"选项不存在"整单取消。
-func matchEcoOption(opts []map[string]interface{}, wanted string) (map[string]interface{}, string, string) {
-	w := strings.ToLower(strings.TrimSpace(wanted))
-	if w == "" {
-		return nil, "", ""
-	}
-	wStd := catalog.StandardizeConfig(w)
-
-	type cand struct {
-		opt      map[string]interface{}
-		code     string
-		strength int // 同档内:命中的公共前缀越长越可信
-		size     int // 同档同强度:整体越短越可信(多出来的段=多编了一套配置)
-	}
-	tierNames := [4]string{"原样相等", "原始码前缀", "标准化相等", "标准化前缀"}
-	var tiers [4]*cand
-
-	for _, o := range opts {
-		code, _ := o["planCode"].(string)
-		c := strings.ToLower(strings.TrimSpace(code))
-		if c == "" {
-			continue
-		}
-		cStd := catalog.StandardizeConfig(c)
-		tier, strength := -1, 0
-		switch {
-		case c == w:
-			tier, strength = 0, len(c)
-		case strings.HasPrefix(c, w+"-"):
-			tier, strength = 1, len(w)
-		case strings.HasPrefix(w, c+"-"):
-			tier, strength = 1, len(c)
-		case cStd != "" && cStd == wStd:
-			tier, strength = 2, len(cStd)
-		case cStd != "" && wStd != "" && strings.HasPrefix(cStd, wStd):
-			tier, strength = 3, len(wStd)
-		case cStd != "" && wStd != "" && strings.HasPrefix(wStd, cStd):
-			tier, strength = 3, len(cStd)
-		}
-		if tier < 0 {
-			continue
-		}
-		cur := tiers[tier]
-		if cur == nil || strength > cur.strength || (strength == cur.strength && len(c) < cur.size) {
-			tiers[tier] = &cand{opt: o, code: code, strength: strength, size: len(c)}
-		}
-	}
-	for i, t := range tiers {
-		if t != nil {
-			return t.opt, t.code, tierNames[i]
-		}
-	}
-	return nil, "", ""
 }
 
 // fqnRelevantOptions 从用户提交的 options 里挑出真正参与 FQN 库存判定的硬件项。

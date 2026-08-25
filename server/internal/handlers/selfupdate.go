@@ -107,6 +107,9 @@ func SelfUpdate(state *app.State, restart func(exePath string)) gin.HandlerFunc 
 				setProgress(updater.Progress{Phase: "failed", Version: latest, Error: err.Error(), Message: "替换程序失败"})
 				return
 			}
+			// 写下"待验证"标记:新进程活到对外服务那一刻会调 MarkHealthy 删掉它;
+			// 没删掉说明新版本没起来,下次启动时 RollbackIfStale 会换回旧版本
+			updater.MarkPending()
 			state.Logger.Info("[更新] 已替换为 v"+latest+",正在重启", "version")
 			setProgress(updater.Progress{Phase: "restarting", Percent: 100, Version: latest, Message: "已更新到 v" + latest + ",正在重启"})
 

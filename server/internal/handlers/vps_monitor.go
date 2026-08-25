@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/notify"
 	"github.com/ovh-buy/server/internal/ovh"
-	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 	"github.com/ovh-buy/server/internal/vps"
 )
@@ -45,8 +45,8 @@ func GetVPSSubscriptions(state *app.State) gin.HandlerFunc {
 func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// VPS 监控同样要求 TG 通知可用
-		if ok, reason := telegram.VerifyConfig(state); !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Telegram 通知未配置或无效:" + reason})
+		if ok, reason := notify.AnyAvailable(state, true); !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "没有可用的通知通道(Telegram / Webhook 至少配一个):" + reason})
 			return
 		}
 		var body struct {
@@ -246,7 +246,7 @@ func StartVPSMonitor(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{"status": "info", "message": "VPS监控已在运行中"})
 			return
 		}
-		if ok, reason := telegram.VerifyConfig(state); !ok {
+		if ok, reason := notify.AnyAvailable(state, true); !ok {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "Telegram 通知未配置或无效,无法启动 VPS 监控:" + reason})
 			return
 		}

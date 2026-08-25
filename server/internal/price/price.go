@@ -228,7 +228,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 			// (ram-128g-ecc-2933)。只做精确匹配的话,凡是从 FQN 推选项的调用方
 			// (Telegram / 外部脚本 / 监控)在询价这一步就会被判成"该机房不可订购",
 			// 抢购却能下单 —— 后缀越长的美区越容易踩。
-			matched, matchedPC, tier := matchEcoOption(availableOpts, wanted)
+			matched, matchedPC, tier := catalog.MatchEcoOption(availableOpts, wanted)
 			if matched != nil && matchedPC != wanted {
 				state.Logger.Info("硬件选项 "+wanted+" 按「"+tier+"」匹配到 Eco 选项 "+matchedPC, "price")
 			}
@@ -425,86 +425,6 @@ func pickAllowedRegion(allowed []string, prefer string) string {
 		}
 	}
 	return allowed[0]
-}
-
-// matchEcoOption 把用户/FQN 给的一个 addon 标识,映射到 /order/cart/{id}/eco/options
-// 返回列表里唯一的那条 GenericOptionDefinition。返回 (选项对象, 它的完整 planCode, 命中档位)。
-//
-// 为什么不能"首个命中即 break"(这正是上一轮修复留下的尾巴):
-// 同一个 plan 里存在互为前缀的存储 addon,短 FQN 段会同时前缀命中两条。三区实测
-// (公开 eco 目录 addonFamilies × availabilities 的 FQN 段,2026-08):
-//
-//	EU / CA: 26sk50a-v1        的段 softraid-2x960nvme →
-//	         softraid-2x960nvme-26sk50a-v1          月付 €0
-//	         softraid-2x960nvme-2x6000sa-26sk50a-v1 月付 €24
-//	US     : 26sk50a-v1-ca 和 26sk50a-v1-eu 同样各有一处
-//
-// 命中哪条取决于 OVH 返回数组的顺序,而这条直接决定账单 —— 必须取"剩余最短"的那条:
-// 多出来的那段(-2x6000sa)是又编了一套盘,不是机型后缀。
-//
-// 分档口径与 catalog.matchAddonsForSegment 一致,顺序不能换:
-//
-//	① 原始码相等 ② 原始码互为 "x-" 前缀 ③ 标准化后相等 ④ 标准化后互为前缀
-//
-// 原始码两档必须排在标准化之前:catalog.StandardizeConfig 会把机型后缀吃成粘连残渣
-// (…-26sk50a-v1 → …nvmea),正确项因此丢掉分隔符、反而掉到比错误项更低的档。
-// 标准化两档不能删:OVH 的 FQN 段和目录 addon 的内存频率经常对不上 —— 三区实测
-// EU/CA 各 25 段、US 49 段原始码完全匹配不上,其中 EU/CA 各 7 段、US 14 段
-// 只有标准化才认得出是同一档内存(26sk10b-v1 的段 ram-32g-ecc-2133 → 目录
-// ram-32g-ecc-2400-26sk10b-v1;24rise06-v1 的段 ram-1024g-ecc-2933 → ram-1024g-ecc-3200-…)。
-// 这些在旧实现里是"选项不存在"整次询价/整单失败,不是能用的功能。
-func matchEcoOption(opts []map[string]interface{}, wanted string) (map[string]interface{}, string, string) {
-	w := strings.ToLower(strings.TrimSpace(wanted))
-	if w == "" {
-		return nil, "", ""
-	}
-	wStd := catalog.StandardizeConfig(w)
-
-	type cand struct {
-		opt      map[string]interface{}
-		code     string
-		strength int // 同档内:命中的公共前缀越长越可信
-		size     int // 同档同强度:整体越短越可信(多出来的段=多编了一套配置)
-	}
-	tierNames := [4]string{"原样相等", "原始码前缀", "标准化相等", "标准化前缀"}
-	var tiers [4]*cand
-
-	for _, o := range opts {
-		code, _ := o["planCode"].(string)
-		c := strings.ToLower(strings.TrimSpace(code))
-		if c == "" {
-			continue
-		}
-		cStd := catalog.StandardizeConfig(c)
-		tier, strength := -1, 0
-		switch {
-		case c == w:
-			tier, strength = 0, len(c)
-		case strings.HasPrefix(c, w+"-"):
-			tier, strength = 1, len(w)
-		case strings.HasPrefix(w, c+"-"):
-			tier, strength = 1, len(c)
-		case cStd != "" && cStd == wStd:
-			tier, strength = 2, len(cStd)
-		case cStd != "" && wStd != "" && strings.HasPrefix(cStd, wStd):
-			tier, strength = 3, len(wStd)
-		case cStd != "" && wStd != "" && strings.HasPrefix(wStd, cStd):
-			tier, strength = 3, len(cStd)
-		}
-		if tier < 0 {
-			continue
-		}
-		cur := tiers[tier]
-		if cur == nil || strength > cur.strength || (strength == cur.strength && len(c) < cur.size) {
-			tiers[tier] = &cand{opt: o, code: code, strength: strength, size: len(c)}
-		}
-	}
-	for i, t := range tiers {
-		if t != nil {
-			return t.opt, t.code, tierNames[i]
-		}
-	}
-	return nil, "", ""
 }
 
 // pickPricing 从 order.cart.GenericProductPricing[] 里挑一条计价填 duration / pricingMode。

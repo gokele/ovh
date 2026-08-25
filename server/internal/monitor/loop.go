@@ -11,28 +11,34 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ovh-buy/server/internal/telegram"
+	"github.com/ovh-buy/server/internal/notify"
 )
 
 // tgRecheckInterval loop 内 TG 健康检查节流间隔。5 分钟 verify 一次,
 // 失败立即调 Stop() 自停监控。
 const tgRecheckInterval = 5 * time.Minute
 
-// checkTGOrStop 节流后 verify Telegram,失败则调 Stop() 让 loop 退出。
-// 返回 true=继续 loop,false=已自停,loop 应该 break。
-func (m *Monitor) checkTGOrStop() bool {
+// checkNotifyOrStop 节流后体检通知通道,**全部**不可用才自停。
+//
+// 以前这里只看 Telegram,TG 一失效就停整个监控 —— 于是 bot 被封、token 过期、
+// 或者机器一时连不上 api.telegram.org,用户失去的不是一条通知,而是整个补货监控,
+// 且只有翻日志才知道。现在只要还有一条通道能送达(比如 Webhook),监控就继续跑。
+//
+// 返回 true=继续 loop,false=已自停。
+func (m *Monitor) checkNotifyOrStop() bool {
 	m.tgCheckMu.Lock()
 	due := time.Since(m.lastTGCheck) >= tgRecheckInterval
 	m.tgCheckMu.Unlock()
 	if !due {
 		return true
 	}
-	ok, reason := telegram.VerifyConfig(m.state)
+	ok, reason := notify.AnyAvailable(m.state, true)
 	m.tgCheckMu.Lock()
 	m.lastTGCheck = time.Now()
 	m.tgCheckMu.Unlock()
 	if !ok {
-		m.state.Logger.Error("Telegram 通知失效,自动停止服务器监控: "+reason, "monitor")
+		m.state.Logger.Error("所有通知通道都不可用,自动停止服务器监控("+reason+
+			")。配一条 Webhook 作为备用通道可以避免这种全盲。", "monitor")
 		m.Stop()
 		return false
 	}
@@ -89,8 +95,8 @@ func (m *Monitor) monitorLoop() {
 			break
 		}
 
-		// TG 失效 → 自停。checkTGOrStop 内部已节流 5 分钟,且失败时调 Stop()。
-		if !m.checkTGOrStop() {
+		// 通知通道全挂 → 自停。checkNotifyOrStop 内部已节流 5 分钟,且失败时调 Stop()。
+		if !m.checkNotifyOrStop() {
 			break
 		}
 

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Check, ChevronsUpDown, Plus, User } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -20,6 +20,9 @@ import { cn } from "@/lib/utils";
 export function AccountSwitcher({ onNavigate }: { onNavigate?: () => void }) {
   const accounts = useAccounts();
   const [activeId, setActive] = useActiveAccount();
+  // 受控:选完要自己关掉。Radix Popover 默认不会因为点了内容里的按钮就收起,
+  // 不管的话选完账户面板还杵在那儿挡着导航。
+  const [open, setOpen] = useState(false);
 
   const list = accounts.data || [];
   const active = list.find((a) => a.id === activeId);
@@ -57,7 +60,7 @@ export function AccountSwitcher({ onNavigate }: { onNavigate?: () => void }) {
       <div className="px-0.5 mb-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
         当前账户
       </div>
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-border hover:bg-muted transition-colors text-left"
@@ -80,7 +83,10 @@ export function AccountSwitcher({ onNavigate }: { onNavigate?: () => void }) {
             {list.map((a) => (
               <button
                 key={a.id}
-                onClick={() => setActive(a.id)}
+                onClick={() => {
+                  setActive(a.id);
+                  setOpen(false);
+                }}
                 className={cn(
                   "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-[13px] transition-colors",
                   a.id === activeId ? "bg-secondary" : "hover:bg-muted"
@@ -101,7 +107,10 @@ export function AccountSwitcher({ onNavigate }: { onNavigate?: () => void }) {
           </div>
           <Link
             to="/settings"
-            onClick={onNavigate}
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+            }}
             className="flex items-center gap-2 px-2 py-1.5 mt-1 rounded-md text-[13px] text-muted-foreground hover:bg-muted border-t border-border pt-2 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />

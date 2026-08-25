@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ovh-buy/server/internal/telegram"
+	"github.com/ovh-buy/server/internal/notify"
 )
 
 // 机房代码 → 中文显示。key 一律是「城市段」,长代码由 availabilityDCCity 归一化后再查。
@@ -351,7 +351,7 @@ func (m *Monitor) SendAvailabilityAlertGrouped(planCode string, availableDCs []m
 		}
 	}
 	m.state.Logger.Info(fmt.Sprintf("正在发送汇总Telegram通知: %s%s - %d个机房", planCode, configDesc, len(availableDCs)), "monitor")
-	if telegram.SendMessage(m.state, msg.String(), replyMarkup) {
+	if notify.Broadcast(m.state, msg.String(), replyMarkup) > 0 {
 		m.state.Logger.Info(fmt.Sprintf("✅ Telegram汇总通知发送成功: %s%s", planCode, configDesc), "monitor")
 	} else {
 		m.state.Logger.Warn(fmt.Sprintf("⚠️ Telegram汇总通知发送失败: %s%s", planCode, configDesc), "monitor")
@@ -402,7 +402,7 @@ func (m *Monitor) SendUnavailableAlertGrouped(planCode string, unavailableDCs []
 		}
 	}
 	m.state.Logger.Info(fmt.Sprintf("正在发送聚合下架Telegram通知: %s%s - %d个机房", planCode, configDesc, len(unavailableDCs)), "monitor")
-	if telegram.SendMessage(m.state, msg.String(), nil) {
+	if notify.Broadcast(m.state, msg.String(), nil) > 0 {
 		m.state.Logger.Info(fmt.Sprintf("✅ Telegram聚合下架通知发送成功: %s%s", planCode, configDesc), "monitor")
 	} else {
 		m.state.Logger.Warn(fmt.Sprintf("⚠️ Telegram聚合下架通知发送失败: %s%s", planCode, configDesc), "monitor")
@@ -548,7 +548,7 @@ func (m *Monitor) SendAvailabilityAlert(planCode, datacenter, status, changeType
 		}
 	}
 	m.state.Logger.Info(fmt.Sprintf("正在发送Telegram通知: %s@%s%s", planCode, datacenter, configDesc), "monitor")
-	if telegram.SendMessage(m.state, msg.String(), nil) {
+	if notify.Broadcast(m.state, msg.String(), nil) > 0 {
 		m.state.Logger.Info(fmt.Sprintf("✅ Telegram通知发送成功: %s@%s%s - %s", planCode, datacenter, configDesc, changeType), "monitor")
 	} else {
 		m.state.Logger.Warn(fmt.Sprintf("⚠️ Telegram通知发送失败: %s@%s%s", planCode, datacenter, configDesc), "monitor")
@@ -559,6 +559,6 @@ func (m *Monitor) SendNewServerAlert(server map[string]interface{}) {
 	msg := fmt.Sprintf("🆕 新服务器上架通知！\n\n型号: %v\n名称: %v\nCPU: %v\n内存: %v\n存储: %v\n带宽: %v\n时间: %s\n\n💡 快去查看详情！",
 		server["planCode"], server["name"], server["cpu"], server["memory"], server["storage"], server["bandwidth"],
 		m.nowBeijing().Format("2006-01-02 15:04:05"))
-	telegram.SendMessage(m.state, msg, nil)
+	notify.Broadcast(m.state, msg, nil)
 	m.state.Logger.Info(fmt.Sprintf("发送新服务器提醒: %v", server["planCode"]), "monitor")
 }

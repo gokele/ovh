@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/ovh-buy/server/internal/db"
+	"github.com/ovh-buy/server/internal/secret"
 	"github.com/ovh-buy/server/internal/types"
 )
 
@@ -17,6 +18,37 @@ type Store struct {
 
 const kvConfigKey = "config"
 
+// secretFields kv['config'] 里需要加密落盘的字段。
+// 这些和 ovh_accounts 表里的凭据是同一级别的东西:Telegram Token 能冒充你发通知、
+// 甚至通过 webhook 触发下单;webhook secret 泄漏则等于 webhook 校验形同虚设。
+// 老用户的 kv['config'] 里还可能残留 OVH 凭据(多账户改造之前的存法),一并处理。
+func encryptConfig(c types.Config) types.Config {
+	c.AppSecret = secret.Encrypt(c.AppSecret)
+	c.ConsumerKey = secret.Encrypt(c.ConsumerKey)
+	c.AppKey = secret.Encrypt(c.AppKey)
+	c.TgToken = secret.Encrypt(c.TgToken)
+	c.TgWebhookSecret = secret.Encrypt(c.TgWebhookSecret)
+	return c
+}
+
+// decryptConfig 出库解密。解不开的字段留空 —— 空 token 会让 Telegram 明确报"未配置",
+// 而乱码会变成 Telegram API 的 401,用户更难定位。
+func decryptConfig(c types.Config) types.Config {
+	dec := func(v string) string {
+		out, err := secret.Decrypt(v)
+		if err != nil {
+			return ""
+		}
+		return out
+	}
+	c.AppKey = dec(c.AppKey)
+	c.AppSecret = dec(c.AppSecret)
+	c.ConsumerKey = dec(c.ConsumerKey)
+	c.TgToken = dec(c.TgToken)
+	c.TgWebhookSecret = dec(c.TgWebhookSecret)
+	return c
+}
+
 // New 从 SQLite kv 表加载配置；不存在则使用默认值
 func New(database *db.DB) *Store {
 	s := &Store{
@@ -26,6 +58,8 @@ func New(database *db.DB) *Store {
 	if _, err := s.db.GetKV(kvConfigKey, &s.cfg); err != nil {
 		// 加载失败时退回默认值（避免阻塞启动）
 		s.cfg = types.DefaultConfig()
+	} else {
+		s.cfg = decryptConfig(s.cfg)
 	}
 	// 兜底默认值
 	if s.cfg.Endpoint == "" {
@@ -56,7 +90,7 @@ func (s *Store) Set(c types.Config) error {
 	s.cfg = c
 	snapshot := s.cfg
 	s.mu.Unlock()
-	return s.db.SetKV(kvConfigKey, snapshot)
+	return s.db.SetKV(kvConfigKey, encryptConfig(snapshot))
 }
 
 // HasCredentials 判断是否已配置 OVH 凭据

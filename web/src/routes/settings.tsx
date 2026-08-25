@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Settings as SettingsIcon, KeyRound, Globe, Send, Database, Save, Webhook, AlertTriangle, CheckCircle2, Plus, Star, RotateCw, Trash2, Pencil } from "lucide-react";
+import { Settings as SettingsIcon, KeyRound, Globe, Send, Database, Save, Webhook, AlertTriangle, CheckCircle2, Plus, Star, RotateCw, Trash2, Pencil, BellRing, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -19,6 +19,7 @@ import {
   type SettingsConfig,
 } from "@/hooks/use-settings";
 import { getApiSecretKey, setApiSecretKey } from "@/lib/api";
+import { useNotifyChannels, useTestNotification } from "@/hooks/use-notify-channels";
 import { cn } from "@/lib/utils";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
 import { apiBaseUrlForEndpoint } from "@/lib/ovh-regions";
@@ -47,6 +48,7 @@ const SECTIONS = [
   { id: "password", icon: KeyRound, label: "访问密码" },
   { id: "accounts", icon: Globe, label: "OVH 账户" },
   { id: "telegram", icon: Send, label: "Telegram" },
+  { id: "notify", icon: BellRing, label: "通知通道" },
   { id: "cache", icon: Database, label: "缓存管理" },
 ] as const;
 
@@ -134,6 +136,8 @@ function SettingsPage() {
               <AccountsSection />
             ) : active === "telegram" ? (
               <TelegramSection form={form} set={set} />
+            ) : active === "notify" ? (
+              <NotifySection form={form} set={set} />
             ) : (
               <CacheSection />
             )}
@@ -160,6 +164,102 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       {children}
       {hint && <p className="text-[11px] text-muted-foreground mt-1">{hint}</p>}
     </div>
+  );
+}
+
+/**
+ * 通知通道。
+ *
+ * 存在的理由：以前 Telegram 是唯一通道，而监控在 Telegram 校验失败时会**自动停止** ——
+ * bot 被封、token 过期、机器连不上 api.telegram.org，任何一种情况下用户失去的
+ * 不是一条消息，而是整个监控，且只有翻日志才知道。现在只要还有一条通道能用，监控就继续跑。
+ */
+function NotifySection({
+  form,
+  set,
+}: {
+  form: SettingsConfig;
+  set: (k: keyof SettingsConfig, v: string) => void;
+}) {
+  const channels = useNotifyChannels(true);
+  const test = useTestNotification();
+
+  return (
+    <Section title="通知通道">
+      <div className="rounded-2xl border border-border p-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[13px] font-medium">当前状态</h3>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => channels.refetch()}
+            disabled={channels.isFetching}
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", channels.isFetching && "animate-spin")} />
+            重新检测
+          </Button>
+        </div>
+        {channels.isPending ? (
+          <p className="text-[12px] text-muted-foreground">检测中…</p>
+        ) : (
+          <div className="space-y-1.5">
+            {(channels.data?.channels || []).map((c) => (
+              <div key={c.name} className="flex items-start gap-2 text-[12px]">
+                {!c.configured ? (
+                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-muted-foreground/40 flex-shrink-0" />
+                ) : c.ok ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                ) : (
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                )}
+                <span className="font-medium w-20 flex-shrink-0">{c.name}</span>
+                <span className="text-muted-foreground break-all">
+                  {!c.configured ? "未配置" : c.ok ? "可用" : c.detail || "不可用"}
+                </span>
+              </div>
+            ))}
+            {channels.data && !channels.data.anyAvailable && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 pt-1">
+                一条可用通道都没有 —— 监控会跑不起来，也发不出补货提醒
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <Field label="自定义 Webhook 地址（可选）">
+        <Input
+          value={form.notifyWebhookUrl || ""}
+          onChange={(e) => set("notifyWebhookUrl", e.target.value)}
+          placeholder="https://your.server/notify 或钉钉/飞书机器人地址"
+        />
+        <p className="text-[11px] text-muted-foreground mt-1">
+          方向是 <b>本程序 → 这个地址</b>。发的是一个 JSON POST，同一条文本同时放进
+          <code className="mx-1 px-1 rounded bg-muted">text</code>
+          <code className="mr-1 px-1 rounded bg-muted">message</code>
+          <code className="mr-1 px-1 rounded bg-muted">text_content.text</code>
+          几个字段 —— 不猜你的接收端用哪个协议，钉钉/飞书/Bark/自建都能取到其中一个。
+          注意「一键下单」按钮只有 Telegram 有，webhook 收到的是纯文本。
+        </p>
+      </Field>
+
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => test.mutate()}
+          disabled={test.isPending}
+        >
+          <Send className={cn("w-3.5 h-3.5", test.isPending && "animate-pulse")} />
+          {test.isPending ? "发送中…" : "发一条测试通知"}
+        </Button>
+        <p className="text-[11px] text-muted-foreground mt-1.5">
+          会往所有已配置的通道各发一条。先保存设置再测 —— 测的是已保存的配置，不是输入框里的
+        </p>
+      </div>
+    </Section>
   );
 }
 
@@ -195,12 +295,16 @@ function TelegramSection({
           placeholder="-1001234567890"
         />
       </Field>
-      <Field label="Webhook URL（可选）">
+      <Field label="Telegram 回调地址（可选）">
         <Input
           value={form.webhookUrl || ""}
           onChange={(e) => set("webhookUrl", e.target.value)}
           placeholder="https://your.domain/webhook"
         />
+        <p className="text-[11px] text-muted-foreground mt-1">
+          方向是 <b>Telegram → 本程序</b>：填了它，通知里的「一键下单」按钮才点得动。
+          想让本程序把通知<b>发出去</b>到别的地方，请看左边的「通知通道」
+        </p>
       </Field>
 
       <div className="pt-2">
