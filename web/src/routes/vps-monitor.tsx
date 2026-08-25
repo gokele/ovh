@@ -9,8 +9,7 @@ import {
   History as HistoryIcon,
   ChevronUp,
   Plus,
-  AlertTriangle,
-} from "lucide-react";
+  AlertTriangle, User } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,7 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { AccountSelect } from "@/components/common/AccountSelect";
+import { useActiveAccount } from "@/hooks/use-active-account";
+import { findAccountByID, useAccounts } from "@/hooks/use-accounts";
 import { AccountChip } from "@/components/common/AccountChip";
 import {
   Select,
@@ -400,7 +400,12 @@ function AddVPSDialog({
   const [notifyUnavailable, setNotifyUnavailable] = useState(false);
   const [autoOrder, setAutoOrder] = useState(false);
   const [quantity, setQuantity] = useState(1);
-  const [autoOrderAccountId, setAutoOrderAccountId] = useState("");
+  // 订阅的下单账户 = 左侧菜单栏的全局账户,不再单独选
+  const [globalAccountId] = useActiveAccount();
+  const { data: allAccounts } = useAccounts();
+  const autoOrderAccountId =
+    globalAccountId || allAccounts?.find((a) => a.isDefault)?.id || allAccounts?.[0]?.id || "";
+  const activeAcc = findAccountByID(allAccounts, autoOrderAccountId);
 
   const reset = () => {
     setVpsModel(VPS_MODELS[0].value);
@@ -412,7 +417,6 @@ function AddVPSDialog({
     setNotifyUnavailable(false);
     setAutoOrder(false);
     setQuantity(1);
-    setAutoOrderAccountId("");
   };
 
   const submit = (e: React.FormEvent) => {
@@ -579,10 +583,20 @@ function AddVPSDialog({
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                  下单账户 <span className="text-destructive">*</span>
+                  下单账户
                 </label>
-                <AccountSelect value={autoOrderAccountId} onChange={setAutoOrderAccountId} />
-                <p className="text-[11px] text-muted-foreground mt-1">不选账户 = 只通知不下单</p>
+                {/* 订阅的下单账户就绑当前账户 —— 页面上再放一个选择器,
+                    就会出现"用 A 账户看库存、订阅却绑到 B 账户"的错配,
+                    而三区库存互不相通,触发时才发现下不了单 */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-secondary/30">
+                  <User className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="text-[13px] font-medium">{activeAcc?.name || "未选择账户"}</span>
+                  {activeAcc && <span className="text-[11px] text-muted-foreground">{activeAcc.zone}</span>}
+                  <span className="ml-auto text-[10px] text-muted-foreground">在左侧菜单切换</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  触发时用这个账户下单;关掉上面的开关 = 只通知不下单
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">

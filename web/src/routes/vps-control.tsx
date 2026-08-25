@@ -3,8 +3,7 @@ import { useEffect, useState } from "react";
 import {
   Cloud, Power, PowerOff, RefreshCw, Monitor, KeyRound, HardDrive, Cpu, MemoryStick,
   MapPin, Globe, CalendarClock, CalendarPlus, Repeat, Eye, EyeOff,
-  AlertTriangle, ListTodo, Terminal,
-} from "lucide-react";
+  AlertTriangle, ListTodo, Terminal, User } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -103,20 +102,13 @@ function VpsControlPage() {
       {/* 账户 + VPS 选择 */}
       <Card>
         <CardContent className="p-4 flex flex-wrap items-center gap-3">
+          {/* 账户在左侧菜单栏统一切换,这里只显示 */}
           <div className="flex items-center gap-2">
             <span className="text-[12px] text-muted-foreground">账户</span>
-            <Select value={activeAccount || ""} onValueChange={(v) => setActiveAccount(v || "")}>
-              <SelectTrigger className="h-9 w-44">
-                <SelectValue placeholder="选择账户" />
-              </SelectTrigger>
-              <SelectContent>
-                {(accounts || []).map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[12px]">
+              <User className="w-3.5 h-3.5 text-muted-foreground" />
+              {(accounts || []).find((a) => a.id === activeAccount)?.name || "未选择"}
+            </span>
           </div>
           <div className="flex items-center gap-2 flex-1 min-w-[280px]">
             <span className="text-[12px] text-muted-foreground">VPS</span>

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, getActiveServerControlAccount } from "@/lib/api";
+import { api, getActiveAccount } from "@/lib/api";
 import { toast } from "sonner";
 
 /** 服务器本地别名 map: { service_name: alias }。
@@ -9,7 +9,7 @@ import { toast } from "sonner";
  */
 export function useServerAliases() {
   return useQuery<Record<string, string>>({
-    queryKey: ["server-control", "aliases", getActiveServerControlAccount()],
+    queryKey: ["server-control", "aliases", getActiveAccount()],
     queryFn: async () => (await api.get<Record<string, string>>("/server-control/aliases")).data,
     staleTime: 30 * 60_000,
     gcTime: 60 * 60_000,

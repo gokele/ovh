@@ -39,7 +39,7 @@ import {
 } from "@/hooks/use-queue";
 import { useServers } from "@/hooks/use-servers";
 import { OVH_DATACENTERS as OVH_DC_LIST } from "@/lib/datacenters";
-import { AccountSelect } from "@/components/common/AccountSelect";
+import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
 import { AccountChip } from "@/components/common/AccountChip";
 import { PlanCodeCombobox } from "@/components/common/PlanCodeCombobox";
@@ -205,12 +205,15 @@ function CreateQueueDialog({
 }) {
   const servers = useServers();
   const create = useCreateQueueItem();
-  const [accountId, setAccountId] = useState("");
+  // 下单账户 = 左侧菜单栏选的全局账户,本页不再单独选
+  const [globalAccountId] = useActiveAccount();
   // 库存按"实际下单的那个账户"所在站点查:EU/US/CA 三站的 availabilities 互不相通
   // (实测 US 站 423 个 planCode,只有 134 个与 EU 重合),用别区的库存点红绿灯,
   // 用户会照着不存在的货建任务,然后在抢购时才被 OVH 拒。
   const { data: accounts } = useAccounts();
-  const orderEndpoint = findAccountByID(accounts, accountId)?.endpoint || "";
+  const accountId = globalAccountId || accounts?.find((a) => a.isDefault)?.id || accounts?.[0]?.id || "";
+  const activeAcc = findAccountByID(accounts, accountId);
+  const orderEndpoint = activeAcc?.endpoint || "";
   const availQ = useAvailability(orderEndpoint || undefined);
   const variantIndex = useMemo(() => buildVariantIndex(availQ.data), [availQ.data]);
   const [planCode, setPlanCode] = useState(initialPlanCode || "");
@@ -369,11 +372,18 @@ function CreateQueueDialog({
         </DialogHeader>
 
         <div className="space-y-5 py-2">
-          {/* OVH 账户 */}
+          {/* 账户只在左侧菜单栏切,这里只显示当前是谁 */}
           <div>
-            <label className="block text-[13px] font-medium mb-1.5">OVH 账户 *</label>
-            <AccountSelect value={accountId} onChange={setAccountId} />
-            <p className="text-[11px] text-muted-foreground mt-1">下单时用该账户的凭据,购物车 subsidiary 跟随账户 zone</p>
+            <label className="block text-[13px] font-medium mb-1.5">OVH 账户</label>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-secondary/30">
+              <span className="text-[13px] font-medium">{activeAcc?.name || "未选择账户"}</span>
+              {activeAcc && <span className="text-[11px] text-muted-foreground">{activeAcc.zone}</span>}
+              <span className="ml-auto text-[10px] text-muted-foreground">在左侧菜单切换</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              下单用该账户的凭据,购物车 subsidiary 跟随账户 zone。planCode 也要是这个站点的 ——
+              三区目录互不相通
+            </p>
           </div>
 
           {/* 服务器计划代码 */}

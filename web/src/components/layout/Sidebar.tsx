@@ -14,6 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AccountSwitcher } from "@/components/layout/AccountSwitcher";
 
 interface NavItem {
   to: string;
@@ -93,6 +94,9 @@ export function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
           <div className="text-[15px] font-semibold text-foreground leading-tight truncate">OVH 控制台</div>
         </div>
       </Link>
+
+      {/* 全站唯一的账户切换器。放在导航最上面 —— 它决定了下面每个页面看到的是哪个站点的数据 */}
+      <AccountSwitcher onNavigate={onItemClick} />
 
       {/* Menu groups */}
       <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">

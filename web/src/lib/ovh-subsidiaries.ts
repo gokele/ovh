@@ -31,6 +31,12 @@ export const OVH_SUBSIDIARIES: OvhSubsidiary[] = [
   { code: "PT", endpoint: "ovh-eu", label: "葡萄牙 · EUR", currency: "EUR" },
   { code: "FI", endpoint: "ovh-eu", label: "芬兰 · EUR", currency: "EUR" },
   { code: "CZ", endpoint: "ovh-eu", label: "捷克 · EUR", currency: "EUR" },
+  { code: "LT", endpoint: "ovh-eu", label: "立陶宛 · EUR", currency: "EUR" },
+  // MA / TN / SN 属于**欧区站点**(eu.api.ovh.com),不是加区 —— 实测拿它们请求
+  // ca.api.ovh.com 会 400。这三个的计价币种也各不相同,别想当然填 EUR。
+  { code: "MA", endpoint: "ovh-eu", label: "摩洛哥 · MAD", currency: "MAD" },
+  { code: "TN", endpoint: "ovh-eu", label: "突尼斯 · TND", currency: "TND" },
+  { code: "SN", endpoint: "ovh-eu", label: "塞内加尔 · XOF", currency: "XOF" },
 
   // 北美（api.us.ovhcloud.com）。US 独立产品线（plans 137 / addons 768，比 EU 多 40%）
   { code: "US", endpoint: "ovh-us", label: "美国 · USD（独立产品线）", currency: "USD" },
@@ -42,6 +48,9 @@ export const OVH_SUBSIDIARIES: OvhSubsidiary[] = [
   { code: "SG", endpoint: "ovh-ca", label: "新加坡 · SGD", currency: "SGD" },
   { code: "AU", endpoint: "ovh-ca", label: "澳大利亚 · AUD", currency: "AUD" },
   { code: "IN", endpoint: "ovh-ca", label: "印度 · INR", currency: "INR" },
+  // WE / WS 是两个 USD 计价的子公司,属于**加区站点** —— 实测在 eu 站点请求会 400
+  { code: "WE", endpoint: "ovh-ca", label: "西欧(WE) · USD", currency: "USD" },
+  { code: "WS", endpoint: "ovh-ca", label: "南欧(WS) · USD", currency: "USD" },
 ];
 
 /** 根据当前 endpoint 推断默认 subsidiary。

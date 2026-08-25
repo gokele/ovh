@@ -21,6 +21,7 @@ import {
 import { getApiSecretKey, setApiSecretKey } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
+import { apiBaseUrlForEndpoint } from "@/lib/ovh-regions";
 import {
   useAccounts,
   useCreateAccount,
@@ -558,6 +559,32 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
               </SelectContent>
             </Select>
           </Field>
+
+          {/* 申请密钥的说明放在这里而不是只放首次进入的弹窗:
+              日常加号 / 换号都走这个对话框,而"去哪申请、申请错站点会怎样"恰恰是
+              这时候最容易踩的坑。链接必须跟着上面选的子公司走 —— 三站的 token 互不通用。 */}
+          <div className="rounded-xl border border-border bg-secondary/30 px-3 py-2.5 space-y-1.5">
+            <p className="text-[11px] font-semibold">还没有密钥?</p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              去
+              <a
+                href={`${apiBaseUrlForEndpoint(endpointForZone(form.zone))}/createToken/`}
+                target="_blank"
+                rel="noreferrer"
+                className="underline mx-1 text-primary"
+              >
+                {apiBaseUrlForEndpoint(endpointForZone(form.zone)).replace("https://", "")}/createToken
+              </a>
+              申请。<b>{form.zone}</b> 属于这个站点,
+              <span className="text-warning">在别的站点申请的密钥登不进去</span>(三站互不通用)。
+            </p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              权限最省事是四条全给:
+              <code className="mx-1 px-1 py-0.5 rounded bg-background text-[10px]">GET POST PUT DELETE</code>
+              各配 <code className="px-1 py-0.5 rounded bg-background text-[10px]">/*</code>；
+              有效期选 <b>Unlimited</b> —— 到期后抢购和监控会静默失效。
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>取消</Button>

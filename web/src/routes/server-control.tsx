@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, CalendarPlus, Repeat, Activity, Network, CalendarRange } from "lucide-react";
+import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, CalendarPlus, Repeat, Activity, Network, CalendarRange, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -90,20 +90,16 @@ function ServerControlPage() {
         }
         action={
           <div className="flex flex-wrap items-center gap-2">
-            {/* 账户切换器:只影响当前 tab,持久化到 localStorage */}
-            <Select value={activeAccount} onValueChange={setActiveAccount}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="选账户" />
-              </SelectTrigger>
-              <SelectContent>
-                {(accounts || []).map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.name} · {a.zone}
-                    {a.isDefault && <span className="ml-2 text-[10px] text-muted-foreground">(默认)</span>}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* 账户在左侧菜单栏统一切换,这里只显示当前是谁 ——
+                以前这里也能切,和列表页那个各切各的,于是"用 A 账户浏览、用 B 账户下单"
+                一键就能做出来,而三区目录互不相通,这种组合必然失败 */}
+            <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[12px]">
+              <User className="w-3.5 h-3.5 text-muted-foreground" />
+              {(accounts || []).find((a) => a.id === activeAccount)?.name || "未选择账户"}
+              <span className="text-muted-foreground">
+                {(accounts || []).find((a) => a.id === activeAccount)?.zone}
+              </span>
+            </span>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="outline" size="icon" onClick={toggle} aria-label={hidden ? "显示 IP / MAC" : "隐藏 IP"}>

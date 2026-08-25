@@ -9,7 +9,10 @@ import { toast } from "sonner";
  */
 
 const API_KEY_STORAGE = "ovh_sniper_api_key";
-const SERVER_CONTROL_ACCOUNT_KEY = "ovh_active_server_control_account_id";
+// 全局唯一的「当前账户」。以前叫 server_control_account,只管服务器控制页;
+// 现在整站共用一个 —— 左侧菜单栏切一次,列表 / 抢购 / 监控 / 控制台全部跟着走。
+// key 沿用旧名字是为了让老用户升级后不用重选账户。
+const ACTIVE_ACCOUNT_KEY = "ovh_active_server_control_account_id";
 
 /** 读取 API 密钥；当前后端走 header 鉴权，未来若改 Cookie 这里换成空实现即可 */
 export function getApiSecretKey(): string | null {
@@ -17,16 +20,16 @@ export function getApiSecretKey(): string | null {
   return window.localStorage.getItem(API_KEY_STORAGE);
 }
 
-/** 服务器控制 tab 的"活跃账户"。所有 /server-control/* 请求会自动带上 ?account=xxx */
-export function getActiveServerControlAccount(): string {
+/** 全站当前账户。所有依赖账户的请求都会自动带上 ?account=xxx */
+export function getActiveAccount(): string {
   if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(SERVER_CONTROL_ACCOUNT_KEY) || "";
+  return window.localStorage.getItem(ACTIVE_ACCOUNT_KEY) || "";
 }
-export function setActiveServerControlAccount(id: string): void {
+export function setActiveAccount(id: string): void {
   if (id) {
-    window.localStorage.setItem(SERVER_CONTROL_ACCOUNT_KEY, id);
+    window.localStorage.setItem(ACTIVE_ACCOUNT_KEY, id);
   } else {
-    window.localStorage.removeItem(SERVER_CONTROL_ACCOUNT_KEY);
+    window.localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
   }
   // 通知组件:广播一个自定义 event,让 useActiveServerControlAccount 重新读
   window.dispatchEvent(new Event("ovh-active-account-changed"));
@@ -55,14 +58,21 @@ function createApiClient(): AxiosInstance {
     if (key) {
       config.headers.set("X-API-Key", key);
     }
-    // 自动注入活跃账户(/server-control / /vps-control / /ovh 元信息接口)
-    // VPS 控制跟服务器控制共用同一个「活跃账户」slot,UI 上是分开两个 page 但底层账户切换是统一的
+    // 自动注入当前账户。
+    //
+    // 覆盖**所有**跟账户有关的读接口 —— 尤其是 /servers 和 /availability:
+    // OVH 三个站点的目录互不相通,同一台机器在欧区叫 24sk602、在美区叫 24sk602-v1-us。
+    // 以前机型列表按默认账户拉、下单却用另一个账户,一键就能凑出"欧区机型 + 美区账户"
+    // 这种必然失败的组合(实测后端会 400 拒绝,而用户只看到一个红色控制台报错)。
     const url = config.url || "";
-    if (
-      (url.startsWith("/server-control") || url.startsWith("/vps-control") || url.startsWith("/ovh/")) &&
-      !(config.params && (config.params as Record<string, unknown>).account)
-    ) {
-      const acc = getActiveServerControlAccount();
+    const needsAccount =
+      url.startsWith("/server-control") ||
+      url.startsWith("/vps-control") ||
+      url.startsWith("/ovh/") ||
+      url.startsWith("/servers") ||
+      url.startsWith("/availability");
+    if (needsAccount && !(config.params && (config.params as Record<string, unknown>).account)) {
+      const acc = getActiveAccount();
       if (acc) {
         config.params = { ...(config.params || {}), account: acc };
       }

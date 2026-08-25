@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Server, RefreshCw, Search, Bell, ShoppingCart, Cpu, MemoryStick, HardDrive, Wifi,
-  Filter, MapPin,
-} from "lucide-react";
+  Filter, MapPin, User, Globe } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,7 +17,7 @@ import { useAccountInfo } from "@/hooks/use-account";
 import { useCreateQueueItem } from "@/hooks/use-queue";
 import { useCacheInfo } from "@/hooks/use-settings";
 import { useDefaultAccount } from "@/hooks/use-accounts";
-import { AccountSelect } from "@/components/common/AccountSelect";
+import { useActiveAccount } from "@/hooks/use-active-account";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -39,7 +38,7 @@ import {
 } from "@/hooks/use-availability";
 import { groupOptions, type OptionGroupKey } from "@/lib/option-groups";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
-import { OVH_DATACENTERS, lookupDcStatus } from "@/lib/datacenters";
+import { lookupDcStatus, datacentersForPlan } from "@/lib/datacenters";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
 import { formatMoney, CURRENCY_UNKNOWN_HINT } from "@/lib/money";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
@@ -50,9 +49,28 @@ export const Route = createFileRoute("/servers")({
   component: ServersPage,
 });
 
-/** localStorage key：用户手动选过的 subsidiary（持久化跨刷新） */
-const SUB_LS_KEY = "ovh_sniper_price_subsidiary";
-const SUB_MANUAL_LS_KEY = "ovh_sniper_price_subsidiary_manual";
+
+
+/**
+ * 没有价格时显示什么。
+ *
+ * 以前一律显示"价格加载中" —— 但目录早就加载完了,只是这个 planCode 不在当前子公司的
+ * 目录里(三区目录互不相通,机型代码都不一样)。用户盯着一个永远转不完的"加载中",
+ * 完全不知道发生了什么。现在把两种情况分开说。
+ */
+function PriceFallback({ loading, subsidiary }: { loading: boolean; subsidiary: string }) {
+  if (loading) {
+    return <span className="text-muted-foreground font-normal">— · 价格加载中</span>;
+  }
+  return (
+    <span
+      className="text-muted-foreground font-normal"
+      title={`${subsidiary} 的目录里没有这个机型的报价。OVH 各子公司目录独立,机型代码也不同。`}
+    >
+      — · {subsidiary} 无报价
+    </span>
+  );
+}
 
 function ServersPage() {
   const q = useServers();
@@ -66,39 +84,16 @@ function ServersPage() {
   const account = useAccountInfo();
   const accountSub = account.data?.info.ovhSubsidiary;
 
-  // 价格地区（默认跟账户走；用户手动改过后用本地存的）
-  const [subsidiary, setSubsidiary] = useState<string>(() => {
-    try {
-      const manualPicked = localStorage.getItem(SUB_MANUAL_LS_KEY) === "1";
-      if (manualPicked) return localStorage.getItem(SUB_LS_KEY) || "IE";
-    } catch { /* ignore */ }
-    return "IE";
-  });
-
-  // 账户子公司返回后，若用户从未手动改过，自动同步成账户的
-  useEffect(() => {
-    if (!accountSub) return;
-    let manualPicked = false;
-    try {
-      manualPicked = localStorage.getItem(SUB_MANUAL_LS_KEY) === "1";
-    } catch { /* ignore */ }
-    if (!manualPicked) setSubsidiary(accountSub);
-  }, [accountSub]);
-
-  const changeSubsidiary = (v: string) => {
-    setSubsidiary(v);
-    try {
-      localStorage.setItem(SUB_LS_KEY, v);
-      localStorage.setItem(SUB_MANUAL_LS_KEY, "1");
-    } catch { /* 隐私模式忽略 */ }
-  };
-  const resetSubsidiaryToAccount = () => {
-    try {
-      localStorage.removeItem(SUB_MANUAL_LS_KEY);
-      localStorage.removeItem(SUB_LS_KEY);
-    } catch { /* ignore */ }
-    if (accountSub) setSubsidiary(accountSub);
-  };
+  // 计价子公司必须跟**机型列表是按哪个子公司拉的**保持一致。
+  // 后端 /api/servers 用的是账户配置里的 zone(catalog.SubsidiaryOfAccount),
+  // 所以这里也用 zone —— 不能用 OVH /me 返回的 ovhSubsidiary:
+  // 两者不一致时(账户 zone 填错,后端会回 X-Subsidiary-Mismatch 警告),
+  // 列表里是 A 子公司的 planCode、价格却去查 B 子公司的目录,
+  // 查不到就一直显示"价格加载中",而用户根本看不出是配置错了。
+  const pageAccounts = useAccounts();
+  const [activeAccountId] = useActiveAccount();
+  const activeAcc = findAccountByID(pageAccounts.data, activeAccountId);
+  const subsidiary = (activeAcc?.zone || accountSub || "IE").toUpperCase();
 
   // 单次拉取所选 subsidiary 的目录算价格（base plan + addon family 月费累加）
   const catalogQ = useOvhCatalog(subsidiary);
@@ -200,37 +195,13 @@ function ServersPage() {
             <Filter className="w-3.5 h-3.5" />
             仅显示可用
           </Button>
-          {/* 价格地区：每个 subsidiary 独立目录、独立币种、独立税率 */}
-          <div className="flex items-center gap-1.5">
-            <select
-              value={subsidiary}
-              onChange={(e) => changeSubsidiary(e.target.value)}
-              className="h-9 rounded-full border border-border bg-background px-3 text-[12px] font-medium focus:outline-none focus:ring-2 focus:ring-ring w-full sm:max-w-[260px]"
-              title={
-                accountSub
-                  ? `价格地区。账户当前绑定 ${accountSub}，实际下单按账户结算`
-                  : "切换价格地区（subsidiary 决定货币 / 税率 / 实际价格）"
-              }
-            >
-              {OVH_SUBSIDIARIES.map((s) => (
-                <option key={s.code} value={s.code}>
-                  {s.code} · {s.label}
-                  {accountSub === s.code ? " · 我的账户" : ""}
-                </option>
-              ))}
-            </select>
-            {accountSub && subsidiary !== accountSub && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 rounded-full text-[11px]"
-                onClick={resetSubsidiaryToAccount}
-                title={`回到账户绑定的子公司 ${accountSub}`}
-              >
-                回到 {accountSub}
-              </Button>
-            )}
-          </div>
+          {/* 价格地区不再单独选:它以前只换价格、不换机型列表,而下拉里写着「US · 美国」,
+              看上去像是切到了美区目录 —— 实际列表还是欧区的 planCode(24sk602 vs 美区的
+              24sk602-v1-us),照着它下单必然被拒。现在币种直接跟当前账户的子公司走。 */}
+          <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border text-[12px] text-muted-foreground">
+            <Globe className="w-3.5 h-3.5" />
+            价格按 <b className="text-foreground font-semibold">{subsidiary}</b> 结算
+          </span>
           <span className="text-[12px] text-muted-foreground whitespace-nowrap">
             {q.isPending ? "加载中..." : `共 ${filtered.length} 款`}
           </span>
@@ -277,6 +248,8 @@ function ServersPage() {
               server={srv}
               realtimeDcMap={availMap[srv.planCode]}
               price={priceMap[srv.planCode]}
+              priceLoading={catalogQ.isPending}
+              subsidiary={subsidiary}
               onView={() => setDetailPlanCode(srv.planCode)}
             />
           ))}
@@ -292,6 +265,7 @@ function ServersPage() {
               realtimeDcMap={availMap[detailServer.planCode]}
               variants={variantIndex[detailServer.planCode]}
               defaultPrice={priceMap[detailServer.planCode]}
+              priceLoading={catalogQ.isPending}
               catalogIdx={catalogIdx}
               subsidiary={subsidiary}
               onClose={() => setDetailPlanCode(null)}
@@ -308,11 +282,16 @@ function ServerCard({
   server,
   realtimeDcMap,
   price,
+  priceLoading,
+  subsidiary,
   onView,
 }: {
   server: ServerPlan;
   realtimeDcMap?: Record<string, string>;
   price?: PriceInfo;
+  /** 目录还在拉 → 显示"加载中";已拉完仍无价 → 显示"该子公司无报价" */
+  priceLoading: boolean;
+  subsidiary: string;
   onView: () => void;
 }) {
   const addMon = useAddToMonitor();
@@ -330,7 +309,13 @@ function ServerCard({
   const dcMap = useMemo(() => ({ ...staticDcMap, ...(realtimeDcMap || {}) }), [staticDcMap, realtimeDcMap]);
 
   // 只有两态：明确可用 → 绿；其它一律视为缺货（红）
-  const dcStatuses = OVH_DATACENTERS.map((dc) => {
+  // 只列这台机器在当前账户站点真正可选的机房 —— 欧区机型不该出现 HIL/VIN。
+  // dcMap 已经是"静态目录 + 实时可用性"合并后的该机型机房集合。
+  const planDCs = useMemo(
+    () => datacentersForPlan({ [server.planCode]: dcMap }, server.planCode),
+    [dcMap, server.planCode]
+  );
+  const dcStatuses = planDCs.map((dc) => {
     const status = lookupDcStatus(dcMap, dc);
     const isOk = !!status && status !== "unavailable" && status !== "unknown";
     return { dc, isOk };
@@ -353,7 +338,7 @@ function ServerCard({
               {price ? (
                 formatPrice(price)
               ) : (
-                <span className="text-muted-foreground font-normal">— · 价格加载中</span>
+                <PriceFallback loading={priceLoading} subsidiary={subsidiary} />
               )}
             </div>
           </div>
@@ -399,7 +384,7 @@ function ServerCard({
             onClick={() =>
               addMon.mutate({
                 planCode: server.planCode,
-                datacenters: OVH_DATACENTERS.map((dc) => dc.code),
+                datacenters: planDCs.map((dc) => dc.code),
                 serverName: server.name,
               })
             }
@@ -433,6 +418,7 @@ function DetailContent({
   realtimeDcMap,
   variants,
   defaultPrice,
+  priceLoading,
   catalogIdx,
   subsidiary,
   onClose,
@@ -443,6 +429,7 @@ function DetailContent({
   variants?: AvailabilityItem[];
   /** 用默认配置算出的代表价，作为用户尚未变动时的兜底显示 */
   defaultPrice?: PriceInfo;
+  priceLoading: boolean;
   /** 目录索引：用户切配置时实时算价用 */
   catalogIdx: CatalogIndex;
   /** 仅用于价格展示的 subsidiary（顶部下拉决定）。实际下单 subsidiary 由后端 cfg.Zone 决定，在设置页改 */
@@ -454,11 +441,11 @@ function DetailContent({
   const defaultAcc = useDefaultAccount();
   const { data: accounts } = useAccounts();
 
-  // 抢购表单状态：DC 多选 + 数量 + 重试间隔 + 账户
-  const [accountId, setAccountId] = useState("");
-  useEffect(() => {
-    if (!accountId && defaultAcc) setAccountId(defaultAcc.id);
-  }, [defaultAcc?.id, accountId]);
+  // 下单账户 = 左侧菜单栏选的那个全局账户,这里不再单独选。
+  // 拿不到时退回默认账户,避免刚装好还没选就点不了下单。
+  const [globalAccountId] = useActiveAccount();
+  const accountId = globalAccountId || defaultAcc?.id || "";
+  const activeAccount = findAccountByID(accounts, accountId);
 
   // 这里选的下单账户可能跟页面顶部的活跃账户不是同一个区。
   // 库存必须按"实际下单的那个账户"的站点查:EU/US/CA 三站库存互不相通
@@ -491,7 +478,6 @@ function DetailContent({
   }, [server.datacenters]);
   // 实时覆盖静态:plan 级聚合,无 variants 数据时兜底
   const aggregateDcMap = useMemo(() => ({ ...staticDcMap, ...(orderDcMap || {}) }), [staticDcMap, orderDcMap]);
-  const total = OVH_DATACENTERS.length;
 
   // 按组拆分可选配置 + 默认值集合
   const grouped = useMemo(() => groupOptions(server.availableOptions), [server.availableOptions]);
@@ -519,8 +505,15 @@ function DetailContent({
   // 用户看 DC 红绿决定去哪个机房,看 option chip 红绿决定换什么配置。
   // 当前完整选配 vs 实际可下单的精确校验放到提交按钮那一步处理(待加)。
   const dcMap = aggregateDcMap;
+  // 该机型在当前账户站点真正可选的机房。写死 16 个会让欧区机型列出 HIL/VIN 这种
+  // 永远买不到的机房,美区账户同样会看到一堆自己订不了的欧洲机房。
+  const dialogDCs = useMemo(
+    () => datacentersForPlan({ [server.planCode]: dcMap }, server.planCode),
+    [dcMap, server.planCode]
+  );
 
-  const ok = OVH_DATACENTERS.filter((dc) => {
+  const total = dialogDCs.length;
+  const ok = dialogDCs.filter((dc) => {
     const status = lookupDcStatus(dcMap, dc);
     return !!status && status !== "unavailable" && status !== "unknown";
   }).length;
@@ -584,7 +577,13 @@ function DetailContent({
               </span>
             </div>
             <div className="text-2xl font-bold tabular-nums mt-0.5">
-              {price ? formatPrice(price) : <span className="text-muted-foreground font-normal text-base">— · 价格加载中</span>}
+              {price ? (
+                formatPrice(price)
+              ) : (
+                <span className="text-base">
+                  <PriceFallback loading={priceLoading} subsidiary={subsidiary} />
+                </span>
+              )}
             </div>
           </div>
           {price && (
@@ -628,7 +627,7 @@ function DetailContent({
           <div className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
             <h3 className="text-[13px] font-semibold flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
-              数据中心 · 选 {selectedDCs.length} / {OVH_DATACENTERS.length}
+              数据中心 · 选 {selectedDCs.length} / {dialogDCs.length}
             </h3>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-muted-foreground">
@@ -640,7 +639,7 @@ function DetailContent({
                 className="h-7 text-[11px]"
                 onClick={() => {
                   // 全选可用的；都满了就清空
-                  const okCodes = OVH_DATACENTERS
+                  const okCodes = dialogDCs
                     .filter((dc) => {
                       const s = lookupDcStatus(dcMap, dc);
                       return !!s && s !== "unavailable" && s !== "unknown";
@@ -655,7 +654,7 @@ function DetailContent({
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5 sm:gap-2">
-            {OVH_DATACENTERS.map((dc) => {
+            {dialogDCs.map((dc) => {
               const status = lookupDcStatus(dcMap, dc);
               const isOk = !!status && status !== "unavailable" && status !== "unknown";
               const isSelected = selectedDCs.includes(dc.code);
@@ -693,7 +692,18 @@ function DetailContent({
           <div className="space-y-3">
             <div>
               <label className="block text-[11px] text-muted-foreground mb-1">OVH 账户 *</label>
-              <AccountSelect value={accountId} onChange={setAccountId} />
+              {/* 账户只在左侧菜单栏切,这里只显示当前是谁 —— 两个地方各切一次
+                  正是"欧区机型配美区账户"那类必然失败组合的来源 */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-secondary/30">
+                <User className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                <span className="text-[13px] font-medium">{activeAccount?.name || "未选择账户"}</span>
+                {activeAccount && (
+                  <span className="text-[11px] text-muted-foreground">
+                    {activeAccount.zone} · {regionLabel(endpointRegion(activeAccount.endpoint))}
+                  </span>
+                )}
+                <span className="ml-auto text-[10px] text-muted-foreground">在左侧菜单切换</span>
+              </div>
               {orderEndpoint && (
                 <p className="text-[11px] text-muted-foreground mt-1">
                   机房与配置的红绿点按该账户所在站点（{regionLabel(endpointRegion(orderEndpoint))}）实时查询
@@ -748,7 +758,7 @@ function DetailContent({
           onClick={() =>
             addMon.mutate({
               planCode: server.planCode,
-              datacenters: OVH_DATACENTERS.map((dc) => dc.code),
+              datacenters: dialogDCs.map((dc) => dc.code),
               serverName: server.name,
             })
           }

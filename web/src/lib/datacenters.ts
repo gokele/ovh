@@ -43,3 +43,33 @@ export function lookupDcStatus(
   if (!availMap) return undefined;
   return availMap[dc.code] || (dc.apiCode ? availMap[dc.apiCode] : undefined);
 }
+
+/**
+ * 该机型在**当前账户所在站点**实际可选的机房。
+ *
+ * 以前所有地方都渲染写死的 16 个机房,于是欧区机型也会列出 HIL / VIN(美国机房)——
+ * 那两个对它永远是红点,因为欧区目录里根本没有它们;反过来美区账户也会看到一堆
+ * 自己买不到的欧洲机房。可用性接口是按账户站点查的,它返回哪些机房,就只显示哪些。
+ *
+ * 返回顺序沿用 OVH_DATACENTERS 的固定顺序(界面稳定),接口里出现而表里没有的
+ * 机房码原样兜底展示,不吞掉。
+ */
+export function datacentersForPlan(
+  availMap: Record<string, Record<string, string>> | undefined,
+  planCode: string
+): DataCenter[] {
+  const codes = availMap?.[planCode];
+  // 可用性还没到手 → 先按完整表渲染,避免闪一下空白
+  if (!codes || Object.keys(codes).length === 0) return OVH_DATACENTERS;
+
+  const has = (dc: DataCenter) => (dc.apiCode && codes[dc.apiCode] !== undefined) || codes[dc.code] !== undefined;
+  const known = OVH_DATACENTERS.filter(has);
+
+  // 接口给了、但本地表里没有的机房码:原样显示,别让用户看不到真实在售的机房
+  const knownApiCodes = new Set(OVH_DATACENTERS.flatMap((d) => [d.code, d.apiCode].filter(Boolean) as string[]));
+  const extras: DataCenter[] = Object.keys(codes)
+    .filter((c) => !knownApiCodes.has(c))
+    .map((c) => ({ code: c, name: c.toUpperCase(), region: "—" }));
+
+  return [...known, ...extras];
+}
