@@ -60,7 +60,7 @@ func SaveSettings(state *app.State) gin.HandlerFunc {
 		}
 		state.Logger.Info("API settings updated in config.json", "system")
 
-		// TG 配置变更 → 同步发测试消息（1:1 对应 Python save_settings 2450-2463）
+		// TG 配置变更 → 同步发一条测试消息
 		if newCfg.TgToken != "" && newCfg.TgChatID != "" {
 			changed := newCfg.TgToken != prev.TgToken || newCfg.TgChatID != prev.TgChatID
 			if changed || prev.TgToken == "" || prev.TgChatID == "" {

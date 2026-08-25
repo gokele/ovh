@@ -66,7 +66,6 @@ func VerifyConfig(state *app.State) (bool, string) {
 	return true, ""
 }
 
-// SendMessage 对应 Python: send_telegram_msg
 func SendMessage(state *app.State, message string, replyMarkup map[string]interface{}) bool {
 	cfg := state.Config.Get()
 	if cfg.TgToken == "" {
@@ -254,7 +253,6 @@ func SendReply(state *app.State, chatID interface{}, text string, replyToMessage
 	}
 }
 
-// OrderInfo 对应 Python parse_telegram_order_message 返回
 type OrderInfo struct {
 	PlanCode   string
 	Datacenter string
@@ -262,7 +260,6 @@ type OrderInfo struct {
 	Options    []string
 }
 
-// ParseOrderMessage 对应 Python: parse_telegram_order_message
 // 格式: plancode [datacenter] [quantity] [options(逗号分隔)]
 func ParseOrderMessage(text string) *OrderInfo {
 	text = strings.TrimSpace(text)
@@ -329,7 +326,7 @@ func ParseOrderMessage(text string) *OrderInfo {
 	return result
 }
 
-// parsePositiveInt 严格匹配 Python str.isdigit() 行为：只接受纯十进制 ASCII 数字字符串，
+// parsePositiveInt 只接受纯十进制 ASCII 数字字符串，
 // 不接受 "-1" / "+5" / " 3" 等带符号或空白的版本（strconv.Atoi 会通过）。
 func parsePositiveInt(s string) (int, bool) {
 	if s == "" {

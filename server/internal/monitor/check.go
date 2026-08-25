@@ -338,8 +338,6 @@ func (m *Monitor) PreflightRegion(planCode, autoOrderAccountID string) (region, 
 	return c.region, c.subsidiary, c.degradeReason
 }
 
-// CheckAvailabilityChange 对应 Python: check_availability_change
-//
 // 并发:同一条订阅同一时刻只会有一个 goroutine 在跑这里(loop 每轮一个,轮间 wg.Wait),
 // 但 HTTP 侧随时可能读同一条订阅。所以本函数对 sub 的所有读写都走 types.go 里的带锁方法,
 // 中间态(lastStatus)先在本地副本上算,算完一次性写回。

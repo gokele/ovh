@@ -37,7 +37,6 @@ type Outcome struct {
 	Attempted bool
 }
 
-// PurchaseServer 对应 Python: purchase_server
 // 多账户:用 item.AccountID 取对应 OVH client 和 subsidiary。
 func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 	client, err := state.OVH.ClientFor(item.AccountID)
@@ -191,7 +190,7 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 		}
 	}()
 
-	// 立即绑定购物车到账户 —— 对齐 OVH 官方 PHP / Python 示例的推荐顺序：
+	// 立即绑定购物车到账户 —— 对齐 OVH 官方示例的推荐顺序：
 	// cart → assign → eco → configuration → options → summary → checkout。
 	// 在 add item 之前 assign，OVH 后端不会出现"cart 未绑定就 checkout"的边界错误。
 	// schema 里 POST /order/cart/{cartId}/assign 只有 path 参数、没有 body（对比同一个
@@ -299,7 +298,7 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 		state.Logger.Info(fmt.Sprintf("区域配置: %s = %s(来源: %s)", apiDC, region, regionSrc), "purchase")
 	}
 
-	// 与 Python 一致的顺序：dedicated_datacenter → dedicated_os → (region)
+	// 顺序固定：dedicated_datacenter → dedicated_os → (region)
 	type kv struct{ label, value string }
 	configurations := []kv{
 		{"dedicated_datacenter", apiDC},

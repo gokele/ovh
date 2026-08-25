@@ -15,7 +15,7 @@ import (
 	"github.com/ovh-buy/server/internal/types"
 )
 
-// OrderResult 对应 Python: process_telegram_order 返回
+// OrderResult Telegram 下单结果
 type OrderResult struct {
 	Success       bool   `json:"success"`
 	Message       string `json:"message"`
@@ -63,7 +63,6 @@ func emptyAvailabilityReason(state *app.State, accountID, planCode string, acc t
 	return base + fmt.Sprintf("\n\n%s 的目录里有 %s,所以不是区域搞错了,而是这个机型当前在所有机房都没有可售配置。", sub, planCode)
 }
 
-// ProcessOrder 对应 Python: process_telegram_order
 func ProcessOrder(state *app.State, planCode, datacenter string, quantity int, options []string) OrderResult {
 	if quantity < 1 {
 		quantity = 1

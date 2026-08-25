@@ -15,6 +15,7 @@ import {
   Calendar,
   type LucideIcon,
 } from "lucide-react";
+import { UpdateButton } from "@/components/common/UpdateButton";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,6 @@ import { MetricRing } from "@/components/common/MetricRing";
 import { useStats } from "@/hooks/use-stats";
 import { useQueueList, type QueueItem } from "@/hooks/use-queue";
 import { useSystemMetrics, useAppVersion, useUpdateCheck } from "@/hooks/use-system-metrics";
-import { Sparkles } from "lucide-react";
 
 /** 仪表盘:3 KPI + 活跃队列 / 系统状态 + 系统监控(CPU / 内存 / 磁盘 / 网络) */
 export const Route = createFileRoute("/")({
@@ -179,18 +179,7 @@ function DashboardPage() {
                 </div>
                 <div className="inline-flex items-center gap-2">
                   <span className="text-xs font-mono font-semibold">v{version.data || "—"}</span>
-                  {update.data?.hasUpdate ? (
-                    <a
-                      href={update.data.url}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                      title={`有新版本 v${update.data.latest} 可用,点击查看`}
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      v{update.data.latest}
-                    </a>
-                  ) : null}
+                  <UpdateButton check={update.data} />
                 </div>
               </div>
             </div>

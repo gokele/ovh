@@ -8,7 +8,7 @@ import (
 	"github.com/ovh-buy/server/internal/app"
 )
 
-// Monitor 对应 Python: ServerMonitor 类
+// Monitor 服务器补货监控器
 type Monitor struct {
 	state *app.State
 
@@ -266,7 +266,6 @@ func (m *Monitor) Snapshot() []*Subscription {
 	return cp
 }
 
-// Status 对应 Python: get_status
 func (m *Monitor) Status() map[string]interface{} {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()

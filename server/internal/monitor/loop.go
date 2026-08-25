@@ -39,7 +39,6 @@ func (m *Monitor) checkTGOrStop() bool {
 	return true
 }
 
-// CheckNewServers 对应 Python: check_new_servers
 func (m *Monitor) CheckNewServers(currentServerList []map[string]interface{}) {
 	current := map[string]struct{}{}
 	for _, s := range currentServerList {
@@ -73,7 +72,6 @@ func (m *Monitor) CheckNewServers(currentServerList []map[string]interface{}) {
 	}
 }
 
-// runSubscriptionCheck 对应 Python: _run_subscription_check
 func (m *Monitor) runSubscriptionCheck(sub *Subscription, traceID string) {
 	planCode := sub.PlanCode
 	m.state.Logger.Info("开始处理订阅: "+planCode, "monitor")
@@ -81,7 +79,6 @@ func (m *Monitor) runSubscriptionCheck(sub *Subscription, traceID string) {
 	m.state.Logger.Info("完成处理订阅: "+planCode, "monitor")
 }
 
-// monitorLoop 对应 Python: monitor_loop
 func (m *Monitor) monitorLoop() {
 	m.state.Logger.Info("监控循环已启动", "monitor")
 	for {
@@ -179,7 +176,6 @@ func (m *Monitor) stillInSubscriptions(sub *Subscription) bool {
 	return false
 }
 
-// Start 对应 Python: start
 func (m *Monitor) Start() bool {
 	m.subsMu.Lock()
 	if m.running {
@@ -203,7 +199,6 @@ func (m *Monitor) Start() bool {
 	return true
 }
 
-// Stop 对应 Python: stop
 func (m *Monitor) Stop() bool {
 	m.subsMu.Lock()
 	if !m.running {
@@ -218,7 +213,7 @@ func (m *Monitor) Stop() bool {
 	return true
 }
 
-// batchOrder 对应 Python: 监控->下单批量调用 quick-order。
+// batchOrder 监控触发的批量下单:逐个调本地 quick-order 入队。
 // accountID:auto_order 账户;空时 batchOrder 不应该被调到(check.go 的 guard 已挡住),
 // 这里再做一次防御性检查。
 func (m *Monitor) batchOrder(planCode string, configInfo map[string]interface{}, targets []notification, quantity int, accountID string) {

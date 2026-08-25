@@ -14,7 +14,7 @@ import (
 	"github.com/ovh-buy/server/internal/types"
 )
 
-// Result 对应 Python: _get_server_price_internal 返回结构
+// Result 询价结果
 type Result struct {
 	Success    bool     `json:"success"`
 	PlanCode   string   `json:"planCode,omitempty"`
@@ -62,7 +62,6 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 		_ = client.Delete("/order/cart/"+cartID, nil)
 	}
 	// 防止中间步骤 panic（map 断言 / 空指针等）导致 cart 泄漏永不清理；
-	// Python `app.py:3961-3989` 在两个 except 块都 best-effort delete
 	defer cleanup()
 
 	// 1. 创建购物车
@@ -127,7 +126,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 	state.Logger.Debug(fmt.Sprintf("基础商品添加成功，项目 ID: %d", itemID), "price")
 
 	// 3. 设置必需配置
-	// 1:1 对应 Python app.py:3756-3761：dict 在 Py3.7+ 保持插入序：datacenter → os → region。
+	// 三个配置项必须按 datacenter → os → region 的顺序串行提交。
 	// Go map 遍历顺序随机，若 region 先于 dedicated_datacenter 设置，OVH 可能返回 400
 	// region 的合法取值由 (子公司, planCode) 决定:US 子公司一律 united_states,
 	// 欧区是 canada/europe。按机房静态推是错的 —— 详见 catalog.ResolveRegion
@@ -269,7 +268,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 	// 这里以前还会先 GET /order/cart/{cartId}：但 order.cart.Cart.items 是 long[](纯 itemId),
 	// 按对象数组解析永远拿不到明细，白白多一次能让整次询价硬失败的调用，已删。
 	// 逐项明细改从 summary(order.Order)的 details(order.OrderDetail[]) 取。
-	// 1:1 对应 Python app.py:3812-3813：OVH 错误直接抛进外层 except 返回 success:false。
+	// OVH 错误直接返回 success:false。
 	// 之前 Go 静默忽略会导致瞬断时 success:true 但价格全 nil，前端误以为有效价格 0
 	var cartSummary map[string]interface{}
 	if err := client.Get("/order/cart/"+cartID+"/summary", &cartSummary); err != nil {

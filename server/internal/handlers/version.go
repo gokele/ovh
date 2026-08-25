@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/updater"
 )
 
 // Version 当前二进制版本。build.sh 用 -ldflags "-X github.com/ovh-buy/server/internal/handlers.Version=x.y.z" 注入。
@@ -26,11 +27,10 @@ func GetVersion(state *app.State) gin.HandlerFunc {
 	}
 }
 
-// updateRepo GitHub 上游仓库。换源时改这里就行。
-const (
-	updateRepo      = "gokele/ovh"
-	updateUserAgent = "OVH-Console-UpdateChecker"
-)
+// 上游仓库与更新源都在 internal/updater 里定义(updater.Repo / updater.LatestReleaseURL),
+// 这里不再另存一份 —— 两处各写一份的话,换源时漏改一边就会出现"检查到的版本"和
+// "实际装上的版本"不是同一个的诡异现象。
+const updateUserAgent = "OVH-Console-UpdateChecker"
 
 // githubRelease 只挑要用的字段反序列化
 type githubRelease struct {
@@ -42,6 +42,9 @@ type githubRelease struct {
 	Prerelease  bool   `json:"prerelease"`
 	Draft       bool   `json:"draft"`
 }
+
+// trimV 去掉 tag 的 v 前缀
+func trimV(s string) string { return strings.TrimPrefix(strings.TrimSpace(s), "v") }
 
 // parseSemver 把 "v0.0.2" / "0.1.10" 切成 [0 0 2] / [0 1 10],
 // 解析失败的段当 0,简单稳定的字典序比较够用
@@ -83,7 +86,9 @@ func semverGreater(latest, current string) bool {
 // dev 版本(未注入 ldflags)也返回 latest 信息,但 hasUpdate 始终 false,避免开发时刷屏。
 func CheckUpdate(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		url := "https://api.github.com/repos/" + updateRepo + "/releases/latest"
+		// 与真正执行更新的 updater 用同一个来源:否则设了 OVH_UPDATE_API(私有镜像)之后,
+		// 这里显示"有 v1.2.3",更新器却去 GitHub 抓另一个版本,用户看到的和装上的对不上
+		url := updater.LatestReleaseURL()
 		client := &http.Client{Timeout: 15 * time.Second}
 		req, _ := http.NewRequest(http.MethodGet, url, nil)
 		req.Header.Set("Accept", "application/vnd.github+json")

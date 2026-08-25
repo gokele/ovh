@@ -11,7 +11,7 @@ import (
 )
 
 // GetStats GET /api/stats
-// 1:1 对应 Python app.py:402-405: monitor_running 直接读 monitor.running，
+// monitor_running 直接读 monitor.running，
 // 这样 monitor goroutine 异常退出时 UI 能立刻反映 false
 func GetStats(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {

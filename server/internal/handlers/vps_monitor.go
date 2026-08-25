@@ -25,7 +25,7 @@ func GetVPSSubscriptions(state *app.State) gin.HandlerFunc {
 			return
 		}
 		// 保证每个 VPSSubscription 内部的 slice/map 字段不是 nil，
-		// 否则前端调 .length 会爆（Python jsonify 在这点上等价于初始化为 []）
+		// 否则前端调 .length 会爆
 		for i := range state.VPSSubscriptions {
 			if state.VPSSubscriptions[i].Datacenters == nil {
 				state.VPSSubscriptions[i].Datacenters = []string{}

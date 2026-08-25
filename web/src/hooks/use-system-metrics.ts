@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 /** 后端二进制版本*/
@@ -39,6 +39,37 @@ export function useUpdateCheck() {
     gcTime: 24 * 60 * 60 * 1000,
     retry: 0,
     refetchOnWindowFocus: false,
+  });
+}
+
+/** 自更新进度。后端把状态放内存,重启阶段这个接口会连不上 —— 那正是重启成功的信号 */
+export interface UpdateProgress {
+  phase: "idle" | "downloading" | "verifying" | "installing" | "restarting" | "done" | "failed";
+  message: string;
+  percent: number;
+  version: string;
+  error?: string;
+}
+
+/** 触发在线更新:下载 → 校验 SHA256 → 替换二进制 → 自动重启。
+ *  接口立刻返回,真正的活在后端 goroutine 里,进度靠 useUpdateProgress 轮询。 */
+export function useSelfUpdate() {
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<{ success: boolean; message?: string; error?: string; latest?: string }>("/version/update")).data,
+  });
+}
+
+/** 轮询更新进度。enabled 时每秒一次 —— 更新是用户主动点的、有明确终点,
+ *  这个频率只在更新期间存在,不会常驻。 */
+export function useUpdateProgress(enabled: boolean) {
+  return useQuery<UpdateProgress>({
+    queryKey: ["app", "update-progress"],
+    queryFn: async () => (await api.get<UpdateProgress>("/version/update/status")).data,
+    enabled,
+    refetchInterval: enabled ? 1000 : false,
+    retry: 0,
+    gcTime: 0,
   });
 }
 

@@ -17,7 +17,6 @@ import (
 	"github.com/ovh-buy/server/internal/types"
 )
 
-// CheckServerAvailabilityWithConfigs 对应 Python: check_server_availability_with_configs
 // 返回每个配置组合的可用性 + 匹配到的 API2 options
 type ConfigAvailability struct {
 	Memory      string            `json:"memory"`
@@ -372,7 +371,7 @@ func fqnSegmentsOf(item map[string]interface{}) []string {
 	return segs
 }
 
-// CheckServerAvailability 对应 Python: check_server_availability（带 options 精确匹配）。
+// CheckServerAvailability 查某机型各机房的可用性（带 options 精确匹配）。
 // accountID 决定用哪个账户的 client 查:EU / US / CA 三个 endpoint 各自维护独立的
 // /dedicated/server/datacenter/availabilities 库存视图,写死默认账户会让前端切账户后
 // 看到的是别的大区的库存。空 = 默认账户。
@@ -636,7 +635,6 @@ func lookupDCName(code string) (string, string, bool) {
 	return "", "", false
 }
 
-// LoadServerList 对应 Python: load_server_list。
 // 多账户:用 accountID 对应账户的 zone 作 ovhSubsidiary(空 = 默认账户),不读全局 state.Config
 // (新建账户不会写 kv['config'])。endpoint 与 ovhSubsidiary 一起决定目录范围,
 // EU 与 US 的 nichandle.OvhSubsidiaryEnum 取值集合本身就不同,必须跟着账户走。
@@ -943,7 +941,7 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 			}
 		}
 
-		// 解析方法 2: 从 plan.details.properties 提取（1:1 对应 app.py:2010-2040）
+		// 解析方法 2: 从 plan.details.properties 提取
 		if details, ok := plan["details"].(map[string]interface{}); ok {
 			if propsRaw, ok := details["properties"].([]interface{}); ok {
 				for _, pRaw := range propsRaw {
@@ -976,7 +974,7 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 			}
 		}
 
-		// 解析方法 3: 从 plan.product.configurations 提取（1:1 对应 app.py:2154-2184）
+		// 解析方法 3: 从 plan.product.configurations 提取
 		if product, ok := plan["product"].(map[string]interface{}); ok {
 			if cfgs, ok := product["configurations"].([]interface{}); ok {
 				for _, cRaw := range cfgs {
@@ -1003,7 +1001,7 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 			}
 		}
 
-		// 解析方法 4: 从 plan.description 逗号分割解析（1:1 对应 app.py:2186-2211）
+		// 解析方法 4: 从 plan.description 逗号分割解析
 		if desc := getString(plan, "description", ""); desc != "" {
 			for _, part := range strings.Split(desc, ",") {
 				part = strings.ToLower(strings.TrimSpace(part))
@@ -1028,7 +1026,7 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 			}
 		}
 
-		// 解析方法 5: 从 plan.pricing.configurations 提取（1:1 对应 app.py:2213-2242）
+		// 解析方法 5: 从 plan.pricing.configurations 提取
 		if pricing, ok := plan["pricing"].(map[string]interface{}); ok {
 			if cfgs, ok := pricing["configurations"].([]interface{}); ok {
 				for _, cRaw := range cfgs {
@@ -1095,7 +1093,7 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 	return result, availFailed
 }
 
-// parseBandwidthValue 与 Python 中带宽解析逻辑等价（1:1 对应 app.py:1914-1976）
+// parseBandwidthValue 解析 OVH 目录里的带宽字段
 // 支持 6 种格式：traffic-Xtb-Y / traffic-Xtb / bandwidth-N（含 Gbps 转换）/ unlimited / guarantee / vrack
 func parseBandwidthValue(defaultValue string, sv *types.ServerPlan) string {
 	lc := strings.ToLower(defaultValue)

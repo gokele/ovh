@@ -98,7 +98,7 @@ func SetBootConfig(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
 		bootIDStr := c.Param("boot_id")
-		// Python 路由 <int:boot_id> 强制转 int，OVH API bootId 字段也要求整数
+		// OVH API 的 bootId 字段要求整数
 		// 之前 Go 把字符串直接塞进 body 会被 OVH 拒
 		bootID, err := strconv.ParseInt(bootIDStr, 10, 64)
 		if err != nil {
@@ -136,7 +136,7 @@ func GetMonitoringStatus(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
-		// 1:1 对应 Python app.py:6111：缺失时默认 false
+		// 缺失时默认 false
 		monitoring := info["monitoring"]
 		if monitoring == nil {
 			monitoring = false

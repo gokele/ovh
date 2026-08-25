@@ -126,7 +126,6 @@ func formatMoney(currency string, v float64) string {
 	}
 }
 
-// verifyPriceAvailable 对应 Python: _verify_price_available
 // 返回 (是否可下单, 失败原因)
 func (m *Monitor) verifyPriceAvailable(planCode, datacenter string, configInfo map[string]interface{}) (bool, string) {
 	options := optionsFromConfig(configInfo)
@@ -209,7 +208,6 @@ func (m *Monitor) verifyPriceAvailable(planCode, datacenter string, configInfo m
 	return true, ""
 }
 
-// GetPriceInfoText 对应 Python: _get_price_info
 func (m *Monitor) GetPriceInfoText(planCode, datacenter string, configInfo map[string]interface{}) string {
 	options := optionsFromConfig(configInfo)
 
@@ -283,7 +281,7 @@ func (m *Monitor) GetPriceInfoText(planCode, datacenter string, configInfo map[s
 	return ""
 }
 
-// getPriceWithTimeout 模拟 Python 中 30 秒超时
+// getPriceWithTimeout 带 30 秒超时的询价
 func (m *Monitor) getPriceWithTimeout(planCode, datacenter string, configInfo map[string]interface{}, timeout time.Duration) (string, string) {
 	type res struct {
 		text   string

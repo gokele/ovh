@@ -8,7 +8,7 @@ import (
 	"github.com/ovh-buy/server/internal/types"
 )
 
-// Store 配置存取（线程安全，对应 Python 全局 config dict）
+// Store 配置存取（线程安全）
 type Store struct {
 	mu  sync.RWMutex
 	cfg types.Config

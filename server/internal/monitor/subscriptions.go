@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// AddSubscription 对应 Python: add_subscription
 // autoOrderAccountID:auto_order 触发时用哪个账户下单;空 = 只通知不下单
 func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyAvailable, notifyUnavailable bool,
 	serverName string, lastStatus map[string]string, history []HistoryEntry, autoOrder bool, quantity int,
@@ -86,7 +85,6 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 	m.state.Logger.Info(fmt.Sprintf("添加订阅: %s, 数据中心: %s", displayName, dcsStr), "monitor")
 }
 
-// RemoveSubscription 对应 Python: remove_subscription
 func (m *Monitor) RemoveSubscription(planCode string) bool {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
@@ -105,7 +103,6 @@ func (m *Monitor) RemoveSubscription(planCode string) bool {
 	return false
 }
 
-// ClearSubscriptions 对应 Python: clear_subscriptions
 func (m *Monitor) ClearSubscriptions() int {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
@@ -176,7 +173,6 @@ func (m *Monitor) OptionsCacheLookup(key string) []string {
 	return nil
 }
 
-// cleanupExpiredCaches 对应 Python: _cleanup_expired_caches
 func (m *Monitor) cleanupExpiredCaches() {
 	now := time.Now().Unix()
 	// 顺带清理 SQLite 里过期的一键下单按钮，防止表无限增长

@@ -2,7 +2,6 @@ package types
 
 import "time"
 
-// Config 对应 Python 全局 config dict
 type Config struct {
 	AppKey      string `json:"appKey"`
 	AppSecret   string `json:"appSecret"`
@@ -22,7 +21,7 @@ type Config struct {
 	TgWebhookSecretRegistered bool `json:"tgWebhookSecretRegistered,omitempty"`
 }
 
-// DefaultConfig 与 Python 端默认值保持一致
+// DefaultConfig 默认配置
 func DefaultConfig() Config {
 	return Config{
 		Endpoint: "ovh-eu",
@@ -31,7 +30,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// LogEntry 日志条目，字段名严格匹配 Python 端 JSON 结构
+// LogEntry 日志条目（字段名与前端 JSON 结构一致）
 type LogEntry struct {
 	ID        string `json:"id"`
 	Timestamp string `json:"timestamp"`

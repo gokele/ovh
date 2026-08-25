@@ -19,7 +19,7 @@ const (
 	writeThreshold = 10
 )
 
-// Logger 与 Python add_log 行为一致：内存累积 + 批量刷盘 + 控制台输出
+// Logger 内存累积 + 批量刷盘 + 控制台输出
 type Logger struct {
 	mu           sync.Mutex
 	entries      []types.LogEntry

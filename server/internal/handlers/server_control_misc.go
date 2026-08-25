@@ -720,7 +720,7 @@ func CreateSPLA(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "无效的许可证类型: " + body.Type + " (只支持 os / sqlstd / sqlweb)"})
 			return
 		}
-		// serialNumber 在 schema 里是必填 string,原来照搬 Python 发 JSON null 一样会被 OVH 拒,
+		// serialNumber 在 schema 里是必填 string,发 JSON null 会被 OVH 拒,
 		// 不如本地挡下并给出中文提示
 		if body.SerialNumber == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少serialNumber参数"})

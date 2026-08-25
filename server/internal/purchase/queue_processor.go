@@ -12,7 +12,6 @@ import (
 
 const concurrentBatchSize = 10
 
-// ProcessQueueLoop 对应 Python: process_queue
 func ProcessQueueLoop(state *app.State) {
 	for {
 		state.QueueMu.Lock()
@@ -81,7 +80,7 @@ func ProcessQueueLoop(state *app.State) {
 		}
 		state.DeletedTaskIDsMu.Unlock()
 
-		// 再快照一次 queue id 集合，用于复核"任务是否还在队列中"（1:1 对应 Python app.py:1185-1188）
+		// 再快照一次 queue id 集合，用于复核"任务是否还在队列中"
 		state.QueueMu.Lock()
 		queueIDs := make(map[string]struct{}, len(state.Queue))
 		for _, q := range state.Queue {

@@ -214,7 +214,7 @@ func defaultArr(v interface{}) interface{} {
 	return v
 }
 
-// isNonEmptyStorage 对应 Python "if data.get('storageConfig'):" 的 falsy 语义
+// isNonEmptyStorage 判断 storageConfig 是否真的给了内容
 // 空数组 / 空字典 / nil / false / 0 都视为"未提供自定义 storage"
 func isNonEmptyStorage(v interface{}) bool {
 	if v == nil {

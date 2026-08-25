@@ -81,7 +81,7 @@ func GetHardwareInfo(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
-		// 1:1 对应 Python app.py:6150-6167：缺字段补 N/A / 0 / {} / []，
+		// 缺字段补 N/A / 0 / {} / []，
 		// 否则 JSON 序列化 null 让前端 .toLowerCase / .length 崩溃
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,

@@ -131,7 +131,7 @@ func ListMyServers(state *app.State) gin.HandlerFunc {
 					}
 				}
 			}
-			// 1:1 对应 Python app.py:5083-5096：缺失字段补默认值
+			// 缺失字段补默认值
 			monitoring := info["monitoring"]
 			if monitoring == nil {
 				monitoring = false
@@ -220,7 +220,7 @@ func GetOSTemplates(state *app.State) gin.HandlerFunc {
 		}
 		state.Logger.Info(fmt.Sprintf("获取服务器 %s 可用系统模板成功，共 %d 个", svc, len(allNames)), "server_control")
 
-		// Python app.py:5432 是串行逐个 GET 模板详情，50-100 模板要 10-50 秒。
+		// 串行逐个 GET 模板详情要 10-50 秒（50-100 个模板）。
 		// 这里改成 10 路并发（OVH 通常允许 10-20 RPS），返回结构完全一致，仅顺序后排
 		details := make([]gin.H, len(allNames))
 		sem := make(chan struct{}, 10)
@@ -753,7 +753,6 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 	}
 }
 
-// translateInstallStep 对应 Python: translate_install_step
 var translationMap = map[string]string{
 	"Pre-configuring Post-installation":          "预配置安装后脚本",
 	"Downloading OS image":                       "下载系统镜像",

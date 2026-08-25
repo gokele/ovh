@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -22,6 +24,7 @@ import (
 	"github.com/ovh-buy/server/internal/purchase"
 	"github.com/ovh-buy/server/internal/storage"
 	"github.com/ovh-buy/server/internal/telegram"
+	"github.com/ovh-buy/server/internal/updater"
 )
 
 func main() {
@@ -58,6 +61,14 @@ func main() {
 		state.Port = "19998"
 	}
 	state.LoadAll()
+
+	// 上一次更新留下的残骸(Windows 的 .old、中断的临时文件)在这里清掉
+	updater.CleanupStale()
+
+	// gracefulRestart 由 SelfUpdate 在替换完二进制后调用。
+	// 必须先关监听端口和 SQLite 再 exec:端口不放新进程会撞 "address already in use",
+	// SQLite 不干净关闭会留下 -wal / -shm。
+	var gracefulRestart = func(exe string) {}
 
 	// 监控器
 	mon := monitor.New(state)
@@ -150,6 +161,10 @@ func main() {
 		api.GET("/system/metrics", handlers.GetSystemMetrics(state))
 		api.GET("/version", handlers.GetVersion(state))
 		api.GET("/version/check-update", handlers.CheckUpdate(state))
+		// 在线更新:下载 → 校验 → 替换自己 → 自动重启。gracefulRestart 在下面赋值,
+		// 这里用闭包间接引用,避免"路由要在 server 之前注册、server 又要在路由之后创建"的鸡生蛋
+		api.POST("/version/update", handlers.SelfUpdate(state, func(exe string) { gracefulRestart(exe) }))
+		api.GET("/version/update/status", handlers.GetUpdateStatus(state))
 
 		// Accounts (多账户管理)
 		api.GET("/accounts", handlers.ListAccounts(state))
@@ -228,6 +243,8 @@ func main() {
 			sc.POST("/:service_name/ola/group", handlers.OLAGroup(state))
 			sc.POST("/:service_name/ola/ungroup", handlers.OLAUngroup(state))
 			sc.GET("/:service_name/console", handlers.GetIPMIConsole(state))
+			// 只查支持哪几种控制台类型(HTML5 / Java KVM / SOL),不申请会话
+			sc.GET("/:service_name/ipmi-types", handlers.GetIPMIAccessTypes(state))
 			sc.GET("/:service_name/statistics", handlers.GetTrafficStatistics(state))
 			sc.GET("/:service_name/network-stats", handlers.GetNetworkInterfaceStats(state))
 
@@ -400,7 +417,29 @@ func main() {
 	host := os.Getenv("LISTEN_HOST")
 	addr := host + ":" + state.Port
 	console.Info("Listening", "addr", addr, "auth", enableAuth, "ui", hasUI(), "dataDir", paths.DataDir)
-	if err := r.Run(addr); err != nil {
+
+	srv := &http.Server{Addr: addr, Handler: r}
+
+	// 自更新完成后走这里:先停止接受新请求并等在途请求收尾,再关数据库,最后换进程映像。
+	// 顺序不能反 —— 先 exec 的话,新进程会发现端口还被自己占着。
+	gracefulRestart = func(exe string) {
+		state.Logger.Info("[更新] 正在优雅关闭以完成重启", "version")
+		state.Logger.Flush()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			console.Warn("shutdown", "err", err)
+		}
+		if err := sqliteDB.Close(); err != nil {
+			console.Warn("close sqlite", "err", err)
+		}
+		if err := updater.Restart(exe); err != nil {
+			console.Error("restart", "err", err)
+			os.Exit(1)
+		}
+	}
+
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		console.Error("server run", "err", err)
 		os.Exit(1)
 	}

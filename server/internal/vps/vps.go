@@ -152,7 +152,6 @@ func bodySnippet(b []byte) string {
 }
 
 // CheckVPSDCAvailability 查某个 planCode 在该子公司下各机房的库存。
-// 对应 Python: check_vps_datacenter_availability
 //
 // /vps/order/rule/datacenter 三个区都有(EU/CA 正式,US 标 BETA),但它们是三套独立系统:
 //
@@ -283,8 +282,6 @@ var statusMap = map[string]string{
 	"unknown":                       "未知",
 }
 
-// SendSummaryNotification 对应 Python: send_vps_summary_notification
-//
 // 必须带上子公司:同一个 planCode 在 EU / US / CA 三个站点是三份互不相干的库存,
 // 不写子公司的话,同时监控 IE 和 US 的用户收到的两条通知长得一模一样,分不清该去哪买。
 func SendSummaryNotification(state *app.State, planCode, ovhSubsidiary string, dcs []map[string]interface{}, changeType string) bool {
@@ -335,7 +332,6 @@ func SendSummaryNotification(state *app.State, planCode, ovhSubsidiary string, d
 	return result
 }
 
-// MonitorLoop 对应 Python: vps_monitor_loop
 func MonitorLoop(state *app.State) {
 	state.Logger.Info("VPS监控循环已启动", "vps_monitor")
 	for {

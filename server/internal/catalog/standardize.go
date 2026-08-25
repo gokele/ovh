@@ -34,7 +34,6 @@ var (
 	reSpecDigit = regexp.MustCompile(`-\d{4,5}$`)
 )
 
-// StandardizeConfig 对应 Python: standardize_config
 func StandardizeConfig(config string) string {
 	if config == "" {
 		return ""
@@ -49,7 +48,6 @@ func StandardizeConfig(config string) string {
 	return normalized
 }
 
-// FormatMemoryDisplay 对应 Python: format_memory_display
 func FormatMemoryDisplay(memoryCode string) string {
 	if m := regexp.MustCompile(`(?i)(\d+)g`).FindStringSubmatch(memoryCode); m != nil {
 		return m[1] + "GB RAM"
@@ -57,7 +55,6 @@ func FormatMemoryDisplay(memoryCode string) string {
 	return memoryCode
 }
 
-// FormatStorageDisplay 对应 Python: format_storage_display
 func FormatStorageDisplay(storageCode string) string {
 	if m := regexp.MustCompile(`(?i)(\d+)x(\d+)(ssd|nvme|hdd)`).FindStringSubmatch(storageCode); m != nil {
 		return m[1] + "x " + m[2] + "GB " + strings.ToUpper(m[3])
@@ -65,7 +62,6 @@ func FormatStorageDisplay(storageCode string) string {
 	return storageCode
 }
 
-// FormatConfigDisplay 对应 Python: format_config_display
 func FormatConfigDisplay(memoryCode, storageCode string) string {
 	mem := "默认内存"
 	if memoryCode != "" {
@@ -78,7 +74,6 @@ func FormatConfigDisplay(memoryCode, storageCode string) string {
 	return mem + " + " + stor
 }
 
-// MatchConfig 对应 Python: match_config
 func MatchConfig(userMemory, userStorage, ovhMemory, ovhStorage string) bool {
 	memoryMatch := true
 	if userMemory != "" && ovhMemory != "" {

@@ -207,8 +207,6 @@ func (m *Monitor) resolveNotifyAccountID(planCode string, explicit ...string) st
 	return valid(lastCheck)
 }
 
-// SendAvailabilityAlertGrouped 对应 Python: send_availability_alert_grouped
-//
 // accountID 是可变参数而不是必填形参:写入口 check.go 不在本次改动范围内,
 // 加必填形参会直接编译不过。传了就用传的,没传就由 resolveNotifyAccountID 反查订阅。
 func (m *Monitor) SendAvailabilityAlertGrouped(planCode string, availableDCs []map[string]interface{},
@@ -360,7 +358,6 @@ func (m *Monitor) SendAvailabilityAlertGrouped(planCode string, availableDCs []m
 	}
 }
 
-// SendUnavailableAlertGrouped 对应 Python: send_unavailable_alert_grouped
 func (m *Monitor) SendUnavailableAlertGrouped(planCode string, unavailableDCs []map[string]interface{},
 	configInfo map[string]interface{}, serverName, traceID, configTraceID string) {
 
@@ -412,7 +409,6 @@ func (m *Monitor) SendUnavailableAlertGrouped(planCode string, unavailableDCs []
 	}
 }
 
-// SendAvailabilityAlert 对应 Python: send_availability_alert
 func (m *Monitor) SendAvailabilityAlert(planCode, datacenter, status, changeType string,
 	configInfo map[string]interface{}, serverName, durationText, priceCheckError, traceID, configTraceID, detectedTime string) {
 
@@ -437,7 +433,7 @@ func (m *Monitor) SendAvailabilityAlert(planCode, datacenter, status, changeType
 		}
 		priceText, _ := configInfo["cached_price"].(string)
 		if priceText == "" {
-			// 1:1 对应 Python server_monitor.py:1331-1392：用 30 秒超时保护，
+			// 用 30 秒超时保护，
 			// 否则在 OVH 价格 API 卡死时整个通知会阻塞
 			priceText, _ = m.getPriceWithTimeout(planCode, datacenter, configInfo, 30*time.Second)
 		}
@@ -559,7 +555,6 @@ func (m *Monitor) SendAvailabilityAlert(planCode, datacenter, status, changeType
 	}
 }
 
-// SendNewServerAlert 对应 Python: send_new_server_alert
 func (m *Monitor) SendNewServerAlert(server map[string]interface{}) {
 	msg := fmt.Sprintf("🆕 新服务器上架通知！\n\n型号: %v\n名称: %v\nCPU: %v\n内存: %v\n存储: %v\n带宽: %v\n时间: %s\n\n💡 快去查看详情！",
 		server["planCode"], server["name"], server["cpu"], server["memory"], server["storage"], server["bandwidth"],
