@@ -22,6 +22,7 @@ type historyRow struct {
 	PurchaseTime   string         `db:"purchase_time"`
 	AttemptCount   int            `db:"attempt_count"`
 	ExpirationTime string         `db:"expiration_time"`
+	RetractionTime string         `db:"retraction_time"`
 	PriceJSON      sql.NullString `db:"price"`
 }
 
@@ -59,6 +60,7 @@ func rowToHistory(r historyRow) types.PurchaseHistoryEntry {
 		PurchaseTime:   r.PurchaseTime,
 		AttemptCount:   r.AttemptCount,
 		ExpirationTime: r.ExpirationTime,
+		RetractionTime: r.RetractionTime,
 		Price:          price,
 	}
 }
@@ -84,6 +86,7 @@ func historyToRow(h types.PurchaseHistoryEntry) (historyRow, error) {
 		PurchaseTime:   h.PurchaseTime,
 		AttemptCount:   h.AttemptCount,
 		ExpirationTime: h.ExpirationTime,
+		RetractionTime: h.RetractionTime,
 	}
 	if h.ErrorMessage != nil {
 		row.ErrorMessage = sql.NullString{String: *h.ErrorMessage, Valid: true}
@@ -129,10 +132,10 @@ func (db *DB) ReplaceHistory(items []types.PurchaseHistoryEntry) error {
 		_, err = tx.NamedExec(`
 			INSERT INTO history
 			(id, account_id, task_id, plan_code, datacenter, options, status, order_id, order_url,
-			 error_message, purchase_time, attempt_count, expiration_time, price)
+			 error_message, purchase_time, attempt_count, expiration_time, retraction_time, price)
 			VALUES
 			(:id, :account_id, :task_id, :plan_code, :datacenter, :options, :status, :order_id, :order_url,
-			 :error_message, :purchase_time, :attempt_count, :expiration_time, :price)
+			 :error_message, :purchase_time, :attempt_count, :expiration_time, :retraction_time, :price)
 		`, r)
 		if err != nil {
 			return fmt.Errorf("insert history %s: %w", h.ID, err)

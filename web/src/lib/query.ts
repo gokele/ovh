@@ -28,8 +28,11 @@ export const qk = {
   stats: () => ["stats"] as const,
 
   // 服务器列表（含可用性）
+  // accountId 进 key:后端 /api/servers 按 ?account= 分桶返回该账户所属子公司的目录
+  // (EU/US/CA 三区机型集合不同)，不分 key 会把上一个账户的机型列表留给下一个账户看
   servers: {
-    list: (showApiServers: boolean) => ["servers", "list", { showApiServers }] as const,
+    list: (showApiServers: boolean, accountId: string) =>
+      ["servers", "list", { showApiServers, accountId }] as const,
     availability: (planCode: string) => ["servers", "availability", planCode] as const,
   },
 

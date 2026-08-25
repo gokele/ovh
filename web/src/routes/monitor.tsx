@@ -10,7 +10,7 @@ import {
   Plus,
   AlertTriangle,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ import {
   useCreateMonitorSubscription,
   useMonitorHistory,
   type MonitorSubscription,
+  useSetMonitorInterval,
 } from "@/hooks/use-monitor";
 import { useTelegramVerify } from "@/hooks/use-telegram";
 import { toast } from "sonner";
@@ -112,7 +113,7 @@ function MonitorPage() {
           </div>
           <div className="flex gap-6 text-sm">
             <Stat label="订阅数" value={status.data?.subscriptions_count ?? 0} />
-            <Stat label="检查间隔" value={`${status.data?.check_interval ?? 0}s`} />
+            <IntervalStat current={status.data?.check_interval ?? 0} />
             <Stat label="已知服务器" value={status.data?.known_servers_count ?? 0} />
           </div>
         </CardContent>
@@ -553,6 +554,65 @@ function Stat({ label, value }: { label: string; value: number | string }) {
     <div>
       <div className="text-[11px] text-muted-foreground">{label}</div>
       <div className="text-lg font-semibold">{value}</div>
+    </div>
+  );
+}
+
+/** 检查间隔：点一下就地改。后端合法区间 5-3600 秒，越界会被夹紧并回传真实生效值。 */
+function IntervalStat({ current }: { current: number }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(String(current));
+  const mut = useSetMonitorInterval();
+
+  useEffect(() => {
+    if (!editing) setValue(String(current));
+  }, [current, editing]);
+
+  const submit = async () => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) {
+      toast.error("请输入正整数秒数");
+      return;
+    }
+    await mut.mutateAsync(Math.round(n));
+    setEditing(false);
+  };
+
+  if (!editing) {
+    return (
+      <div>
+        <div className="text-muted-foreground text-xs">检查间隔</div>
+        <button
+          className="font-semibold tabular-nums hover:underline"
+          onClick={() => setEditing(true)}
+          title="点击修改（5-3600 秒）"
+        >
+          {current}s
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="text-muted-foreground text-xs">检查间隔（5-3600s）</div>
+      <div className="flex items-center gap-1">
+        <input
+          autoFocus
+          type="number"
+          min={5}
+          max={3600}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void submit();
+            if (e.key === "Escape") setEditing(false);
+          }}
+          className="w-20 px-2 py-0.5 border border-border rounded text-sm bg-background"
+        />
+        <Button size="sm" variant="ghost" onClick={() => void submit()} disabled={mut.isPending}>
+          {mut.isPending ? "…" : "保存"}
+        </Button>
+      </div>
     </div>
   );
 }

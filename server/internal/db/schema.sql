@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS queue (
   updated_at             TEXT NOT NULL,
   retry_interval         INTEGER NOT NULL DEFAULT 60,
   retry_count            INTEGER NOT NULL DEFAULT 0,
+  failure_count          INTEGER NOT NULL DEFAULT 0, -- 真正提交并失败的次数(无货轮次不计)
   max_retries            INTEGER NOT NULL DEFAULT 0,
   last_check_time        REAL    NOT NULL DEFAULT 0,
   quick_order            INTEGER NOT NULL DEFAULT 0,
@@ -72,6 +73,7 @@ CREATE TABLE IF NOT EXISTS history (
   purchase_time   TEXT NOT NULL,
   attempt_count   INTEGER NOT NULL DEFAULT 0,
   expiration_time TEXT NOT NULL DEFAULT '',
+  retraction_time TEXT NOT NULL DEFAULT '',   -- 撤销权截止日(billing.Order.retractionDate),与 expiration_time 语义不同
   price           TEXT                        -- JSON nullable (PriceInfo)
 );
 CREATE INDEX IF NOT EXISTS idx_history_status        ON history(status);
@@ -149,3 +151,36 @@ CREATE TABLE IF NOT EXISTS server_aliases (
   PRIMARY KEY (account_id, service_name)
 );
 CREATE INDEX IF NOT EXISTS idx_server_aliases_account ON server_aliases(account_id);
+
+-- ===========================================
+-- telegram_order_buttons: TG「一键下单」按钮 UUID → 下单参数
+-- callback_data 受 Telegram 64 字节限制,只能塞 UUID,完整参数存这里。
+-- 必须持久化:原来只在内存 messageUUIDCache 里,进程重启后按钮一点就 400。
+-- used_at > 0 表示已消费 —— 一次性 nonce,防止同一条按钮被重放下单。
+-- ===========================================
+CREATE TABLE IF NOT EXISTS telegram_order_buttons (
+  id          TEXT PRIMARY KEY,
+  plan_code   TEXT NOT NULL,
+  datacenter  TEXT NOT NULL,
+  options     TEXT NOT NULL DEFAULT '[]',  -- JSON []string
+  config_info TEXT NOT NULL DEFAULT '{}',  -- JSON object
+  -- account_id: 触发这条通知的订阅所用的 OVH 账户。
+  -- planCode 是分区的(EU / US / CA 三份目录基本不重合),按钮不记账户的话
+  -- webhook 回调只能落到"默认账户"上 —— 多账户跨区时等于把欧区机型下到美区账户,
+  -- OVH 只会返回空库存而不报错,用户看到的是"排队中"却永远下不出去。
+  -- 空串 = 老数据/解析不出账户,回调时退回默认账户(与加列前行为一致)。
+  account_id  TEXT NOT NULL DEFAULT '',
+  created_at  REAL NOT NULL,               -- unix 秒
+  used_at     REAL NOT NULL DEFAULT 0      -- >0 已消费
+);
+CREATE INDEX IF NOT EXISTS idx_tg_buttons_created ON telegram_order_buttons(created_at);
+
+-- ===========================================
+-- telegram_updates: webhook update_id 幂等表
+-- Telegram 在未收到 200 时会重投同一条 update,没有这张表就会重复下单。
+-- ===========================================
+CREATE TABLE IF NOT EXISTS telegram_updates (
+  update_id    INTEGER PRIMARY KEY,
+  processed_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tg_updates_processed ON telegram_updates(processed_at);

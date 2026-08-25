@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,17 +12,16 @@ import (
 
 // ChangeVpsContact POST /api/vps-control/:service_name/change-contact
 //
-// EU only —— US OVHcloud 没有 NIC 联系人系统(独立公司,客户实体走 us.ovhcloud.com 自己的账户体系),
-// 该端点 /vps/{name}/changeContact 在 US 不存在。这里提前拒,避免 OVH 报 404 让人摸不着头脑。
+// EU + CA 有,US 没有 —— 原注释写的 "EU only" 是错的:加拿大区(ca.api.ovh.com)同样注册了
+// POST /vps/{serviceName}/changeContact → long[]。只有 api.us.ovhcloud.com 的 vps 命名空间里
+// 查无此路径:OVHcloud US 是独立公司,客户实体走 us.ovhcloud.com 自己的账户体系,没有 NIC 联系人。
+// 这里提前拒,避免 OVH 报 404 让人摸不着头脑。
 func ChangeVpsContact(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
-		acc, _ := ovhAccountFor(state, c)
-		if acc.Endpoint == "ovh-us" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"error":   "美区 VPS 不支持「变更联系人」—— OVHcloud US 没有 NIC 联系人系统,过户需直接联系 OVH 客服",
-			})
+		if vpsRegionFor(state, c) == vpsRegionUS {
+			vpsUnsupportedWrite(c, "美区 OVHcloud 未提供 VPS「变更联系人」接口(该端点仅欧洲区 / 加拿大区有)——"+
+				"US 站点没有 NIC 联系人体系,过户需直接联系 OVHcloud US 客服")
 			return
 		}
 		client, err := ovhClientFor(state, c)
@@ -144,7 +144,10 @@ func GetVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 }
 
 // AddVpsSecondaryDns POST /api/vps-control/:service_name/secondary-dns
-// body 需要 domain + ip(主 DNS IP)。OVH 返回 void
+//
+// body: { domain(必填), ip?(可选,主 DNS 的 IPv4) }。OVH 返回 void。
+// 官方模型 vps.secondaryDnsDomains.post 里只有 domain required=true,ip 是 required=false 的 ipv4 ——
+// 不填时 OVH 自己去解析域名的主 DNS,所以这里不能比 OVH 更严。
 func AddVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
@@ -158,14 +161,20 @@ func AddVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 			IP     string `json:"ip"`
 		}
 		_ = c.ShouldBindJSON(&body)
-		if body.Domain == "" || body.IP == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "domain 和 ip 必填"})
+		if body.Domain == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "domain 必填"})
 			return
 		}
-		if err := client.Post("/vps/"+svc+"/secondaryDnsDomains", map[string]interface{}{
-			"domain": body.Domain,
-			"ip":     body.IP,
-		}, nil); err != nil {
+		params := map[string]interface{}{"domain": body.Domain}
+		if body.IP != "" {
+			// schema 里该字段类型是 ipv4,先在本地挡掉 IPv6/乱填,避免把 OVH 的英文类型错误甩给用户
+			if parsed := net.ParseIP(body.IP); parsed == nil || parsed.To4() == nil {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "ip 必须是合法的 IPv4 地址(OVH 二级 DNS 只接受 IPv4)"})
+				return
+			}
+			params["ip"] = body.IP
+		}
+		if err := client.Post("/vps/"+svc+"/secondaryDnsDomains", params, nil); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
@@ -193,8 +202,30 @@ func DeleteVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 	}
 }
 
+// usUnmanageableVpsOptions 美区列得出来、却管不了的附加选项。
+//
+// vps.VpsOptionEnum 三区完全一致(additionalDisk / automatedBackup / cpanel / ftpbackup /
+// plesk / snapshot / veeam / windows),所以 /vps/{sn}/option 在美区照样能返回 ftpbackup、veeam
+// —— 但管理这两项的整套端点在 api.us.ovhcloud.com 上根本不存在:
+//
+//	ftpbackup → /vps/{sn}/backupftp、/backupftp/access、/backupftp/access/{ipBlock}、
+//	            /backupftp/authorizableBlocks、/backupftp/password  全部缺失
+//	veeam     → /vps/{sn}/veeam、/veeam/restorePoints(/{id}/restore)、/veeam/restoredBackup 全部缺失
+//
+// 光返回选项名会让前端渲染出点不动的入口。这里给每行打 manageEndpointsAvailable 标记
+// + 中文原因,前端据此把该选项的「管理」入口置灰,而不是点进去弹一堆 404。
+//
+// 注意这个标记只说"没有专属管理端点",不影响退订:DELETE /vps/{sn}/option/{option}
+// 在三区都注册(且三区都标 DEPRECATED),美区照样能取消 ftpbackup / veeam,
+// 所以前端不要拿它去禁用「取消选项」按钮。
+var usUnmanageableVpsOptions = map[string]string{
+	"ftpbackup": "美区 OVHcloud 未提供 VPS 备份 FTP 管理接口(/vps/{服务名}/backupftp 全套仅欧洲区 / 加拿大区有),请到 OVHcloud US 控制面板操作",
+	"veeam":     "美区 OVHcloud 未提供 VPS Veeam 备份管理接口(/vps/{服务名}/veeam 全套仅欧洲区 / 加拿大区有),请到 OVHcloud US 控制面板操作",
+}
+
 // GetVpsOptions GET /api/vps-control/:service_name/options
-// /vps/{name}/option 返回 vps.VpsOptionEnum[](string enum 数组),每个 /option/{name} 是 vps.Option 详情
+// /vps/{name}/option 返回 vps.VpsOptionEnum[](string enum 数组),每个 /option/{name} 是 vps.Option 详情。
+// 这两条路径三区都有(US 标 BETA),不做整体门控;只对个别在美区管不了的选项打标记。
 func GetVpsOptions(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
@@ -203,6 +234,7 @@ func GetVpsOptions(state *app.State) gin.HandlerFunc {
 			noOVHResp(c)
 			return
 		}
+		isUS := vpsRegionFor(state, c) == vpsRegionUS
 		var opts []string
 		if err := client.Get("/vps/"+svc+"/option", &opts); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
@@ -213,18 +245,36 @@ func GetVpsOptions(state *app.State) gin.HandlerFunc {
 		}, 8)
 		list := []interface{}{}
 		for i, opt := range opts {
-			if details[i] == nil {
-				list = append(list, map[string]interface{}{"option": opt})
-				continue
+			row := details[i]
+			if row == nil {
+				row = map[string]interface{}{}
 			}
-			details[i]["option"] = opt
-			list = append(list, details[i])
+			row["option"] = opt
+			// 只表示"这个选项有没有专属管理端点",不代表选项本身没生效 ——
+			// 美区的 ftpbackup/veeam 照样在计费、照样在跑,只是没有 API 可管。
+			row["manageEndpointsAvailable"] = true
+			if isUS {
+				if reason, bad := usUnmanageableVpsOptions[opt]; bad {
+					row["manageEndpointsAvailable"] = false
+					row["unsupportedReason"] = reason
+					row["region"] = vpsRegionUS
+				}
+			}
+			list = append(list, row)
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "options": list})
 	}
 }
 
-// DeleteVpsOption DELETE /api/vps-control/:service_name/options/:option
+// DeleteVpsOption DELETE /api/vps-control/:service_name/options/:option[?deleteNow=true]
+//
+// 注意:该端点在 EU / US / CA 三区 schema 里都标了 DEPRECATED(deprecatedDate 2023-12-22,
+// deletionDate 2024-06-01 已过),OVH 随时可能真下线,届时会直接 404。schema 没给 replacement,
+// 所以只能继续用,同时把「已废弃」透传给前端提示用户。
+//
+// deleteNow 是 schema 里的可选 query 参数(Delete option now, don't wait for expiration)。
+// 不传时 OVH 的默认行为是「等计费周期结束才释放」,以前无条件回「已取消」是错的 ——
+// 现在按实际传的参数给不同文案。
 func DeleteVpsOption(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
@@ -234,17 +284,33 @@ func DeleteVpsOption(state *app.State) gin.HandlerFunc {
 			noOVHResp(c)
 			return
 		}
-		if err := client.Delete("/vps/"+svc+"/option/"+opt, nil); err != nil {
+		deleteNow := c.Query("deleteNow") == "true" || c.Query("deleteNow") == "1"
+		path := "/vps/" + svc + "/option/" + opt
+		if deleteNow {
+			path += "?deleteNow=true"
+		}
+		if err := client.Delete(path, nil); err != nil {
+			state.Logger.Error("VPS "+svc+" 取消附加选项 "+opt+" 失败: "+err.Error(), "vps_control")
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
-		state.Logger.Info("VPS "+svc+" 取消附加选项 "+opt, "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "附加选项已取消"})
+		msg := "附加选项已提交取消,将在当前计费周期结束时释放"
+		if deleteNow {
+			msg = "附加选项已立即释放"
+		}
+		state.Logger.Info(fmt.Sprintf("VPS %s 取消附加选项 %s (deleteNow=%v)", svc, opt, deleteNow), "vps_control")
+		c.JSON(http.StatusOK, gin.H{
+			"success": true, "message": msg, "deleteNow": deleteNow,
+			"deprecated": true,
+		})
 	}
 }
 
 // GetVpsAutomatedBackup GET /api/vps-control/:service_name/automated-backup
-// 高端 VPS 才有,/vps/{name}/automatedBackup 返回 vps.AutomatedBackup 对象,无则 404
+// 高端 VPS 才有,/vps/{name}/automatedBackup 返回 vps.AutomatedBackup 对象,无则 404。
+//
+// 这条跟 backupftp / veeam 不是一回事:automatedBackup 全家桶三区都注册了(US 标 BETA),
+// 不要因为"美区缺备份相关端点"就顺手给它加门控。
 func GetVpsAutomatedBackup(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
@@ -255,8 +321,14 @@ func GetVpsAutomatedBackup(state *app.State) gin.HandlerFunc {
 		}
 		var d map[string]interface{}
 		if err := client.Get("/vps/"+svc+"/automatedBackup", &d); err != nil {
-			// 没自动备份服务 → 200 + null
-			c.JSON(http.StatusOK, gin.H{"success": true, "automatedBackup": nil})
+			// 只有 404 才代表「这台 VPS 没订阅自动备份」。401/403/429/5xx 也吞成 null 的话,
+			// 已经买了备份的机器会被显示成「无备份」,这比报错更危险。
+			if ovhIsNotFound(err) {
+				c.JSON(http.StatusOK, gin.H{"success": true, "automatedBackup": nil})
+				return
+			}
+			state.Logger.Error("VPS "+svc+" 查询自动备份失败: "+err.Error(), "vps_control")
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "automatedBackup": d})

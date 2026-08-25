@@ -28,6 +28,19 @@ export interface AccountInput {
 
 const ACCOUNTS_KEY = ["accounts", "list"] as const;
 
+/**
+ * 创建 / 更新 / 验证账户时后端带回来的子公司错配说明(空 = 没问题)。
+ *
+ * 后端(handlers.SubsidiaryMismatchNote)拿账户里存的 zone 跟 OVH /me 返回的 ovhSubsidiary 比:
+ * zone 决定目录站点、价格币种和下单 region,ovhSubsidiary 才是 OVH 认的归属。
+ * 两者不同区时凭据依然 valid=true,所有请求却都会打到错误的站点 —— 这段话是用户在
+ * 真正下单失败之前唯一能看到的信号,必须原样显示,不能只吞成一句"验证通过"。
+ */
+export interface AccountVerifyResult {
+  valid: boolean;
+  subsidiaryWarning?: string;
+}
+
 /** 全部账户列表(默认账户排首位) */
 export function useAccounts() {
   return useQuery({
@@ -52,7 +65,7 @@ export function useCreateAccount() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: AccountInput) => {
-      const res = await api.post<{ account: OVHAccount; valid: boolean }>("/accounts", input);
+      const res = await api.post<{ account: OVHAccount } & AccountVerifyResult>("/accounts", input);
       return res.data;
     },
     onSuccess: (data) => {
@@ -61,6 +74,10 @@ export function useCreateAccount() {
         toast.success(`账户 ${data.account.name} 创建成功`);
       } else {
         toast.warning(`账户已保存,但 OVH 验证失败,请检查凭据`);
+      }
+      // 子公司填错不会让 valid 变 false,但会让目录/价格/下单全部走错站点,单独长时间提示
+      if (data.subsidiaryWarning) {
+        toast.warning(data.subsidiaryWarning, { duration: 15000 });
       }
     },
     onError: (e: any) => toast.error(e?.response?.data?.error || "创建失败"),
@@ -72,12 +89,18 @@ export function useUpdateAccount() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, input }: { id: string; input: Partial<AccountInput> }) => {
-      const res = await api.put<{ account: OVHAccount; valid: boolean }>(`/accounts/${id}`, input);
+      const res = await api.put<{ account: OVHAccount } & AccountVerifyResult>(`/accounts/${id}`, input);
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ACCOUNTS_KEY });
       toast.success("账户已更新");
+      if (!data.valid) {
+        toast.warning("账户已保存,但 OVH 验证失败,请检查凭据");
+      }
+      if (data.subsidiaryWarning) {
+        toast.warning(data.subsidiaryWarning, { duration: 15000 });
+      }
     },
     onError: (e: any) => toast.error(e?.response?.data?.error || "更新失败"),
   });
@@ -116,12 +139,16 @@ export function useSetDefaultAccount() {
 export function useVerifyAccount() {
   return useMutation({
     mutationFn: async (id: string) =>
-      (await api.post<{ valid: boolean }>(`/accounts/${id}/verify`)).data,
+      (await api.post<AccountVerifyResult>(`/accounts/${id}/verify`)).data,
     onSuccess: (data) => {
       if (data.valid) {
         toast.success("OVH 凭据验证通过");
       } else {
         toast.error("OVH 凭据验证失败,检查 AppKey / AppSecret / ConsumerKey");
+      }
+      // 凭据有效 ≠ 区配对了。这条警告比"验证通过"重要得多,单独弹且停久一点
+      if (data.subsidiaryWarning) {
+        toast.warning(data.subsidiaryWarning, { duration: 15000 });
       }
     },
   });

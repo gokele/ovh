@@ -1,12 +1,14 @@
+import { useState } from "react";
 import {
   Zap, Shield, FolderArchive, Globe, Wifi, Network, ShoppingBag, Settings, MapPin,
-  Power, AlertCircle, ShieldAlert,
+  Power, AlertCircle, ShieldAlert, Plus, Trash2, KeyRound,
 } from "lucide-react";
 import type { OwnedServer } from "@/hooks/use-server-control";
 import {
   useServerBurst, useSetBurst,
   useServerFirewall, useSetFirewall,
-  useServerBackupFtp, useActivateBackupFtp,
+  useServerBackupFtp, useActivateBackupFtp, useDeleteBackupFtp, useResetBackupFtpPassword,
+  useBackupFtpAuthorizableBlocks, useAddBackupFtpAccess, useDeleteBackupFtpAccess,
   useServerSecondaryDns,
   useServerVirtualMac,
   useServerVrack,
@@ -16,10 +18,13 @@ import {
   useMitigation, useEnableMitigation, useDisableMitigation,
 } from "@/hooks/use-server-control";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Chip } from "@/components/common/Chip";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
+import { PartialNotice, DetailErrorTag } from "@/components/common/PartialNotice";
+import { useActiveAccountEndpoint } from "@/components/common/active-endpoint";
 import { toast } from "sonner";
 
 /** 高级 Tab：旧前端的 9 个 sub-tab 全部接入 */
@@ -138,11 +143,45 @@ function FirewallPane({ serviceName }: { serviceName: string }) {
 // ─────────────────────────────── Backup FTP ───────────────────────────────
 
 function BackupFtpPane({ serviceName }: { serviceName: string }) {
-  const q = useServerBackupFtp(serviceName);
+  const { isUS, ready } = useActiveAccountEndpoint();
+  // US 区官方 schema 里 backupFTP 五条路径全都不存在，请求发出去只会拿到 notAvailable。
+  // 账户信息一加载完就本地拦下，省掉一次注定失败的往返（enabled=false 让 hook 根本不发请求）。
+  const usBlocked = ready && isUS;
+  const q = useServerBackupFtp(usBlocked ? null : serviceName);
   const act = useActivateBackupFtp();
+  const del = useDeleteBackupFtp();
+  const resetPwd = useResetBackupFtpPassword();
+  const addAccess = useAddBackupFtpAccess();
+  const delAccess = useDeleteBackupFtpAccess();
+  // 只有服务已激活时才去问"可授权的 IP 段"，否则未激活的机器每次打开都会白发一次必失败的请求
+  const blocks = useBackupFtpAuthorizableBlocks(usBlocked ? null : serviceName, !!q.data?.backupFtp);
+  const [newBlock, setNewBlock] = useState("");
+  const [nfs, setNfs] = useState(false);
+  const [cifs, setCifs] = useState(false);
+
+  if (usBlocked) {
+    return (
+      <NotAvailable
+        icon={FolderArchive}
+        title="美区账户不提供备份FTP"
+        message="OVHcloud US 没有 dedicated/server/backupFTP 系列接口，请在 OVHcloud US 控制台使用其它备份方案。"
+      />
+    );
+  }
   if (q.isPending) return <PaneSkeleton />;
-  const data: any = q.data;
+  const data = q.data;
   if (!data) return <EmptyState icon={FolderArchive} title="暂无 Backup FTP 数据" />;
+  // unknownService = 切错账户（这台机器不属于当前账户）。此时给「激活」按钮等于给一个必然
+  // 失败的按钮，所以只显示原因，并提示去切账户
+  if (data.unknownService) {
+    return (
+      <NotAvailable
+        icon={FolderArchive}
+        title="服务器不存在或不属于当前账户"
+        message={data.reason ? `${data.error || ""}（OVH 原文：${data.reason}）` : data.error}
+      />
+    );
+  }
   if (data.notAvailable) return <NotAvailable icon={FolderArchive} title="此服务器无 Backup FTP" message={data.error} />;
   if (data.notActivated) {
     return (
@@ -167,27 +206,152 @@ function BackupFtpPane({ serviceName }: { serviceName: string }) {
       </Pane>
     );
   }
-  const ftp = data.backupFtp || {};
-  const accessList: any[] = data.accessList || [];
+  const ftp: Record<string, any> = data.backupFtp || {};
+  const accessList = data.accessList || [];
   // 旧前端：quota 和 usage 都是 { value, unit } 对象
   const quotaText =
     ftp.quota && typeof ftp.quota === "object" ? `${ftp.quota.value} ${ftp.quota.unit || ""}`.trim() : null;
   const usageText =
     ftp.usage && typeof ftp.usage === "object" ? `${ftp.usage.value} ${ftp.usage.unit || ""}`.trim() : null;
+
+  const handleAdd = async () => {
+    const ipBlock = newBlock.trim();
+    if (!ipBlock) {
+      toast.error("请填写要授权的 IP 段（CIDR，如 1.2.3.4/32）");
+      return;
+    }
+    try {
+      await addAccess.mutateAsync({ serviceName, ipBlock, ftp: true, nfs, cifs });
+      toast.success("授权已提交，OVH 会异步生效");
+      setNewBlock("");
+      setNfs(false);
+      setCifs(false);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || "添加授权失败");
+    }
+  };
+
   return (
     <Pane title="Backup FTP" icon={FolderArchive}>
       {quotaText && <Row label="配额" value={quotaText} />}
       {usageText && <Row label="已用" value={usageText} />}
+      {ftp.ftpBackupName && <Row label="服务器地址" value={<code className="font-mono text-[12px]">{ftp.ftpBackupName}</code>} />}
 
-      <div className="pt-3">
-        <h4 className="text-[12px] font-semibold mb-2">访问控制列表（允许的 IP 块）</h4>
+      <div className="flex flex-wrap gap-2 pt-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={resetPwd.isPending}
+          onClick={async () => {
+            try {
+              await resetPwd.mutateAsync(serviceName);
+              toast.success("已请求重置密码，新密码由 OVH 发送到账户邮箱");
+            } catch (e: any) {
+              toast.error(e?.response?.data?.error || "重置密码失败");
+            }
+          }}
+        >
+          <KeyRound className="w-3.5 h-3.5 mr-1" />
+          {resetPwd.isPending ? "提交中…" : "重置密码"}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="text-destructive"
+          disabled={del.isPending}
+          onClick={async () => {
+            // 关停会连带删掉里面已有的备份，属于不可逆操作，必须先要用户明确同意
+            if (!window.confirm("关闭 Backup FTP 会删除其中已有的备份数据，且不可恢复。确认关闭？")) return;
+            try {
+              await del.mutateAsync(serviceName);
+              toast.success("关闭请求已提交");
+            } catch (e: any) {
+              toast.error(e?.response?.data?.error || "关闭失败");
+            }
+          }}
+        >
+          <Trash2 className="w-3.5 h-3.5 mr-1" />
+          {del.isPending ? "提交中…" : "关闭服务"}
+        </Button>
+      </div>
+
+      <div className="pt-3 space-y-2">
+        <h4 className="text-[12px] font-semibold">访问控制列表（允许的 IP 块）</h4>
+        {/* 列表整体没拉到 ≠ 没配过 IP，必须说清楚，否则用户会重复添加已有的授权 */}
+        {data.accessError && (
+          <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-[11px]">
+            <AlertCircle className="w-3.5 h-3.5 text-destructive flex-shrink-0 mt-0.5" />
+            <span>访问控制列表获取失败：{data.accessError}。下面的「尚未配置」只代表这次没查到。</span>
+          </div>
+        )}
+        <PartialNotice failedCount={data.accessFailedCount || 0} what="访问控制列表" />
+
+        {/* 添加授权 IP */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={newBlock}
+            onChange={(e) => setNewBlock(e.target.value)}
+            placeholder="1.2.3.4/32 或从下方候选选择"
+            className="h-8 w-56 font-mono text-[12px]"
+          />
+          <label className="flex items-center gap-1 text-[11px] cursor-pointer">
+            <input type="checkbox" checked={nfs} onChange={(e) => setNfs(e.target.checked)} className="w-3.5 h-3.5" />
+            NFS
+          </label>
+          <label className="flex items-center gap-1 text-[11px] cursor-pointer">
+            <input type="checkbox" checked={cifs} onChange={(e) => setCifs(e.target.checked)} className="w-3.5 h-3.5" />
+            CIFS
+          </label>
+          <Button size="sm" variant="outline" className="h-8" onClick={handleAdd} disabled={addAccess.isPending}>
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            {addAccess.isPending ? "提交中…" : "授权"}
+          </Button>
+        </div>
+        {(blocks.data || []).length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {(blocks.data || []).map((b) => (
+              <button
+                key={b}
+                type="button"
+                onClick={() => setNewBlock(b)}
+                className="text-[10.5px] font-mono px-1.5 py-0.5 rounded border border-border hover:bg-muted"
+              >
+                {b}
+              </button>
+            ))}
+          </div>
+        )}
+
         {accessList.length === 0 ? (
           <p className="text-[12px] text-muted-foreground">尚未配置访问 IP。</p>
         ) : (
           <div className="border border-border rounded-2xl divide-y divide-border">
             {accessList.map((a, idx) => (
-              <div key={idx} className="px-4 py-2.5 text-[13px]">
+              <div key={a.ipBlock || idx} className="px-4 py-2.5 text-[13px] flex items-center gap-2 flex-wrap">
                 <code className="font-mono">{a.ipBlock}</code>
+                {a.ftp && <Chip tone="default">FTP</Chip>}
+                {a.nfs && <Chip tone="default">NFS</Chip>}
+                {a.cifs && <Chip tone="default">CIFS</Chip>}
+                {a.isApplied === false && <Chip tone="warning">生效中</Chip>}
+                {/* error 现在是 OVH 原始 message，直接透出来比 "fetch failed" 有用得多 */}
+                <DetailErrorTag message={a.error} />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto h-7 px-2 text-destructive"
+                  disabled={delAccess.isPending}
+                  onClick={async () => {
+                    if (!window.confirm(`删除对 ${a.ipBlock} 的备份FTP授权？`)) return;
+                    try {
+                      await delAccess.mutateAsync({ serviceName, ipBlock: a.ipBlock });
+                      toast.success("已提交删除授权");
+                    } catch (e: any) {
+                      toast.error(e?.response?.data?.error || "删除授权失败");
+                    }
+                  }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
               </div>
             ))}
           </div>
@@ -202,15 +366,21 @@ function BackupFtpPane({ serviceName }: { serviceName: string }) {
 function SecondaryDnsPane({ serviceName }: { serviceName: string }) {
   const q = useServerSecondaryDns(serviceName);
   if (q.isPending) return <PaneSkeleton />;
-  const data = q.data || [];
-  if (data.length === 0) return <EmptyState icon={Globe} title="未配置二级 DNS" />;
+  // 后端全挂时返 500 —— 显示错误而不是空列表，否则用户会以为「确实没配过」
+  if (q.isError) return <LoadFailed icon={Globe} title="二级 DNS 读取失败" error={q.error} onRetry={() => q.refetch()} />;
+  const { items, failedCount } = q.data || { items: [], partial: false, failedCount: 0 };
+  if (items.length === 0) return <EmptyState icon={Globe} title="未配置二级 DNS" />;
   return (
     <Pane title="二级 DNS 域名" icon={Globe}>
+      <PartialNotice failedCount={failedCount} what="二级 DNS 域名" className="mb-2" />
       <div className="border border-border rounded-2xl divide-y divide-border">
-        {data.map((d: any, idx: number) => (
-          <div key={idx} className="px-4 py-3 grid grid-cols-2 gap-2 items-center text-[13px]">
+        {items.map((d, idx) => (
+          <div key={d.domain || idx} className="px-4 py-3 flex items-center justify-between gap-2 text-[13px]">
             <code className="font-mono">{d.domain || "—"}</code>
-            {d.dns && <code className="font-mono text-muted-foreground text-right text-[12px]">{d.dns}</code>}
+            <div className="flex items-center gap-2">
+              {d.dns && <code className="font-mono text-muted-foreground text-[12px]">{d.dns}</code>}
+              <DetailErrorTag message={d._detailError} />
+            </div>
           </div>
         ))}
       </div>
@@ -223,15 +393,20 @@ function SecondaryDnsPane({ serviceName }: { serviceName: string }) {
 function VirtualMacPane({ serviceName }: { serviceName: string }) {
   const q = useServerVirtualMac(serviceName);
   if (q.isPending) return <PaneSkeleton />;
-  const data = q.data || [];
-  if (data.length === 0) return <EmptyState icon={Wifi} title="未分配虚拟 MAC" />;
+  if (q.isError) return <LoadFailed icon={Wifi} title="虚拟 MAC 读取失败" error={q.error} onRetry={() => q.refetch()} />;
+  const { items, failedCount } = q.data || { items: [], partial: false, failedCount: 0 };
+  if (items.length === 0) return <EmptyState icon={Wifi} title="未分配虚拟 MAC" />;
   return (
     <Pane title="虚拟 MAC（VMware / Hyper-V 等使用）" icon={Wifi}>
+      <PartialNotice failedCount={failedCount} what="虚拟 MAC" className="mb-2" />
       <div className="border border-border rounded-2xl divide-y divide-border">
-        {data.map((m: any, idx: number) => (
-          <div key={idx} className="px-3 sm:px-4 py-2.5 sm:py-3 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2 sm:items-center text-[12px] sm:text-[13px]">
+        {items.map((m, idx) => (
+          <div key={m.macAddress || idx} className="px-3 sm:px-4 py-2.5 sm:py-3 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2 sm:items-center text-[12px] sm:text-[13px]">
             <code className="font-mono break-all">{m.macAddress || "—"}</code>
-            <span className="text-muted-foreground">{m.type || "—"}</span>
+            <span className="text-muted-foreground flex items-center gap-2">
+              {m.type || "—"}
+              <DetailErrorTag message={m._detailError} />
+            </span>
             <code className="font-mono text-muted-foreground sm:text-right break-all">{m.ipAddress || "—"}</code>
           </div>
         ))}
@@ -245,13 +420,18 @@ function VirtualMacPane({ serviceName }: { serviceName: string }) {
 function VrackPane({ serviceName }: { serviceName: string }) {
   const q = useServerVrack(serviceName);
   if (q.isPending) return <PaneSkeleton />;
-  const data = q.data || [];
-  if (data.length === 0) return <EmptyState icon={Network} title="未加入 vRack 私有网络" />;
+  if (q.isError) return <LoadFailed icon={Network} title="vRack 读取失败" error={q.error} onRetry={() => q.refetch()} />;
+  const { items, failedCount } = q.data || { items: [], partial: false, failedCount: 0 };
+  if (items.length === 0) return <EmptyState icon={Network} title="未加入 vRack 私有网络" />;
   return (
     <Pane title="vRack 私有网络成员" icon={Network}>
+      <PartialNotice failedCount={failedCount} what="vRack" className="mb-2" />
       <div className="border border-border rounded-2xl divide-y divide-border">
-        {data.map((v: any, idx: number) => (
-          <div key={idx} className="px-4 py-2.5 text-[13px] font-mono">{v.vrackName || "—"}</div>
+        {items.map((v, idx) => (
+          <div key={v.vrackName || idx} className="px-4 py-2.5 text-[13px] font-mono flex items-center justify-between gap-2">
+            <span>{v.vrackName || "—"}</span>
+            <DetailErrorTag message={v._detailError} />
+          </div>
         ))}
       </div>
     </Pane>
@@ -390,8 +570,9 @@ function IpBlock({ ip, family }: { ip: any; family: "v4" | "v6" }) {
 function OptionsPane({ serviceName }: { serviceName: string }) {
   const q = useServerOptions(serviceName);
   if (q.isPending) return <PaneSkeleton />;
-  const data = q.data || [];
-  if (data.length === 0) return <EmptyState icon={Settings} title="无附加选项" />;
+  if (q.isError) return <LoadFailed icon={Settings} title="附加选项读取失败" error={q.error} onRetry={() => q.refetch()} />;
+  const { items, failedCount } = q.data || { items: [], partial: false, failedCount: 0 };
+  if (items.length === 0) return <EmptyState icon={Settings} title="无附加选项" />;
 
   // 名称翻译（对齐旧前端 optionNames 表）
   const NAMES: Record<string, string> = {
@@ -415,14 +596,16 @@ function OptionsPane({ serviceName }: { serviceName: string }) {
 
   return (
     <Pane title="附加选项" icon={Settings}>
+      <PartialNotice failedCount={failedCount} what="附加选项" className="mb-2" />
       <div className="border border-border rounded-2xl divide-y divide-border">
-        {data.map((o: any, idx: number) => {
+        {items.map((o, idx) => {
           const key = o.option || `选项 ${idx + 1}`;
           const label = NAMES[String(key).toUpperCase()] || key;
           return (
-            <div key={idx} className="px-4 py-2.5 flex items-center justify-between text-[13px] gap-3">
+            <div key={o.option || idx} className="px-4 py-2.5 flex items-center justify-between text-[13px] gap-3">
               <span className="font-semibold truncate">{label}</span>
-              <div className="text-right">
+              <div className="text-right flex items-center gap-2">
+                <DetailErrorTag message={o._detailError} />
                 {o.state ? (
                   <Chip tone={stateTone(o.state)}>{o.state}</Chip>
                 ) : (
@@ -502,6 +685,35 @@ function NotAvailable({
           <AlertCircle className="w-3 h-3" />
           OVH 后端对该服务器未启用此功能
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 「读取失败」占位。
+ * 后端现在会在详情全挂时返 500，前端如果还沿用空态文案（「未配置 xx」），用户会当成
+ * OVH 里确实没有这项配置从而放弃重试 —— 这两种状态必须分开渲染。
+ */
+function LoadFailed({
+  icon: Icon, title, error, onRetry,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  error?: unknown;
+  onRetry?: () => void;
+}) {
+  const msg =
+    (error as any)?.response?.data?.error || (error as any)?.message || "请稍后重试";
+  return (
+    <div className="border border-destructive/40 bg-destructive/5 rounded-2xl p-6 flex flex-col items-center gap-2 text-center">
+      <Icon className="w-8 h-8 text-destructive" />
+      <h4 className="text-[13px] font-semibold">{title}</h4>
+      <p className="text-[11px] text-muted-foreground">{msg}</p>
+      {onRetry && (
+        <Button size="sm" variant="outline" className="mt-1" onClick={onRetry}>
+          重试
+        </Button>
       )}
     </div>
   );
@@ -590,10 +802,18 @@ function MitigationPane({ serviceName }: { serviceName: string }) {
                 const isOk = m.state === "ok";
                 const isCreating = m.state === "creationPending";
                 const isRemoving = m.state === "removalPending";
+                // 详情没拉到的 IP 后端也会保留占位(只有 ipOnMitigation + error)。
+                // 不标出来的话它会显示成一个没有状态的空行，用户以为是 bug。
+                // 注：MitigationIp 类型里还没有 error 字段（在 hooks 层，本次不改），先就地读。
+                const rowErr = (m as unknown as { error?: string }).error;
                 return (
                   <div key={m.ipOnMitigation} className="px-3.5 py-2.5 flex items-center gap-2 text-[12px]">
                     <code className="font-mono">{m.ipOnMitigation}</code>
+                    {rowErr ? (
+                      <DetailErrorTag message={rowErr} />
+                    ) : (
                     <Chip tone={mitigationTone(m.state)}>{stateText(m.state)}</Chip>
+                    )}
                     {m.auto && <span className="text-[11px] text-muted-foreground">自动</span>}
                     {m.permanent && <span className="text-[11px] text-emerald-600 dark:text-emerald-400">永久</span>}
                     <Button
@@ -601,7 +821,7 @@ function MitigationPane({ serviceName }: { serviceName: string }) {
                       variant="outline"
                       className="ml-auto h-7"
                       onClick={() => handleToggle(m.ipOnMitigation, blk.ipBlock, true)}
-                      disabled={disable.isPending || !isOk}
+                      disabled={disable.isPending || !isOk || !!rowErr}
                       title={
                         isCreating
                           ? "正在启用中,通常 30 秒-2 分钟,等状态变已生效再点关闭"

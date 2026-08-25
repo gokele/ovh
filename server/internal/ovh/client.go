@@ -11,8 +11,9 @@ import (
 )
 
 // AccountLookup 由 State 提供,根据 id 找账户:
-//   id == ""  → 找默认账户(或第一个);适合"未指定账户时 fallback"
-//   id == "x" → 精确找 x
+//
+//	id == ""  → 找默认账户(或第一个);适合"未指定账户时 fallback"
+//	id == "x" → 精确找 x
 type AccountLookup func(id string) (types.OVHAccount, bool)
 
 // Factory OVH client 工厂。按 accountID 缓存 client 实例;

@@ -14,7 +14,11 @@ import (
 // GetSettings GET /api/settings
 func GetSettings(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, state.Config.Get())
+		cfg := state.Config.Get()
+		// webhook secret 不下发前端：它只在后端和 Telegram 之间使用，
+		// 前端拿到也没用，暴露面反而变大。
+		cfg.TgWebhookSecret = ""
+		c.JSON(http.StatusOK, cfg)
 	}
 }
 
@@ -35,6 +39,12 @@ func SaveSettings(state *app.State) gin.HandlerFunc {
 		newCfg.ConsumerKey = strings.TrimSpace(newCfg.ConsumerKey)
 		newCfg.TgToken = strings.TrimSpace(newCfg.TgToken)
 		newCfg.TgChatID = strings.TrimSpace(newCfg.TgChatID)
+
+		// webhook secret 前端不可见也不可改（GetSettings 已抹掉），
+		// 这里必须从旧配置继承回来，否则前端保存一次设置就把 secret 清了，
+		// Telegram 那边仍在校验旧 secret → 所有回调直接 401。
+		newCfg.TgWebhookSecret = prev.TgWebhookSecret
+		newCfg.TgWebhookSecretRegistered = prev.TgWebhookSecretRegistered
 
 		// 默认值兜底
 		if newCfg.Endpoint == "" {

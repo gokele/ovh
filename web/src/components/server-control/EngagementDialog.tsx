@@ -13,16 +13,20 @@ import {
   type EngagementPricing,
 } from "@/hooks/use-server-control";
 import { toast } from "sonner";
+import { formatMoney } from "@/lib/money";
 
 /** EngagementDialog 钩子绑定 —— dedicated / vps 各自传入。
  *  类型上接受 (svc, enabled?) → query / mutation 形状即可。 */
 export type EngagementHooks = {
-  useEngagement: (svc: string | null) => { data: any; isPending: boolean };
-  useEngagementAvailable: (svc: string | null, enabled?: boolean) => { data: any; isPending: boolean };
-  useEngagementRequest: (svc: string | null) => { data: any; isPending: boolean };
+  // isError 必须进契约：后端不再把 401/403/5xx/超时吞成 engagement:null 了，
+  // 前端如果只看 data==null，就会把"读取失败"渲染成"该服务未签合同期"——照样是误导。
+  useEngagement: (svc: string | null) => { data: any; isPending: boolean; isError: boolean; error: unknown };
+  useEngagementAvailable: (svc: string | null, enabled?: boolean) => { data: any; isPending: boolean; isError: boolean };
+  useEngagementRequest: (svc: string | null) => { data: any; isPending: boolean; isError: boolean };
   useCreateEngagementRequest: (svc: string) => { mutateAsync: (vars: { pricingMode: string }) => Promise<any>; isPending: boolean };
   useDeleteEngagementRequest: (svc: string) => { mutateAsync: () => Promise<any>; isPending: boolean };
-  useUpdateEngagementEndRule: (svc: string) => { mutateAsync: (vars: { strategy: string }) => Promise<any>; isPending: boolean };
+  /** CANCEL_SERVICE 不可撤销，后端要求带 confirm:true，组件必须先弹二次确认 */
+  useUpdateEngagementEndRule: (svc: string) => { mutateAsync: (vars: { strategy: string; confirm?: boolean }) => Promise<any>; isPending: boolean };
 };
 
 const DEFAULT_HOOKS: EngagementHooks = {
@@ -54,6 +58,8 @@ export function EngagementDialog({
   const deleteReq = hooks.useDeleteEngagementRequest(serviceName);
   const updateRule = hooks.useUpdateEngagementEndRule(serviceName);
   const [confirmMode, setConfirmMode] = useState<string | null>(null);
+  /** 待二次确认的到期策略（目前只有 CANCEL_SERVICE 会走这里） */
+  const [confirmStrategy, setConfirmStrategy] = useState<string | null>(null);
 
   const isLoading = current.isPending || available.isPending || ongoing.isPending;
 
@@ -83,10 +89,22 @@ export function EngagementDialog({
     }
   };
 
-  const handleEndRule = async (strategy: string) => {
+  /**
+   * 改到期策略。
+   * CANCEL_SERVICE = 承诺期一结束就销毁服务器，不可撤销，后端要求 confirm:true，
+   * 所以这里先弹二次确认，用户点了"确认销毁"才带 confirm 发出去；其余策略照旧直发。
+   */
+  const handleEndRule = async (strategy: string, confirmed = false) => {
+    if (strategy === "CANCEL_SERVICE" && !confirmed) {
+      setConfirmStrategy(strategy);
+      return;
+    }
     try {
-      await updateRule.mutateAsync({ strategy });
+      await updateRule.mutateAsync(
+        strategy === "CANCEL_SERVICE" ? { strategy, confirm: true } : { strategy },
+      );
       toast.success("到期策略已更新");
+      setConfirmStrategy(null);
     } catch (e: any) {
       toast.error(e?.response?.data?.error || "更新失败");
     }
@@ -143,6 +161,15 @@ export function EngagementDialog({
                       </div>
                     )}
                   </div>
+                ) : current.isError ? (
+                  /* 读失败 ≠ 没签合同期。写成"未签合同期"会让用户以为可以随便改续费方式 */
+                  <p className="text-[12px] text-destructive">
+                    合同期信息读取失败：
+                    {(current.error as any)?.response?.data?.error ||
+                      (current.error as any)?.message ||
+                      "请关闭弹窗后重试"}
+                    。当前是否处于承诺期未知，请勿据此判断。
+                  </p>
                 ) : (
                   <p className="text-[12px] text-muted-foreground">
                     该服务未签合同期,按标准月付方式续费。可在下方订阅承诺期享受折扣。
@@ -216,12 +243,18 @@ export function EngagementDialog({
                         key={p.pricingMode}
                         pricing={p}
                         onSubscribe={() => setConfirmMode(p.pricingMode)}
-                        disabled={createReq.isPending || !!ongoing.data}
+                        /* ongoing 读失败时也禁用：放开等于允许对着一个"可能已存在的请求"再提交一遍 */
+                        disabled={createReq.isPending || !!ongoing.data || ongoing.isError}
                       />
                     ))}
                     {ongoing.data && (
                       <p className="text-[11px] text-muted-foreground text-center pt-1">
                         有变更请求处理中,需先撤销才能订阅新承诺期
+                      </p>
+                    )}
+                    {!ongoing.data && ongoing.isError && (
+                      <p className="text-[11px] text-warning text-center pt-1">
+                        进行中的变更请求读取失败,暂时无法订阅 —— 无法确认是否已有未付订单,重复提交会多出一笔订单。
                       </p>
                     )}
                   </div>
@@ -278,6 +311,36 @@ export function EngagementDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 到期策略二次确认:CANCEL_SERVICE 不可撤销 */}
+      <Dialog open={!!confirmStrategy} onOpenChange={(v) => !v && setConfirmStrategy(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">确认改为「到期自动销毁服务」?</DialogTitle>
+            <DialogDescription>这是不可撤销的操作</DialogDescription>
+          </DialogHeader>
+          <div className="text-[12px] text-muted-foreground space-y-1.5">
+            <p>
+              承诺期结束时,OVH 会
+              <span className="font-semibold text-destructive">直接销毁这台服务器</span>
+              ,数据不保留、IP 不保留。
+            </p>
+            <p>设置后若要反悔,需要在承诺期结束前改回其它策略。</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmStrategy(null)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={updateRule.isPending}
+              onClick={() => confirmStrategy && handleEndRule(confirmStrategy, true)}
+            >
+              {updateRule.isPending ? "提交中…" : "确认销毁"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
@@ -291,15 +354,16 @@ function PricingRow({
   onSubscribe: () => void;
   disabled: boolean;
 }) {
-  const currency = pricing.price?.currencyCode || "USD";
+  // 币种一律用 OVH 给的 currencyCode。以前兜底 "USD" —— 合同期这套端点三区都有,
+  // 欧区账户的价格会被硬贴上 USD 标签。拿不到就只显示数字(formatMoney 不编货币符号)。
+  const currency = pricing.price?.currencyCode || "";
   const totalValue = pricing.price?.value ?? 0;
   const months = parseDurationMonths(pricing.engagementConfiguration?.duration || "");
   const perMonth = months > 0 ? totalValue / months : 0;
 
   const totalText =
-    pricing.price?.text ||
-    (totalValue > 0 ? `${totalValue.toFixed(2)} ${currency}` : "—");
-  const perMonthText = perMonth > 0 ? `${perMonth.toFixed(2)} ${currency} / 月` : "";
+    pricing.price?.text || (totalValue > 0 ? formatMoney(totalValue, currency) : "—");
+  const perMonthText = perMonth > 0 ? `${formatMoney(perMonth, currency)} / 月` : "";
 
   const isUpfront = pricing.pricingMode.toLowerCase().includes("upfront");
   const friendlyTitle = humanizeDescription(pricing.description, months, isUpfront);

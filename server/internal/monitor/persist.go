@@ -2,18 +2,28 @@ package monitor
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/ovh-buy/server/internal/types"
 )
+
+// kvMonitorInterval 检查间隔在 kv 表里的键
+const kvMonitorInterval = "monitor_check_interval"
 
 // monitor 包内部用 Subscription / HistoryEntry，
 // 而 SQLite 层用 types.Subscription / types.SubscriptionHistoryEntry。
 // 字段一一对应，下面提供双向转换。
 
+// toDBSub 读 s 的可变字段,所以必须持 s.mu ——
+// SaveToDB 是在自己的 goroutine 里跑的(定时落盘 / 退出前落盘),
+// 此刻检查 goroutine 很可能正在 append History,不加锁就是竞争 + 可能读到撕裂的 slice header。
+// 锁顺序:调用方(SaveToDB)先拿 subsMu 再进这里拿 s.mu,与 Snapshot/Status 一致,不会死锁。
 func toDBSub(s *Subscription) types.Subscription {
 	if s == nil {
 		return types.Subscription{}
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	hist := make([]types.SubscriptionHistoryEntry, 0, len(s.History))
 	for _, h := range s.History {
 		hist = append(hist, types.SubscriptionHistoryEntry{
@@ -105,9 +115,14 @@ func (m *Monitor) LoadFromDB() {
 		knownSet[k] = struct{}{}
 	}
 	m.knownServers = knownSet
-	// 全局强制 5 秒
-	m.checkInterval = 5
-	m.state.Logger.Info("检查间隔已强制设置为: 5秒（全局固定值）", "monitor")
+	// 检查间隔从 kv 恢复;没存过或超出合法区间时夹回默认 5 秒
+	interval := MinCheckInterval
+	var saved int
+	if ok, _ := m.state.DB.GetKV(kvMonitorInterval, &saved); ok && saved > 0 {
+		interval = ClampCheckInterval(saved)
+	}
+	m.checkInterval = interval
+	m.state.Logger.Info(fmt.Sprintf("监控检查间隔: %d 秒", interval), "monitor")
 	m.state.Logger.Info("已加载订阅", "monitor")
 }
 
@@ -122,7 +137,7 @@ func (m *Monitor) SaveToDB() {
 	for k := range m.knownServers {
 		known = append(known, k)
 	}
-	m.checkInterval = 5
+	interval := m.checkInterval
 	m.subsMu.Unlock()
 
 	if err := m.state.DB.ReplaceMonitorSubscriptions(subs); err != nil {
@@ -133,7 +148,10 @@ func (m *Monitor) SaveToDB() {
 		m.state.Logger.Error("保存已知服务器失败: "+err.Error(), "monitor")
 		return
 	}
-	m.state.Logger.Info("订阅数据已保存（检查间隔固定为5秒）", "monitor")
+	if err := m.state.DB.SetKV(kvMonitorInterval, interval); err != nil {
+		m.state.Logger.Warn("保存检查间隔失败: "+err.Error(), "monitor")
+	}
+	m.state.Logger.Info(fmt.Sprintf("订阅数据已保存(检查间隔 %d 秒)", interval), "monitor")
 }
 
 // SubscriptionAsJSON 帮助 handler 返回订阅

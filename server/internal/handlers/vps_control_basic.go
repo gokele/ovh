@@ -8,7 +8,60 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/numconv"
+	"github.com/ovh-buy/server/internal/ovh"
 )
+
+// ── VPS 区域门控 ────────────────────────────────────────────────────────────
+//
+// EU / US / CA 三个 OVH 站点是彼此独立的系统,/vps 命名空间的可用路径并不一致。
+// 实测三站的 /1.0/vps.json:EU 74 条、CA 74 条(两者逐条完全相同)、US 只有 46 条。
+// US 缺的 28 条(GET https://api.us.ovhcloud.com/1.0/vps.json 里查无此路径):
+//
+//	/vps/datacenter                 /vps/{sn}/availableUpgrade   /vps/{sn}/models
+//	/vps/{sn}/status                /vps/{sn}/distribution(+/software)
+//	/vps/{sn}/templates(+/{id}/software)                         /vps/{sn}/reinstall
+//	/vps/{sn}/setPassword           /vps/{sn}/changeContact      /vps/{sn}/openConsoleAccess
+//	/vps/{sn}/backupftp 全家桶(access / authorizableBlocks / password)
+//	/vps/{sn}/veeam 全家桶(restorePoints / restoredBackup)
+//	/vps/{sn}/migration2016  /vps/{sn}/migration2018  /vps/{sn}/use
+//
+// 其余路径(ips / snapshot / option / secondaryDnsDomains / automatedBackup /
+// serviceInfos / tasks / rebuild / images/* / getConsoleUrl / datacenter …)三区都有,
+// 只是 US 上整片 vps 命名空间标了 BETA —— BETA 不影响可调用性,不做门控。
+//
+// 门控一律走 ovh.EndpointRegion,不要在各 handler 里再写 `acc.Endpoint == "ovh-us"`:
+// endpoint 是用户可填的自由字符串,还有 kimsufi-* / soyoustart-* 品牌别名,
+// 散装比较早晚会漏掉一种写法。
+const vpsRegionUS = "US"
+
+// vpsRegionFor 当前请求所用账户的 OVH 大区(EU / US / CA)。
+// 账户查不到时 acc 是零值,EndpointRegion("") 回落 EU —— 这条路径上紧接着的
+// ovhClientFor 一定会失败并走 noOVHResp,所以不会出现"用错误的大区放行"的情况。
+func vpsRegionFor(state *app.State, c *gin.Context) string {
+	acc, _ := ovhAccountFor(state, c)
+	return ovh.EndpointRegion(acc.Endpoint)
+}
+
+// vpsUnsupportedRead 只读接口在本大区不存在时的降级响应。
+//
+// 用 200 + 空值 + unsupported:true,而不是 404/500:这类面板是详情页一进来就并发拉的,
+// 报错会在美区账户上常驻一条红色提示,用户以为是故障。前端按 unsupported 隐藏整块区域。
+// field 是业务字段名(前端读的那个 key),value 给该字段的空值(nil / 空数组)。
+func vpsUnsupportedRead(c *gin.Context, field string, value interface{}, message string) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true, field: value,
+		"unsupported": true, "region": vpsRegionUS, "message": message,
+	})
+}
+
+// vpsUnsupportedWrite 写操作在本大区不存在时的降级响应。
+// 写操作必须失败(不能假装成功),但要给明确的中文原因和替代做法,而不是把 OVH 的 404 甩出去。
+func vpsUnsupportedWrite(c *gin.Context, message string) {
+	c.JSON(http.StatusBadRequest, gin.H{
+		"success": false, "error": message,
+		"unsupported": true, "region": vpsRegionUS,
+	})
+}
 
 // ListVps GET /api/vps-control/list
 //
@@ -30,9 +83,10 @@ func ListVps(state *app.State) gin.HandlerFunc {
 		state.Logger.Info("获取 VPS 列表成功", "vps_control")
 
 		type vpsResult struct {
-			info  map[string]interface{}
-			svc   map[string]interface{}
-			err   error
+			info   map[string]interface{}
+			svc    map[string]interface{}
+			err    error
+			svcErr error
 		}
 		results := make([]vpsResult, len(names))
 		sem := make(chan struct{}, 10)
@@ -50,7 +104,12 @@ func ListVps(state *app.State) gin.HandlerFunc {
 				}
 				results[idx].info = info
 				var svcInfo map[string]interface{}
-				_ = client.Get("/vps/"+nm+"/serviceInfos", &svcInfo)
+				// 10 并发拉列表时 OVH 很容易对 serviceInfos 限流。以前这里丢错,
+				// 结果「没取到」被渲染成 renewalType:false / status:"unknown",跟真值无法区分。
+				if err := client.Get("/vps/"+nm+"/serviceInfos", &svcInfo); err != nil {
+					results[idx].svcErr = err
+					return
+				}
 				results[idx].svc = svcInfo
 			}(i, name)
 		}
@@ -64,8 +123,15 @@ func ListVps(state *app.State) gin.HandlerFunc {
 				continue
 			}
 			info := r.info
-			renewalType := false
-			if r.svc != nil {
+			// services.Service.renew 本身 canBeNull=true,再叠加拉取失败的情况:
+			// 这两列只有真正取到值才输出,否则给 null,让前端显示「—」而不是编一个 false。
+			var renewalType interface{}
+			var svcStatus interface{}
+			if r.svcErr != nil {
+				state.Logger.Warn("VPS "+name+" serviceInfos 获取失败,续费/状态列返回 null: "+r.svcErr.Error(), "vps_control")
+			} else if r.svc != nil {
+				svcStatus = valueOr(r.svc, "status", "unknown")
+				renewalType = false
 				if rn, ok := r.svc["renew"].(map[string]interface{}); ok {
 					if a, ok := rn["automatic"].(bool); ok {
 						renewalType = a
@@ -118,7 +184,7 @@ func ListVps(state *app.State) gin.HandlerFunc {
 				"vcore":         vcore,
 				"memoryMB":      memMB,
 				"diskGB":        diskGB,
-				"status":        valueOr(r.svc, "status", "unknown"),
+				"status":        svcStatus,
 				"renewalType":   renewalType,
 			})
 		}
@@ -152,6 +218,14 @@ func GetVpsInfo(state *app.State) gin.HandlerFunc {
 func GetVpsServiceStatus(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
+		// /vps/{serviceName}/status 在 EU 和 CA 两个站点都有(responseType 均为 vps.ip.ServiceStatus),
+		// 只有 US 站点整片 vps 命名空间里没有这条路径,硬打过去必然 404。
+		// 原注释写的"只在 EU 注册"是错的 —— 加拿大区同样可用,别照着它给 CA 也加门控。
+		if vpsRegionFor(state, c) == vpsRegionUS {
+			vpsUnsupportedRead(c, "status", nil,
+				"美区 OVHcloud 未提供 VPS 服务端口探测接口(该端点仅欧洲区 / 加拿大区有);想看端口存活请自行用外部监控")
+			return
+		}
 		client, err := ovhClientFor(state, c)
 		if err != nil {
 			noOVHResp(c)
@@ -356,6 +430,10 @@ func SetVpsIpReverse(state *app.State) gin.HandlerFunc {
 }
 
 // GetVpsDatacenter GET /api/vps-control/:service_name/datacenter
+//
+// 别被区域 diff 里的 "/vps/datacenter 缺 US" 误导:那是全局机房清单,是另一条路径。
+// 这里用的 /vps/{serviceName}/datacenter 三个站点都有(EU/CA 为 PRODUCTION、US 为 BETA,
+// responseType 都是 vps.Datacenter),不需要门控。
 func GetVpsDatacenter(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")

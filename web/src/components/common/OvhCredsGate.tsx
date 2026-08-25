@@ -5,15 +5,20 @@ import { KeyRound, Loader2, Globe, Settings as SettingsIcon } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { qk } from "@/lib/query";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
+import { apiBaseUrlForEndpoint, endpointRegion } from "@/lib/ovh-regions";
 
 const PREFETCH_STALE = 2 * 60 * 60_000;
 
 /** 凭据存好后立刻预热三件套. 用户切到 servers 页时直接命中,不会再"加载中" */
 function prefetchAfterCredsSaved(qc: ReturnType<typeof useQueryClient>, zone: string) {
+  // key 必须跟 useServers 完全一致(含 accountId 维度),否则预热的是一条谁也读不到的缓存。
+  // 刚建完账户时还没有"活跃账户",useServers 那边也是空字符串 → 默认视角。
   void qc.prefetchQuery({
-    queryKey: ["servers", "list", { showApiServers: true }] as const,
+    queryKey: qk.servers.list(true, ""),
     queryFn: async () => {
       const res = await api.get("/servers", { params: { showApiServers: true } });
       return res.data.servers || res.data || [];
@@ -30,15 +35,12 @@ function prefetchAfterCredsSaved(qc: ReturnType<typeof useQueryClient>, zone: st
     },
     staleTime: PREFETCH_STALE,
   });
-  const meta = OVH_SUBSIDIARIES.find((s) => s.code === zone);
-  const baseUrl =
-    meta?.endpoint === "ovh-us"
-      ? "https://api.us.ovhcloud.com"
-      : meta?.endpoint === "ovh-ca"
-        ? "https://ca.api.ovh.com"
-        : "https://eu.api.ovh.com";
+  // 站点/大区判定统一走 lib/ovh-regions,不再在这里另写一张 endpoint→URL 表;
+  // queryKey 也必须跟 useAvailability 一致(按大区分桶),否则预热等于白拉一份 ~9MB 数据。
+  const endpoint = OVH_SUBSIDIARIES.find((s) => s.code === zone)?.endpoint;
+  const baseUrl = apiBaseUrlForEndpoint(endpoint);
   void qc.prefetchQuery({
-    queryKey: ["availability", "all", "auto"] as const,
+    queryKey: qk.availability.all(endpointRegion(endpoint)),
     queryFn: async () => {
       const res = await axios.get(`${baseUrl}/v1/dedicated/server/datacenter/availabilities`, {
         timeout: 30000,
@@ -122,6 +124,9 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
   const set = (k: keyof AccountForm, v: string) =>
     setForm((prev) => ({ ...prev, [k]: v }));
 
+  // token 申请页按站点分:EU / US / CA 三站的 token 互不通用,链接必须跟着所选子公司走
+  const tokenSiteUrl = apiBaseUrlForEndpoint(endpointForZone(form.zone || "IE"));
+
   const canSubmit =
     form.name.trim() &&
     form.appKey.trim() &&
@@ -145,14 +150,23 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
         setDefault: true, // 首次创建自动设默认
       });
       qc.invalidateQueries({ queryKey: ["accounts", "list"] });
+      // 后端 /accounts 会带回 subsidiaryWarning:凭据能用,但这个账户在 OVH 那边属于另一个子公司。
+      // 它不影响 valid,却决定目录/价格/库存/下单 region 打到哪个站点,所以必须当场说出来。
+      const warning: string = res.data?.subsidiaryWarning || "";
       if (res.data?.valid === false) {
         setError(
-          "账户已保存,但 OVH 验证失败。检查 APP KEY / APP SECRET / CONSUMER KEY 是否匹配所选子公司。可以先进入再到设置页修复。"
+          "账户已保存,但 OVH 验证失败。检查 APP KEY / APP SECRET / CONSUMER KEY 是否匹配所选子公司。可以先进入再到设置页修复。" +
+            (warning ? " " + warning : "")
         );
         // 验证失败也放行,不强卡用户
         prefetchAfterCredsSaved(qc, zone);
         onSuccess();
         return;
+      }
+      if (warning) {
+        // 凭据没问题就放行,但这层引导页马上会被 onSuccess 卸载,setError 用户根本看不到 ——
+        // 用长时间 toast 把错配带到主界面上,让用户去设置页把 zone 改对再下单。
+        toast.warning(warning, { duration: 20000 });
       }
       prefetchAfterCredsSaved(qc, zone);
       onSuccess();
@@ -235,16 +249,19 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
         </Button>
 
         <p className="text-[10px] text-muted-foreground leading-relaxed">
+          {/* createToken 页面是按站点分开的:三站的 token 互不通用,
+              美区账户拿 eu.api.ovh.com 申请的 token 永远登不进去(实测三站的
+              /createToken/ 各自 200)。链接必须跟着上面选的子公司走。 */}
           凭据保存到本地 SQLite,不会上传。还没有?去
           <a
-            href="https://eu.api.ovh.com/createToken/"
+            href={`${tokenSiteUrl}/createToken/`}
             target="_blank"
             rel="noreferrer"
             className="underline mx-1"
           >
-            eu.api.ovh.com/createToken
+            {tokenSiteUrl.replace("https://", "")}/createToken
           </a>
-          申请。
+          申请（{form.zone} 属于该站点，别在其它站点申请）。
         </p>
       </div>
     </div>

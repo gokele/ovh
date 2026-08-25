@@ -1,6 +1,7 @@
 package purchase
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -147,8 +148,8 @@ func ProcessQueueLoop(state *app.State) {
 					state.Logger.Info("重试检查任务 "+it.ID+": "+it.PlanCode+" 在 "+it.Datacenter, "queue")
 				}
 
-				success := PurchaseServer(state, &snapshot)
-				if success {
+				outcome := PurchaseServer(state, &snapshot)
+				if outcome.Success {
 					state.QueueMu.Lock()
 					for i := range state.Queue {
 						if state.Queue[i].ID == it.ID {
@@ -166,13 +167,69 @@ func ProcessQueueLoop(state *app.State) {
 					} else {
 						state.Logger.Info("重试购买成功: "+it.PlanCode, "queue")
 					}
+					return
+				}
+
+				// 失败路径:先把"真的提交过并失败"计进 FailureCount(无货轮次不计),
+				// MaxRetries 封顶用的是它。
+				failureCount := snapshot.FailureCount
+				if outcome.Attempted {
+					state.QueueMu.Lock()
+					for i := range state.Queue {
+						if state.Queue[i].ID == it.ID {
+							state.Queue[i].FailureCount++
+							failureCount = state.Queue[i].FailureCount
+							break
+						}
+					}
+					state.QueueMu.Unlock()
+				}
+
+				// 以前这里只打一行日志就完了:任务状态永远停在 running,
+				// MaxRetries 全项目只写不读,于是跨区 planCode / 账户被删这类
+				// **重试一万次也不会变**的任务会按 retryInterval 永远刷下去,
+				// 而且每一轮都往 history 写一条失败记录,把抢购历史刷满。
+				// 现在两道闸:确定性失败直接终止,其余按 MaxRetries 封顶。
+				if finalRetry == 1 {
+					state.Logger.Info("首次尝试购买失败或服务器暂无货: "+it.PlanCode, "queue")
 				} else {
-					if finalRetry == 1 {
-						state.Logger.Info("首次尝试购买失败或服务器暂无货: "+it.PlanCode, "queue")
-					} else {
-						state.Logger.Info("重试购买失败或服务器仍无货: "+it.PlanCode, "queue")
+					state.Logger.Info("重试购买失败或服务器仍无货: "+it.PlanCode, "queue")
+				}
+
+				stopReason := ""
+				switch {
+				case outcome.Fatal:
+					// 确定性失败(跨区机型 / 非 Eco 机型 / planCode 不存在 / 账户已删):
+					// 换个时间点重试必然还是同一个结果,再重试只是白刷 OVH 和 history。
+					// 失败原因 PurchaseServer 已经写进 history 了,这里只负责终止任务。
+					stopReason = "确定性失败，重试无用：" + outcome.Reason
+				case snapshot.MaxRetries > 0 && failureCount >= snapshot.MaxRetries:
+					// MaxRetries 封顶的是**真正提交并失败的次数**,不是检查轮次。
+					// 抢购的常态就是绝大多数轮次都无货(那些轮次 Attempted=false,不计数),
+					// 拿轮次封顶会让任务在还没真正试过几次时就被判死。
+					// 0 / 缺省 = 不封顶,保持 /api/queue 入队任务"一直抢到有货为止"的语义。
+					stopReason = fmt.Sprintf("连续 %d 次下单尝试均失败，停止重试", snapshot.MaxRetries)
+				}
+				if stopReason == "" {
+					return
+				}
+				if !outcome.Fatal {
+					// 确定性失败的原因 PurchaseServer 已经写进 history 了;
+					// 用尽 MaxRetries 这条没人写过,补一条,否则任务会莫名其妙停在 failed
+					// 而历史里一个字都没有。
+					recordFailure(state, &snapshot, stopReason)
+				}
+				state.QueueMu.Lock()
+				for i := range state.Queue {
+					if state.Queue[i].ID == it.ID {
+						state.Queue[i].Status = "failed"
+						state.Queue[i].UpdatedAt = types.NowISO()
+						break
 					}
 				}
+				state.QueueMu.Unlock()
+				state.Logger.Warn(fmt.Sprintf("任务 %s (%s @ %s) 置为 failed：%s",
+					it.ID, it.PlanCode, it.Datacenter, stopReason), "queue")
 			}
 
 			// 分批并发

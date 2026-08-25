@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -75,6 +76,11 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 			state.Logger.Warn("未找到服务器 "+body.PlanCode+" 的名称信息", "monitor")
 		}
 
+		// 区域预检:OVH 的 EU / US / CA 是三套独立系统,拿错站点查 planCode 返回的是
+		// 200 + 空数组而不是报错。订阅一个没人能查的机型会静默失效,所以下单前就告诉用户。
+		// 只提示不拦截 —— 目录有 2 小时缓存、OVH 也会抖动,不能凭一次探测把人挡在门外。
+		region, subsidiary, regionWarning := mon.PreflightRegion(body.PlanCode, body.AutoOrderAccountID)
+
 		mon.AddSubscription(body.PlanCode, body.Datacenters, notifyAvailable, notifyUnavailable,
 			serverName, nil, nil, body.AutoOrder, body.Quantity, body.AutoOrderAccountID)
 		mon.SaveToDB()
@@ -88,7 +94,18 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 			nameDisplay = "未知名称"
 		}
 		state.Logger.Info("添加服务器订阅: "+body.PlanCode+" ("+nameDisplay+")", "")
-		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "已订阅 " + body.PlanCode})
+		resp := gin.H{"status": "success", "message": "已订阅 " + body.PlanCode}
+		if region != "" {
+			resp["region"] = region
+			resp["subsidiary"] = subsidiary
+			resp["message"] = "已订阅 " + body.PlanCode + "（由 " + region + " 站点账户监控）"
+		}
+		if regionWarning != "" {
+			state.Logger.Warn("订阅区域预检告警: "+body.PlanCode+" - "+regionWarning, "monitor")
+			resp["status"] = "warning"
+			resp["regionWarning"] = regionWarning
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -276,7 +293,29 @@ func GetMonitorStatus(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 // SetMonitorInterval PUT /api/monitor/interval
 func SetMonitorInterval(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "info", "message": "检查间隔已全局固定为5秒，无法修改"})
+		var body struct {
+			Interval      *int `json:"interval"`
+			CheckInterval *int `json:"check_interval"` // 前端历史字段名,一并收
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "请求体格式错误"})
+			return
+		}
+		v := body.Interval
+		if v == nil {
+			v = body.CheckInterval
+		}
+		if v == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少 interval 参数"})
+			return
+		}
+		applied := mon.SetCheckInterval(*v)
+		mon.SaveToDB()
+		msg := fmt.Sprintf("检查间隔已设置为 %d 秒", applied)
+		if applied != *v {
+			msg = fmt.Sprintf("检查间隔已调整为 %d 秒(合法范围 %d-%d 秒)", applied, monitor.MinCheckInterval, monitor.MaxCheckInterval)
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "success", "message": msg, "check_interval": applied})
 	}
 }
 

@@ -14,7 +14,9 @@ import (
 // 注意:OVH 一个 VPS 同时只能有 0 或 1 个快照(免费档),不是数组。
 // 没快照时端点返回 404,这里转换成 200 + snapshot:null,前端可以判断显示「无快照」。
 //
-// /vps/{name}/snapshot 返回 vps.Snapshot { id, creationDate, description, region }
+// /vps/{name}/snapshot 返回 vps.Snapshot { id, creationDate, description, region },
+// 该模型和 GET/PUT/DELETE 三个方法在 EU / CA / US 三区完全一致(US 标 BETA),
+// createSnapshot / snapshot/revert 也一样 —— 整个快照家族不需要区域门控。
 func GetVpsSnapshot(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
@@ -25,12 +27,14 @@ func GetVpsSnapshot(state *app.State) gin.HandlerFunc {
 		}
 		var snap map[string]interface{}
 		if err := client.Get("/vps/"+svc+"/snapshot", &snap); err != nil {
-			// 404 = 没快照,正常状态
-			errMsg := strings.ToLower(err.Error())
-			if strings.Contains(errMsg, "does not exist") || strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "404") {
+			// 404 = 没快照,正常状态。判 HTTP 状态码而不是匹配错误文案:
+			// 三个站点是独立部署,报错文案各写各的(而且会随 OVH 改版变),
+			// 匹配 "does not exist" 这类英文串在某个区一旦对不上,就会把"没快照"渲染成一条 500。
+			if ovhIsNotFound(err) {
 				c.JSON(http.StatusOK, gin.H{"success": true, "snapshot": nil})
 				return
 			}
+			state.Logger.Error("VPS "+svc+" 读取快照失败: "+err.Error(), "vps_control")
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
@@ -62,6 +66,9 @@ func CreateVpsSnapshot(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Post("/vps/"+svc+"/createSnapshot", params, &task); err != nil {
+			// 这里只能靠文案兜一层:OVH 对"已有快照"回的是 400/409,状态码本身区分不出
+			// 具体原因。文案匹配仅用于把提示说得更友好,匹配不上也会照常把原始错误返回,
+			// 不像 404 降级那样会改变语义,所以三区文案差异在这里是可接受的。
 			errMsg := strings.ToLower(err.Error())
 			if strings.Contains(errMsg, "already") || strings.Contains(errMsg, "exists") {
 				c.JSON(http.StatusBadRequest, gin.H{

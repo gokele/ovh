@@ -103,6 +103,9 @@ func (db *DB) ListMonitorSubscriptions() ([]types.Subscription, error) {
 }
 
 // UpsertMonitorSubscription 按 plan_code upsert
+// auto_order_account_id 必须出现在 INSERT 列表里:ON CONFLICT 分支引用的 excluded.xxx
+// 取的是"这次 INSERT 尝试插入的值",列不在 INSERT 列表里时它等于列默认值(空串),
+// 于是每次更新都会把订阅的自动下单账户清空。
 func (db *DB) UpsertMonitorSubscription(s types.Subscription) error {
 	r, err := monitorSubToRow(s)
 	if err != nil {
@@ -111,10 +114,10 @@ func (db *DB) UpsertMonitorSubscription(s types.Subscription) error {
 	_, err = db.NamedExec(`
 		INSERT INTO monitor_subscriptions
 		(plan_code, datacenters, notify_available, notify_unavailable, last_status,
-		 created_at, history, server_name, auto_order, quantity)
+		 created_at, history, server_name, auto_order, quantity, auto_order_account_id)
 		VALUES
 		(:plan_code, :datacenters, :notify_available, :notify_unavailable, :last_status,
-		 :created_at, :history, :server_name, :auto_order, :quantity)
+		 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id)
 		ON CONFLICT(plan_code) DO UPDATE SET
 		  datacenters        = excluded.datacenters,
 		  notify_available   = excluded.notify_available,

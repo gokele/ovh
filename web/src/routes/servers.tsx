@@ -26,6 +26,8 @@ import {
   useAvailability,
   buildAvailabilityMap,
   buildVariantIndex,
+  variantsForPlan,
+  variantDcStatus,
   hasStockWithOption,
   useOvhCatalog,
   buildCatalogIndex,
@@ -39,6 +41,9 @@ import { groupOptions, type OptionGroupKey } from "@/lib/option-groups";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
 import { OVH_DATACENTERS, lookupDcStatus } from "@/lib/datacenters";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
+import { formatMoney, CURRENCY_UNKNOWN_HINT } from "@/lib/money";
+import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
+import { endpointRegion, regionLabel } from "@/lib/ovh-regions";
 
 /** 服务器列表：卡片网格 + 详情弹窗 */
 export const Route = createFileRoute("/servers")({
@@ -59,7 +64,7 @@ function ServersPage() {
 
   // OVH 账户信息：拿 ovhSubsidiary 作为默认价格地区
   const account = useAccountInfo();
-  const accountSub = account.data?.ovhSubsidiary;
+  const accountSub = account.data?.info.ovhSubsidiary;
 
   // 价格地区（默认跟账户走；用户手动改过后用本地存的）
   const [subsidiary, setSubsidiary] = useState<string>(() => {
@@ -231,6 +236,23 @@ function ServersPage() {
           </span>
         </CardContent>
       </Card>
+
+      {/* 后端 /me 响应上的 X-Subsidiary-Mismatch:账户里配的 zone 跟 OVH 认的 ovhSubsidiary 不一致。
+          这一页的机型集合、价格、库存全部由子公司决定,配错了看到的整页都是别的区的东西,
+          而且要到下单那一刻才会失败,所以在这里就得说清楚。 */}
+      {account.data?.subsidiaryMismatch && (
+        <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-[12px]">
+          <MapPin className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">账户子公司配置与 OVH 实际归属不一致</p>
+            <p className="text-muted-foreground mt-0.5">
+              OVH 认这个账户属于 <code className="font-mono">{accountSub || "—"}</code>，
+              与设置页里填的 zone 不同。目录、价格、币种、库存、下单 region 全按子公司走，
+              请到「设置 → OVH 账户」改成 {accountSub || "OVH 返回的那个子公司"} 后再下单。
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 网格 */}
       {q.isPending ? (
@@ -430,12 +452,30 @@ function DetailContent({
   const addMon = useAddToMonitor();
   const create = useCreateQueueItem();
   const defaultAcc = useDefaultAccount();
+  const { data: accounts } = useAccounts();
 
   // 抢购表单状态：DC 多选 + 数量 + 重试间隔 + 账户
   const [accountId, setAccountId] = useState("");
   useEffect(() => {
     if (!accountId && defaultAcc) setAccountId(defaultAcc.id);
   }, [defaultAcc?.id, accountId]);
+
+  // 这里选的下单账户可能跟页面顶部的活跃账户不是同一个区。
+  // 库存必须按"实际下单的那个账户"的站点查:EU/US/CA 三站库存互不相通
+  // (实测 US 站点有 423 个 planCode,只有 134 个与 EU 重合,还多 vin/hil 两个机房),
+  // 拿页面级(活跃账户)的库存去点红绿点,用户会照着别区的货去下单。
+  const orderEndpoint = findAccountByID(accounts, accountId)?.endpoint || "";
+  const orderAvail = useAvailability(orderEndpoint || undefined);
+  // 下单账户那一份还没到手时,先用页面级传进来的变体兜底显示(不空窗)
+  const orderVariants = useMemo(
+    () => (orderEndpoint ? variantsForPlan(orderAvail.data, server.planCode) ?? variants : variants),
+    [orderEndpoint, orderAvail.data, server.planCode, variants]
+  );
+  // plan 级机房状态同样改用下单账户那一份(空 picks = 聚合所有变体,与页面卡片口径一致)
+  const orderDcMap = useMemo(
+    () => (orderVariants ? variantDcStatus(orderVariants, []) : realtimeDcMap),
+    [orderVariants, realtimeDcMap]
+  );
   const [selectedDCs, setSelectedDCs] = useState<string[]>([]);
   const [quantity, setQuantity] = useState("1");
   const [retryInterval, setRetryInterval] = useState("60");
@@ -450,7 +490,7 @@ function DetailContent({
     return m;
   }, [server.datacenters]);
   // 实时覆盖静态:plan 级聚合,无 variants 数据时兜底
-  const aggregateDcMap = useMemo(() => ({ ...staticDcMap, ...(realtimeDcMap || {}) }), [staticDcMap, realtimeDcMap]);
+  const aggregateDcMap = useMemo(() => ({ ...staticDcMap, ...(orderDcMap || {}) }), [staticDcMap, orderDcMap]);
   const total = OVH_DATACENTERS.length;
 
   // 按组拆分可选配置 + 默认值集合
@@ -494,7 +534,7 @@ function DetailContent({
     if (groupKey === "bandwidth" || groupKey === "vrack" || groupKey === "cpu" || groupKey === "other") {
       return true;
     }
-    return hasStockWithOption(variants, picked as Record<string, string>, groupKey, value);
+    return hasStockWithOption(orderVariants, picked as Record<string, string>, groupKey, value);
   };
 
   // 用户选中的所有 option value（非默认值才计入，让 Queue 表单只填差异化部分；
@@ -503,6 +543,13 @@ function DetailContent({
     () => (Object.values(picked).filter(Boolean) as string[]),
     [picked]
   );
+
+  // 价格用的 subsidiary(顶部下拉)属于哪个站点 vs 下单账户属于哪个站点
+  const priceRegion = endpointRegion(
+    OVH_SUBSIDIARIES.find((s) => s.code === subsidiary)?.endpoint || "ovh-eu"
+  );
+  const orderRegion = endpointRegion(orderEndpoint);
+  const priceRegionMismatch = !!orderEndpoint && priceRegion !== orderRegion;
 
   // 跟随选配实时算价：base plan + 选中的各 addon 月费
   const price = useMemo(() => {
@@ -543,9 +590,12 @@ function DetailContent({
           {price && (
             <div className="text-right text-[11px] text-muted-foreground space-y-0.5 tabular-nums">
               {price.installPrice > 0 && (
-                <div>安装费 {fmtMoney(price.installPrice, price.currency)}（一次性）</div>
+                <div>安装费 {formatMoney(price.installPrice, price.currency)}（一次性）</div>
               )}
-              <div>币种 {price.currency}</div>
+              {/* 币种取目录 locale.currencyCode 原值;拿不到就明说未知,不写死 EUR */}
+              <div title={price.currency ? undefined : CURRENCY_UNKNOWN_HINT}>
+                币种 {price.currency || "未知"}
+              </div>
             </div>
           )}
         </div>
@@ -644,6 +694,20 @@ function DetailContent({
             <div>
               <label className="block text-[11px] text-muted-foreground mb-1">OVH 账户 *</label>
               <AccountSelect value={accountId} onChange={setAccountId} />
+              {orderEndpoint && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  机房与配置的红绿点按该账户所在站点（{regionLabel(endpointRegion(orderEndpoint))}）实时查询
+                  {orderAvail.isFetching && " · 同步中…"}
+                </p>
+              )}
+              {/* 下单前唯一能看出"区配错了"的地方:价格按上方选的 subsidiary 显示,
+                  下单却走账户所属站点。两者不同区时价格/库存都对不上,必须显式警告。 */}
+              {priceRegionMismatch && (
+                <p className="text-[11px] text-warning mt-1">
+                  ⚠ 价格按 {subsidiary}（{regionLabel(priceRegion)}）显示，而下单账户在
+                  {regionLabel(orderRegion)}站点 —— 三区的目录、价格、库存互不相通，实际扣款以账户所属站点为准。
+                </p>
+              )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -737,12 +801,6 @@ function DetailContent({
   );
 }
 
-
-/** 简单货币格式化（不需要全名时） */
-function fmtMoney(v: number, currency: string): string {
-  const sym = currency === "EUR" ? "€" : currency === "USD" ? "$" : currency === "GBP" ? "£" : currency === "CAD" ? "CA$" : `${currency} `;
-  return `${sym}${v.toFixed(2)}`;
-}
 
 function SpecCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (

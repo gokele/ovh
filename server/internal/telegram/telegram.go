@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -132,8 +133,20 @@ func SetWebhook(state *app.State, webhookURL string) (bool, string, map[string]i
 	}
 	state.Logger.Info("正在设置 Telegram Webhook: "+webhookURL, "telegram")
 
+	// 带上 secret_token：之后 Telegram 每次回调都会带 X-Telegram-Bot-Api-Secret-Token 头，
+	// webhook handler 用它区分「真的来自 Telegram」和「别人拿 URL 伪造」。
+	secret, secErr := EnsureWebhookSecret(state)
+	if secErr != nil {
+		state.Logger.Warn("生成 webhook secret 失败，本次将不带 secret_token 注册: "+secErr.Error(), "telegram")
+	}
+
 	setURL := "https://api.telegram.org/bot" + cfg.TgToken + "/setWebhook"
-	req, _ := http.NewRequest(http.MethodPost, setURL+"?url="+webhookURL, nil)
+	q := url.Values{}
+	q.Set("url", webhookURL)
+	if secret != "" {
+		q.Set("secret_token", secret)
+	}
+	req, _ := http.NewRequest(http.MethodPost, setURL+"?"+q.Encode(), nil)
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -146,6 +159,10 @@ func SetWebhook(state *app.State, webhookURL string) (bool, string, map[string]i
 	_ = json.Unmarshal(body, &result)
 	if ok, _ := result["ok"].(bool); ok {
 		state.Logger.Info("✅ Telegram Webhook 设置成功: "+webhookURL, "telegram")
+		if secret != "" {
+			// secret 已经推给 Telegram，从此刻起 webhook 强制校验
+			MarkWebhookSecretRegistered(state)
+		}
 		// 获取 webhook info
 		var info map[string]interface{}
 		infoResp, err := client.Get("https://api.telegram.org/bot" + cfg.TgToken + "/getWebhookInfo")

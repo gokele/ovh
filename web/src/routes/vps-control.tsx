@@ -26,8 +26,10 @@ import {
   useTerminateVps, useConfirmTerminateVps,
   useVpsEngagement, useVpsEngagementAvailable, useVpsEngagementRequest,
   useCreateVpsEngagementRequest, useDeleteVpsEngagementRequest, useUpdateVpsEngagementEndRule,
+  useVpsOptions, useVpsServiceStatus,
   type OwnedVps,
 } from "@/hooks/use-vps-control";
+import { isUsEndpoint, regionLabel, regionLabelOf, endpointRegion } from "@/lib/ovh-regions";
 import { useHideIp, maskSensitive } from "@/hooks/use-hide-ip";
 import { useActiveServerControlAccount } from "@/hooks/use-active-account";
 import { useAccounts } from "@/hooks/use-accounts";
@@ -72,6 +74,9 @@ function VpsControlPage() {
   }, [vpsList, selectedName]);
 
   const selected = vpsList.find((v) => v.serviceName === selectedName) || null;
+  // 大区判定统一走 lib/ovh-regions(对齐后端 ovh.EndpointRegion):endpoint 是用户可填的自由字符串,
+  // 还有 kimsufi-* / soyoustart-* 品牌别名,散装 `=== "ovh-us"` 漏一种写法门控就失效。
+  const activeEndpoint = (accounts || []).find((a) => a.id === activeAccount)?.endpoint || "";
   const aliases = useServerAliases();
   const setAlias = useSetServerAlias();
 
@@ -154,11 +159,108 @@ function VpsControlPage() {
           server={selected}
           aliases={aliases}
           onSetAlias={setAlias}
-          isUS={(accounts || []).find((a) => a.id === activeAccount)?.endpoint === "ovh-us"}
+          isUS={isUsEndpoint(activeEndpoint)}
+          region={regionLabel(endpointRegion(activeEndpoint))}
         />
       ) : q.isPending ? (
         <Skeleton className="h-96 rounded-2xl" />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * VPS 附加选项。
+ *
+ * 为什么要单独展示 manageEndpointsAvailable:三区的 vps.VpsOptionEnum 完全一致,
+ * 所以美区账户照样会在 /vps/{sn}/option 里列出 ftpbackup / veeam,
+ * 但管理它们的整套端点(/vps/{sn}/backupftp、/vps/{sn}/veeam)在 api.us.ovhcloud.com 上不存在。
+ * 后端(handlers/vps_control_misc.go)给这两行打了 manageEndpointsAvailable:false + unsupportedReason,
+ * 这里如实显示 —— 否则用户只看到"选项已开通",却永远找不到入口,以为是面板漏做了。
+ */
+function VpsOptionsPanel({ serviceName, region }: { serviceName: string; region: string }) {
+  const q = useVpsOptions(serviceName);
+  const list = q.data || [];
+
+  return (
+    <div className="border border-border rounded-2xl p-4 space-y-3">
+      <h3 className="text-sm font-semibold">附加选项</h3>
+      {q.isPending ? (
+        <Skeleton className="h-12 rounded-md" />
+      ) : q.isError ? (
+        <p className="text-[12px] text-destructive">附加选项读取失败,请刷新重试</p>
+      ) : list.length === 0 ? (
+        <p className="text-[12px] text-muted-foreground">该 VPS 没有附加选项</p>
+      ) : (
+        <div className="space-y-2">
+          {list.map((opt) => {
+            const manageable = opt.manageEndpointsAvailable !== false;
+            return (
+              <div key={opt.option} className="border border-border rounded-xl px-3 py-2 space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <code className="font-mono text-[12px]">{opt.option}</code>
+                  {opt.state && <Chip tone="default" className="text-[10px]">{opt.state}</Chip>}
+                  {!manageable && (
+                    <Chip tone="warning" className="text-[10px]">
+                      {region}无管理接口
+                    </Chip>
+                  )}
+                </div>
+                {!manageable && opt.unsupportedReason && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {opt.unsupportedReason}
+                    {/* 只是"没有专属管理端点",退订接口三区都在,所以别让用户以为这项取消不掉 */}
+                    <span className="block mt-0.5">（该选项仍在计费和生效中，退订接口不受影响）</span>
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * VPS 网络服务探测(ping / dns / http / https / smtp / ssh)。
+ * /vps/{sn}/status 只在 EU 与 CA 两站注册,US 站点整片 vps 命名空间里没有这条路径,
+ * 后端返 200 + status:null + unsupported:true + region:"US"。
+ * 这里直接消费后端结论(unsupported / region),不自己再判一次 endpoint。
+ */
+function VpsServiceStatusPanel({ serviceName, region }: { serviceName: string; region: string }) {
+  const q = useVpsServiceStatus(serviceName);
+  const data = q.data;
+  if (q.isPending) return <Skeleton className="h-12 rounded-2xl" />;
+  if (q.isError) return null;
+
+  if (data?.unsupported) {
+    return (
+      <div className="border border-border rounded-2xl p-3 bg-secondary/30 text-[11px] text-muted-foreground">
+        网络服务探测:{data.message || `${regionLabelOf(data.region) || region}没有这个 OVH 端点`}
+      </div>
+    );
+  }
+  const entries = Object.entries(data?.status || {});
+  if (entries.length === 0) return null;
+  return (
+    <div className="border border-border rounded-2xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+        <Terminal className="w-4 h-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">网络服务探测</h3>
+        <span className="text-[11px] text-muted-foreground ml-auto">OVH 侧端口存活,与 VPS 电源状态无关</span>
+      </div>
+      <div className="px-4 py-3 flex flex-wrap gap-x-4 gap-y-2 text-[12px]">
+        {entries.map(([k, v]) => (
+          <span key={k} className="flex items-center gap-1.5">
+            {typeof v === "boolean" ? (
+              <StatusDot tone={v ? "success" : "danger"} size="xs" />
+            ) : null}
+            <span className="text-muted-foreground">{k}</span>
+            {typeof v !== "boolean" && <span className="font-mono">{String(v)}</span>}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -170,11 +272,14 @@ function VpsDetail({
   aliases,
   onSetAlias,
   isUS,
+  region,
 }: {
   server: OwnedVps;
   aliases: ReturnType<typeof useServerAliases>;
   onSetAlias: ReturnType<typeof useSetServerAlias>;
   isUS: boolean;
+  /** 账户所在大区的中文名（欧区 / 美区 / 加区），只用于文案 */
+  region: string;
 }) {
   const info = useVpsServiceInfo(server.serviceName);
   const ips = useVpsIps(server.serviceName);
@@ -355,6 +460,19 @@ function VpsDetail({
           </div>
         </div>
 
+        {/* 列表接口这次没拿到这台 VPS 的详情/计费信息。
+            「没查到」不能显示成「没开自动续费」或「unknown 状态」，那会让用户按错误前提去操作。 */}
+        {(server.error || server.renewalType === null || server.status === null) && (
+          <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-[11px] text-foreground/80 mt-3">
+            <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" />
+            <span>
+              {server.error
+                ? `该 VPS 的详情未能获取（${server.error}），下方配置信息可能不完整。`
+                : "该 VPS 的续费 / 计费信息这次没查到，列表里的续费状态显示为「未知」而非「手动」，请以下方「续费」胶囊为准。"}
+            </span>
+          </div>
+        )}
+
         {/* 顶部硬件信息卡(VPS 简化版) */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 mt-4">
           <InfoCard icon={<Cpu className="w-4 h-4" />} label="vCore" value={String(server.vcore || "—")} />
@@ -476,6 +594,9 @@ function VpsDetail({
             )}
           </div>
 
+          {/* 网络服务探测(EU/CA 有,US 没有这条 OVH 端点) */}
+          <VpsServiceStatusPanel serviceName={server.serviceName} region={region} />
+
           {/* 一行底部:型号 + 开通日期 + 集群,放轻量 */}
           <p className="text-[11px] text-muted-foreground px-1">
             {server.model && <>型号 <code className="font-mono">{server.model}</code></>}
@@ -504,6 +625,8 @@ function VpsDetail({
             <p className="text-[12px] text-muted-foreground">本地别名,不影响 OVH 真实名(`{server.serviceName}`)</p>
             <AliasEditor serviceName={server.serviceName} aliases={aliases} onSetAlias={onSetAlias} />
           </div>
+
+          <VpsOptionsPanel serviceName={server.serviceName} region={region} />
 
           {!isUS ? (
             <div className="border border-border rounded-2xl p-4 space-y-3">

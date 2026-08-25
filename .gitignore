@@ -1,79 +1,105 @@
-# OVH-BUY 项目根 .gitignore
-# 结构:
-#   server/   - Go 后端 (Gin)
-#   web/      - 前端 (Vite + TanStack Router + shadcn-ui)
-# 子目录有各自的 .gitignore；这里只列跨目录通用规则 + Go 后端运行时数据
+# ============================================================
+# OVH 控制台 —— .gitignore
+#
+# 这个项目会把 OVH API 凭据、Telegram Bot Token 明文存进 SQLite,
+# .env 里还有前后端通信密钥。第一段是**绝对不能进仓库**的东西,
+# 改之前先想清楚:凭据一旦推上去,删 commit 是没用的 ——
+# 必须去 OVH 控制台吊销 AppKey/ConsumerKey 并重发 Telegram Token。
+# ============================================================
 
-# ============== 通用 / OS ==============
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-*.sw?
-
-# ============== 编辑器 / IDE ==============
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-
-# ============== 环境变量 ==============
-# 所有 .env 一律不入库，避免泄密钥。需要分享配置示例请提交 .env.example
+# ---------- 一、机密：泄漏 = 账户失守 ----------
+# 后端密钥(API_SECRET_KEY 等)。只放行 *.env.example 样板
 .env
 .env.*
 *.env
+!.env.example
 !*.env.example
 
-# ============== 日志 ==============
+# SQLite 数据库:ovh_accounts 表明文存 AppKey / AppSecret / ConsumerKey,
+# kv 表存 Telegram Token / Chat ID / webhook secret
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# 运行数据目录(DATA_DIR / CACHE_DIR / LOGS_DIR,默认落在 server/ 下)
+data/
+server/data/
+server/cache/
+server/logs/
+cache/
+logs/
+
+# 日志(会记录 OVH 原始报错、服务名、IP、订单号)
 *.log
+*.log.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# ============== Go 后端 (server/) ==============
-# 编译产物
-server/server
-server/server.exe
+# ---------- 二、本地脚本：不入库 ----------
+# 打包/发布脚本是各人本机的活,不进仓库(仓库从 v0.0.1 起就是这个约定)
+build.sh
+build.ps1
+
+# ---------- 三、构建产物 ----------
+/dist/
+dist/
+/build/
+ovh-server
+ovh-server-*
+*.exe
+*.exe~
 server/main
 server/main.exe
-*.exe
-# 运行时数据（含密钥 / 状态 / 缓存 / 日志，全部落在 data/ 下）
-server/data/
-# 旧版本残留的运行时目录（迁移到 data/logs 后保留 ignore 防回流）
-server/logs/
-server/cache/
-# 前端构建产物（由 web/vite.config.ts 输出到这里，供 -tags ui 的 //go:embed 使用）
+server/server
+server/server.exe
+
+# Vite 构建产物。`-tags ui` 靠 //go:embed 把它塞进二进制,
+# 但它是 `cd web && npm run build` 生成的,不必入库
 server/web/
-# Go 本地缓存
-server/vendor/
-# 测试覆盖率
+
+# Go
 *.test
 *.out
+coverage.*
+__debug_bin*
+server/vendor/
 
-# ============== 打包脚本 / 本地工具（不入库） ==============
-build.ps1
-build.sh
-
-# ============== 前端 (web/) ==============
-# 主要由 web/.gitignore 处理，这里加双保险
+# 前端
+/node_modules/
+node_modules/
 web/node_modules/
 web/dist/
 web/dist-ssr/
 web/.next/
-# TanStack Router 开发缓存
-web/.tanstack/
-# TanStack Router 自动生成路由树
-web/src/routeTree.gen.ts
-# TS 增量构建缓存
-web/*.tsbuildinfo
-
-# ============== 顶层旧前端残留（已删除，留规则防止 reorg 时回流）==============
-/node_modules/
-/dist/
-/build/
 /.next/
+web/.tanstack/
+*.tsbuildinfo
+web/*.tsbuildinfo
+# TanStack Router 自动生成
+web/src/routeTree.gen.ts
+
+# ---------- 四、本地环境噪音 ----------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+*~
+
+# 备份 / 临时
+*.bak
+*.orig
+*.tmp
+backup-*/

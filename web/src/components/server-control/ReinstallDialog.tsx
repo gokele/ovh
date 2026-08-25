@@ -84,13 +84,17 @@ export function ReinstallDialog({
   const [activeGroup, setActiveGroup] = useState<ReturnType<typeof detectOsKind> | null>(null);
   const [hostname, setHostname] = useState("");
 
-  // Proxmox + ZFS
-  const [useProxmox9Zfs, setUseProxmox9Zfs] = useState(true);
+  /**
+   * 存储配置模式。ZFS 预设 / 内置分区方案 / 高级存储配置三者写的是 reinstall 的同一个 storage 字段，
+   * 后端同时收到两份"用户亲手填的存储配置"会直接 400，ZFS 与另两者撞车时也只会保留 ZFS 并回警告。
+   * 与其让用户自己去猜哪个生效，不如在 UI 上做成单选：任何时候只有一种模式在起作用。
+   *   default = 用模板默认分区 / zfs = Proxmox 9 + ZFS 预设 / scheme = 内置分区方案 / custom = 高级存储配置
+   */
+  const [storageMode, setStorageMode] = useState<"default" | "zfs" | "scheme" | "custom">("default");
   const [zfsRaidLevel, setZfsRaidLevel] = useState<0 | 1>(1);
   const [zfsVzSize, setZfsVzSize] = useState(100 * 1024); // MB
 
   // 高级存储
-  const [useCustomStorage, setUseCustomStorage] = useState(false);
   const [hardwareRaid, setHardwareRaid] = useState<Record<number, string>>({});
   const [useSoftwareRaid, setUseSoftwareRaid] = useState(false);
   const [softwareRaidLevel, setSoftwareRaidLevel] = useState("raid1");
@@ -106,6 +110,16 @@ export function ReinstallDialog({
   // 重置 selectedScheme 当模板变化时
   useEffect(() => {
     setPartitionSchemeName("");
+  }, [templateName]);
+
+  // 换模板时把存储模式收敛到合法值：ZFS 预设只对 proxmox9_64 有意义，
+  // 换到别的模板还留在 zfs 模式会发出一份 OVH 不认的配置
+  useEffect(() => {
+    if (templateName !== "proxmox9_64") {
+      setStorageMode((m) => (m === "zfs" ? "default" : m));
+    } else {
+      setStorageMode((m) => (m === "default" ? "zfs" : m));
+    }
   }, [templateName]);
 
   // 已选模板对应的发行版自动展开到左栏(刷新 / 预设模板的场景)
@@ -143,22 +157,57 @@ export function ReinstallDialog({
   }, [filtered]);
 
   const isProxmox9 = templateName === "proxmox9_64";
+  const useProxmox9Zfs = isProxmox9 && storageMode === "zfs";
+  const useCustomStorage = storageMode === "custom";
 
-  // 磁盘总容量（GB）— 用于 ZFS /var/lib/vz 上限
-  const totalCapacityGB = useMemo(() => {
+  /**
+   * /var/lib/vz 的上限，口径必须跟后端一致，否则用户填了个前端放行、后端 400 的值。
+   * 后端（server_control_basic.go 的 ZFS 分支）算法：
+   *   RAID0 → 总容量 = 单盘容量 × 盘数；RAID1 等 → 总容量 = 单盘容量（镜像，可用只有一块）
+   *   可用   = 总容量 × 1024 × 0.92（文件系统开销）
+   *   root   = 可用 − /boot 1024MB − swap 8192MB − vz，必须 > 0
+   * 这里再额外给根目录留 20GB，避免刚好卡在 root=1MB 这种能过校验但没法用的值。
+   */
+  const zfsCap = useMemo(() => {
     const groups = disk.data || {};
     const first = Object.values(groups)[0];
-    if (!first?.disks?.length) return 0;
+    if (!first?.disks?.length) return { singleDiskGB: 0, diskCount: 0, usableMB: 0, maxVzGB: 0 };
     const d = first.disks[0];
-    const sizeGB = d.unit?.toLowerCase().startsWith("t") ? d.capacity * 1024 : d.capacity;
-    // 简化：单组的总容量按盘数 × 单盘容量（RAID0 视角；旧前端也是这个估法）
-    return Math.floor(sizeGB * first.disks.length);
-  }, [disk.data]);
-  const availableCap = Math.max(0, totalCapacityGB - 9); // 减去 /boot 1G + swap 8G
+    const singleDiskGB = d.unit?.toLowerCase().startsWith("t") ? d.capacity * 1024 : d.capacity;
+    const diskCount = first.disks.length;
+    const totalGB = zfsRaidLevel === 0 ? singleDiskGB * diskCount : singleDiskGB;
+    const usableMB = Math.floor(totalGB * 1024 * 0.92);
+    const BOOT_MB = 1024;
+    const SWAP_MB = 8192;
+    const ROOT_RESERVE_MB = 20 * 1024;
+    const maxVzGB = Math.max(10, Math.floor((usableMB - BOOT_MB - SWAP_MB - ROOT_RESERVE_MB) / 1024));
+    return { singleDiskGB, diskCount, usableMB, maxVzGB };
+  }, [disk.data, zfsRaidLevel]);
+  // 单盘机器做不了镜像，后端会 400；这里提前提示，别等提交才发现
+  const zfsRaid1Impossible = zfsRaidLevel !== 0 && zfsCap.diskCount > 0 && zfsCap.diskCount < 2;
+  // 磁盘信息还没拉到时上限未知，此时不做钳制（宁可让后端兜底，也别把用户填的值改成 10GB）
+  const vzMaxKnown = zfsCap.maxVzGB > 0 && zfsCap.diskCount > 0;
+  const vzMaxGB = vzMaxKnown ? zfsCap.maxVzGB : Number.MAX_SAFE_INTEGER;
+
+  // RAID0 → RAID1 时可用容量直接砍半，原来的 vz 值可能已经越界，跟着收一下
+  useEffect(() => {
+    if (!vzMaxKnown) return;
+    setZfsVzSize((cur) => Math.min(cur, zfsCap.maxVzGB * 1024));
+  }, [vzMaxKnown, zfsCap.maxVzGB]);
 
   const handleSubmit = async () => {
     if (!templateName) {
       toast.error("请选择系统模板");
+      return;
+    }
+    // OVH 的 customizations.hostname 只接受合法主机名/FQDN，非法值会被 OVH 以英文错误码打回
+    const hn = hostname.trim();
+    if (hn && !/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(hn)) {
+      toast.error("Hostname 只能包含字母、数字、连字符和点，且不能以连字符开头或结尾");
+      return;
+    }
+    if (useProxmox9Zfs && zfsRaid1Impossible) {
+      toast.error("该服务器只有 1 块磁盘，无法使用 ZFS RAID1，请改用 RAID0");
       return;
     }
     if (!confirming) {
@@ -166,14 +215,16 @@ export function ReinstallDialog({
       return;
     }
     try {
-      await mut.mutateAsync({
+      // storageMode 是单选，所以这里每次最多只往下发一份存储配置，
+      // 不会再出现"自定义存储配置与内置分区方案只能选择一种"那种 400
+      const res = await mut.mutateAsync({
         serviceName,
         templateName,
-        customHostname: hostname || undefined,
-        useProxmox9Zfs: isProxmox9 && useProxmox9Zfs,
-        zfsRaidLevel: isProxmox9 && useProxmox9Zfs ? zfsRaidLevel : undefined,
-        zfsVzSize: isProxmox9 && useProxmox9Zfs ? zfsVzSize : undefined,
-        partitionSchemeName: !useCustomStorage && partitionSchemeName ? partitionSchemeName : undefined,
+        customHostname: hostname.trim() || undefined,
+        useProxmox9Zfs,
+        zfsRaidLevel: useProxmox9Zfs ? zfsRaidLevel : undefined,
+        zfsVzSize: useProxmox9Zfs ? zfsVzSize : undefined,
+        partitionSchemeName: storageMode === "scheme" && partitionSchemeName ? partitionSchemeName : undefined,
         hardwareRaid: useCustomStorage ? hardwareRaid : undefined,
         useSoftwareRaid: useCustomStorage && useSoftwareRaid,
         softwareRaidLevel: useCustomStorage && useSoftwareRaid ? softwareRaidLevel : undefined,
@@ -181,6 +232,8 @@ export function ReinstallDialog({
         diskGroups: useCustomStorage ? disk.data : undefined,
       });
       toast.success("系统重装请求已发送");
+      // 后端忽略了哪份配置必须让用户看见：装是装得成，但他填的东西没生效
+      (res?.warnings || []).forEach((w) => toast.warning(w, { duration: 6000 }));
       onOpenChange(false);
       reset();
     } catch (e: any) {
@@ -192,10 +245,9 @@ export function ReinstallDialog({
     setSearch("");
     setTemplateName("");
     setHostname("");
-    setUseProxmox9Zfs(true);
+    setStorageMode("default");
     setZfsRaidLevel(1);
     setZfsVzSize(100 * 1024);
-    setUseCustomStorage(false);
     setHardwareRaid({});
     setUseSoftwareRaid(false);
     setSoftwareRaidLevel("raid1");
@@ -392,8 +444,48 @@ export function ReinstallDialog({
             )}
           </div>
 
+          {/* 存储配置模式（三者互斥，见 storageMode 注释） */}
+          <div className="border border-border rounded-2xl p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Cog className="w-4 h-4 text-muted-foreground" />
+              <h4 className="text-[13px] font-semibold">存储配置</h4>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              以下四选一。ZFS 预设、内置分区方案、高级存储配置写的是同一份配置，OVH 只接受其中一种。
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[12px]">
+              <StorageModeOption
+                checked={storageMode === "default"}
+                onSelect={() => setStorageMode("default")}
+                label="使用模板默认分区"
+                hint="最省事，OVH 按模板推荐布局装"
+              />
+              {isProxmox9 && (
+                <StorageModeOption
+                  checked={storageMode === "zfs"}
+                  onSelect={() => setStorageMode("zfs")}
+                  label="Proxmox 9 + ZFS 预设（推荐）"
+                  hint="ZFS 根文件系统 + 独立 /var/lib/vz"
+                />
+              )}
+              <StorageModeOption
+                checked={storageMode === "scheme"}
+                onSelect={() => setStorageMode("scheme")}
+                label="内置分区方案"
+                hint={templateName ? "选用该模板自带的分区方案" : "先选一个系统模板"}
+                disabled={!templateName}
+              />
+              <StorageModeOption
+                checked={storageMode === "custom"}
+                onSelect={() => setStorageMode("custom")}
+                label="高级存储配置"
+                hint="硬件 / 软 RAID + 自定义分区"
+              />
+            </div>
+          </div>
+
           {/* Proxmox 9 ZFS 配置 */}
-          {isProxmox9 && (
+          {isProxmox9 && storageMode === "zfs" && (
             <div className="border border-success/40 bg-success/5 rounded-2xl p-4 space-y-3">
               <div className="flex items-center gap-2">
                 <Database className="w-4 h-4 text-success" />
@@ -403,18 +495,7 @@ export function ReinstallDialog({
                 使用 ZFS 作为根文件系统，提供快照、压缩、数据完整性检查等高级功能。
               </p>
 
-              <label className="flex items-center gap-2 cursor-pointer text-[13px]">
-                <input
-                  type="checkbox"
-                  checked={useProxmox9Zfs}
-                  onChange={(e) => setUseProxmox9Zfs(e.target.checked)}
-                  className="w-4 h-4"
-                />
-                启用 ZFS 根文件系统（推荐）
-              </label>
-
-              {useProxmox9Zfs && (
-                <div className="space-y-3 pl-6">
+              <div className="space-y-3">
                   <div>
                     <label className="block text-[12px] mb-1.5">RAID 级别</label>
                     <div className="flex gap-4 text-[13px]">
@@ -438,26 +519,37 @@ export function ReinstallDialog({
                       </label>
                     </div>
                   </div>
+                  {zfsRaid1Impossible && (
+                    <p className="text-[11px] text-destructive">
+                      该服务器只检测到 1 块磁盘，无法做镜像，请改用 RAID0。
+                    </p>
+                  )}
                   <div>
                     <label className="block text-[12px] mb-1.5">/var/lib/vz 大小（GB）· VM/容器存储</label>
                     <Input
                       type="number"
                       min={10}
-                      max={Math.max(10, availableCap - 20)}
+                      max={vzMaxKnown ? zfsCap.maxVzGB : undefined}
                       value={Math.floor(zfsVzSize / 1024)}
                       onChange={(e) => {
-                        const maxVz = Math.max(10, availableCap - 20);
-                        const v = Math.max(10, Math.min(maxVz, parseInt(e.target.value) || 100));
+                        const v = Math.max(10, Math.min(vzMaxGB, parseInt(e.target.value) || 100));
                         setZfsVzSize(v * 1024);
                       }}
                       className="w-40"
                     />
+                    {/* 上限跟后端同口径：RAID1 只算单盘容量，且要扣 /boot + swap + 根目录预留 */}
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      剩余分给根目录（/），最大 {Math.max(10, availableCap - 20)} GB
+                      剩余分给根目录（/），最大 {vzMaxKnown ? `${zfsCap.maxVzGB} GB` : "未知（磁盘信息读取中）"}
+                      {zfsCap.singleDiskGB > 0 && (
+                        <>
+                          {" "}
+                          （{zfsCap.diskCount} × {zfsCap.singleDiskGB}GB，RAID{zfsRaidLevel} 下实际可用约{" "}
+                          {Math.floor(zfsCap.usableMB / 1024)}GB，已扣除 /boot 1GB 与 swap 8GB）
+                        </>
+                      )}
                     </p>
                   </div>
                 </div>
-              )}
             </div>
           )}
 
@@ -471,10 +563,15 @@ export function ReinstallDialog({
             />
           </div>
 
-          {/* 内置分区方案（非自定义存储路径） */}
-          {!useCustomStorage && templateName && (ps.data || []).length > 0 && (
+          {/* 内置分区方案（仅 scheme 模式） */}
+          {storageMode === "scheme" && templateName && (
             <div>
-              <label className="block text-[12px] font-semibold mb-1.5">内置分区方案（可选）</label>
+              <label className="block text-[12px] font-semibold mb-1.5">内置分区方案</label>
+              {ps.isPending ? (
+                <Skeleton className="h-9 rounded-md" />
+              ) : (ps.data || []).length === 0 ? (
+                <p className="text-[12px] text-muted-foreground">该模板没有内置分区方案，请改用其它存储模式。</p>
+              ) : (
               <Select value={partitionSchemeName} onValueChange={setPartitionSchemeName}>
                 <SelectTrigger>
                   <SelectValue placeholder="使用模板默认分区" />
@@ -488,21 +585,18 @@ export function ReinstallDialog({
                   ))}
                 </SelectContent>
               </Select>
+              )}
             </div>
           )}
 
           {/* 高级存储配置 */}
           <div className="border-t border-border pt-4">
-            <label className="flex items-center gap-2 cursor-pointer text-[13px] font-semibold mb-3">
-              <input
-                type="checkbox"
-                checked={useCustomStorage}
-                onChange={(e) => setUseCustomStorage(e.target.checked)}
-                className="w-4 h-4"
-              />
-              <Cog className="w-4 h-4" />
-              启用高级存储配置（RAID & 自定义分区）
-            </label>
+            {useCustomStorage && (
+              <div className="flex items-center gap-2 text-[13px] font-semibold mb-3">
+                <Cog className="w-4 h-4" />
+                高级存储配置（RAID & 自定义分区）
+              </div>
+            )}
 
             {useCustomStorage && (
               <div className="space-y-4 border border-border rounded-2xl p-4 bg-secondary/30">
@@ -670,6 +764,43 @@ export function ReinstallDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** 存储模式单选项。用 radio 而不是多个 checkbox，UI 上就杜绝了"同时选两种"这条会被后端 400 的路径 */
+function StorageModeOption({
+  checked,
+  onSelect,
+  label,
+  hint,
+  disabled,
+}: {
+  checked: boolean;
+  onSelect: () => void;
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label
+      className={
+        "flex items-start gap-2 rounded-xl border px-3 py-2 cursor-pointer transition-colors " +
+        (checked ? "border-foreground bg-secondary/50 " : "border-border hover:bg-secondary/30 ") +
+        (disabled ? "opacity-50 cursor-not-allowed" : "")
+      }
+    >
+      <input
+        type="radio"
+        checked={checked}
+        onChange={() => !disabled && onSelect()}
+        disabled={disabled}
+        className="w-4 h-4 mt-0.5"
+      />
+      <span className="min-w-0">
+        <span className="block font-semibold">{label}</span>
+        {hint && <span className="block text-[11px] text-muted-foreground">{hint}</span>}
+      </span>
+    </label>
   );
 }
 

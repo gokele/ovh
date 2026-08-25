@@ -17,7 +17,8 @@ import (
 // 但是从 /dedicated/server/{svc}/ips 拿到的就是 IP 块格式,直接拼。
 //
 // 返回结构:
-//   ips: [{ ipBlock, mitigations: [{ ipOnMitigation, state, auto, permanent }] }]
+//
+//	ips: [{ ipBlock, mitigations: [{ ipOnMitigation, state, auto, permanent }] }]
 func GetMitigation(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
@@ -34,12 +35,25 @@ func GetMitigation(state *app.State) gin.HandlerFunc {
 		type ipResult struct {
 			block       string
 			mitigations []map[string]interface{}
+			note        string
 			err         error
 		}
 		results := make([]ipResult, len(ipBlocks))
 		sem := make(chan struct{}, 8)
+		// 详情请求单独限流：外层 goroutine 不参与这个信号量，两层不会互相饿死。
+		detailSem := make(chan struct{}, 16)
 		var wg sync.WaitGroup
 		for i, blk := range ipBlocks {
+			// /ip/{ip}/mitigation 返回 ipv4[]，ip.MitigationIp.ipOnMitigation 也是 ipv4：
+			// anti-DDoS Mitigation 只覆盖 IPv4。对 IPv6 块发请求只会换回一条 OVH 报错，
+			// 白白污染页面，不如直接标注跳过（与 Enable/DisableMitigation 的 IPv6 判断一致）。
+			if strings.Contains(blk, ":") {
+				results[i] = ipResult{
+					block: blk,
+					note:  "IPv6 不支持 anti-DDoS Mitigation（IPv6 默认有网络层免疫）",
+				}
+				continue
+			}
 			wg.Add(1)
 			sem <- struct{}{}
 			go func(idx int, ipBlock string) {
@@ -52,14 +66,35 @@ func GetMitigation(state *app.State) gin.HandlerFunc {
 					results[idx] = ipResult{block: ipBlock, err: err}
 					return
 				}
-				// 2) 并发拉每个 IP 的详情
-				details := make([]map[string]interface{}, 0, len(ips))
-				for _, ip := range ips {
-					var d map[string]interface{}
-					if err := client.Get("/ip/"+encoded+"/mitigation/"+ip, &d); err == nil {
-						details = append(details, d)
-					}
+				// 2) 并发拉每个 IP 的详情。失败的 IP 也必须留在结果里：
+				// 直接跳过会让「正在被缓解」的 IP 从页面上凭空消失，前端据此显示
+				// 「无永久缓解」并诱导用户重复点开启，属于把瞬时错误伪装成业务状态。
+				details := make([]map[string]interface{}, len(ips))
+				var dwg sync.WaitGroup
+				for j, ip := range ips {
+					dwg.Add(1)
+					detailSem <- struct{}{}
+					go func(jdx int, ipOnMitigation string) {
+						defer dwg.Done()
+						defer func() { <-detailSem }()
+						var d map[string]interface{}
+						if err := client.Get("/ip/"+encoded+"/mitigation/"+ipOnMitigation, &d); err != nil {
+							state.Logger.Warn("[Mitigation] 获取 "+ipOnMitigation+" 缓解详情失败: "+err.Error(), "server_control")
+							// 占位要带齐前端会读的字段,否则 state/auto/permanent 是 undefined,
+							// 界面渲染出一个空白 Chip,看不出这行是"拉取失败"
+							details[jdx] = map[string]interface{}{
+								"ipOnMitigation": ipOnMitigation,
+								"state":          "unknown",
+								"auto":           false,
+								"permanent":      false,
+								"_detailError":   err.Error(),
+							}
+							return
+						}
+						details[jdx] = d
+					}(j, ip)
 				}
+				dwg.Wait()
 				results[idx] = ipResult{block: ipBlock, mitigations: details}
 			}(i, blk)
 		}
@@ -70,6 +105,10 @@ func GetMitigation(state *app.State) gin.HandlerFunc {
 			row := gin.H{"ipBlock": r.block, "mitigations": r.mitigations}
 			if r.err != nil {
 				row["error"] = r.err.Error()
+				state.Logger.Warn("[Mitigation] 获取 "+r.block+" 缓解列表失败: "+r.err.Error(), "server_control")
+			}
+			if r.note != "" {
+				row["note"] = r.note
 			}
 			if r.mitigations == nil {
 				row["mitigations"] = []interface{}{}

@@ -3,7 +3,7 @@ import { Cpu, HardDrive, Activity, RotateCcw, AlertTriangle } from "lucide-react
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useCreateIntervention } from "@/hooks/use-server-control";
+import { useCreateIntervention, type FaultyDisk } from "@/hooks/use-server-control";
 import { toast } from "sonner";
 
 type HardwareType = "hardDiskDrive" | "memory" | "cooling" | "";
@@ -22,12 +22,39 @@ export function HardwareReplaceDialog({
   const [type, setType] = useState<HardwareType>("");
   const [details, setDetails] = useState("");
   const [comment, setComment] = useState("");
+  // 故障盘序列号（每行一个，可写成 "序列号" 或 "序列号 槽位号"）。
+  // OVH 按 disk_serial 定位要换的盘，拿不到就只能整机换盘，所以这里必填。
+  const [diskInput, setDiskInput] = useState("");
+  // 故障内存槽位（可选，逗号或换行分隔，如 DIMM_A1）
+  const [slotInput, setSlotInput] = useState("");
 
   const reset = () => {
     setType("");
     setDetails("");
     setComment("");
+    setDiskInput("");
+    setSlotInput("");
   };
+
+  /** 把每行 "序列号 [槽位号]" 解析成 OVH 要的 {disk_serial, slot_id?} */
+  const parseDisks = (raw: string): FaultyDisk[] =>
+    raw
+      .split(/[\n,]/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [serial, slot] = line.split(/\s+/);
+        const slotId = slot !== undefined ? Number(slot) : NaN;
+        return Number.isFinite(slotId)
+          ? { disk_serial: serial, slot_id: slotId }
+          : { disk_serial: serial };
+      });
+
+  const parseSlots = (raw: string): string[] =>
+    raw
+      .split(/[\n,]/)
+      .map((v) => v.trim())
+      .filter(Boolean);
 
   const handleSubmit = async () => {
     if (!type) {
@@ -38,8 +65,20 @@ export function HardwareReplaceDialog({
       toast.error("此类型需要填写故障详情");
       return;
     }
+    const disks = type === "hardDiskDrive" ? parseDisks(diskInput) : [];
+    if (type === "hardDiskDrive" && disks.length === 0) {
+      toast.error("请填写至少一块故障盘的序列号");
+      return;
+    }
     try {
-      await mut.mutateAsync({ serviceName, type, details: details || undefined, comment: comment || undefined });
+      await mut.mutateAsync({
+        serviceName,
+        type,
+        details: details || undefined,
+        comment: comment || undefined,
+        disks: disks.length ? disks : undefined,
+        slots: type === "memory" ? parseSlots(slotInput) : undefined,
+      });
       toast.success("硬件更换工单已提交");
       onOpenChange(false);
       reset();
@@ -127,6 +166,39 @@ export function HardwareReplaceDialog({
                   placeholder={
                     type === "memory" ? "e.g., Memory module failure, slot 1" : "e.g., Fan noise, overheating issue"
                   }
+                />
+              </div>
+            )}
+
+            {type === "hardDiskDrive" && (
+              <div className="space-y-2">
+                <label className="text-[12px] font-semibold block">
+                  故障盘序列号（必填，每行一块）
+                </label>
+                <textarea
+                  rows={3}
+                  value={diskInput}
+                  onChange={(e) => setDiskInput(e.target.value)}
+                  placeholder={"S3Z2NB0K123456\nS3Z2NB0K654321 2   ← 序列号后可跟槽位号"}
+                  className="w-full px-3 py-2 border border-border rounded-md text-[13px] font-mono bg-background focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                />
+                <div className="border border-info/40 bg-info/5 rounded-2xl p-3 text-[12px] leading-relaxed">
+                  OVH 按 <code className="font-mono">disk_serial</code> 定位要换的盘。留空会被判成「更换整机所有硬盘」，
+                  后端会直接拒绝。序列号可在系统里执行 <code className="font-mono">smartctl -i /dev/sdX</code> 查看，
+                  或在 OVH 控制台的硬件信息里找到。
+                </div>
+              </div>
+            )}
+
+            {type === "memory" && (
+              <div>
+                <label className="text-[12px] font-semibold block mb-1.5">
+                  故障内存槽位（可选，逗号或换行分隔，如 DIMM_A1）
+                </label>
+                <Input
+                  value={slotInput}
+                  onChange={(e) => setSlotInput(e.target.value)}
+                  placeholder="DIMM_A1, DIMM_B2"
                 />
               </div>
             )}

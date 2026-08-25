@@ -10,10 +10,61 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	ovhsdk "github.com/ovh/go-ovh/ovh"
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/numconv"
 )
+
+// hardwareParallelGetDetails 与 util.go 的 parallelGetDetails 行为一致,但额外把每个
+// goroutine 的 error 按索引保留下来。
+// 之所以不复用原版:本文件里的几个列表接口(反向 DNS / 干预记录)拉的都是需要独立授权域的
+// 资源(/ip/** 与 /dedicated/server/** 是两套 access rule),用户粘贴的 consumerKey 很可能只
+// 覆盖其中一个;原版"err != nil 就当这条不存在"会把 403 / 429 变成"列表是空的",用户会误以为
+// 记录被删了。保留 error 才能区分"OVH 确实没有这条"和"我们没拿到"。
+func hardwareParallelGetDetails(client *ovhsdk.Client, keys []interface{}, pathFn func(interface{}) string, concurrency int) ([]map[string]interface{}, []error) {
+	if concurrency <= 0 {
+		concurrency = 10
+	}
+	results := make([]map[string]interface{}, len(keys))
+	errs := make([]error, len(keys))
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for i, k := range keys {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(idx int, key interface{}) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			var d map[string]interface{}
+			if err := client.Get(pathFn(key), &d); err != nil {
+				errs[idx] = err
+				return
+			}
+			// OVH 偶尔对已消失的资源回 200 + null,这里也算"没拿到",
+			// 保证 results[idx]==nil 与 errs[idx]!=nil 严格同步(调用方靠这个统计失败数)
+			if d == nil {
+				errs[idx] = fmt.Errorf("OVH 返回了空对象: %s", pathFn(key))
+				return
+			}
+			results[idx] = d
+		}(i, k)
+	}
+	wg.Wait()
+	return results, errs
+}
+
+// hardwareFirstErr 返回一组结果里第一个非空 error(用于把"部分失败"里最有代表性的原因回给前端)
+func hardwareFirstErr(errs ...[]error) error {
+	for _, group := range errs {
+		for _, e := range group {
+			if e != nil {
+				return e
+			}
+		}
+	}
+	return nil
+}
 
 // GetHardwareInfo GET /api/server-control/:service_name/hardware
 func GetHardwareInfo(state *app.State) gin.HandlerFunc {
@@ -145,11 +196,14 @@ func GetReverseDNS(state *app.State) gin.HandlerFunc {
 			return
 		}
 		// 1) 每个 IP 块并发拉 reverse 列表(块下哪些具体 IP 配了反向)
+		// /ip/** 与 /dedicated/server/** 是两个独立授权域,上一步成功不代表这一步有权限,
+		// 所以每块的 error 都要留下来,不能像原来那样 `_ =` 丢掉。
 		type blockResult struct {
 			block string
 			ips   []string
 		}
 		blockResults := make([]blockResult, len(ipBlocks))
+		blockErrs := make([]error, len(ipBlocks))
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, 8)
 		for i, blk := range ipBlocks {
@@ -160,7 +214,9 @@ func GetReverseDNS(state *app.State) gin.HandlerFunc {
 				defer func() { <-sem }()
 				encoded := strings.ReplaceAll(block, "/", "%2F")
 				var ips []string
-				_ = client.Get("/ip/"+encoded+"/reverse", &ips)
+				if err := client.Get("/ip/"+encoded+"/reverse", &ips); err != nil {
+					blockErrs[idx] = err
+				}
 				blockResults[idx] = blockResult{block: block, ips: ips}
 			}(i, blk)
 		}
@@ -178,6 +234,7 @@ func GetReverseDNS(state *app.State) gin.HandlerFunc {
 			}
 		}
 		details := make([]map[string]interface{}, len(entries))
+		detailErrs := make([]error, len(entries))
 		var wg2 sync.WaitGroup
 		sem2 := make(chan struct{}, 10)
 		for i, e := range entries {
@@ -188,9 +245,16 @@ func GetReverseDNS(state *app.State) gin.HandlerFunc {
 				defer func() { <-sem2 }()
 				encoded := strings.ReplaceAll(en.block, "/", "%2F")
 				var d map[string]interface{}
-				if err := client.Get("/ip/"+encoded+"/reverse/"+en.ip, &d); err == nil {
-					details[idx] = d
+				if err := client.Get("/ip/"+encoded+"/reverse/"+en.ip, &d); err != nil {
+					detailErrs[idx] = err
+					return
 				}
+				// 同上:200 + null 也当失败记账,否则 failed 计数和被跳过的条目会对不上
+				if d == nil {
+					detailErrs[idx] = fmt.Errorf("OVH 返回了空的反向DNS记录: %s", en.ip)
+					return
+				}
+				details[idx] = d
 			}(i, e)
 		}
 		wg2.Wait()
@@ -206,7 +270,36 @@ func GetReverseDNS(state *app.State) gin.HandlerFunc {
 				"ipBlock":   e.block,
 			})
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "reverses": reverseList})
+
+		// 统计两阶段的失败数:全军覆没(通常是 /ip/* 无授权或 OVH 限流)必须报错,
+		// 否则前端会显示"没有配置任何反向 DNS",用户会以为记录被删了
+		failed := 0
+		for _, e := range blockErrs {
+			if e != nil {
+				failed++
+			}
+		}
+		for _, e := range detailErrs {
+			if e != nil {
+				failed++
+			}
+		}
+		total := len(blockErrs) + len(detailErrs)
+		if total > 0 && failed == total {
+			fe := hardwareFirstErr(blockErrs, detailErrs)
+			state.Logger.Error("获取服务器 "+svc+" 反向DNS失败(全部 "+fmt.Sprintf("%d", total)+" 次 /ip 调用均失败): "+fe.Error(), "server_control")
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fe.Error()})
+			return
+		}
+		resp := gin.H{"success": true, "reverses": reverseList}
+		if failed > 0 {
+			fe := hardwareFirstErr(blockErrs, detailErrs)
+			state.Logger.Warn(fmt.Sprintf("服务器 %s 反向DNS 部分获取失败(%d/%d): %s", svc, failed, total, fe.Error()), "server_control")
+			resp["partial"] = true
+			resp["failed"] = failed
+			resp["error"] = "部分反向DNS记录获取失败：" + fe.Error()
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -289,15 +382,19 @@ func findIPBlockForServer(client interface {
 		return "", err
 	}
 	for _, blk := range blocks {
-		_, ipnet, err := net.ParseCIDR(blk)
+		// 补掩码只是为了能 ParseCIDR,补出来的字符串绝不能外传:
+		// /ip/{ip} 的 path 参数是 ipBlock 资源 id,必须与 /dedicated/server/{svc}/ips
+		// 返回的原样值一致,自作主张加 "/32" 会让后续 reverse 请求 404。
+		parseable := blk
+		_, ipnet, err := net.ParseCIDR(parseable)
 		if err != nil {
 			// 老格式可能没带 mask,补 /32 / /128 再 parse
-			if strings.Contains(blk, ":") {
-				blk = blk + "/128"
+			if strings.Contains(parseable, ":") {
+				parseable += "/128"
 			} else {
-				blk = blk + "/32"
+				parseable += "/32"
 			}
-			_, ipnet, err = net.ParseCIDR(blk)
+			_, ipnet, err = net.ParseCIDR(parseable)
 			if err != nil {
 				continue
 			}
@@ -443,9 +540,28 @@ func UpdateServiceRenewal(state *app.State) gin.HandlerFunc {
 }
 
 // ChangeContact POST /api/server-control/:service_name/change-contact
+//
+// EU/CA only —— /dedicated/server/{serviceName}/changeContact 在 EU 与 CA 两站都存在(POST),
+// 只有 US(api.us.ovhcloud.com)整个 dedicated/server 命名空间里没有这个端点
+// (本地三区 dump + live schema 双重核实:EU/CA 各 107 条路径含 changeContact,US 98 条不含)。
+// OVHcloud US 是独立公司,没有 NIC 联系人体系,配套的 /me/task/contactChange 系列在 US 同样缺失。
+// 这里提前拒,免得用户看到 OVH 原始的 404。
+//
+// 判大区走 srvRegionFor(见 server_control_basic.go),不比 acc.Endpoint 字符串:
+// endpoint 还有 kimsufi-* / soyoustart-* 别名,散装比较漏一种写法门控就失效了。
 func ChangeContact(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
+		if region := srvRegionFor(state, c); region == srvRegionUS {
+			state.Logger.Warn("账户所在大区 "+region+" 不提供服务器联系人变更(changeContact),已拦截请求", "server_control")
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success":     false,
+				"error":       "美区账户不支持通过 API 变更服务器联系人 —— OVHcloud US 没有 NIC 联系人系统,请在 OVHcloud US 控制台或联系客服办理",
+				"unsupported": true,
+				"region":      region,
+			})
+			return
+		}
 		client, err := ovhClientFor(state, c)
 		if err != nil {
 			noOVHResp(c)
@@ -497,8 +613,8 @@ func GetInterventions(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
-		// 并发拉详情
-		details := parallelGetDetails(client, ids, func(k interface{}) string {
+		// 并发拉详情。失败的条目不能静默丢弃,否则限流/权限问题会让列表凭空变短
+		details, detailErrs := hardwareParallelGetDetails(client, ids, func(k interface{}) string {
 			return "/dedicated/server/" + svc + "/intervention/" + idToString(k)
 		}, 10)
 		list := []map[string]interface{}{}
@@ -507,7 +623,22 @@ func GetInterventions(state *app.State) gin.HandlerFunc {
 				list = append(list, d)
 			}
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "interventions": list})
+		failed := len(ids) - len(list)
+		if len(ids) > 0 && failed == len(ids) {
+			fe := hardwareFirstErr(detailErrs)
+			state.Logger.Error("获取服务器 "+svc+" 干预记录详情全部失败: "+fe.Error(), "server_control")
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fe.Error()})
+			return
+		}
+		resp := gin.H{"success": true, "interventions": list}
+		if failed > 0 {
+			fe := hardwareFirstErr(detailErrs)
+			state.Logger.Warn(fmt.Sprintf("服务器 %s 干预记录部分获取失败(%d/%d): %s", svc, failed, len(ids), fe.Error()), "server_control")
+			resp["partial"] = true
+			resp["failed"] = failed
+			resp["error"] = "部分干预记录获取失败：" + fe.Error()
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -544,8 +675,8 @@ func GetPlannedInterventions(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
-		// 并发拉详情
-		details := parallelGetDetails(client, ids, func(k interface{}) string {
+		// 并发拉详情。同 GetInterventions:失败要显式暴露,不能让列表静默变空
+		details, detailErrs := hardwareParallelGetDetails(client, ids, func(k interface{}) string {
 			return "/dedicated/server/" + svc + "/plannedIntervention/" + idToString(k)
 		}, 10)
 		list := []map[string]interface{}{}
@@ -554,7 +685,22 @@ func GetPlannedInterventions(state *app.State) gin.HandlerFunc {
 				list = append(list, d)
 			}
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "plannedInterventions": list})
+		failed := len(ids) - len(list)
+		if len(ids) > 0 && failed == len(ids) {
+			fe := hardwareFirstErr(detailErrs)
+			state.Logger.Error("获取服务器 "+svc+" 计划干预详情全部失败: "+fe.Error(), "server_control")
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": fe.Error()})
+			return
+		}
+		resp := gin.H{"success": true, "plannedInterventions": list}
+		if failed > 0 {
+			fe := hardwareFirstErr(detailErrs)
+			state.Logger.Warn(fmt.Sprintf("服务器 %s 计划干预部分获取失败(%d/%d): %s", svc, failed, len(ids), fe.Error()), "server_control")
+			resp["partial"] = true
+			resp["failed"] = failed
+			resp["error"] = "部分计划干预记录获取失败：" + fe.Error()
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -575,6 +721,69 @@ func GetPlannedInterventionDetail(state *app.State) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "plannedIntervention": d})
 	}
+}
+
+// parseReplaceDisks 把请求里的故障盘列表转成 dedicated.server.SupportReplaceHddInfo[]。
+// schema: disk_serial 必填 string / slot_id 可空 long。slot_id 拿不到就整个键不发,
+// 免得给 OVH 一个 null 槽位号让工单校验失败。
+func parseReplaceDisks(raw interface{}) ([]map[string]interface{}, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("disks 必须是数组")
+	}
+	out := []map[string]interface{}{}
+	for i, item := range arr {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("disks[%d] 必须是对象", i)
+		}
+		serial := ""
+		// 前端可能用 snake_case(贴合 OVH schema)或 camelCase,两种都收
+		for _, k := range []string{"disk_serial", "diskSerial", "serial"} {
+			if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+				serial = strings.TrimSpace(v)
+				break
+			}
+		}
+		if serial == "" {
+			return nil, fmt.Errorf("disks[%d] 缺少硬盘序列号 disk_serial", i)
+		}
+		disk := map[string]interface{}{"disk_serial": serial}
+		for _, k := range []string{"slot_id", "slotId"} {
+			if v, ok := numconv.ToInt64(m[k]); ok {
+				disk["slot_id"] = v
+				break
+			}
+		}
+		out = append(out, disk)
+	}
+	return out, nil
+}
+
+// parseMemorySlots 把请求里的故障内存槽位转成 schema 要的 string[]。
+// 前端可能给数组,也可能给一串逗号分隔的描述,两种都归一化;空值一律丢弃。
+func parseMemorySlots(raw interface{}) []string {
+	out := []string{}
+	switch v := raw.(type) {
+	case []interface{}:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				if s = strings.TrimSpace(s); s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+	case string:
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
 }
 
 // HardwareReplace POST /api/server-control/:service_name/hardware/replace
@@ -601,10 +810,30 @@ func HardwareReplace(state *app.State) gin.HandlerFunc {
 			if comment == "" {
 				comment = "Request hard disk drive replacement - faulty disk detected"
 			}
+			// schema 里 inverse 的语义是"更换所有【未列出】的盘",disks 是"要更换的盘"。
+			// 老代码写死 disks:[] + inverse:true,等于向 OVH 申请更换整机每一块硬盘 ——
+			// 故障盘必须由调用方显式给出,拿不到就宁可 400 也不发这张工单。
+			disks, derr := parseReplaceDisks(body["disks"])
+			if derr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": derr.Error()})
+				return
+			}
+			if len(disks) == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"error":   "请指定要更换的故障硬盘：disks 至少需要一项且包含 disk_serial（硬盘序列号）",
+				})
+				return
+			}
+			// inverse 只有在调用方明确传 true 时才反转语义(即"除这些盘之外全换"),默认 false
+			inverse := false
+			if v, ok := body["inverse"].(bool); ok {
+				inverse = v
+			}
 			err2 = client.Post("/dedicated/server/"+svc+"/support/replace/hardDiskDrive", map[string]interface{}{
 				"comment": comment,
-				"disks":   []interface{}{},
-				"inverse": true,
+				"disks":   disks,
+				"inverse": inverse,
 			}, &result)
 		case "memory":
 			details := "Memory module failure"
@@ -614,11 +843,17 @@ func HardwareReplace(state *app.State) gin.HandlerFunc {
 			if comment == "" {
 				comment = "Request memory module replacement - hardware failure detected"
 			}
-			err2 = client.Post("/dedicated/server/"+svc+"/support/replace/memory", map[string]interface{}{
-				"comment":          comment,
-				"details":          details,
-				"slotsDescription": "",
-			}, &result)
+			// schema 只认 comment / details / slots(string[],可选);slotsDescription 这个字段
+			// 在 EU/US schema 里都不存在。可选字段拿不到值就整个不发,不给 OVH 塞未知参数
+			// (OVH 是否忽略未知 body 参数没有文档保证,不赌它的宽容度)。
+			memoryBody := map[string]interface{}{
+				"comment": comment,
+				"details": details,
+			}
+			if slots := parseMemorySlots(body["slots"]); len(slots) > 0 {
+				memoryBody["slots"] = slots
+			}
+			err2 = client.Post("/dedicated/server/"+svc+"/support/replace/memory", memoryBody, &result)
 		case "cooling":
 			details := "Cooling system failure"
 			if v, ok := body["details"].(string); ok && v != "" {
@@ -770,9 +1005,9 @@ func GetPartitionSchemes(state *app.State) gin.HandlerFunc {
 		// 双层嵌套并发：先并发拉每个 scheme 的 info + partition list，
 		// 再对每个 scheme 内的 partition 并发拉详情
 		type schemeResult struct {
-			name       string
-			info       map[string]interface{}
-			parts      []string
+			name        string
+			info        map[string]interface{}
+			parts       []string
 			missingInfo bool
 		}
 		schemeResults := make([]schemeResult, len(schemes))

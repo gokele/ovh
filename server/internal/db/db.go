@@ -2,6 +2,7 @@
 // 双 driver 设计：
 //   - CGO 可用时（默认 go build）走 mattn/go-sqlite3，性能更好；
 //   - CGO_ENABLED=0 时走 modernc.org/sqlite（纯 Go），零 C 依赖，方便交叉编译/无 gcc 环境。
+//
 // 切换由 build tag 自动完成，详见 driver_cgo.go / driver_purego.go。
 package db
 
@@ -67,10 +68,25 @@ func (db *DB) migrate() error {
 	if err := db.addColumnIfMissing("history", "account_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	// retraction_time:撤销权截止日。老库没有这一列,而 ListHistory 用 SELECT * + sqlx 严格映射,
+	// 只加结构体字段不加列会让整个历史列表报 missing destination name,两者必须同一次上线。
+	// failure_count:只记真正提交并失败的次数(无货轮次不计),MaxRetries 靠它封顶
+	if err := db.addColumnIfMissing("queue", "failure_count", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := db.addColumnIfMissing("history", "retraction_time", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := db.addColumnIfMissing("monitor_subscriptions", "auto_order_account_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := db.addColumnIfMissing("vps_subscriptions", "auto_order_account_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	// telegram_order_buttons.account_id:一键下单按钮记住"该下到哪个账户"。
+	// 老库建表时没有这一列,而 ClaimTelegramButton / GetTelegramButton 是显式列名 SELECT +
+	// sqlx 严格映射,只加结构体字段不加列会让所有按钮回调直接 500,两者必须同一次上线。
+	if err := db.addColumnIfMissing("telegram_order_buttons", "account_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	return nil

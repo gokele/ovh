@@ -13,6 +13,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/auth"
+	"github.com/ovh-buy/server/internal/catalog"
 	"github.com/ovh-buy/server/internal/config"
 	"github.com/ovh-buy/server/internal/db"
 	"github.com/ovh-buy/server/internal/handlers"
@@ -20,6 +21,7 @@ import (
 	"github.com/ovh-buy/server/internal/monitor"
 	"github.com/ovh-buy/server/internal/purchase"
 	"github.com/ovh-buy/server/internal/storage"
+	"github.com/ovh-buy/server/internal/telegram"
 )
 
 func main() {
@@ -60,9 +62,7 @@ func main() {
 	// 监控器
 	mon := monitor.New(state)
 	mon.LoadFromDB()
-	mon.SetCheckInterval(5)
-	mon.SaveToDB()
-	console.Info("监控检查间隔已强制设置为: 5秒（全局固定值）")
+	console.Info("监控就绪", "checkInterval", mon.CheckInterval())
 
 	// Gin
 	if mode := os.Getenv("GIN_MODE"); mode != "" {
@@ -73,10 +73,12 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(cors.New(cors.Config{
-		AllowAllOrigins:  true,
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"Content-Type", "Authorization", "X-API-Key", "X-Request-Time"},
-		ExposeHeaders:    []string{"X-Cache-Warning"},
+		AllowAllOrigins: true,
+		AllowMethods:    []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+		AllowHeaders:    []string{"Content-Type", "Authorization", "X-API-Key", "X-Request-Time"},
+		// X-Partial-Failures:部分明细拉取失败的计数(账单/退款/邮件等走响应头下发),
+		// 跨源部署时不列进 ExposeHeaders 浏览器就读不到,前端的"部分失败"提示会恒不显示
+		ExposeHeaders:    []string{"X-Cache-Warning", "X-Partial-Failures", "X-Cache-Age-Seconds"},
 		AllowCredentials: false,
 	}))
 
@@ -141,6 +143,7 @@ func main() {
 		api.GET("/availability/*planCode", availabilityHandler(handlers.GetAvailability(state)))
 		api.POST("/availability/*planCode", availabilityHandler(handlers.GetAvailability(state)))
 		api.POST("/internal/monitor/price", handlers.MonitorPrice(state))
+		api.POST("/servers/:planCode/price", handlers.ServerPrice(state))
 		api.GET("/cache/info", handlers.CacheInfo(state))
 		api.POST("/cache/clear", handlers.ClearCache(state))
 		api.GET("/catalog", handlers.GetCatalog(state))
@@ -238,11 +241,20 @@ func main() {
 			sc.DELETE("/:service_name/backup-ftp", handlers.DeleteBackupFTP(state))
 			sc.GET("/:service_name/backup-ftp/access", handlers.GetBackupFTPAccess(state))
 			sc.POST("/:service_name/backup-ftp/access", handlers.AddBackupFTPAccess(state))
+			// ipBlock 是带掩码的 CIDR(如 37.59.1.0/28)。gin 默认 UseRawPath=false,%2F 会被还原成 "/",
+			// 把 URL 撑成多一段,:ip_block 永远匹配不上(实测编码与否都 404)。
+			// 所以主用 query 形式 ?ipBlock=...,旧的路径形式保留做兼容(handler 三级兜底取值)。
+			sc.DELETE("/:service_name/backup-ftp/access", handlers.DeleteBackupFTPAccess(state))
 			sc.DELETE("/:service_name/backup-ftp/access/:ip_block", handlers.DeleteBackupFTPAccess(state))
 			sc.POST("/:service_name/backup-ftp/password", handlers.ChangeBackupFTPPassword(state))
 			sc.GET("/:service_name/backup-ftp/authorizable-blocks", handlers.GetBackupFTPAuthorizableBlocks(state))
 			sc.GET("/:service_name/backup-cloud", handlers.GetBackupCloud(state))
 			sc.GET("/:service_name/backup-cloud/offer-details", handlers.GetBackupCloudOfferDetails(state))
+			// 云备份的写操作(官方 /features/backupCloud POST/DELETE 与 /password POST),
+			// 原来只实现了只读,用户无法在控制台激活/停用/重置密码
+			sc.POST("/:service_name/backup-cloud", handlers.ActivateBackupCloud(state))
+			sc.DELETE("/:service_name/backup-cloud", handlers.DeleteBackupCloud(state))
+			sc.POST("/:service_name/backup-cloud/password", handlers.ChangeBackupCloudPassword(state))
 
 			// misc
 			sc.GET("/:service_name/secondary-dns", handlers.GetSecondaryDNS(state))
@@ -367,6 +379,12 @@ func main() {
 
 	// 后台线程
 	go purchase.ProcessQueueLoop(state)
+	// 预热各账户子公司的区域配置:region 的合法取值要从 10MB 的公开目录里解析,
+	// 首次解析放在抢购链路上会白白慢 2-7 秒
+	go catalog.WarmRegionCache(state)
+	// Telegram webhook secret 自愈：老部署注册过的 webhook 不带 secret_token，
+	// 启动时用同一 URL 重注册一次，把强校验补上（未配置 TG 时无操作）。
+	go telegram.AutoUpgradeWebhookSecret(state)
 	// 服务器目录走懒加载：访问到且缓存过期时才打 OVH，无后台定时刷新
 
 	// 自动启动监控（如果有订阅）

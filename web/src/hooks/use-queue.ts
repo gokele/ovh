@@ -16,6 +16,8 @@ export interface QueueItem {
   updatedAt: string;
   retryInterval: number;
   retryCount: number;
+  /** 真正提交给 OVH 并失败的次数（无货的轮次不计）。后端按它封顶重试。 */
+  failureCount?: number;
   /** 后端 types.QueueItem 还会传回这几个字段（多为 omitempty），前端目前不渲染但保留类型对齐 */
   maxRetries?: number;
   lastCheckTime?: number;

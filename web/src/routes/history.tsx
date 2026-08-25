@@ -20,11 +20,35 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useHistory, useClearHistory, type PurchaseHistory } from "@/hooks/use-history";
+import { CURRENCY_UNKNOWN_HINT } from "@/lib/money";
 
 /** 抢购历史：表格 + 搜索 + 状态过滤 */
 export const Route = createFileRoute("/history")({
   component: HistoryPage,
 });
+
+/**
+ * 成交价 + 币种。
+ *
+ * 币种缺失时只显示金额并在 title 里说明,绝不补 "EUR":后端(internal/purchase/purchase.go)
+ * 现在拿不到 currencyCode 就如实留空,而币种是按子公司定的 ——
+ * 实测目录 locale.currencyCode:IE=EUR / CA=QC=CAD / US=WE=WS=USD / SG=SGD / AU=AUD。
+ * 前端再兜底成欧元,美区/加区的订单会被标成 €,用户按错的币种对账。
+ */
+function HistoryPrice({ item, strike }: { item: PurchaseHistory; strike: boolean }) {
+  const value = item.price?.withTax;
+  if (value == null) return <span className="text-muted-foreground">—</span>;
+  const currency = (item.price?.currencyCode || "").trim();
+  return (
+    <span
+      className={`font-mono font-medium text-success ${strike ? "line-through" : ""}`}
+      title={currency ? undefined : CURRENCY_UNKNOWN_HINT}
+    >
+      {value}
+      {currency ? ` ${currency}` : <span className="text-muted-foreground"> (币种未知)</span>}
+    </span>
+  );
+}
 
 /** 订单有效期 15 天，未提供 expirationTime 时用 purchaseTime + 15d 兜底 */
 const ORDER_VALIDITY_MS = 15 * 24 * 60 * 60 * 1000;
@@ -194,13 +218,7 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
         {item.options && item.options.length > 0 ? item.options.join(", ") : "默认配置"}
       </td>
       <td className="px-4 py-3">
-        {item.price?.withTax != null ? (
-          <span className={`font-mono font-medium text-success ${isExpired ? "line-through" : ""}`}>
-            {item.price.withTax} {item.price.currencyCode || "EUR"}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
+        <HistoryPrice item={item} strike={isExpired} />
       </td>
       <td className="px-4 py-3">
         {item.status === "success" ? (
@@ -284,11 +302,7 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
           <span className="text-muted-foreground font-mono">
             {new Date(item.purchaseTime).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
           </span>
-          {item.price?.withTax != null ? (
-            <span className={`font-mono font-medium text-success ${isExpired ? "line-through" : ""}`}>
-              {item.price.withTax} {item.price.currencyCode || "EUR"}
-            </span>
-          ) : null}
+          {item.price?.withTax != null ? <HistoryPrice item={item} strike={isExpired} /> : null}
         </div>
         <div className="flex items-center justify-between gap-2">
           {showCountdown ? (

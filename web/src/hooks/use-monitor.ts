@@ -112,3 +112,21 @@ export function useClearMonitor() {
     onError: (e: any) => toast.error(e.response?.data?.error || "清空失败"),
   });
 }
+
+/** 设置检查间隔（秒）。后端会夹到 5-3600，返回真正生效的值。 */
+export function useSetMonitorInterval() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (interval: number) =>
+      (await api.put("/monitor/interval", { interval })).data as {
+        status: string;
+        message: string;
+        check_interval: number;
+      },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: qk.monitor.status() });
+      toast.success(data.message || "检查间隔已更新");
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || "设置失败"),
+  });
+}

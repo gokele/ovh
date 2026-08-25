@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { useServerTasks, type ServerTask } from "@/hooks/use-server-control";
+import { PartialNotice, DetailErrorTag } from "@/components/common/PartialNotice";
 import { TimeslotsDialog } from "./TimeslotsDialog";
 
 /** 任务列表对话框：表格 + 每行"可用时间段"按钮 → 弹出 TimeslotsDialog */
@@ -43,6 +44,13 @@ export function TasksDialog({
               <EmptyState icon={Activity} title="暂无任务记录" />
             ) : (
               <div className="border border-border rounded-2xl overflow-hidden">
+                {/* 后端对拉不到详情的任务保留占位行(function=N/A、status=unknown)并带 error。
+                    不标出来的话，用户会以为任务真的卡在 unknown，从而重复提交同一个操作 */}
+                <PartialNotice
+                  failedCount={(q.data || []).filter((t) => !!t.error).length}
+                  what="任务详情"
+                  className="m-3"
+                />
                 <table className="w-full text-[13px]">
                   <thead className="bg-secondary/50">
                     <tr className="text-left">
@@ -58,9 +66,15 @@ export function TasksDialog({
                     {(q.data || []).map((task) => (
                       <tr key={task.taskId} className="border-t border-border">
                         <td className="py-2.5 px-4 font-mono">{task.taskId}</td>
-                        <td className="py-2.5 px-4">{task.function}</td>
                         <td className="py-2.5 px-4">
-                          <span className={`text-[12px] capitalize ${statusColor(task.status)}`}>{task.status}</span>
+                          {task.error ? <span className="text-muted-foreground">—</span> : task.function}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          {task.error ? (
+                            <DetailErrorTag message={task.error} />
+                          ) : (
+                            <span className={`text-[12px] capitalize ${statusColor(task.status)}`}>{task.status}</span>
+                          )}
                         </td>
                         <td className="py-2.5 px-4 text-muted-foreground">
                           {task.startDate ? new Date(task.startDate).toLocaleString("zh-CN") : "—"}
@@ -69,7 +83,8 @@ export function TasksDialog({
                           {task.doneDate ? new Date(task.doneDate).toLocaleString("zh-CN") : "—"}
                         </td>
                         <td className="py-2.5 px-4 text-right">
-                          <Button variant="outline" size="sm" onClick={() => setTsTask(task)}>
+                          {/* 详情没拉到的任务连 function 都是占位值，预约时间段没有意义 */}
+                          <Button variant="outline" size="sm" disabled={!!task.error} onClick={() => setTsTask(task)}>
                             <Calendar className="w-3 h-3 mr-1" />
                             时间段
                           </Button>

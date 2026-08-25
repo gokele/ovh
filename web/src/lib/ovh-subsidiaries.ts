@@ -1,3 +1,5 @@
+import { endpointRegion } from "@/lib/ovh-regions";
+
 /**
  * OVH 子公司列表（每个 subsidiary 对应独立目录 + 独立币种 + 独立税率）。
  * - endpoint 决定 API host（eu / us / ca）
@@ -42,12 +44,14 @@ export const OVH_SUBSIDIARIES: OvhSubsidiary[] = [
   { code: "IN", endpoint: "ovh-ca", label: "印度 · INR", currency: "INR" },
 ];
 
-/** 根据当前 endpoint 推断默认 subsidiary */
+/** 根据当前 endpoint 推断默认 subsidiary。
+ *  对齐后端 ovh.DefaultSubsidiaryForEndpoint;大区判定走 lib/ovh-regions,
+ *  免得这里又漏掉 kimsufi-ca / soyoustart-ca 这类同区别名(它们也属于 CA 站点)。 */
 export function defaultSubsidiaryForEndpoint(endpoint: string | undefined): string {
-  switch (endpoint) {
-    case "ovh-us":
+  switch (endpointRegion(endpoint)) {
+    case "US":
       return "US";
-    case "ovh-ca":
+    case "CA":
       return "CA";
     default:
       return "IE";

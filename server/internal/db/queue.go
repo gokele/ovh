@@ -19,6 +19,7 @@ type queueRow struct {
 	UpdatedAt          string  `db:"updated_at"`
 	RetryInterval      int     `db:"retry_interval"`
 	RetryCount         int     `db:"retry_count"`
+	FailureCount       int     `db:"failure_count"`
 	MaxRetries         int     `db:"max_retries"`
 	LastCheckTime      float64 `db:"last_check_time"`
 	QuickOrder         int     `db:"quick_order"`
@@ -46,6 +47,7 @@ func rowToQueueItem(r queueRow) types.QueueItem {
 		UpdatedAt:          r.UpdatedAt,
 		RetryInterval:      r.RetryInterval,
 		RetryCount:         r.RetryCount,
+		FailureCount:       r.FailureCount,
 		MaxRetries:         r.MaxRetries,
 		LastCheckTime:      r.LastCheckTime,
 		QuickOrder:         r.QuickOrder == 1,
@@ -80,6 +82,7 @@ func queueItemToRow(q types.QueueItem) (queueRow, error) {
 		UpdatedAt:          q.UpdatedAt,
 		RetryInterval:      q.RetryInterval,
 		RetryCount:         q.RetryCount,
+		FailureCount:       q.FailureCount,
 		MaxRetries:         q.MaxRetries,
 		LastCheckTime:      q.LastCheckTime,
 		QuickOrder:         bi(q.QuickOrder),
@@ -121,11 +124,11 @@ func (db *DB) ReplaceQueue(items []types.QueueItem) error {
 		_, err = tx.NamedExec(`
 			INSERT INTO queue
 			(id, account_id, plan_code, datacenter, options, status, created_at, updated_at,
-			 retry_interval, retry_count, max_retries, last_check_time,
+			 retry_interval, retry_count, failure_count, max_retries, last_check_time,
 			 quick_order, priority, from_telegram, config_sniper_task_id)
 			VALUES
 			(:id, :account_id, :plan_code, :datacenter, :options, :status, :created_at, :updated_at,
-			 :retry_interval, :retry_count, :max_retries, :last_check_time,
+			 :retry_interval, :retry_count, :failure_count, :max_retries, :last_check_time,
 			 :quick_order, :priority, :from_telegram, :config_sniper_task_id)
 		`, r)
 		if err != nil {

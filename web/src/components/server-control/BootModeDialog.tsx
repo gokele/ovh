@@ -68,7 +68,8 @@ export function BootModeDialog({
               return (
                 <button
                   key={mode.id}
-                  disabled={mode.active || setBoot.isPending || reboot.isPending}
+                  // error 的行是占位数据(bootType/description 不可信)，切过去等于拿未知配置重启机器
+                  disabled={mode.active || !!mode.error || setBoot.isPending || reboot.isPending}
                   onClick={() => handlePick(mode)}
                   className={`p-4 border rounded-2xl text-left transition-colors flex flex-col items-center text-center gap-2 ${
                     mode.active
@@ -82,7 +83,13 @@ export function BootModeDialog({
                       <h4 className="text-[13px] font-semibold">{mode.bootType}</h4>
                       {mode.active && <Check className="w-3.5 h-3.5" />}
                     </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2">{mode.description}</p>
+                    {mode.error ? (
+                      <p className="text-[11px] text-destructive line-clamp-2" title={mode.error}>
+                        该启动模式详情获取失败，暂不可选
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground line-clamp-2">{mode.description}</p>
+                    )}
                   </div>
                   {isConfirming && !mode.active && (
                     <div className="flex gap-2 w-full mt-1">

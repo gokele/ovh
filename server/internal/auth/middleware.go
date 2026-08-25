@@ -20,12 +20,12 @@ type Config struct {
 // DefaultWhitelist 不需要 X-API-Key 即可访问的路径
 func DefaultWhitelist() map[string]struct{} {
 	return map[string]struct{}{
-		"/health":                      {},
-		"/api/health":                  {},
-		"/api/version":                 {}, // 前端启动时拉版本号,登录前可见
-		"/api/version/check-update":    {}, // 更新检查也免鉴权,登录前可提示
-		"/api/internal/monitor/price":  {},
-		"/api/telegram/webhook":        {},
+		"/health":                     {},
+		"/api/health":                 {},
+		"/api/version":                {}, // 前端启动时拉版本号,登录前可见
+		"/api/version/check-update":   {}, // 更新检查也免鉴权,登录前可提示
+		"/api/internal/monitor/price": {},
+		"/api/telegram/webhook":       {},
 	}
 }
 

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/common/Chip";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
+import { DetailErrorTag } from "@/components/common/PartialNotice";
 import {
   useVpsMitigation, useEnableVpsMitigation, useDisableVpsMitigation,
 } from "@/hooks/use-vps-control";
@@ -54,6 +55,8 @@ export function VpsMitigationPane({ serviceName }: { serviceName: string }) {
       </p>
       {blocks.map((blk) => {
         const isV6 = blk.ipBlock.includes(":") && !blk.ipBlock.includes(".");
+        // 后端同一行已经给了裸 IP，直接用它比从 ipBlock 上 split("/") 反推更准也更直白
+        const bareIp = blk.ipAddress || blk.ipBlock.split("/")[0];
         return (
         <div key={blk.ipBlock} className="border border-border rounded-2xl overflow-hidden">
           <div className="px-3.5 py-2.5 border-b border-border bg-secondary/30 flex items-center gap-2">
@@ -73,10 +76,7 @@ export function VpsMitigationPane({ serviceName }: { serviceName: string }) {
                 size="sm"
                 variant="outline"
                 className="ml-auto h-7"
-                onClick={() => {
-                  const ip = blk.ipBlock.split("/")[0];
-                  handleToggle(ip, blk.ipBlock, false);
-                }}
+                onClick={() => handleToggle(bareIp, blk.ipBlock, false)}
                 disabled={enable.isPending}
               >
                 启用永久缓解
@@ -91,10 +91,17 @@ export function VpsMitigationPane({ serviceName }: { serviceName: string }) {
                 const isOk = m.state === "ok";
                 const isCreating = m.state === "creationPending";
                 const isRemoving = m.state === "removalPending";
+                // 详情没拉到的 IP 后端保留占位(只有 ipOnMitigation + error)，不标出来就是一行空状态。
+                // 注：VpsMitigationIp 类型里还没有 error 字段（hooks 层，本次不改），先就地读。
+                const rowErr = (m as unknown as { error?: string }).error;
                 return (
                   <div key={m.ipOnMitigation} className="px-3.5 py-2.5 flex items-center gap-2 text-[12px] flex-wrap">
                     <code className="font-mono">{m.ipOnMitigation}</code>
-                    <Chip tone={mitigationTone(m.state)}>{stateText(m.state)}</Chip>
+                    {rowErr ? (
+                      <DetailErrorTag message={rowErr} />
+                    ) : (
+                      <Chip tone={mitigationTone(m.state)}>{stateText(m.state)}</Chip>
+                    )}
                     {m.auto && <span className="text-[11px] text-muted-foreground">自动</span>}
                     {m.permanent && (
                       <span className="text-[11px] text-emerald-600 dark:text-emerald-400">永久</span>
@@ -104,7 +111,7 @@ export function VpsMitigationPane({ serviceName }: { serviceName: string }) {
                       variant="outline"
                       className="ml-auto h-7"
                       onClick={() => handleToggle(m.ipOnMitigation, blk.ipBlock, true)}
-                      disabled={disable.isPending || !isOk}
+                      disabled={disable.isPending || !isOk || !!rowErr}
                       title={
                         isCreating
                           ? "正在启用中,通常 30 秒-2 分钟,等状态变 ok 再点关闭"

@@ -410,8 +410,14 @@ function AccountCard({ acc, onEdit }: { acc: OVHAccount; onEdit: () => void }) {
   const verify = useVerifyAccount();
   const [confirming, setConfirming] = useState(false);
 
+  // 后端 /accounts/:id/verify 除了 valid 还会带 subsidiaryWarning:
+  // zone(决定目录站点/币种/下单 region)与 OVH /me 的 ovhSubsidiary 不一致时,凭据依然有效,
+  // 但每一次调用都会打到错误的站点。toast 会消失,这里再常驻一条,免得用户点完验证就忘了。
+  const subsidiaryWarning = verify.data?.subsidiaryWarning;
+
   return (
-    <div className="border border-border rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+    <div className="border border-border rounded-2xl p-4 flex flex-col gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className="font-semibold text-sm">{acc.name}</span>
@@ -449,6 +455,13 @@ function AccountCard({ acc, onEdit }: { acc: OVHAccount; onEdit: () => void }) {
           <Trash2 className="w-4 h-4" />
         </Button>
       </div>
+      </div>
+
+      {subsidiaryWarning && (
+        <p className="text-[11px] text-warning border border-warning/40 bg-warning/5 rounded-xl px-3 py-2">
+          ⚠ 子公司配置与 OVH 实际归属不一致：{subsidiaryWarning}
+        </p>
+      )}
 
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent className="w-[95vw] sm:w-full sm:max-w-md">

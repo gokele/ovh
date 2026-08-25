@@ -100,6 +100,9 @@ func (db *DB) ListVPSSubscriptions() ([]types.VPSSubscription, error) {
 }
 
 // UpsertVPSSubscription 按 id upsert
+// auto_order_account_id 必须出现在 INSERT 列表里:ON CONFLICT 分支引用的 excluded.xxx
+// 取的是"这次 INSERT 尝试插入的值",列不在 INSERT 列表里时它等于列默认值(空串),
+// 于是每次更新都会把订阅的自动下单账户清空。
 func (db *DB) UpsertVPSSubscription(s types.VPSSubscription) error {
 	r, err := vpsSubToRow(s)
 	if err != nil {
@@ -108,10 +111,10 @@ func (db *DB) UpsertVPSSubscription(s types.VPSSubscription) error {
 	_, err = db.NamedExec(`
 		INSERT INTO vps_subscriptions
 		(id, plan_code, ovh_subsidiary, datacenters, monitor_linux, monitor_windows,
-		 notify_available, notify_unavailable, last_status, history, created_at)
+		 notify_available, notify_unavailable, last_status, history, created_at, auto_order_account_id)
 		VALUES
 		(:id, :plan_code, :ovh_subsidiary, :datacenters, :monitor_linux, :monitor_windows,
-		 :notify_available, :notify_unavailable, :last_status, :history, :created_at)
+		 :notify_available, :notify_unavailable, :last_status, :history, :created_at, :auto_order_account_id)
 		ON CONFLICT(id) DO UPDATE SET
 		  plan_code          = excluded.plan_code,
 		  ovh_subsidiary     = excluded.ovh_subsidiary,

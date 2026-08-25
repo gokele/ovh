@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mail, RefreshCw, Check, X as XIcon, KeyRound } from "lucide-react";
+import { Mail, RefreshCw, Check, X as XIcon, KeyRound, AlertCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Chip } from "@/components/common/Chip";
+import { PartialNotice } from "@/components/common/PartialNotice";
+import { useActiveAccountEndpoint } from "@/components/common/active-endpoint";
 import { useChangeContact, useContactChangeRequests, useContactRequestAction } from "@/hooks/use-server-control";
 import { toast } from "sonner";
 
@@ -23,6 +25,9 @@ export function ChangeContactDialog({
   const submit = useChangeContact();
   const list = useContactChangeRequests(open);
   const action = useContactRequestAction();
+  // 美区账户没有 NIC 联系人体系，提交必然 400，入口就禁掉
+  const { isUS, ready } = useActiveAccountEndpoint();
+  const usUnsupported = ready && isUS;
 
   const [admin, setAdmin] = useState("");
   const [tech, setTech] = useState("");
@@ -95,14 +100,25 @@ export function ChangeContactDialog({
 
             <TabsContent value="submit" className="overflow-y-auto -mx-6 px-6">
               <div className="space-y-3 py-2">
-                <ContactField label="Admin 联系人" placeholder="ab12345-ovh 或 someone@example.com" value={admin} onChange={setAdmin} />
-                <ContactField label="Tech 联系人" placeholder="ab12345-ovh 或 someone@example.com" value={tech} onChange={setTech} />
-                <ContactField label="Billing 联系人" placeholder="ab12345-ovh 或 someone@example.com" value={billing} onChange={setBilling} />
+                {/* OVHcloud US 没有 NIC 联系人体系，后端会直接 400。
+                    与其让用户填完再吃一个错误，不如在入口就说清楚并禁掉提交。 */}
+                {usUnsupported && (
+                  <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-[12px]">
+                    <AlertCircle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+                    <span>
+                      美区账户不支持通过 API 变更服务器联系人 —— OVHcloud US 没有 NIC 联系人系统，
+                      请在 OVHcloud US 控制台或联系客服办理。
+                    </span>
+                  </div>
+                )}
+                <ContactField label="Admin 联系人" placeholder="ab12345-ovh 或 someone@example.com" value={admin} onChange={setAdmin} disabled={usUnsupported} />
+                <ContactField label="Tech 联系人" placeholder="ab12345-ovh 或 someone@example.com" value={tech} onChange={setTech} disabled={usUnsupported} />
+                <ContactField label="Billing 联系人" placeholder="ab12345-ovh 或 someone@example.com" value={billing} onChange={setBilling} disabled={usUnsupported} />
                 <p className="text-[11px] text-muted-foreground">
                   填 OVH NIC handle(如 ab12345-ovh)或目标 OVH 账户邮箱皆可。留空则保持原联系人。
                 </p>
                 <div className="pt-2">
-                  <Button onClick={handleSubmit} disabled={submit.isPending}>
+                  <Button onClick={handleSubmit} disabled={submit.isPending || usUnsupported}>
                     {submit.isPending ? "提交中…" : "提交变更请求"}
                   </Button>
                 </div>
@@ -112,11 +128,30 @@ export function ChangeContactDialog({
             <TabsContent value="requests" className="overflow-y-auto -mx-6 px-6">
               {list.isPending ? (
                 <Skeleton className="h-40 rounded-2xl" />
-              ) : (list.data || []).length === 0 ? (
+              ) : list.data?.unsupported ? (
+                // 501 = 该区（US）根本没有 /me/task/contactChange 系列端点。
+                // 这是「没有这个能力」而不是「请求失败」，别渲染成可重试的错误。
+                <EmptyState
+                  icon={Mail}
+                  title="当前区域不支持"
+                  description={list.data.message || "当前账户所在区域不支持联系人变更请求"}
+                />
+              ) : list.isError ? (
+                <EmptyState
+                  icon={Mail}
+                  title="待审请求读取失败"
+                  description={
+                    (list.error as any)?.response?.data?.error ||
+                    (list.error as any)?.message ||
+                    "请稍后刷新重试"
+                  }
+                />
+              ) : (list.data?.requests || []).length === 0 ? (
                 <EmptyState icon={Mail} title="暂无待审请求" />
               ) : (
                 <div className="space-y-2 py-2">
-                  {(list.data || []).map((req: any) => (
+                  <PartialNotice failedCount={list.data?.failedCount || 0} what="待审请求" />
+                  {(list.data?.requests || []).map((req: any) => (
                     <RequestRow
                       key={req.id}
                       req={req}
@@ -178,16 +213,18 @@ function ContactField({
   placeholder,
   value,
   onChange,
+  disabled,
 }: {
   label: string;
   placeholder: string;
   value: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div>
       <label className="text-[12px] font-semibold block mb-1.5">{label}</label>
-      <Input placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+      <Input placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} />
     </div>
   );
 }

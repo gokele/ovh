@@ -20,6 +20,9 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 			if datacenters == nil {
 				datacenters = []string{}
 			}
+			// 必须持订阅自己的锁改:subsMu 只保护切片,而这条订阅此刻很可能
+			// 正被检查 goroutine 读着(它拿的是同一个指针)。
+			s.mu.Lock()
 			s.Datacenters = datacenters
 			s.NotifyAvailable = notifyAvailable
 			s.NotifyUnavailable = notifyUnavailable
@@ -37,6 +40,7 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 			if s.History == nil {
 				s.History = []HistoryEntry{}
 			}
+			s.mu.Unlock()
 			return
 		}
 	}
@@ -111,13 +115,16 @@ func (m *Monitor) ClearSubscriptions() int {
 	return count
 }
 
-// FindSubscription 按 planCode 查找
+// FindSubscription 按 planCode 查找,返回的是**深拷贝**(与 Snapshot 同口径)。
+// 不返回真身:调用方(handler 读 History、SubscriptionAsJSON 做 Marshal)都在 HTTP goroutine 里,
+// 而检查 goroutine 正并发地往同一条订阅上 append History —— 直接把指针递出去就是数据竞争。
+// 需要改订阅请走 AddSubscription / RemoveSubscription。
 func (m *Monitor) FindSubscription(planCode string) *Subscription {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
 	for _, s := range m.subscriptions {
 		if s.PlanCode == planCode {
-			return s
+			return s.snapshot()
 		}
 	}
 	return nil
@@ -172,6 +179,15 @@ func (m *Monitor) OptionsCacheLookup(key string) []string {
 // cleanupExpiredCaches 对应 Python: _cleanup_expired_caches
 func (m *Monitor) cleanupExpiredCaches() {
 	now := time.Now().Unix()
+	// 顺带清理 SQLite 里过期的一键下单按钮，防止表无限增长
+	if m.state.DB != nil {
+		before := float64(time.Now().Add(-m.messageUUIDCacheTTL).Unix())
+		if n, err := m.state.DB.DeleteExpiredTelegramButtons(before); err != nil {
+			m.state.Logger.Debug("清理过期一键下单按钮失败: "+err.Error(), "telegram")
+		} else if n > 0 {
+			m.state.Logger.Debug(fmt.Sprintf("已清理 %d 个过期一键下单按钮", n), "telegram")
+		}
+	}
 	m.cacheLock.Lock()
 	defer m.cacheLock.Unlock()
 	expUUIDs := []string{}
@@ -192,6 +208,20 @@ func (m *Monitor) cleanupExpiredCaches() {
 	for _, k := range expOpts {
 		delete(m.optionsCache, k)
 	}
+	// 顺带扫掉 resolveQueryAccount 的过期条目:它的 key 里带账户指纹,
+	// 每改一次账户就换一批 key,旧 key 再也不会被读到 —— 不清就是只涨不降的内存。
+	queryAccountMu.Lock()
+	expChoices := 0
+	for k, c := range queryAccountCache {
+		if time.Since(c.at) >= c.effectiveTTL() {
+			delete(queryAccountCache, k)
+			expChoices++
+		}
+	}
+	queryAccountMu.Unlock()
+	if expChoices > 0 {
+		m.state.Logger.Debug(fmt.Sprintf("清理过期查询账户选取缓存: %d 条", expChoices), "monitor")
+	}
 	if len(expUUIDs) > 0 || len(expOpts) > 0 {
 		m.state.Logger.Debug(fmt.Sprintf("清理过期缓存: UUID=%d个, Options=%d个", len(expUUIDs), len(expOpts)), "monitor")
 	}
@@ -199,13 +229,22 @@ func (m *Monitor) cleanupExpiredCaches() {
 
 // AddMessageUUID 缓存按钮对应的配置
 func (m *Monitor) AddMessageUUID(id, planCode, datacenter string, options []string, configInfo map[string]interface{}) {
+	now := float64(time.Now().Unix())
 	m.cacheLock.Lock()
-	defer m.cacheLock.Unlock()
 	m.messageUUIDCache[id] = &CachedMessage{
 		PlanCode:   planCode,
 		Datacenter: datacenter,
 		Options:    options,
 		ConfigInfo: configInfo,
-		Timestamp:  float64(time.Now().Unix()),
+		Timestamp:  now,
+	}
+	m.cacheLock.Unlock()
+
+	// 同时落库：内存缓存进程重启就没了，按钮一点击就 400；
+	// 落库后按钮跨重启可用，并且 used_at 让它只能被消费一次。
+	if m.state.DB != nil {
+		if err := m.state.DB.UpsertTelegramButton(id, planCode, datacenter, options, configInfo, now); err != nil {
+			m.state.Logger.Warn("一键下单按钮落库失败（仍可用内存缓存）: "+err.Error(), "telegram")
+		}
 	}
 }

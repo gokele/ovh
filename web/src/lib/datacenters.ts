@@ -13,10 +13,18 @@ export interface DataCenter {
 }
 
 export const OVH_DATACENTERS: DataCenter[] = [
-  { code: "gra", name: "格拉夫尼茨", region: "法国" },
+  // GRA 是 Gravelines(格拉沃利讷),不是"格拉夫尼茨";名称与后端 catalog.dcCityMap 保持一致
+  { code: "gra", name: "格拉沃利讷", region: "法国" },
   { code: "sbg", name: "斯特拉斯堡", region: "法国" },
   { code: "rbx", name: "鲁贝", region: "法国" },
+  // 巴黎有三个可用区,OVH 的可用性接口按 eu-west-par-a/b/c 分别返回库存。
+  // 以前这张表没有它们,导致巴黎的货在前端既看不见也选不了(实测三区都有真实库存)。
+  { code: "par-a", apiCode: "eu-west-par-a", name: "巴黎 A", region: "法国" },
+  { code: "par-b", apiCode: "eu-west-par-b", name: "巴黎 B", region: "法国" },
+  { code: "par-c", apiCode: "eu-west-par-c", name: "巴黎 C", region: "法国" },
   { code: "bhs", name: "博阿尔诺", region: "加拿大" },
+  // 多伦多同理,可用性接口返回的是长码 ca-east-tor-a
+  { code: "tor", apiCode: "ca-east-tor-a", name: "多伦多", region: "加拿大" },
   { code: "mum", apiCode: "ynm", name: "孟买", region: "印度" },
   { code: "waw", name: "华沙", region: "波兰" },
   { code: "fra", name: "法兰克福", region: "德国" },

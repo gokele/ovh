@@ -1,8 +1,9 @@
-import { Cpu, HardDrive, MemoryStick, MapPin, Globe, Wifi } from "lucide-react";
+import { Cpu, HardDrive, MemoryStick, MapPin, Globe, Wifi, AlertTriangle } from "lucide-react";
 import type { OwnedServer } from "@/hooks/use-server-control";
 import { useServerHardware, useServerIps, useServerNetworkInterfaces } from "@/hooks/use-server-control";
 import { useHideIp, maskSensitive } from "@/hooks/use-hide-ip";
 import { Skeleton } from "@/components/common/Skeleton";
+import { PartialNotice, DetailErrorTag } from "@/components/common/PartialNotice";
 import { MrtgTrafficChart } from "./MrtgTrafficChart";
 
 /** 概览 Tab：硬件 + 网络（IP / 接口 / MRTG 流量）。服务信息胶囊条已上提到 ServerTabs 同行 */
@@ -39,6 +40,19 @@ export function OverviewTab({ server }: { server: OwnedServer }) {
 
   return (
     <div className="space-y-6">
+      {/* 列表接口这次没查到这台机器的 serviceInfos：续费状态 / 计费状态都不可信。
+          「没查到」不能默默当成「没开自动续费」，否则用户会以为自己已经关过续费了。 */}
+      {(server.svcInfoError || server.error) && (
+        <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-[11px] text-foreground/80">
+          <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" />
+          <span>
+            {server.error
+              ? `该服务器的详情未能获取（${server.error}），下方信息可能不完整。`
+              : `该服务器的续费/计费信息未能获取（${server.svcInfoError}），续费状态显示为「未知」而非「手动」，可刷新重试。`}
+          </span>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
         <InfoCard icon={<Cpu className="w-4 h-4" />} label="处理器" value={cpuText} loading={hw.isPending} />
         <InfoCard icon={<MemoryStick className="w-4 h-4" />} label="内存" value={memText} loading={hw.isPending} />
@@ -80,17 +94,30 @@ export function OverviewTab({ server }: { server: OwnedServer }) {
             <div className="p-4">
               <Skeleton className="h-20 rounded-md" />
             </div>
-          ) : (interfaces.data || []).length === 0 ? (
+          ) : interfaces.isError ? (
+            // 「读取失败」和「这台机器没网卡」是两回事，混成同一句会让用户放弃重试
+            <p className="px-4 py-6 text-sm text-destructive text-center">网卡接口读取失败，请刷新重试</p>
+          ) : (interfaces.data?.items || []).length === 0 ? (
             <p className="px-4 py-6 text-sm text-muted-foreground text-center">未发现网卡</p>
           ) : (
-            <div className="divide-y divide-border">
-              {(interfaces.data || []).map((nic: any) => (
-                <div key={nic.mac} className="px-4 py-3 flex items-center justify-between text-[13px]">
-                  <code className="font-mono">{nic.mac}</code>
-                  <span className="text-[11px] text-muted-foreground">{nic.linkType || "—"}</span>
-                </div>
-              ))}
-            </div>
+            <>
+              <PartialNotice
+                failedCount={interfaces.data?.failedCount || 0}
+                what="网卡接口"
+                className="mx-4 mt-3"
+              />
+              <div className="divide-y divide-border">
+                {(interfaces.data?.items || []).map((nic) => (
+                  <div key={nic.mac} className="px-4 py-3 flex items-center justify-between text-[13px]">
+                    <code className="font-mono">{nic.mac}</code>
+                    <span className="text-[11px] text-muted-foreground flex items-center gap-2">
+                      <DetailErrorTag message={nic._detailError} />
+                      {nic.linkType || "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>

@@ -40,6 +40,7 @@ import {
 import { useServers } from "@/hooks/use-servers";
 import { OVH_DATACENTERS as OVH_DC_LIST } from "@/lib/datacenters";
 import { AccountSelect } from "@/components/common/AccountSelect";
+import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
 import { AccountChip } from "@/components/common/AccountChip";
 import { PlanCodeCombobox } from "@/components/common/PlanCodeCombobox";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
@@ -203,10 +204,15 @@ function CreateQueueDialog({
   initialOptions?: string;
 }) {
   const servers = useServers();
-  const availQ = useAvailability();
-  const variantIndex = useMemo(() => buildVariantIndex(availQ.data), [availQ.data]);
   const create = useCreateQueueItem();
   const [accountId, setAccountId] = useState("");
+  // 库存按"实际下单的那个账户"所在站点查:EU/US/CA 三站的 availabilities 互不相通
+  // (实测 US 站 423 个 planCode,只有 134 个与 EU 重合),用别区的库存点红绿灯,
+  // 用户会照着不存在的货建任务,然后在抢购时才被 OVH 拒。
+  const { data: accounts } = useAccounts();
+  const orderEndpoint = findAccountByID(accounts, accountId)?.endpoint || "";
+  const availQ = useAvailability(orderEndpoint || undefined);
+  const variantIndex = useMemo(() => buildVariantIndex(availQ.data), [availQ.data]);
   const [planCode, setPlanCode] = useState(initialPlanCode || "");
   const [datacenters, setDatacenters] = useState<string[]>([]);
   const [quantity, setQuantity] = useState("1");
@@ -619,9 +625,23 @@ function QueueRow({
           </div>
           <div className="text-[11px] text-muted-foreground flex items-center gap-2 flex-wrap">
             <Clock className="w-3 h-3" />
-            <span>
-              下次尝试 {item.retryCount > 0 ? `${item.retryInterval}秒后（第 ${item.retryCount + 1} 次）` : "即将开始"}
-            </span>
+            {/* failed / completed 是终态,不会再重试 —— 再显示"下次尝试"会让用户以为还在排队。
+                失败原因写在抢购历史里,这里给一句指引。 */}
+            {item.status === "failed" ? (
+              <span>已停止重试（原因见抢购历史）</span>
+            ) : item.status === "completed" ? (
+              <span>已完成</span>
+            ) : (
+              <span>
+                下次尝试 {item.retryCount > 0 ? `${item.retryInterval}秒后（第 ${item.retryCount + 1} 次）` : "即将开始"}
+              </span>
+            )}
+            {typeof item.failureCount === "number" && item.failureCount > 0 && (
+              <>
+                <span>·</span>
+                <span>下单失败 {item.failureCount} 次</span>
+              </>
+            )}
             <span>·</span>
             <span>{new Date(item.createdAt).toLocaleString()}</span>
           </div>

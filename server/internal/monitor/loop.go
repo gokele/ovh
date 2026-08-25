@@ -188,14 +188,18 @@ func (m *Monitor) Start() bool {
 		return false
 	}
 	m.running = true
+	// MonitorRunning 与 checkInterval 都要在锁内取/写:
+	// Start 可能与 loop 自停时调的 Stop、以及 SetCheckInterval 并发,
+	// 出锁之后再写就是无同步的写-写竞争(go test -race 会报)。
+	m.state.MonitorRunning = true
+	interval := m.checkInterval
 	m.subsMu.Unlock()
 	// 重置 TG 检查时间戳,保证启动后第一轮一定 verify
 	m.tgCheckMu.Lock()
 	m.lastTGCheck = time.Time{}
 	m.tgCheckMu.Unlock()
 	go m.monitorLoop()
-	m.state.Logger.Info(fmt.Sprintf("服务器监控已启动 (检查间隔: %d秒)", m.checkInterval), "monitor")
-	m.state.MonitorRunning = true
+	m.state.Logger.Info(fmt.Sprintf("服务器监控已启动 (检查间隔: %d秒)", interval), "monitor")
 	return true
 }
 
@@ -208,9 +212,9 @@ func (m *Monitor) Stop() bool {
 		return false
 	}
 	m.running = false
+	m.state.MonitorRunning = false
 	m.subsMu.Unlock()
 	m.state.Logger.Info("正在停止服务器监控...", "monitor")
-	m.state.MonitorRunning = false
 	return true
 }
 

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
+import type { PartialList } from "./partial-list";
 
 export interface OwnedServer {
   serviceName: string;
@@ -12,6 +13,21 @@ export interface OwnedServer {
   ip: string;
   os: string;
   orderId?: string | number;
+  reverse?: string;
+  monitoring?: boolean;
+  professionalUse?: boolean;
+  bootId?: number | null;
+  /**
+   * 列表接口里的自动续费状态。
+   * true=已开自动续费 / false=确实没开 / null|undefined=这次没查到。
+   * 三态必须分开渲染：把 null 当成 false 显示成「手动」会让用户以为自己已经关过了，
+   * 实际上机器可能正在自动续费（或反过来漏续费），这正是后端改用 *bool 的原因。
+   */
+  renewalType?: boolean | null;
+  /** 有值表示这台机器的 serviceInfos 没拉到（renewalType/status 因此不可信），组件应提示可重试 */
+  svcInfoError?: string;
+  /** 有值表示这台机器连详情都没拉到，除 serviceName/name 外其它字段都缺 */
+  error?: string;
 }
 
 export interface HardwareInfo {
@@ -28,7 +44,11 @@ export interface ServiceInfo {
   status: string;
   expiration: string;
   creation: string;
-  /** 是否启用自动续费(后端解析 OVH renew.automatic) */
+  /**
+   * 是否启用自动续费(后端解析 OVH renew.automatic)。
+   * 这里是单台机器的 /serviceinfo 接口，后端拿不到 renew 就整个请求报错，
+   * 不会像列表接口那样出现 null，所以保持 boolean —— 别跟 OwnedServer.renewalType 混淆。
+   */
   renewalType: boolean;
   /** 续费周期,单位月(1 / 3 / 6 / 12 等) */
   renewalPeriod: number;
@@ -198,11 +218,22 @@ export function useDeleteEngagementRequest(serviceName: string) {
   });
 }
 
-/** 改 engagement 到期策略 */
+/** services.billing.engagement.EndStrategyEnum，后端也按这份白名单校验 */
+export type EngagementEndStrategy =
+  | "CANCEL_SERVICE"
+  | "REACTIVATE_ENGAGEMENT"
+  | "STOP_ENGAGEMENT_FALLBACK_DEFAULT_PRICE"
+  | "STOP_ENGAGEMENT_KEEP_PRICE";
+
+/**
+ * 改 engagement 到期策略。
+ * CANCEL_SERVICE = 承诺期结束后直接销毁服务器，不可撤销，所以后端要求带 confirm:true；
+ * 组件必须先弹二次确认框拿到用户明确同意，再传 confirm。其余三个策略不需要 confirm。
+ */
 export function useUpdateEngagementEndRule(serviceName: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (vars: { strategy: string }) => {
+    mutationFn: async (vars: { strategy: EngagementEndStrategy | string; confirm?: boolean }) => {
       const res = await api.put(`/server-control/${serviceName}/engagement/end-rule`, vars);
       return res.data;
     },
@@ -297,13 +328,36 @@ export function useServerInterventions(serviceName: string | null) {
   });
 }
 
-/** 网络接口（后端返回 { success, interfaces: [...] }） */
+/**
+ * 后端「主键列表 + 并发拉详情」类接口的统一读法：
+ * 详情拉挂的行仍会返回，只是带 _detailError；partial/failedCount 说明这次少了几行的详情。
+ */
+function readPartialList<T>(data: any, listKey: string): PartialList<T> {
+  const failedCount = Number(data?.failedCount) || 0;
+  return {
+    items: (data?.[listKey] || []) as T[],
+    partial: data?.partial === true || failedCount > 0,
+    failedCount,
+  };
+}
+
+/** 详情拉取失败的行会带上这个字段，组件应给该行加「获取失败」标记 */
+export interface DetailErrorMarked {
+  _detailError?: string;
+}
+
+export interface NetworkInterface extends DetailErrorMarked {
+  mac: string;
+  linkType?: string;
+}
+
+/** 网络接口（后端返回 { success, interfaces, partial, failedCount }） */
 export function useServerNetworkInterfaces(serviceName: string | null) {
   return useQuery({
     queryKey: qk.serverControl.networkInterfaces(serviceName || ""),
-    queryFn: async () => {
+    queryFn: async (): Promise<PartialList<NetworkInterface>> => {
       const res = await api.get(`/server-control/${serviceName}/network-interfaces`);
-      return (res.data?.interfaces || []) as Array<{ mac: string; linkType?: string }>;
+      return readPartialList<NetworkInterface>(res.data, "interfaces");
     },
     enabled: !!serviceName,
   });
@@ -315,6 +369,13 @@ export interface BootMode {
   description: string;
   kernel: string;
   active: boolean;
+  /**
+   * 有值表示这一项的详情没拉到（bootType/description/kernel 是占位值）。
+   * 后端保留占位而不是丢条目，就是为了别让启动模式凭空少几个；
+   * 组件应把这一行标成「获取失败，可重试」并禁止直接切换过去。
+   * 后端另有 failed 计数，等于带 error 的行数。
+   */
+  error?: string;
 }
 
 /** 启动模式（后端返回 { success, bootModes: [...] }） */
@@ -349,6 +410,13 @@ export interface ServerTask {
   status: string;
   startDate: string;
   doneDate: string;
+  comment?: string;
+  /**
+   * 有值表示这条任务的详情没拉到（function/status 是占位值 N/A / unknown）。
+   * 不显示的话用户会以为任务真的处于 unknown 状态，从而重复提交同一个操作。
+   * 后端另有 failed 计数，等于带 error 的行数。
+   */
+  error?: string;
 }
 
 /** 服务器运维任务列表（后端返回 { success, tasks: [...] }） */
@@ -512,6 +580,18 @@ export interface ReinstallArgs {
   diskGroups?: Record<string, DiskGroup>; // 用于硬件 RAID 时拼 disks 列表
 }
 
+export interface ReinstallResult {
+  success: boolean;
+  message?: string;
+  taskId?: number;
+  /**
+   * 后端忽略了哪份存储配置的说明（例如同时勾了 Proxmox 9 + ZFS 和高级存储配置时，
+   * ZFS 预设优先、另一份被忽略）。装是能装成的，但用户得知道自己填的东西没生效，
+   * 组件应该用 toast.warning 逐条显示。
+   */
+  warnings?: string[];
+}
+
 export function useReinstallServer() {
   return useMutation({
     mutationFn: async (args: ReinstallArgs) => {
@@ -558,7 +638,11 @@ export function useReinstallServer() {
           }
           g.partitioning.layout.push(ovhP);
         });
-        // 硬件 RAID
+        // 硬件 RAID。
+        // schema dedicated.server.reinstall.storage.HardwareRaid 只有 arrays / disks(long) / raidLevel / spares：
+        // disks 是「参与阵列的磁盘数量」而不是磁盘编号数组，mode / name / step 是旧 partitionScheme 的字段，
+        // 不在 schema 里。后端虽然做了兼容映射，但继续发旧字段会掩盖前端和 schema 的偏差，所以这里直接按 schema 发。
+        // 副作用：OVH 不接受「指定用哪几块盘」，只能给数量，磁盘选择交给 OVH。
         if (args.hardwareRaid) {
           Object.entries(args.hardwareRaid).forEach(([gidStr, raidMode]) => {
             if (!raidMode) return;
@@ -566,13 +650,13 @@ export function useReinstallServer() {
             if (!groups.has(gid)) groups.set(gid, { diskGroupId: gid });
             const g = groups.get(gid);
             if (!g.hardwareRaid) g.hardwareRaid = [];
-            const level = raidMode.replace("raid", "");
-            g.hardwareRaid.push({
-              disks: args.diskGroups?.[gidStr]?.disks?.map((d) => d.number) || [],
-              mode: level,
-              name: `raid${level}`,
-              step: 1,
-            });
+            const level = parseInt(raidMode.replace("raid", ""), 10);
+            if (Number.isNaN(level)) return;
+            const diskCount = args.diskGroups?.[gidStr]?.disks?.length || 0;
+            const item: { raidLevel: number; disks?: number } = { raidLevel: level };
+            // 0 表示「不知道这组有几块盘」，省略让 OVH 用默认值，别发 disks:0
+            if (diskCount > 0) item.disks = diskCount;
+            g.hardwareRaid.push(item);
           });
         }
         const storageArray = Array.from(groups.values());
@@ -582,9 +666,34 @@ export function useReinstallServer() {
       }
 
       const res = await api.post(`/server-control/${args.serviceName}/install`, installData);
-      return res.data;
+      return res.data as ReinstallResult;
     },
   });
+}
+
+export interface InstallStep {
+  /** 已翻译成中文的步骤名 */
+  comment: string;
+  /** OVH 原文，翻译表没覆盖到时可回退显示 */
+  commentOriginal: string;
+  status: string; // todo / doing / done / error
+  error: string;
+}
+
+export interface InstallStatus {
+  elapsedTime: number;
+  progressPercentage: number;
+  totalSteps: number;
+  completedSteps: number;
+  hasError: boolean;
+  allDone: boolean;
+  /**
+   * true = OVH 这次没返回 progress（schema 里它可空）。
+   * 此时 progressPercentage 恒为 0、allDone 恒为 false，但那不代表「一步都没做」。
+   * 组件必须显示「进度暂不可用」，否则用户会盯着一个永远停在 0% 的进度条。
+   */
+  progressUnknown: boolean;
+  steps: InstallStep[];
 }
 
 /** 安装进度（前端轮询用，旧前端每 5s 轮一次）（后端返回 { success, hasInstallation, status: {...} }） */
@@ -595,7 +704,7 @@ export function useInstallStatus(serviceName: string | null, enabled = true) {
       const res = await api.get(`/server-control/${serviceName}/install/status`);
       return {
         hasInstallation: res.data?.hasInstallation !== false,
-        status: res.data?.status || null,
+        status: (res.data?.status || null) as InstallStatus | null,
       };
     },
     enabled: !!serviceName && enabled,
@@ -721,28 +830,75 @@ export function useSetFirewall() {
 
 // ───────────────────────────────── Backup FTP ─────────────────────────────────
 
-/** Backup FTP：可能 notAvailable / notActivated / 正常对象 */
+/** ACL 一行。详情没拉到时只有 ipBlock + error */
+export interface BackupFtpAccessEntry {
+  ipBlock: string;
+  ftp?: boolean;
+  nfs?: boolean;
+  cifs?: boolean;
+  isApplied?: boolean;
+  error?: string;
+}
+
+export interface BackupFtpResult {
+  backupFtp?: Record<string, any> | null;
+  accessList?: BackupFtpAccessEntry[];
+  /** ACL 详情拉取失败的条数（后端 failedCount） */
+  accessFailedCount?: number;
+  /** ACL 列表整体拉取失败时的原因（不影响主信息展示） */
+  accessError?: string;
+  /** 该区域/该机器没有备份FTP能力（US 区，或 OVH 说 cannot benefit） */
+  notAvailable?: boolean;
+  /** 功能存在但未激活 —— 只有这一种情况才该显示「激活」按钮 */
+  notActivated?: boolean;
+  /** 服务器不存在或不属于当前账户：显示 error/reason，不要给激活按钮 */
+  unknownService?: boolean;
+  error?: string;
+  /** OVH 原文，用于排查 */
+  reason?: string;
+}
+
+/** Backup FTP：可能 notAvailable / notActivated / unknownService / 正常对象 */
 export function useServerBackupFtp(serviceName: string | null) {
   return useQuery({
     queryKey: qk.serverControl.backupFtp(serviceName || ""),
-    queryFn: async () => {
+    queryFn: async (): Promise<BackupFtpResult> => {
       try {
         const res = await api.get(`/server-control/${serviceName}/backup-ftp`);
+        // 后端用 200 + success:false 表达「US 区没这功能」和「服务器不属于本账户」
+        // ——这两种都不是 404「未激活」，必须把原因原样带出去，否则会渲染成一个点了必失败的激活按钮
         if (res.data?.success === false) {
-          return { notAvailable: true, error: res.data?.error } as any;
+          return {
+            // notAvailable 一律置 true：现网组件就是靠它走「不可用 + 显示 error」分支的，
+            // unknownService 只是额外的细分标记（组件可据此换成「服务器不属于当前账户」的文案）
+            notAvailable: true,
+            unknownService: res.data?.unknownService === true,
+            error: res.data?.error,
+            reason: res.data?.reason,
+          };
         }
         // 尝试同时取 access 列表
-        let accessList: any[] = [];
+        let accessList: BackupFtpAccessEntry[] = [];
+        let accessFailedCount = 0;
+        let accessError: string | undefined;
         try {
           const accRes = await api.get(`/server-control/${serviceName}/backup-ftp/access`);
-          accessList = accRes.data?.accessList || [];
-        } catch {
-          /* 访问列表拿不到不算失败 */
+          accessList = (accRes.data?.accessList || []) as BackupFtpAccessEntry[];
+          accessFailedCount = Number(accRes.data?.failedCount) || 0;
+        } catch (e: any) {
+          // 访问列表拿不到不算整体失败，但要说明「列表为空是没查到」而不是「没配过 IP」
+          accessError = e?.response?.data?.error || e?.message || "访问控制列表获取失败";
         }
-        return { backupFtp: res.data?.backupFtp || null, accessList } as any;
+        return { backupFtp: res.data?.backupFtp || null, accessList, accessFailedCount, accessError };
       } catch (e: any) {
-        if (e?.response?.status === 404) return { notActivated: true } as any;
-        return { notAvailable: true, error: e?.response?.data?.error || e?.message } as any;
+        if (e?.response?.status === 404) {
+          // US 区的写操作/查询被拦时也是 404，但带 notAvailable，别把它当成「未激活」
+          if (e?.response?.data?.notAvailable === true) {
+            return { notAvailable: true, error: e?.response?.data?.error };
+          }
+          return { notActivated: true };
+        }
+        return { notAvailable: true, error: e?.response?.data?.error || e?.message };
       }
     },
     enabled: !!serviceName,
@@ -762,14 +918,114 @@ export function useActivateBackupFtp() {
   });
 }
 
+/** 关闭备份FTP服务（会删掉里面的备份，调用方必须先二次确认） */
+export function useDeleteBackupFtp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (serviceName: string) => {
+      const res = await api.delete(`/server-control/${serviceName}/backup-ftp`);
+      return res.data;
+    },
+    onSuccess: (_, serviceName) => {
+      qc.invalidateQueries({ queryKey: qk.serverControl.backupFtp(serviceName) });
+    },
+  });
+}
+
+/** 重置备份FTP密码（新密码由 OVH 发到账户邮箱，接口不返回明文） */
+export function useResetBackupFtpPassword() {
+  return useMutation({
+    mutationFn: async (serviceName: string) => {
+      const res = await api.post(`/server-control/${serviceName}/backup-ftp/password`);
+      return res.data;
+    },
+  });
+}
+
+/** 可授权的 IP 段列表（给「添加访问 IP」做候选） */
+export function useBackupFtpAuthorizableBlocks(serviceName: string | null, enabled = true) {
+  return useQuery({
+    queryKey: [...qk.serverControl.backupFtpAccess(serviceName || ""), "authorizable"] as const,
+    queryFn: async () => {
+      const res = await api.get(`/server-control/${serviceName}/backup-ftp/authorizable-blocks`);
+      return (res.data?.blocks || []) as string[];
+    },
+    enabled: !!serviceName && enabled,
+  });
+}
+
+/** 添加备份FTP访问 IP。ftp 默认 true，nfs/cifs 默认 false（与后端一致） */
+export function useAddBackupFtpAccess() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: {
+      serviceName: string;
+      ipBlock: string;
+      ftp?: boolean;
+      nfs?: boolean;
+      cifs?: boolean;
+    }) => {
+      const res = await api.post(`/server-control/${vars.serviceName}/backup-ftp/access`, {
+        ipBlock: vars.ipBlock,
+        ftp: vars.ftp ?? true,
+        nfs: !!vars.nfs,
+        cifs: !!vars.cifs,
+      });
+      return res.data;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: qk.serverControl.backupFtp(vars.serviceName) });
+    },
+  });
+}
+
+/**
+ * 删除备份FTP访问 IP。
+ * ipBlock 是带掩码的 CIDR（37.59.1.0/28），放在路径里那个 "/" 会被 gin 还原成新的一段导致 404，
+ * 所以走 ?ipBlock= query 形式 —— 后端的路径形式只作兼容兜底。
+ */
+export function useDeleteBackupFtpAccess() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { serviceName: string; ipBlock: string }) => {
+      const res = await api.delete(
+        `/server-control/${vars.serviceName}/backup-ftp/access?ipBlock=${encodeURIComponent(vars.ipBlock)}`
+      );
+      return res.data;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: qk.serverControl.backupFtp(vars.serviceName) });
+    },
+  });
+}
+
 // ───────────────────────────────── Secondary DNS / vMAC / vRack ─────────────────────────────────
+
+export interface SecondaryDnsDomain extends DetailErrorMarked {
+  domain: string;
+  dns?: string;
+  ipMaster?: string;
+}
+
+export interface VirtualMacEntry extends DetailErrorMarked {
+  macAddress: string;
+  type?: string;
+  ipAddress?: string;
+  virtualNetworkInterface?: string;
+}
+
+export interface VrackEntry extends DetailErrorMarked {
+  vrackName: string;
+  name?: string;
+  description?: string;
+}
 
 export function useServerSecondaryDns(serviceName: string | null) {
   return useQuery({
     queryKey: qk.serverControl.secondaryDns(serviceName || ""),
-    queryFn: async () => {
+    queryFn: async (): Promise<PartialList<SecondaryDnsDomain>> => {
       const res = await api.get(`/server-control/${serviceName}/secondary-dns`);
-      return (res.data?.domains || []) as any[];
+      return readPartialList<SecondaryDnsDomain>(res.data, "domains");
     },
     enabled: !!serviceName,
   });
@@ -778,9 +1034,9 @@ export function useServerSecondaryDns(serviceName: string | null) {
 export function useServerVirtualMac(serviceName: string | null) {
   return useQuery({
     queryKey: qk.serverControl.virtualMac(serviceName || ""),
-    queryFn: async () => {
+    queryFn: async (): Promise<PartialList<VirtualMacEntry>> => {
       const res = await api.get(`/server-control/${serviceName}/virtual-mac`);
-      return (res.data?.virtualMacs || []) as any[];
+      return readPartialList<VirtualMacEntry>(res.data, "virtualMacs");
     },
     enabled: !!serviceName,
   });
@@ -789,9 +1045,9 @@ export function useServerVirtualMac(serviceName: string | null) {
 export function useServerVrack(serviceName: string | null) {
   return useQuery({
     queryKey: qk.serverControl.vrack(serviceName || ""),
-    queryFn: async () => {
+    queryFn: async (): Promise<PartialList<VrackEntry>> => {
       const res = await api.get(`/server-control/${serviceName}/vrack`);
-      return (res.data?.vracks || []) as any[];
+      return readPartialList<VrackEntry>(res.data, "vracks");
     },
     enabled: !!serviceName,
   });
@@ -819,12 +1075,18 @@ export function useServerOrderable(serviceName: string | null) {
   });
 }
 
+export interface ServerOptionEntry extends DetailErrorMarked {
+  option: string;
+  state?: string;
+  expirationDate?: string;
+}
+
 export function useServerOptions(serviceName: string | null) {
   return useQuery({
     queryKey: qk.serverControl.options(serviceName || ""),
-    queryFn: async () => {
+    queryFn: async (): Promise<PartialList<ServerOptionEntry>> => {
       const res = await api.get(`/server-control/${serviceName}/options`);
-      return (res.data?.options || []) as any[];
+      return readPartialList<ServerOptionEntry>(res.data, "options");
     },
     enabled: !!serviceName,
   });
@@ -854,15 +1116,36 @@ export function useServerNetworkSpecs(serviceName: string | null, enabled = true
 
 // ───────────────────────────────── Interventions（创建工单） ─────────────────────────────────
 
-/** 创建硬件干预工单（硬盘 / 内存 / 散热 等）—— 旧前端 POST /interventions */
+/** 故障硬盘。disk_serial 是 OVH schema(dedicated.server.SupportReplaceHddInfo)的必填字段，
+ *  slot_id 可选。字段名保持 snake_case 与官方一致，避免两层转换出错。 */
+export interface FaultyDisk {
+  disk_serial: string;
+  slot_id?: number;
+}
+
+/** 创建硬件更换工单（硬盘 / 内存 / 散热）。
+ *  端点是 POST /server-control/:svc/hardware/replace —— 旧代码发的 POST /interventions
+ *  后端从未注册（只有 GET），所以这个功能此前一直是 404。
+ *
+ *  硬盘必须给出故障盘序列号：OVH 的 inverse 语义是「更换所有未列出的盘」，
+ *  空列表 + inverse=true 等于申请更换整机每一块硬盘，后端现在会直接拒绝。 */
 export function useCreateIntervention() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { serviceName: string; type: string; details?: string; comment?: string }) => {
-      const res = await api.post(`/server-control/${args.serviceName}/interventions`, {
-        type: args.type,
+    mutationFn: async (args: {
+      serviceName: string;
+      type: string;
+      details?: string;
+      comment?: string;
+      disks?: FaultyDisk[];
+      slots?: string[];
+    }) => {
+      const res = await api.post(`/server-control/${args.serviceName}/hardware/replace`, {
+        componentType: args.type,
         details: args.details,
         comment: args.comment,
+        ...(args.disks?.length ? { disks: args.disks } : {}),
+        ...(args.slots?.length ? { slots: args.slots } : {}),
       });
       return res.data;
     },
@@ -889,13 +1172,43 @@ export function useChangeContact() {
   });
 }
 
-/** 查询所有变更联系人请求（用户全局而非按服务器）。后端返回 { success, data: [...] } */
+export interface ContactChangeRequestList {
+  requests: any[];
+  /**
+   * true = 当前账户所在区域（US）根本没有 /me/task/contactChange 系列端点，后端返 501。
+   * 这是「该区没有这个能力」而不是「请求失败」，组件应隐藏整个模块或显示 message，
+   * 不要渲染成加载失败让用户反复重试。
+   */
+  unsupported: boolean;
+  message?: string;
+  /** 详情拉取失败的条数（后端同时会带 X-Partial-Failures 头） */
+  failedCount: number;
+}
+
+/** 查询所有变更联系人请求（用户全局而非按服务器）。后端返回 { status, data, total, failed } */
 export function useContactChangeRequests(enabled = true) {
   return useQuery({
     queryKey: qk.serverControl.contactRequests(),
-    queryFn: async () => {
-      const res = await api.get(`/ovh/contact-change-requests`);
-      return (res.data?.data || res.data?.requests || []) as any[];
+    queryFn: async (): Promise<ContactChangeRequestList> => {
+      try {
+        const res = await api.get(`/ovh/contact-change-requests`);
+        return {
+          requests: (res.data?.data || res.data?.requests || []) as any[],
+          unsupported: false,
+          failedCount: Number(res.data?.failed) || 0,
+        };
+      } catch (e: any) {
+        // 501 = 该区不支持，不是错误；其余错误照常抛出去让 isError 生效
+        if (e?.response?.status === 501) {
+          return {
+            requests: [],
+            unsupported: true,
+            message: e?.response?.data?.message || "当前账户所在区域不支持联系人变更请求",
+            failedCount: 0,
+          };
+        }
+        throw e;
+      }
     },
     enabled,
   });
@@ -943,6 +1256,33 @@ export function useTaskTimeslots(
       };
     },
     enabled: !!serviceName && !!taskId && enabled,
+  });
+}
+
+/**
+ * 给任务改期（干预 / 维护类任务 OVH 要求先选时间段）。
+ * hasPerformedBackup 直接发用户勾选框的真实值：后端不再强制 true，
+ * 未备份也照实转发给 OVH（后端记警告日志），前端替用户勾上等于替他做担保。
+ */
+export function useScheduleTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: {
+      serviceName: string;
+      taskId: number;
+      /** RFC3339，通常取自 useTaskTimeslots 返回的时间段 */
+      wantedBeginingDate: string;
+      hasPerformedBackup: boolean;
+    }) => {
+      const res = await api.post(`/server-control/${args.serviceName}/tasks/${args.taskId}/schedule`, {
+        wantedBeginingDate: args.wantedBeginingDate,
+        hasPerformedBackup: args.hasPerformedBackup,
+      });
+      return res.data;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: qk.serverControl.tasks(vars.serviceName) });
+    },
   });
 }
 

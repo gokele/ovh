@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Skeleton } from "@/components/common/Skeleton";
+import { PartialNotice } from "@/components/common/PartialNotice";
 import { useVpsTemplates, useReinstallVps, useVpsCurrentOS, type VpsTemplate } from "@/hooks/use-vps-control";
 import { toast } from "sonner";
 
@@ -31,9 +31,10 @@ export function VpsReinstallDialog({
   const [sshKeyNames, setSshKeyNames] = useState<string>(""); // 逗号分隔
   const [confirmName, setConfirmName] = useState("");
 
+  const tplItems: VpsTemplate[] = templates.data?.items || [];
   const selected: VpsTemplate | null = useMemo(
-    () => (templates.data || []).find((t) => String(t.id) === String(templateId)) || null,
-    [templates.data, templateId],
+    () => tplItems.find((t) => String(t.id) === String(templateId)) || null,
+    [tplItems, templateId],
   );
 
   // 切模板时同步语言到该模板默认语言。templateId 可能是 number(EU) 或 string(US imageId),
@@ -43,7 +44,7 @@ export function VpsReinstallDialog({
     const asNum = Number(v);
     const id: number | string = !Number.isNaN(asNum) && String(asNum) === v ? asNum : v;
     setTemplateId(id);
-    const tpl = (templates.data || []).find((t) => String(t.id) === v);
+    const tpl = tplItems.find((t) => String(t.id) === v);
     if (tpl) {
       setLanguage(tpl.locale || tpl.availableLanguage?.[0] || "en");
     }
@@ -118,6 +119,17 @@ export function VpsReinstallDialog({
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 加载模板中…
               </div>
+            ) : templates.isError ? (
+              // 后端现在区分「详情全挂(500)」和「账户真没模板(200 空列表)」。
+              // 全挂时再显示"暂无可用模板"会让用户以为账户没模板从而放弃重试。
+              <div className="flex items-center gap-2 text-[12px] text-destructive">
+                <AlertCircle className="w-3.5 h-3.5" />
+                模板列表读取失败：
+                {(templates.error as any)?.response?.data?.error || (templates.error as any)?.message || "请稍后重试"}
+                <Button size="sm" variant="outline" className="h-7" onClick={() => templates.refetch()}>
+                  重试
+                </Button>
+              </div>
             ) : (
               <Select
                 value={templateId != null ? String(templateId) : ""}
@@ -125,13 +137,13 @@ export function VpsReinstallDialog({
               >
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder={
-                    (templates.data || []).length === 0
+                    tplItems.length === 0
                       ? "暂无可用模板(账户/区域可能无系统模板)"
                       : "选择 OS 模板"
                   } />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
-                  {(templates.data || []).map((t) => (
+                  {tplItems.map((t) => (
                     <SelectItem key={String(t.id)} value={String(t.id)}>
                       {t.distribution ? `${t.distribution} — ` : ""}{t.name} ({t.bitFormat}-bit)
                     </SelectItem>
@@ -139,6 +151,11 @@ export function VpsReinstallDialog({
                 </SelectContent>
               </Select>
             )}
+            <PartialNotice
+              failedCount={templates.data?.failedCount || 0}
+              what="系统模板"
+              className="mt-1.5"
+            />
             {selected && (
               <p className="text-[11px] text-muted-foreground mt-1.5">
                 模板 ID: {selected.id} · 默认语言: {selected.locale} · 支持{" "}

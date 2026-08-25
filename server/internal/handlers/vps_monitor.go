@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 	"github.com/ovh-buy/server/internal/vps"
@@ -62,14 +64,50 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少planCode参数"})
 			return
 		}
+		var autoOrderAccount types.OVHAccount
 		if body.AutoOrderAccountID != "" {
-			if _, ok := state.FindAccount(body.AutoOrderAccountID); !ok {
+			acc, ok := state.FindAccount(body.AutoOrderAccountID)
+			if !ok {
 				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "autoOrderAccountId 不存在"})
 				return
 			}
+			autoOrderAccount = acc
 		}
+
+		// 子公司决定连哪个站点(EU / US / CA 三套独立系统),必须先归一化再校验:
+		// OVH 只认大写枚举,小写会被 EU/CA 站点 400 掉,而 US 站点根本不校验它,
+		// 串区在美区不报错、只是悄悄返回美国机房的库存 —— 只能本地兜住。
+		body.OvhSubsidiary = vps.NormalizeSubsidiary(body.OvhSubsidiary)
 		if body.OvhSubsidiary == "" {
-			body.OvhSubsidiary = "IE"
+			// 不再写死 IE:有自动下单账户就跟着账户所在站点走
+			body.OvhSubsidiary = vps.DefaultSubsidiary(state, body.AutoOrderAccountID)
+		}
+		if !ovh.KnownSubsidiary(body.OvhSubsidiary) {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "未知的 OVH 子公司 " + body.OvhSubsidiary +
+				":EU 区 CZ DE ES EU FI FR GB IE IT LT MA NL PL PT SN TN;CA 区 ASIA AU CA IN QC SG WE WS;US 区 US"})
+			return
+		}
+		// 自动下单账户必须和订阅子公司在同一个站点,否则补货触发时账户压根买不到这批货
+		if body.AutoOrderAccountID != "" {
+			accRegion := ovh.EndpointRegion(autoOrderAccount.Endpoint)
+			subRegion := ovh.SubsidiaryRegion(body.OvhSubsidiary)
+			if accRegion != subRegion {
+				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "自动下单账户在 " + vps.RegionLabel(accRegion) +
+					",而订阅子公司 " + body.OvhSubsidiary + " 属于 " + vps.RegionLabel(subRegion) +
+					";两个站点的库存和购物车不互通,请换成同区的账户或子公司"})
+				return
+			}
+		}
+		// 先探一次:planCode 分区(US 目录才有 -eu / -ca 后缀码),
+		// 拿错区的码 OVH 回 404,监控起来只会表现为"永远无货",不如在订阅时就说清楚。
+		if _, err := vps.CheckVPSDCAvailability(state, body.PlanCode, body.OvhSubsidiary); err != nil {
+			var ce *vps.CheckError
+			if errors.As(err, &ce) && ce.Permanent() {
+				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+				return
+			}
+			// 临时故障不拦订阅,只记一笔
+			state.Logger.Warn("订阅前探测VPS可用性失败(不影响订阅): "+err.Error(), "vps_monitor")
 		}
 		monitorLinux := true
 		if body.MonitorLinux != nil {
@@ -90,7 +128,9 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 
 		state.VPSSubsMu.Lock()
 		for _, s := range state.VPSSubscriptions {
-			if s.PlanCode == body.PlanCode && s.OvhSubsidiary == body.OvhSubsidiary {
+			// 老订阅里可能存着小写/空的子公司,比较前统一归一化,
+			// 免得 "ie" 和 "IE" 被当成两个订阅、对同一份库存重复查两遍
+			if s.PlanCode == body.PlanCode && vps.NormalizeSubsidiary(s.OvhSubsidiary) == body.OvhSubsidiary {
 				state.VPSSubsMu.Unlock()
 				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "该VPS套餐已订阅"})
 				return
@@ -236,9 +276,9 @@ func GetVPSMonitorStatus(state *app.State) gin.HandlerFunc {
 		interval := state.VPSCheckInterval
 		state.VPSSubsMu.Unlock()
 		c.JSON(http.StatusOK, gin.H{
-			"running":              vps.Running(),
-			"subscriptions_count":  count,
-			"check_interval":       interval,
+			"running":             vps.Running(),
+			"subscriptions_count": count,
+			"check_interval":      interval,
 		})
 	}
 }
@@ -269,16 +309,30 @@ func ManualCheckVPS(state *app.State) gin.HandlerFunc {
 		planCode := c.Param("plan_code")
 		var body struct {
 			OvhSubsidiary string `json:"ovhSubsidiary"`
+			AccountID     string `json:"accountId"`
 		}
 		_ = c.ShouldBindJSON(&body)
+		// 同 Add:归一化 + 跟账户所在站点兜底,不再写死 IE
+		body.OvhSubsidiary = vps.NormalizeSubsidiary(body.OvhSubsidiary)
 		if body.OvhSubsidiary == "" {
-			body.OvhSubsidiary = "IE"
+			body.OvhSubsidiary = vps.DefaultSubsidiary(state, body.AccountID)
 		}
-		result := vps.CheckVPSDCAvailability(state, planCode, body.OvhSubsidiary)
-		if result == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取VPS数据中心信息失败"})
+		result, err := vps.CheckVPSDCAvailability(state, planCode, body.OvhSubsidiary)
+		if err != nil {
+			// 区域 / 套餐配错属于用户输入问题:400 + 中文说明,不要 500,也不要静默空数据
+			var ce *vps.CheckError
+			if errors.As(err, &ce) && ce.Permanent() {
+				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+				return
+			}
+			c.JSON(http.StatusBadGateway, gin.H{"status": "error", "message": "获取VPS数据中心信息失败:" + err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "success", "data": result})
+		c.JSON(http.StatusOK, gin.H{
+			"status":        "success",
+			"ovhSubsidiary": body.OvhSubsidiary,
+			"region":        ovh.SubsidiaryRegion(body.OvhSubsidiary),
+			"data":          result,
+		})
 	}
 }
