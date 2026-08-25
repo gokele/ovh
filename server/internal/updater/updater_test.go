@@ -349,3 +349,88 @@ func testUpdaterState(t *testing.T) *app.State {
 	lg := logger.New(filepath.Join(dir, "t.log"), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return app.NewState(storage.Paths{DataDir: dir}, config.New(database), lg, database)
 }
+
+// 这是回归测试:自更新替换完二进制、重启进新版本,新版本的**第一次启动**
+// 绝不能被判定为"起不来"。
+//
+// 之前就是这么错的:RollbackIfStale 跑在启动早期,而清除标记的 MarkHealthy
+// 要等端口监听成功才执行 —— 于是"标记还在"永远成立,每次自更新都在新版本
+// 刚起来的那一刻被静默回滚成旧版本。用户看到的是前端一直转
+// "正在重启并加载新版本…"直到超时,以为是更新卡住了。
+func TestRollbackIfStale_新版本首次启动不回滚(t *testing.T) {
+	exe := withFakeExe(t, "新版本")
+	os.WriteFile(exe+backupSuffix, []byte("旧版本"), 0o755)
+	MarkPending() // 自更新在重启前做的事
+
+	if RollbackIfStale(testUpdaterState(t)) {
+		t.Fatal("新版本头一回启动就被回滚了 —— 这样自更新永远升不上去")
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "新版本" {
+		t.Errorf("二进制不该被换掉,实际 %q", got)
+	}
+	if _, err := os.Stat(exe + pendingSuffix); err != nil {
+		t.Error("标记要留着:这一版还没跑到 MarkHealthy,万一崩了下次启动要靠它回滚")
+	}
+}
+
+// 首次启动放行之后,如果这一版真的没能跑到 MarkHealthy,
+// 下一次启动就必须回滚 —— 否则回滚保护等于没有
+func TestRollbackIfStale_第二次启动才回滚(t *testing.T) {
+	exe := withFakeExe(t, "新版本(会崩)")
+	os.WriteFile(exe+backupSuffix, []byte("旧版本(能跑)"), 0o755)
+	MarkPending()
+
+	st := testUpdaterState(t)
+	if RollbackIfStale(st) {
+		t.Fatal("第一次不该回滚")
+	}
+	// 模拟:这一版启动后崩了,没到 MarkHealthy,进程被拉起来第二次
+	if !RollbackIfStale(st) {
+		t.Fatal("第二次带着标记启动,说明上一次没撑到健康点,必须回滚")
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "旧版本(能跑)" {
+		t.Errorf("回滚后应该是旧版本,实际 %q", got)
+	}
+	if _, err := os.Stat(exe + pendingSuffix); !os.IsNotExist(err) {
+		t.Error("回滚后要清掉标记,否则会反复回滚")
+	}
+}
+
+// 完整走一遍成功路径:更新 → 首次启动放行 → 跑到健康点 → 标记和备份都清掉,
+// 之后再启动多少次都不会回滚
+func TestRollback成功路径不留残留(t *testing.T) {
+	exe := withFakeExe(t, "新版本")
+	os.WriteFile(exe+backupSuffix, []byte("旧版本"), 0o755)
+	MarkPending()
+
+	st := testUpdaterState(t)
+	if RollbackIfStale(st) {
+		t.Fatal("首次启动不该回滚")
+	}
+	MarkHealthy(st) // 端口监听成功
+
+	if _, err := os.Stat(exe + pendingSuffix); !os.IsNotExist(err) {
+		t.Error("健康之后标记该没了")
+	}
+	if _, err := os.Stat(exe + backupSuffix); !os.IsNotExist(err) {
+		t.Error("健康之后备份该没了")
+	}
+	if RollbackIfStale(st) {
+		t.Fatal("已经健康过了,再启动不该回滚")
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "新版本" {
+		t.Errorf("二进制该保持新版本,实际 %q", got)
+	}
+}
+
+// 老版本写的标记内容是 "1"。升级上来时如果把它当成"没启动过"而放行,
+// 一个真的起不来的版本就会永远滚不回去
+func TestRollbackIfStale_认得老版本的标记(t *testing.T) {
+	exe := withFakeExe(t, "新版本(起不来)")
+	os.WriteFile(exe+backupSuffix, []byte("旧版本"), 0o755)
+	os.WriteFile(exe+pendingSuffix, []byte("1"), 0o644) // v0.1.3 及以前的写法
+
+	if !RollbackIfStale(testUpdaterState(t)) {
+		t.Fatal("老标记应当被当作『已经启动过一次』,直接回滚")
+	}
+}

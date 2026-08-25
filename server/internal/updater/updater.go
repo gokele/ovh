@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -369,11 +370,33 @@ func RollbackIfStale(state *app.State) bool {
 	if _, err := os.Stat(backup); err != nil {
 		return false
 	}
-	if _, err := os.Stat(pending); err != nil {
+	raw, perr := os.ReadFile(pending)
+	if perr != nil {
 		// 有备份但没有"启动中"标记:说明上次是正常起来过的(只是 MarkHealthy 没删掉),
 		// 清掉备份即可,不要回滚 —— 那会把用户刚更新好的版本又换回旧的。
 		_ = os.Remove(backup)
 		return false
+	}
+
+	// 标记里记的是"带着这个标记启动过几次"。
+	//
+	// 这里必须能区分「新版本正在启动」和「新版本上次没启动起来」——
+	// 而这个函数跑在启动早期,MarkHealthy 要等端口监听成功才执行,
+	// 所以光看"标记还在"永远是真的。之前就是这么写的,后果是每次自更新
+	// 都在新版本的第一次启动时被判定为失败、静默回滚成旧版本,
+	// 用户看到的是前端一直转"正在重启并加载新版本…"直到超时。
+	//
+	// 计数 0 = 新版本头一回启动,放行,让它自己跑到 MarkHealthy 把标记删掉;
+	// 计数 ≥1 = 上一回带着标记启动过却没能撑到 MarkHealthy,这才是真的起不来。
+	if boots := parseBoots(raw); boots < 1 {
+		if err := os.WriteFile(pending, []byte(strconv.Itoa(boots+1)), 0o644); err != nil {
+			// 写不进去就不能再放行:下次启动还会读到 0,永远滚不动,
+			// 等于回滚保护彻底失效。宁可这一次多回滚一遍。
+			state.Logger.Warn("[更新] 无法更新待验证标记,按保守策略回滚: "+err.Error(), "version")
+		} else {
+			state.Logger.Info("[更新] 新版本首次启动,回滚保护已就绪(启动成功后自动解除)", "version")
+			return false
+		}
 	}
 
 	state.Logger.Error("[更新] 检测到上一次更新后未能正常启动,正在回滚到更新前的版本", "version")
@@ -389,9 +412,23 @@ func RollbackIfStale(state *app.State) bool {
 // pendingSuffix "更新后待验证"标记
 const pendingSuffix = ".pending"
 
-// MarkPending 替换完二进制、准备重启前写下标记
+// MarkPending 替换完二进制、准备重启前写下标记。
+// 内容是"带着这个标记启动过几次",初始 0 —— 此刻新版本还一次都没启动过。
 func MarkPending() {
 	if exe, err := selfPath(); err == nil {
-		_ = os.WriteFile(exe+pendingSuffix, []byte("1"), 0o644)
+		_ = os.WriteFile(exe+pendingSuffix, []byte("0"), 0o644)
 	}
+}
+
+// parseBoots 读启动次数。内容不认识就当 1 处理 ——
+// 老版本写的是 "1",而且"读不懂"时保守地倾向回滚比倾向放行安全。
+func parseBoots(raw []byte) int {
+	n, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return 1
+	}
+	if n < 0 {
+		return 0
+	}
+	return n
 }

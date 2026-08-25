@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -497,11 +498,16 @@ func main() {
 	// 端口真正 Listen 成功之后才标记"这一版能跑" —— 此时数据库已打开、路由已注册、
 	// 端口也占上了。太早标记等于没验证:启动就 panic、端口被占、数据库损坏,
 	// 恰恰是最需要回滚的几种情况。
-	go func() {
-		// 给 ListenAndServe 一点时间真正把端口占上;失败的话进程已经退出,这里不会执行
-		time.Sleep(3 * time.Second)
-		updater.MarkHealthy(state)
-	}()
+	//
+	// 自己 Listen 而不是用 ListenAndServe + sleep:后者只能靠"睡几秒应该起来了"猜,
+	// 猜早了端口还没占上就宣布健康,猜晚了这几秒里被重启一次就会被误判成启动失败。
+	// 拿到 listener 就是确凿的成功信号,没有窗口。
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		console.Error("listen", "err", err)
+		os.Exit(1)
+	}
+	updater.MarkHealthy(state)
 
 	// 自更新完成后走这里:先停止接受新请求并等在途请求收尾,再关数据库,最后换进程映像。
 	// 顺序不能反 —— 先 exec 的话,新进程会发现端口还被自己占着。
@@ -522,7 +528,7 @@ func main() {
 		}
 	}
 
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		console.Error("server run", "err", err)
 		os.Exit(1)
 	}
