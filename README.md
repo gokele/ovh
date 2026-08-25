@@ -21,125 +21,14 @@ OVH 独立服务器 / VPS / Eco 系列**抢购 + 监控 + 管理**控制台。
 前端已经用 `//go:embed` 嵌进二进制,跑起来直接开 `http://localhost:19998` 就是完整界面。
 Linux 上记得 `chmod +x`。想自己编译见[部署方式](#部署方式)。
 
-## v0.1.1 更新
-
-### 账户切换收敛成一个入口
-
-以前列表页、下单对话框、服务器控制页、监控订阅各有一个账户选择器,彼此不同步。
-而 OVH 的 EU / US / CA 三个站点目录互不相通(同一台机器欧区叫 `24sk602`、
-美区叫 `24sk602-v1-us`),于是「用 A 账户浏览、用 B 账户下单」一键就能做出来 ——
-这种任务必然被拒,而用户只看到控制台里一个 400。
-
-现在**只在左侧菜单栏切一次**,机型列表、机房红绿点、价格币种、服务器/VPS 控制台、
-下单账户、监控订阅的下单账户全部跟着走。
-
-### 机房只列该机型真正可选的
-
-以前固定渲染 16 个机房,于是欧区机型也会列出 HIL / VIN(美国机房)—— 对它永远是红点;
-美区账户同样会看到一堆自己订不了的欧洲机房。现在按该机型在当前账户站点的实际可选机房渲染。
-
-### 价格
-
-- 只按当前账户所属子公司计价,**移除跨 18 个子公司比价的下拉** —— 它只换价格不换机型列表,
-  却写着「US · 美国」,看上去像切换了区域,照着它下单会被拒
-- 计价目录与机型列表同源(都按账户 zone),两者不一致会导致价格永远查不到
-- 「价格加载中」不再骗人:目录已加载但该子公司没有这个机型时,明确显示「XX 无报价」
-
-### 子公司列表补齐
-
-补上 6 个漏掉的合法子公司,这些国家的用户以前在下拉里找不到自己的 Zone:
-
-| 子公司 | 站点 | 币种 |
-|---|---|---|
-| LT 立陶宛 | eu | EUR |
-| MA 摩洛哥 | **eu** | MAD |
-| TN 突尼斯 | **eu** | TND |
-| SN 塞内加尔 | **eu** | XOF |
-| WE | **ca** | USD |
-| WS | **ca** | USD |
-
-(MA/TN/SN 属欧区不是加区,WE/WS 反过来 —— 实测拿它们请求另一个站点会 400)
-
-### 其它
-
-- 「添加 OVH 账户」对话框加上密钥申请指引:链接跟着所选子公司走,并说明在别的站点
-  申请的密钥登不进去、权限给什么、有效期要选 Unlimited
-
-## v0.1.0 更新
-
-### 在线更新：点一下自己换掉自己
-
-仪表盘「系统版本」旁边有新版本时会出现「立即更新」按钮。点一下之后全自动：
-下载 → 校验 SHA256 → 替换正在运行的二进制 → 优雅关服 → 用新版本重启 → 页面自动刷新。
-不用下载文件、不用手动替换、不用自己重启。
-
-- **强制校验 SHA256**：更新等于拿远程文件覆盖正在跑的程序，没校验就是把远程代码执行的钥匙
-  交给任何能中间人的网络。校验值取自 Release 里的 `checksums.txt`，**没有这个文件就直接拒绝更新**
-- Linux / macOS 走 `execve` 换进程映像，**PID 不变** —— systemd / docker 不会以为服务崩了
-- Windows 先把自己改名 `.old` 再放新文件（系统不允许覆盖运行中的 exe），失败自动回滚
-- 程序所在目录不可写时提前报错，而不是下完 16MB 才失败
-- 支持 `OVH_UPDATE_API` 指向私有镜像
-
-> 这个功能从 v0.1.0 起可用：更早的二进制里没有更新器。
-
-### Java KVM 可选（[#1](https://github.com/gokele/ovh/issues/1)）
-
-IPMI 对话框现在会先列出这台机器支持的接入方式，由你选，而不是后端替你挑：
-
-| 方式 | 说明 |
-|---|---|
-| HTML5 KVM | 浏览器直接打开 |
-| **Java KVM** | 下载 `.jnlp`，用 Java Web Start 打开 |
-| 串口重定向 SOL（URL） | 浏览器打开 |
-| 串口重定向 SOL（SSH） | 用账户里登记的 SSH 公钥 |
-
-以前后端按固定优先级自动挑、HTML5 排第一，同时支持两种的机器永远拿不到 Java KVM。
-
-> 新版 JDK 已经移除 Java Web Start，`.jnlp` 需要用 [OpenWebStart](https://openwebstart.com/) 打开。
-
-## v0.0.9 更新
-
-这一版的重点是**三个区(EU / US / CA)的正确性**。OVH 的三个站点是彼此独立的系统 ——
-目录、价格、库存、购物车、账户、可用端点都不互通,之前很多地方按"只有欧区"写死了。
-
-**抢购**
-- 修复**美区下单必失败**:`region` 配置项的合法取值由 (子公司, planCode) 决定,不是按机房推。
-  美区目录里 143 个 plan 的 region **只有 `united_states`**(哪怕机房是 gra/fra 这些欧洲机房),
-  而老代码发的 `usa` / `apac` 在任何子公司的目录里都不存在,每一单都卡在配置这步。
-  现在从官方目录解析(2 小时缓存),拉不到才退回静态兜底
-- 修复 **addon 错配**:标准化会把机型后缀吃成粘连残渣,导致正确的 addon 反而落到更低优先级 ——
-  选纯 2x960NVMe(€0)实际被配成混合盘(€24)。改成原始码优先的四档匹配
-- 询价与下单的 addon 匹配口径统一(以前询价只做精确匹配,美区永远匹配不上,
-  表现为"抢购能下单、询价说不可订购")
-- `MaxRetries` 现在真的生效,且只统计**真正提交并失败**的次数(无货的空轮不计)
-
-**监控**
-- 修复**跨区订阅静默永不告警**:查错站点返回的是 HTTP 200 + 空数组,不报错也不告警。
-  现在按机型归属自动选查询账户
-- 检查间隔可配(5–3600 秒,越界自动夹紧),监控页点一下就能改,重启保持
-- 可用性检查不再每轮现拉 10MB 目录(以前每订阅每 5 秒一次,几个订阅就能把自己打进 429)
-- `comingSoon` 不再算有货(它是"即将上线尚未开售",下不了单)
-
-**Telegram**
-- webhook 补上完整校验链:`secret_token` → body 上限 → `update_id` 幂等 → 发送者授权 → 频率限制
-- 「一键下单」按钮参数落库并做成**一次性 nonce**:以前只存内存,重启即失效且可无限重放下单
-
-**其它**
-- 后端询价端点 `POST /api/servers/{planCode}/price`(cart 真实询价,前端本地算不出价时兜底)
-- 账户建号时校验子公司与 endpoint 同区(`zone=US` 配 `ovh-eu` 会一路走到下单才报错)
-- 机房覆盖补上巴黎(`eu-west-par-a/b/c`)与多伦多(`ca-east-tor-a`),这些机房一直有货但前端看不见
-- 修复两处 `ON CONFLICT` 把订阅的自动下单账户清空的缺陷
-
-完整的端点与行为差异见下面的[多区域注意事项](#多区域eu-us-ca注意事项)。
-
 ## 技术栈
 
 | 层 | 技术 |
 |---|---|
 | 前端 | Vite 5 + React 18 + TypeScript + TanStack Router + TanStack Query + shadcn-ui + Tailwind + recharts |
 | 后端 | Go 1.21+ + Gin + 官方 [go-ovh](https://github.com/ovh/go-ovh) SDK |
-| 持久化 | SQLite(`modernc.org/sqlite` 纯 Go / `mattn/go-sqlite3` cgo 双 driver, build tag 自动选) |
-| 通知 | Telegram Bot Webhook |
+| 持久化 | SQLite(`modernc.org/sqlite` 纯 Go / `mattn/go-sqlite3` cgo 双 driver, build tag 自动选),凭据字段 AES-256-GCM 加密落盘 |
+| 通知 | Telegram Bot Webhook + 自定义 Webhook(钉钉 / 飞书 / Bark / 自建),多通道冗余 |
 | 部署 | 单二进制(前端 //go:embed 进 Go 二进制) 或前后端分开跑 |
 
 ## 项目结构
@@ -159,6 +48,9 @@ IPMI 对话框现在会先列出这台机器支持的接入方式，由你选，
 │       ├── purchase/     # 下单流程
 │       ├── price/        # OVH cart 询价
 │       ├── ovh/          # 按 account_id 路由的多账户 client 工厂
+│       ├── notify/       # 多通道通知(Telegram / 自定义 Webhook)
+│       ├── secret/       # 凭据落盘加密(AES-256-GCM)
+│       ├── updater/      # 在线更新:下载 / 校验 / 自替换 / 回滚
 │       └── ...
 └── web/      # 前端 (Vite + TanStack, dev 默认 :19997)
     └── src/
@@ -235,13 +127,23 @@ ENABLE_API_KEY_AUTH=true         # 关掉的话所有 /api/* 不验证密钥, �
 GIN_MODE=release                 # debug | release
 DEBUG=false                      # true 时启用 debug 日志
 
+# --- 数据库加密（都可不填，首次启动会自动处理）---
+OVH_DB_KEY=                      # 加密数据库里 OVH 凭据和 TG token 的密钥
+                                 # 没填的话首次启动自动生成一把并写回这个文件
+                                 # 备份 .env 时别漏了它: 丢了就再也解不开已存的账户
+OVH_ENV_FILE=                    # 配置文件自身的位置, 默认工作目录下的 .env
+                                 # systemd / docker 里工作目录未必是程序所在目录,
+                                 # 那种情况写绝对路径, 否则密钥可能"这次写进去下次找不到"
+
 # --- Telegram Webhook 安全（都可不填，留空即用默认行为）---
 TG_WEBHOOK_SECRET=               # 自定义 webhook secret_token; 留空则首次注册时自动生成并落库
 TG_WEBHOOK_SECRET_OPTIONAL=false # true 时跳过 secret 校验, 仅本地调试用, 公网部署不要开
 TG_ALLOWED_USER_IDS=             # 群聊场景下允许下单的 user id, 逗号分隔; 私聊不需要
 ```
 
-OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab 录入,落 SQLite `ovh_accounts` 表(每个账户一行,独立 endpoint / AppKey / Secret / ConsumerKey / Zone)。`.gitignore` 默认拒绝所有 `.env` 入库。
+OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab 录入,落 SQLite `ovh_accounts` 表(每个账户一行,独立 endpoint / AppKey / Secret / ConsumerKey / Zone),**加密存储**。`.gitignore` 默认拒绝所有 `.env` 入库。
+
+通知地址在设置页的「通知通道」里配,不走 env。Telegram 和自定义 Webhook 至少配一个 —— 只要还有一条能用,监控就继续跑。
 
 ## 主要功能
 
@@ -254,11 +156,16 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 | **三区支持(EU / US / CA)** | ✅ | 子公司归属、目录站点、`region` 取值、planCode 后缀、机房集合全部按区解析,不写死欧区 |
 | 抢购队列 | ✅ | 每机型 × 每机房 × 数量独立任务,可暂停/恢复,fail-fast 不退化到默认配置 |
 | 服务器补货监控 | ✅ | 订阅 planCode + 机房,状态变化推 Telegram,**检查间隔 5–3600 秒可配** |
-| VPS 补货监控 | ✅ | 区分 Linux / Windows 镜像,按子公司连对站点 |
-| 自动下单 | ✅ | 监控触发,可指定下单账户;不指定则只通知 |
+| VPS 补货监控 | ✅ | 型号来自 OVH 实时目录(型号会整代下架,写死会让监控静默失效),区分 Linux / Windows,按子公司连对站点 |
+| 服务器自动下单 | ✅ | 监控触发,可指定下单账户;不指定则只通知 |
+| **VPS 自动下单** | ✅ | 同上,走 `/order/cart/{id}/vps`;系统在下单时选定,`region` 按站点解析 |
+| **订阅可编辑** | ✅ | 改配置不重置库存状态和历史 —— 删了重建会让"本来就有货"被误判成补货 |
 | Telegram 文本下单 | ✅ | 5 种消息格式,`plancode [机房] [数量] [配置]` |
 | Telegram 一键下单按钮 | ✅ | 上架通知内嵌机房按钮,参数落库、**一次性 nonce**、防重放 |
 | Telegram webhook 安全 | ✅ | secret_token → body 上限 → update_id 幂等 → 发送者授权 → 频率限制 |
+| **多通道通知** | ✅ | Telegram + 自定义 Webhook,只要有一条能用监控就继续跑,全挂才停 |
+| **凭据落盘加密** | ✅ | AES-256-GCM,密钥首次启动自动生成写进 `.env`,老库自动迁移 |
+| **抢购耗时打点** | ✅ | 查库存 / 建车 / 绑车 / 加购 / 配置 / 选项 / 下单 逐段计时,回答"我慢在哪一步" |
 | 后端询价 | ✅ | `POST /api/servers/{planCode}/price`,走 OVH cart 真实询价 |
 | 已购服务器管理 | ✅ | 电源 / 重装(ZFS·软RAID·自定义分区) / IPMI / BIOS / 启动模式 / 任务 / 维护工单 |
 | 已购 VPS 管理 | ✅ | 开关机 / 重装 / 快照 / 控制台 / 改密 / 反解 / 自动备份 |
@@ -266,7 +173,7 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 | 合同期(engagement) | ✅ | 服务器与 VPS 双端,销毁类操作强制二次确认 |
 | 隐私模式 | ✅ | 一键打码所有 IP / MAC / 反向 DNS |
 | 自动检测更新 | ✅ | 拉 GitHub Releases 比版本号,有新版显示 ✨ |
-| **在线更新** | ✅ | 点一下自替换 + 自动重启,强制校验 SHA256(v0.1.0 起) |
+| **在线更新** | ✅ | 点一下自替换 + 自动重启,强制校验 SHA256,新版起不来自动回滚 |
 | **控制台接入方式可选** | ✅ | HTML5 KVM / **Java KVM(.jnlp)** / SOL(URL) / SOL(SSH),由用户选 |
 | 配置绑定狙击 | ❌ | 已下线 |
 
@@ -286,12 +193,16 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 - **fail-fast**:用户选的配置匹配不上 OVH 当前可订购的 addon → 整单失败,绝不退化到默认 HDD
 - **有货判定按官方枚举白名单**:只有 `\d+H`(交付时长承诺)算有货,`comingSoon` / `unknown` 不算 —— 否则会为永远下不了单的机型反复建单
 - **价格显示**:按**当前账户所属子公司**计价(币种、税率、目录都跟着它走),前端用本地 catalog 算,不走 cart 流程。不提供跨子公司比价 —— 那个下拉曾让人误以为切换了机型目录,照着它下单会被 OVH 拒
+- **耗时打点**:每一轮按 查库存 / 建购物车 / 绑定 / 加购 / 必需配置 / 硬件选项 / 下单 分段计时。抢购输了之后唯一有用的信息就是"慢在哪一步" —— 没有这串数字的话,"OVH 就是没货""我这机器网络慢""某一步卡了 8 秒"三种情况长得一模一样,而它们要采取的行动完全不同。抢购历史每行可点开看分解,队列页显示每条链路上一轮的结果和总耗时
 - **后端询价兜底**:`POST /api/servers/{planCode}/price`(body `{datacenter, options}`,账户走 `?account=<id>`)。走 OVH cart 真实询价拿含税/不含税/币种,用于本地 catalog 算不出价(缺项 / OVH 改结构 / addon 在目标机房不可订购)时兜底,也给外部脚本一个不必复刻算价公式的入口
 
 ### 监控
 - **服务器补货**:订阅 planCode + DC 组合,状态变化推 Telegram。**自动下单可选指定账户**;不选只通知不下单
 - **检查间隔可配**:监控页「检查间隔」点一下就地改,合法区间 5-3600 秒(越界自动夹紧并回传实际生效值),落 `kv` 表重启保持。下限 5 秒是因为 OVH 可用性接口本身有缓存,更快只会撞限流
-- **VPS 补货**:同上,针对 OVH VPS 产品线(区分 Linux / Windows 镜像)
+- **VPS 补货**:同上,针对 OVH VPS 产品线(区分 Linux / Windows 镜像)。型号列表来自 **OVH 实时目录**而不是写死 —— VPS 型号会整代下架(2025 代已全线退出下单目录),盯着一个停售型号的订阅永远不会响,而症状只是"一直没货",看不出问题在哪。已有订阅指向停售型号的会标「已停售」
+- **VPS 自动下单**:补货时真的下单(`cart → assign → POST /vps → 必需配置 → checkout`)。系统(`vps_os`)是 VPS 下单时就要定的配置项,不是买完再装,所以放在订阅里选。只对"无货→有货"的跳变下单,抢到一台就停
+- **订阅可编辑**:服务器和 VPS 订阅都能改配置,**不重置库存状态和历史**。删了重建会清空 `LastStatus`,下一轮把"本来就有货"当成补货跳变,发一条根本没发生的通知外加真下单
+- **多通道通知**:Telegram + 自定义 Webhook。只要有一条通道可用监控就继续跑,全部挂掉才停 —— 以前 Telegram 一挂丢的不是一条消息,是整个监控
 - **历史时间线**:每个订阅完整变化记录
 
 ### 已购服务器管理
@@ -314,8 +225,8 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 
 | 表 | 用途 |
 |---|---|
-| `kv` | 单例配置(TG token / webhook secret / 服务器与 VPS 检查间隔等非账户级配置) |
-| `ovh_accounts` | OVH 账户(独立 endpoint / AppKey / Secret / ConsumerKey / Zone / is_default) |
+| `kv` | 单例配置(TG token / webhook secret / 通知 webhook 地址 / 服务器与 VPS 检查间隔等非账户级配置),**其中的密钥字段加密存储** |
+| `ovh_accounts` | OVH 账户(独立 endpoint / AppKey / Secret / ConsumerKey / Zone / is_default),**三个凭据字段加密存储** |
 | `queue` | 抢购队列(`account_id` 关联) |
 | `history` | 抢购历史(`account_id` 关联) |
 | `servers` | OVH 服务器目录缓存(刷新一次写一次,2h TTL) |
@@ -327,6 +238,8 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 | `telegram_updates` | TG webhook `update_id` 幂等表,防重放重复下单 |
 
 日志仍走 JSON 文件(`data/logs/app.log.json`),不进 SQLite。
+
+加密的字段带 `enc:v1:` 前缀,没有前缀的一律按明文处理 —— 老库升级上来时表里全是明文,不能一律当密文去解。首次启动会就地把已有的明文迁移成密文,幂等,重复启动不会重复加密。
 
 ## 缓存策略
 
@@ -345,9 +258,9 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 - API Key 存浏览器 localStorage,失效自动清除并要求重新输入
 - OVH 凭据落 SQLite `ovh_accounts` 表,前端通过 OvhCredsGate / 设置页"OVH 账户" tab 录入
 - `.gitignore` 默认拒绝所有 `.env` 文件入库(只允许 `*.env.example`),同时挡掉 `*.db` / `data/` / `logs/`
-- ⚠️ **`data/sniper.db` 是明文的**:`ovh_accounts` 表直接存 AppKey / AppSecret / ConsumerKey,
-  `kv` 表存 Telegram Token 与 webhook secret。备份、迁移、发日志给别人之前先想清楚 ——
-  这个文件泄漏等于把 OVH 账户和机器控制权交出去
+- **凭据落盘加密**:`ovh_accounts` 的 AppKey / AppSecret / ConsumerKey、`kv` 里的 Telegram Token 与 webhook secret 都是 AES-256-GCM 加密存的。密钥优先取环境变量 `OVH_DB_KEY`,没有就在首次启动时生成一把写进 `.env`(权限 0600)
+- ⚠️ **加密防的是"只拿到 db 文件"那一类泄漏** —— 备份被同步到网盘、拷整个目录换机器、把 `data/` 打包发给别人排查问题。它**防不住** `.env` 和 db 一起漏出去,那种情况下加密等于没有。而 `.env` 恰恰是最容易被顺手提交、被贴进 issue 的文件
+- **密钥丢了会拒绝启动**:库里有密文却找不到密钥时,程序会停下来并说明怎么办,而不是照常起来。否则表现是"账户都在但每次调 OVH 都报签名错误",没人猜得到是密钥问题,而这时候重新录入凭据会覆盖旧密文,最后一点恢复余地也没了。确实找不回来时用 `OVH_DB_KEY_RESET=1` 启动,那些账户需要重新录入
 
 ### Telegram Webhook 安全链
 
@@ -385,7 +298,17 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 | 亚太机型(sgp/syd/ynm) | `canada` | — | OVH 把亚太机房归在 `canada` 这个 region 桶里,**没有** `apac` 这个取值 |
 | 目录站点 | `eu.api.ovh.com` | `api.us.ovhcloud.com` | 由 `ovh.CatalogBaseURLForSubsidiary` 统一映射 |
 
-`region` 的合法取值由 **(子公司, planCode)** 决定而不是机房:美区账户即使下单欧洲机房(`gra`/`fra`),region 也必须是 `united_states`。所以代码不做静态"机房→区域"映射,而是由 [catalog.ResolveRegion](server/internal/catalog/region.go) 从官方目录的 `configurations[].values` 里取,内存缓存 2 小时;拉不到目录时才退回 `ovh.RegionForDCInSubsidiary` 的静态兜底。[region_test.go](server/internal/catalog/region_test.go) 里有联网用例,会把两区目录里每个 (plan × 机房) 组合穷举验一遍。
+**VPS 也是三套独立系统,差异和独服不同**(实测公开目录):
+
+| 项 | EU / CA 站点 | US 站点 |
+|---|---|---|
+| `region` 取值 | `canada` / `europe` | **只有 `united_states`** |
+| 机房集合 | 11 个(含 BHS / SGP / SYD / YNM) | `vps-xxx` 只有 `US-EAST-VA` / `US-WEST-OR` |
+| 买欧洲 / 加拿大机房 | 同一个商品 | 要买 **`-eu` / `-ca` 后缀的另一个商品** |
+
+所以 VPS 下单时 `region` 不硬猜:先问购物车的 `requiredConfiguration`,它给一个取值就用那个,给多个才按机房挑(BHS/SGP/SYD/YNM→`canada`,其余→`europe`;这张表是从 OVH 自己的 `-ca` / `-eu` 变体目录里读出来的)。认不出的机房宁可不提交 `region`,让 OVH 用默认值 —— 提交一个错的会把整单打掉。
+
+独服这边,`region` 的合法取值由 **(子公司, planCode)** 决定而不是机房:美区账户即使下单欧洲机房(`gra`/`fra`),region 也必须是 `united_states`。所以代码不做静态"机房→区域"映射,而是由 [catalog.ResolveRegion](server/internal/catalog/region.go) 从官方目录的 `configurations[].values` 里取,内存缓存 2 小时;拉不到目录时才退回 `ovh.RegionForDCInSubsidiary` 的静态兜底。[region_test.go](server/internal/catalog/region_test.go) 里有联网用例,会把两区目录里每个 (plan × 机房) 组合穷举验一遍。
 
 ## OVH API 对接
 
@@ -400,6 +323,19 @@ POST /order/cart/{id}/eco/options × N
 GET  /order/cart/{id}/summary
 POST /order/cart/{id}/checkout
 ```
+
+VPS 是另一条链路(注意不是 `/eco`,必需配置项也不同):
+
+```
+POST /order/cart                         → cartId
+POST /order/cart/{id}/assign
+POST /order/cart/{id}/vps                → itemId   (duration / pricingMode 取自 GET /order/cart/{id}/vps)
+GET  /order/cart/{id}/item/{itemId}/requiredConfiguration
+POST /order/cart/{id}/item/{itemId}/configuration   (vps_datacenter 必填 / region / vps_os)
+POST /order/cart/{id}/checkout
+```
+
+在售型号取自公开目录 `GET /order/catalog/public/vps?ovhSubsidiary=XX`,用 OVH 自己的 `order-funnel:show` 标记筛选 —— 不拿 planCode 正则猜代次,猜的话每次换代都得发版,而且分不出"下架了"和"正则没覆盖到"。
 
 价格计算 = 基础 plan 月费 + 各 addon family 选中 addon 月费累加(`ovhjk/parser/price.go` 1:1 移植到前端 `web/src/hooks/use-availability.ts`)。
 
