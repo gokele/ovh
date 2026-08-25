@@ -10,6 +10,7 @@ import { ReinstallDialog } from "./ReinstallDialog";
 import { BiosDialog } from "./BiosDialog";
 import { InstallProgressDialog } from "./InstallProgressDialog";
 import { IpmiDialog } from "./IpmiDialog";
+import { SplaDialog } from "./SplaDialog";
 
 /** 电源与系统 Tab：重启 / 重装 / IPMI / 启动模式 / 解锁 Windows / 任务 / BIOS / 安装进度 */
 export function PowerTab({ server }: { server: OwnedServer }) {
@@ -19,6 +20,7 @@ export function PowerTab({ server }: { server: OwnedServer }) {
   const [biosOpen, setBiosOpen] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
   const [ipmiOpen, setIpmiOpen] = useState(false);
+  const [splaOpen, setSplaOpen] = useState(false);
 
   const action = async (label: string, fn: () => Promise<unknown>) => {
     try {
@@ -60,16 +62,9 @@ export function PowerTab({ server }: { server: OwnedServer }) {
         />
         <ActionCard
           icon={Zap}
-          title="解锁 Windows"
-          description="申请 SPLA OS 许可证"
-          onClick={() =>
-            action("解锁 Windows", () =>
-              api.post(`/server-control/${server.serviceName}/spla`, {
-                type: "os",
-                serialNumber: "W269N-WFGWX-YVC9B-4J6C9-T83GX",
-              })
-            )
-          }
+          title="SPLA 许可证"
+          description="登记你的 Windows / SQL Server 授权"
+          onClick={() => setSplaOpen(true)}
         />
         <ActionCard
           icon={RotateCw}
@@ -92,6 +87,7 @@ export function PowerTab({ server }: { server: OwnedServer }) {
         />
       </div>
 
+      <SplaDialog serviceName={server.serviceName} open={splaOpen} onOpenChange={setSplaOpen} />
       <BootModeDialog serviceName={server.serviceName} open={bootOpen} onOpenChange={setBootOpen} />
       <TasksDialog serviceName={server.serviceName} open={tasksOpen} onOpenChange={setTasksOpen} />
       <ReinstallDialog serviceName={server.serviceName} open={reinstallOpen} onOpenChange={setReinstallOpen} />

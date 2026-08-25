@@ -359,19 +359,57 @@ func parseRaidLevelValue(v interface{}) (int64, bool) {
 // 而 schema 的 HardwareRaid 只有 arrays / disks(数量) / raidLevel / spares，字段名和类型都对不上。
 // schema 没写 OVH 会不会忽略未知字段，所以这里只放行 schema 里存在的字段，
 // 非法值在后端就拦下来报中文错误，而不是丢给 OVH 返回一句英文错误码
+// fsRaidIncompatible 文件系统 × 软 RAID 级别的不兼容组合。
+//
+// 取自 OVH 官方分区文档的兼容表(LVM, RAID Levels & Filesystems Compatibility):
+//
+//	Btrfs / ext4 / XFS   RAID 7  ❌(其余 0/1/5/6/10 都 ✅)
+//	ZFS                  RAID 10 ❌(其余 0/1/5/6/7 都 ✅)
+//	NTFS                 只有 RAID 1 ✅
+//	UFS / VMFS*          任何 RAID 都 ❌
+//
+// 这些约束只在文档里,schema 的 RaidLevelEnum 是 [0,1,5,6,7,10] 一视同仁,
+// 不本地拦的话用户会拿到一句 OVH 的英文错误,不知道是自己选错了组合。
+// swap 那一行文档自相矛盾(表格标 RAID 0 可用、RAID 1 不可用,脚注却说"只能设为 1"),
+// 所以这里不对 swap 下判断 —— 没有可靠依据的地方不替用户做决定。
+func checkFSRaidCompat(fs string, level int64) string {
+	switch fs {
+	case "btrfs", "ext4", "ext3", "xfs", "reiserfs":
+		if level == 7 {
+			return "ext4 / XFS / Btrfs 不支持 RAID 7(OVH 分区文档),请改用 0/1/5/6/10"
+		}
+	case "zfs":
+		if level == 10 {
+			return "ZFS 不支持 RAID 10(OVH 分区文档),请改用 0/1/5/6/7"
+		}
+	case "ntfs":
+		if level != 1 {
+			return "NTFS 只支持 RAID 1(OVH 分区文档)"
+		}
+	case "ufs", "vmfs5", "vmfs6", "vmfsl":
+		return fs + " 不支持任何软 RAID(OVH 分区文档)"
+	}
+	return ""
+}
+
 func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 	groups, ok := raw.([]interface{})
 	if !ok {
 		return nil, fmt.Errorf("自定义存储配置格式不正确，应为数组")
 	}
 	out := []map[string]interface{}{}
+	// size=0(占满剩余空间)的分区在整份配置里最多一个,跨磁盘组一起数
+	fillCount := 0
 	for _, gRaw := range groups {
 		g, ok := gRaw.(map[string]interface{})
 		if !ok {
 			return nil, fmt.Errorf("自定义存储配置格式不正确，磁盘组应为对象")
 		}
 		entry := map[string]interface{}{}
-		if v, ok := numconv.ToInt64(g["diskGroupId"]); ok {
+		// 磁盘组编号从 1 起 —— 官方分区文档:"By default, the OS will be installed
+		// on diskGroupId 1",示例里也是 1 / 2。0 是前端"没选磁盘组"的占位值,
+		// 发出去等于指定了一个不存在的组。省略即用默认组,这才是文档的语义。
+		if v, ok := numconv.ToInt64(g["diskGroupId"]); ok && v > 0 {
 			entry["diskGroupId"] = v
 		}
 		if hrRaw, ok := g["hardwareRaid"].([]interface{}); ok && len(hrRaw) > 0 {
@@ -445,6 +483,19 @@ func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 					if size < 0 {
 						return nil, fmt.Errorf("分区 %s 的大小不能为负数", mp)
 					}
+					// size=0 = 占满剩余空间。官方分区文档:
+					// "Up to 1 partition can be configured to fill the remaining space (size 0)"
+					if size == 0 {
+						fillCount++
+						if fillCount > 1 {
+							return nil, fmt.Errorf("最多只能有一个分区把大小留空(占满剩余空间),当前有多个,请给其余分区指定大小")
+						}
+						// 同一份文档明确禁止 swap 占满磁盘:
+						// "You have chosen the swap partition to fill the disk ... we disallow this"
+						if fs == "swap" {
+							return nil, fmt.Errorf("swap 分区必须指定大小,不能留空占满磁盘(OVH 不允许)")
+						}
+					}
 					// schema: size 是必填 long，0 表示用尽剩余空间
 					lay := map[string]interface{}{
 						"fileSystem": fs,
@@ -454,6 +505,9 @@ func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 					if rl, ok := parseRaidLevelValue(it["raidLevel"]); ok {
 						if !reinstallSoftRaidLevels[rl] {
 							return nil, fmt.Errorf("分区 %s 的软 RAID 级别 %d 不受支持，可选：0/1/5/6/7/10", mp, rl)
+						}
+						if msg := checkFSRaidCompat(fs, rl); msg != "" {
+							return nil, fmt.Errorf("分区 %s: %s", mp, msg)
 						}
 						lay["raidLevel"] = rl
 					}

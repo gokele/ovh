@@ -711,7 +711,9 @@ export function ReinstallDialog({
                             order: customPartitions.length + 1,
                             type: "primary",
                             raid: useSoftwareRaid ? softwareRaidLevel : undefined,
-                            diskGroupId: Object.keys(disk.data || {}).length > 0 ? 0 : undefined,
+                            // 不预设磁盘组：编号从 1 起（官方分区文档），0 不是合法组。
+                            // 只有一个组时也不用选，留 undefined 让 OVH 用默认组。
+                            diskGroupId: undefined,
                           },
                         ])
                       }

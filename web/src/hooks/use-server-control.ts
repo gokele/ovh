@@ -126,6 +126,40 @@ export function useUpdateRenewal(serviceName: string) {
   });
 }
 
+/* ──────────── 服务终止(到期注销) ──────────── */
+
+/**
+ * 请求终止服务。OVH 会把确认 token 发到账户管理员邮箱，拿到后再调 confirm。
+ *
+ * 为什么「到期注销」不走 serviceInfos 的 renew 字段：那条路 OVH 会回
+ * 400 "Arguments conflicting"，而且 OVH 自己的 issue 里记录着这组标志位
+ * 行为不可预测（同一份 payload 发两次会在自动/手动之间来回跳）。
+ * 终止是有专用端点的（POST /terminate + POST /confirmTermination），
+ * 也是 OVH 控制台「Terminate my service」走的那条 —— 效果就是
+ * 「取消续费，服务保留到当期结束后销毁」，正是这里要的语义。
+ */
+export function useTerminateService(serviceName: string) {
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post(`/server-control/${serviceName}/terminate`)).data as {
+        success: boolean;
+        message: string;
+      },
+  });
+}
+
+/** 用邮件里的 token 确认终止 */
+export function useConfirmTermination(serviceName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { token: string; reason?: string; commentary?: string }) =>
+      (await api.post(`/server-control/${serviceName}/confirm-termination`, vars)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.serverControl.serviceInfo(serviceName) });
+    },
+  });
+}
+
 /* ──────────── Engagement(合同期切换) ──────────── */
 
 export interface EngagementPricing {
@@ -611,7 +645,7 @@ export function useReinstallServer() {
 
       if (useCustom) {
         // 按 diskGroupId 分组
-        const groups = new Map<number, any>();
+        const groups = new Map<string, any>();
         let partitions = args.customPartitions || [];
         // 启用软 RAID 但未自定义分区 → 默认根分区软 RAID
         if (args.useSoftwareRaid && partitions.length === 0) {
@@ -623,13 +657,24 @@ export function useReinstallServer() {
               order: 1,
               type: "primary",
               raid: args.softwareRaidLevel || "raid1",
-              diskGroupId: 0,
             },
           ];
         }
+        // 磁盘组编号从 1 起（官方分区文档：默认装在 diskGroupId 1 上），
+        // 而且文档写明「the API only supports OS installation and storage
+        // customisation on 1 single disk group」—— 所以没显式选组时用 0 当键
+        // 会造出一个不存在的组，还会把分区和硬件 RAID 拆成两个 storage 条目，
+        // 变成「在 0 组上分区、在 1 组上做 RAID」这种 OVH 不接受的配置。
+        // 用 undefined 当键表示「没选，交给 OVH 用默认组」，发送时也不带这个字段。
+        const DEFAULT_GID = "default";
+        const gidKey = (v?: number) => (v && v > 0 ? String(v) : DEFAULT_GID);
         partitions.forEach((p) => {
-          const gid = p.diskGroupId ?? 0;
-          if (!groups.has(gid)) groups.set(gid, { diskGroupId: gid, partitioning: { layout: [] } });
+          const gid = gidKey(p.diskGroupId);
+          if (!groups.has(gid)) {
+            const entry: any = { partitioning: { layout: [] } };
+            if (gid !== DEFAULT_GID) entry.diskGroupId = Number(gid);
+            groups.set(gid, entry);
+          }
           const g = groups.get(gid);
           const ovhP: any = { mountPoint: p.mountpoint, fileSystem: p.filesystem, size: p.size || 0 };
           if (p.raid) {
@@ -646,8 +691,15 @@ export function useReinstallServer() {
         if (args.hardwareRaid) {
           Object.entries(args.hardwareRaid).forEach(([gidStr, raidMode]) => {
             if (!raidMode) return;
-            const gid = parseInt(gidStr);
-            if (!groups.has(gid)) groups.set(gid, { diskGroupId: gid });
+            const parsed = parseInt(gidStr);
+            // 只有一个磁盘组时，硬件 RAID 和分区必须落在同一个 storage 条目里，
+            // 否则就成了「两个组各配一半」。没选组时两边都用 DEFAULT_GID 这个键。
+            const gid = groups.size === 1 && groups.has(DEFAULT_GID) ? DEFAULT_GID : gidKey(parsed);
+            if (!groups.has(gid)) {
+              const entry: any = {};
+              if (gid !== DEFAULT_GID) entry.diskGroupId = Number(gid);
+              groups.set(gid, entry);
+            }
             const g = groups.get(gid);
             if (!g.hardwareRaid) g.hardwareRaid = [];
             const level = parseInt(raidMode.replace("raid", ""), 10);

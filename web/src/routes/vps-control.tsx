@@ -291,6 +291,21 @@ function VpsDetail({
   const [terminateOpen, setTerminateOpen] = useState(false);
   const [termToken, setTermToken] = useState("");
   const [renewalOpen, setRenewalOpen] = useState(false);
+  // 终止端点 VPS 和独服不同,必须把 VPS 自己的注入给共用对话框,
+  // 否则「到期注销」会打到 /server-control 上去
+  const termVps = useTerminateVps();
+  const confirmTermVps = useConfirmTerminateVps();
+  const vpsTermination = {
+    terminate: {
+      mutateAsync: () => termVps.mutateAsync({ serviceName: server.serviceName }),
+      isPending: termVps.isPending,
+    },
+    confirm: {
+      mutateAsync: (vars: { token: string }) =>
+        confirmTermVps.mutateAsync({ serviceName: server.serviceName, token: vars.token }),
+      isPending: confirmTermVps.isPending,
+    },
+  };
   const [contactOpen, setContactOpen] = useState(false);
   const [engagementOpen, setEngagementOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
@@ -673,6 +688,7 @@ function VpsDetail({
           open={renewalOpen}
           onOpenChange={setRenewalOpen}
           mutation={renewalMutation}
+          termination={vpsTermination}
         />
       )}
 
