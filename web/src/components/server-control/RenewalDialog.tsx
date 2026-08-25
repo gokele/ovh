@@ -124,7 +124,7 @@ export function RenewalDialog({
     }
     try {
       await confirmTerm.mutateAsync({ token: token.trim() });
-      toast.success("已确认终止,服务器将在到期日销毁");
+      toast.success("已确认终止。到期日之前服务器照常运行,到期后才销毁");
       onOpenChange(false);
     } catch (e: any) {
       toast.error(errText(e, "确认失败"), { duration: 8000 });
@@ -227,8 +227,13 @@ export function RenewalDialog({
                     把里面的确认码填回来才真正生效。
                   </p>
                   <p>
-                    <b>确认之后本控制台无法撤销</b> —— OVH 没有提供取消终止的接口。
-                    改主意了要去 OVH 控制台操作(官方说到期前 24 小时内可以撤销)。
+                    到期之前服务器<b>照常运行</b>,不会立即停机 —— OVH 的终止是
+                    「当期订阅结束时才生效」。立即释放资源是另一个接口,本控制台不调用。
+                  </p>
+                  <p>
+                    <b>反悔要去 OVH 控制台</b>(API 没有取消终止的端点):
+                    My offers and services → 该服务右侧 <code>...</code> →
+                    Stop cancellation of service。撤销是立即生效的。
                   </p>
                 </div>
               </div>
