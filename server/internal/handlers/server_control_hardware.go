@@ -473,7 +473,8 @@ func GetServiceInfo(state *app.State) gin.HandlerFunc {
 // UpdateServiceRenewal PUT /api/server-control/:service_name/serviceinfo
 //
 // 修改服务的续费策略。前端传 mode (auto / manual / delete-at-expiration) + 可选 period,
-// 后端先 GET 当前 serviceInfos,合并 renew 字段,再 PUT 整体回去(OVH PUT 要求完整对象)。
+// 后端先 GET 当前 serviceInfos 读出 renew 现状,改完只 PUT 回 renew 这一个字段 ——
+// services.Service 里其余字段全是只读,一并发回去会被 OVH 400 掉。
 // forced=true (engaged 合同期) 时 OVH 会拒,我们这里直接返 400 提示用户。
 func UpdateServiceRenewal(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -526,10 +527,15 @@ func UpdateServiceRenewal(state *app.State) gin.HandlerFunc {
 		if body.Period > 0 {
 			renew["period"] = body.Period
 		}
-		info["renew"] = renew
+		delete(renew, "forced") // OVH 自己算的锁,回传没意义
 
-		// PUT 整对象回去(OVH 这个端点要求完整 services.Service)
-		if err := client.Put("/dedicated/server/"+svc+"/serviceInfos", info, nil); err != nil {
+		// 只发可写字段。services.Service 里唯一可写的就是 renew,
+		// 其余(status / creation / expiration / serviceId / contact* ...)全是只读 ——
+		// 把 GET 回来的整个对象原样 PUT 回去,OVH 会直接 400
+		// "Try to alter read-only properties: status, creation, expiration"。
+		// 三个区的 schema 在这一点上完全一致。
+		if err := client.Put("/dedicated/server/"+svc+"/serviceInfos",
+			map[string]interface{}{"renew": renew}, nil); err != nil {
 			state.Logger.Error("修改服务器 "+svc+" 续费策略失败: "+err.Error(), "server_control")
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return

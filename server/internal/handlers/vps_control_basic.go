@@ -348,8 +348,10 @@ func UpdateVpsRenewal(state *app.State) gin.HandlerFunc {
 		if body.Period > 0 {
 			renew["period"] = body.Period
 		}
-		info["renew"] = renew
-		if err := client.Put("/vps/"+svc+"/serviceInfos", info, nil); err != nil {
+		delete(renew, "forced")
+		// 同独服:services.Service 只有 renew 可写,整对象发回去会被 400
+		if err := client.Put("/vps/"+svc+"/serviceInfos",
+			map[string]interface{}{"renew": renew}, nil); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
@@ -414,13 +416,11 @@ func SetVpsIpReverse(state *app.State) gin.HandlerFunc {
 			Reverse string `json:"reverse"`
 		}
 		_ = c.ShouldBindJSON(&body)
-		var current map[string]interface{}
-		if err := client.Get("/vps/"+svc+"/ips/"+ip, &current); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-			return
-		}
-		current["reverse"] = body.Reverse
-		if err := client.Put("/vps/"+svc+"/ips/"+ip, current, nil); err != nil {
+		// vps.Ip 里只有 reverse 可写(ipAddress / type / version / gateway /
+		// geolocation / macAddress 都是只读),所以不需要先 GET 再 merge ——
+		// 那样反而会把只读字段一起发回去,被 OVH 400 掉
+		if err := client.Put("/vps/"+svc+"/ips/"+ip,
+			map[string]interface{}{"reverse": body.Reverse}, nil); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}

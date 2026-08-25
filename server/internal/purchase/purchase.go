@@ -203,8 +203,11 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 	// cart → assign → eco → configuration → options → summary → checkout。
 	// 在 add item 之前 assign，OVH 后端不会出现"cart 未绑定就 checkout"的边界错误。
 	// schema 里 POST /order/cart/{cartId}/assign 只有 path 参数、没有 body（对比同一个
-	// 命名空间下的 /eco 与 /checkout 都明确列了 body），传 {} 会被算进请求签名，
-	// OVH 一旦收紧参数校验就会在绑定这一步整单失败
+	// 命名空间下的 /eco 与 /checkout 都明确列了 body），所以这里传 nil 而不是 {}。
+	//
+	// 注意别把理由记成"{} 会破坏签名"——go-ovh 的签名是对**实际发出的 body** 算的
+	// （nil→空串，{}→"{}"），两边自洽，签名不会因此失配。真正的理由只是：
+	// schema 没声明 body 就别发 body，少一个 OVH 将来收紧校验时会绊住的东西。
 	state.Logger.Info("绑定购物车 "+cartID, "purchase")
 	if err := client.Post("/order/cart/"+cartID+"/assign", nil, nil); err != nil {
 		errMsg := err.Error()

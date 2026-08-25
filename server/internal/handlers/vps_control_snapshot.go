@@ -100,14 +100,11 @@ func UpdateVpsSnapshotDescription(state *app.State) gin.HandlerFunc {
 			Description string `json:"description"`
 		}
 		_ = c.ShouldBindJSON(&body)
-		// 先 GET 拿完整对象再 merge,跟 PUT serviceInfos 同款 read-modify-write
-		var snap map[string]interface{}
-		if err := client.Get("/vps/"+svc+"/snapshot", &snap); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-			return
-		}
-		snap["description"] = body.Description
-		if err := client.Put("/vps/"+svc+"/snapshot", snap, nil); err != nil {
+		// vps.Snapshot 里只有 description 可写(id / creationDate / region 只读),
+		// 所以直接发这一个字段。以前是 GET 回整个对象再 merge 回去,
+		// 那会把只读字段一并发回,被 OVH 400 掉
+		if err := client.Put("/vps/"+svc+"/snapshot",
+			map[string]interface{}{"description": body.Description}, nil); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
