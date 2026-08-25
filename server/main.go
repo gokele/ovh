@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,7 +30,11 @@ import (
 )
 
 func main() {
-	_ = godotenv.Load()
+	// envPath 就是 godotenv 读的那个文件。密钥自动生成时会追加到这里,
+	// 所以路径必须和 Load() 用的完全一致 —— 分叉了就会出现
+	// "写进了 A、下次从 B 读"的情况,而那意味着重新生成一把新密钥。
+	envPath := envFilePath()
+	_ = godotenv.Load(envPath)
 
 	level := slog.LevelInfo
 	if strings.EqualFold(os.Getenv("DEBUG"), "true") {
@@ -48,18 +51,35 @@ func main() {
 	// 落盘加密:必须在打开数据库**之前**初始化,否则第一次读账户时解不开。
 	// 拿不到密钥不致命 —— 退化成明文(与升级前一致),但要明确告警,
 	// 不能让用户以为自己开了加密其实没开。
-	if err := secret.Init(paths.DataDir); err != nil {
+	if err := secret.Init(paths.DataDir, envPath); err != nil {
 		console.Warn("凭据加密未启用，数据库里的 OVH 密钥与 Telegram Token 将以明文存储", "err", err)
-	} else if secret.FromEnv() {
-		console.Info("凭据加密已启用（密钥来自环境变量 " + secret.KeyEnv + "，不落盘）")
+	} else if secret.KeyWasGenerated() {
+		console.Info("已自动生成数据库加密密钥并写入 " + secret.KeySource())
+		console.Info("请把它连同配置文件一起备份 —— 丢了这把钥匙，已保存的 OVH 凭据和 Telegram Token 就再也解不开了")
 	} else {
-		console.Info("凭据加密已启用（密钥文件 " + filepath.Join(paths.DataDir, ".dbkey") + "，请与数据库分开备份）")
+		console.Info("凭据加密已启用（密钥来自 " + secret.KeySource() + "）")
 	}
 
 	sqliteDB, err := db.Open(paths.DataDir)
 	if err != nil {
 		console.Error("open sqlite", "err", err)
 		os.Exit(1)
+	}
+
+	// 密钥是刚生成的、库里却已经有密文 —— 说明原来那把钥匙丢了。
+	// 直接起来的话程序看着一切正常，只是每次调 OVH 都报签名错误，
+	// 没人猜得到是密钥问题；更糟的是用户会重新录入凭据把旧密文覆盖掉，
+	// 最后一点恢复余地也没了。所以这里宁可不起来，把话说清楚。
+	if secret.KeyWasGenerated() && !isTrue(os.Getenv("OVH_DB_KEY_RESET")) {
+		if has, herr := sqliteDB.HasEncryptedSecrets(); herr == nil && has {
+			console.Error("数据库里有加密过的凭据，但找不到对应的密钥，已停止启动")
+			console.Error("这通常是配置文件被覆盖/重置了，或者换机器时只拷了数据库没拷配置")
+			console.Error("怎么办：把原来的 " + secret.KeyEnv + " 那一行放回 " + envPath +
+				"（或用环境变量传进来）；确实找不回来就设 OVH_DB_KEY_RESET=1 启动，" +
+				"那些账户需要重新录入 OVH 凭据")
+			sqliteDB.Close()
+			os.Exit(1)
+		}
 	}
 	defer sqliteDB.Close()
 
@@ -562,4 +582,23 @@ func availabilityHandler(h gin.HandlerFunc) gin.HandlerFunc {
 		c.Params = append(c.Params[:0], gin.Param{Key: "planCode", Value: pc})
 		h(c)
 	}
+}
+
+// envFilePath 配置文件的位置。
+// 默认是工作目录下的 .env（godotenv 的默认行为），允许用 OVH_ENV_FILE 覆盖 ——
+// systemd / docker 里工作目录未必是程序所在目录，把路径写死会让密钥"下次启动就找不到"。
+func envFilePath() string {
+	if p := strings.TrimSpace(os.Getenv("OVH_ENV_FILE")); p != "" {
+		return p
+	}
+	return ".env"
+}
+
+// isTrue 环境变量的宽松真值判断
+func isTrue(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
