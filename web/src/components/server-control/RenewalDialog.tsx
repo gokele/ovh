@@ -7,11 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   useUpdateRenewal,
-  useTerminateService,
-  useConfirmTermination,
+  useUpdateTerminationPolicy,
   type ServiceInfo,
 } from "@/hooks/use-server-control";
-import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
 type RenewMode = "auto" | "manual" | "delete";
@@ -19,7 +17,7 @@ type RenewMode = "auto" | "manual" | "delete";
 const MODE_OPTIONS: Array<{ value: RenewMode; label: string; desc: string }> = [
   { value: "auto", label: "自动续费", desc: "到期前 OVH 自动扣款续费" },
   { value: "manual", label: "手动续费", desc: "到期前需手动付款,不付则服务终止" },
-  { value: "delete", label: "到期注销", desc: "取消续费,到期后销毁(需邮件确认)" },
+  { value: "delete", label: "到期终止", desc: "到期日之前照常使用,到期后才销毁" },
 ];
 
 /** 用 VPS / dedicated 各自的 update hook 都行,Dialog 只关心 mutation 接口形状 */
@@ -31,9 +29,8 @@ export type RenewalMutation = {
 /** 终止流程的两步。VPS 和独服的端点不同(/vps-control 与 /server-control),
  *  所以必须由调用方注入 —— 写死一边会让另一边打到错误的端点上。 */
 export type TerminationMutations = {
-  terminate: { mutateAsync: () => Promise<any>; isPending: boolean };
-  confirm: {
-    mutateAsync: (vars: { token: string }) => Promise<any>;
+  policy: {
+    mutateAsync: (vars: { policy: string }) => Promise<any>;
     isPending: boolean;
   };
 };
@@ -67,25 +64,20 @@ export function RenewalDialog({
   const defaultUpdate = useUpdateRenewal(serviceName);
   const update = mutation ?? defaultUpdate;
 
-  // 到期注销走的是 OVH 的服务终止流程,不是 serviceInfos 里的 renew 标志位。
-  // 那条路会被 OVH 回 400 "Arguments conflicting",而且它自己的 issue 里记着
-  // 这组标志位行为不可预测。终止有专用端点,也是 OVH 控制台走的那条。
-  // 代价是必须邮件确认 —— 这是 OVH 的规定,绕不开,所以对话框要有第二步。
-  const defaultTerminate = useTerminateService(serviceName);
-  const defaultConfirm = useConfirmTermination(serviceName);
-  const terminate = termination?.terminate ?? defaultTerminate;
-  const confirmTerm = termination?.confirm ?? defaultConfirm;
-  // 已经发起终止、正在等用户填邮件里的 token
-  const [awaitingToken, setAwaitingToken] = useState(false);
-  const [token, setToken] = useState("");
+  // 到期终止走 PUT /services/{serviceId} 的 terminationPolicy。
+  //
+  // **不要**用 POST /terminate —— 那是「立即终止」,提交后 OVH 当场把服务器暂停,
+  // 并邮件通知「5 天内不付款就彻底清除硬盘数据」。这个坑真实踩过一次。
+  // OVH 的生命周期动作枚举里 terminate 与 terminateAtExpirationDate 是两个不同的动作,
+  // /terminate 端点只对应前者,没有「到期」这个选项可选。
+  const defaultPolicy = useUpdateTerminationPolicy(serviceName);
+  const policyMut = termination?.policy ?? defaultPolicy;
 
   // 弹窗每次打开同步当前状态
   useEffect(() => {
     if (open) {
       setMode(currentMode);
       setPeriod(info.renewalPeriod || 1);
-      setAwaitingToken(false);
-      setToken("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -100,38 +92,29 @@ export function RenewalDialog({
   const handleSubmit = async () => {
     if (mode === "delete") {
       try {
-        const res = await terminate.mutateAsync();
-        setAwaitingToken(true);
-        toast.info(res?.message || "终止请求已提交,确认码已发到管理员邮箱", { duration: 8000 });
+        const res = await policyMut.mutateAsync({ policy: "terminateAtExpirationDate" });
+        toast.success(res?.message || "已设为到期终止", { duration: 6000 });
+        onOpenChange(false);
       } catch (e: any) {
-        toast.error(errText(e, "发起终止失败"), { duration: 6000 });
+        toast.error(errText(e, "设置失败"), { duration: 8000 });
       }
       return;
     }
+    // 从「到期终止」切回自动/手动续费时，先把终止策略撤掉，
+    // 否则续费模式改了、终止标记还挂着，到期照样销毁。
     try {
+      if (currentMode === "delete") {
+        await policyMut.mutateAsync({ policy: "empty" });
+      }
       await update.mutateAsync({ mode, period });
-      toast.success("续费策略已更新");
+      toast.success(currentMode === "delete" ? "已取消终止并更新续费策略" : "续费策略已更新");
       onOpenChange(false);
     } catch (e: any) {
       toast.error(errText(e, "更新失败"), { duration: 6000 });
     }
   };
 
-  const handleConfirmTerm = async () => {
-    if (!token.trim()) {
-      toast.error("请填写邮件里的确认码");
-      return;
-    }
-    try {
-      await confirmTerm.mutateAsync({ token: token.trim() });
-      toast.success("已确认终止。到期日之前服务器照常运行,到期后才销毁");
-      onOpenChange(false);
-    } catch (e: any) {
-      toast.error(errText(e, "确认失败"), { duration: 8000 });
-    }
-  };
-
-  const busy = update.isPending || terminate.isPending || confirmTerm.isPending;
+  const busy = update.isPending || policyMut.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -213,45 +196,17 @@ export function RenewalDialog({
               </div>
             )}
 
-            {mode === "delete" && !awaitingToken && (
+            {mode === "delete" && (
               <div className="border border-destructive/40 bg-destructive/5 rounded-xl p-2.5 flex gap-2">
                 <AlertCircle className="w-3.5 h-3.5 text-destructive flex-shrink-0 mt-0.5" />
                 <div className="text-[11px] text-muted-foreground space-y-1">
                   <p>
-                    服务器将在到期日 (
+                    到期日 (
                     {info.expiration ? new Date(info.expiration).toLocaleDateString("zh-CN") : "—"}
-                    ) 销毁,数据无法恢复。
+                    ) 之前<b>照常使用</b>，到期后才销毁，数据无法恢复。
                   </p>
-                  <p>
-                    OVH 要求邮件确认:点下面的按钮后会往账户管理员邮箱发一封确认邮件,
-                    把里面的确认码填回来才真正生效。
-                  </p>
-                  <p>
-                    到期之前服务器<b>照常运行</b>,不会立即停机 —— OVH 的终止是
-                    「当期订阅结束时才生效」。立即释放资源是另一个接口,本控制台不调用。
-                  </p>
-                  <p>
-                    <b>反悔要去 OVH 控制台</b>(API 没有取消终止的端点):
-                    My offers and services → 该服务右侧 <code>...</code> →
-                    Stop cancellation of service。撤销是立即生效的。
-                  </p>
+                  <p>改主意了随时回到这里选「自动续费」或「手动续费」即可撤销。</p>
                 </div>
-              </div>
-            )}
-
-            {mode === "delete" && awaitingToken && (
-              <div className="space-y-2 pt-1">
-                <div className="border border-amber-500/40 bg-amber-500/10 rounded-xl p-2.5 text-[11px] text-muted-foreground">
-                  确认邮件已发到账户管理员邮箱。把邮件里的确认码填在下面 ——
-                  <b>没填之前终止不会生效</b>,服务器仍会照常续费。
-                </div>
-                <label className="text-[12px] font-semibold block">邮件里的确认码</label>
-                <Input
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="粘贴邮件中的 token"
-                  autoFocus
-                />
               </div>
             )}
           </div>
@@ -261,23 +216,17 @@ export function RenewalDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          {!info.renewalForced &&
-            (awaitingToken ? (
-              <Button onClick={handleConfirmTerm} disabled={busy} variant="destructive">
-                {confirmTerm.isPending ? "确认中…" : "确认终止"}
-              </Button>
-            ) : (
-              <Button
-                onClick={handleSubmit}
-                disabled={
-                  busy ||
-                  (mode !== "delete" && mode === currentMode && period === info.renewalPeriod)
-                }
-                variant={mode === "delete" ? "destructive" : "default"}
-              >
-                {busy ? "提交中…" : mode === "delete" ? "申请终止" : "保存"}
-              </Button>
-            ))}
+          {!info.renewalForced && (
+            <Button
+              onClick={handleSubmit}
+              disabled={
+                busy || (mode !== "delete" && mode === currentMode && period === info.renewalPeriod)
+              }
+              variant={mode === "delete" ? "destructive" : "default"}
+            >
+              {busy ? "提交中…" : "保存"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

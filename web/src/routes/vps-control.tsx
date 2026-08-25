@@ -37,6 +37,7 @@ import { VpsSnapshotPane } from "@/components/vps-control/VpsSnapshotPane";
 import { VpsReinstallDialog } from "@/components/vps-control/VpsReinstallDialog";
 import { VpsMitigationPane } from "@/components/vps-control/VpsMitigationPane";
 import { VpsTasksDialog } from "@/components/vps-control/VpsTasksDialog";
+import { useUpdateVpsTerminationPolicy } from "@/hooks/use-vps-control";
 import { RenewalDialog } from "@/components/server-control/RenewalDialog";
 import { EngagementDialog, type EngagementHooks } from "@/components/server-control/EngagementDialog";
 import { toast } from "sonner";
@@ -291,19 +292,14 @@ function VpsDetail({
   const [terminateOpen, setTerminateOpen] = useState(false);
   const [termToken, setTermToken] = useState("");
   const [renewalOpen, setRenewalOpen] = useState(false);
-  // 终止端点 VPS 和独服不同,必须把 VPS 自己的注入给共用对话框,
-  // 否则「到期注销」会打到 /server-control 上去
-  const termVps = useTerminateVps();
-  const confirmTermVps = useConfirmTerminateVps();
+  // 终止策略端点 VPS 和独服不同，必须把 VPS 自己的注入给共用对话框，
+  // 否则会打到 /server-control 上去
+  const termPolicyVps = useUpdateVpsTerminationPolicy();
   const vpsTermination = {
-    terminate: {
-      mutateAsync: () => termVps.mutateAsync({ serviceName: server.serviceName }),
-      isPending: termVps.isPending,
-    },
-    confirm: {
-      mutateAsync: (vars: { token: string }) =>
-        confirmTermVps.mutateAsync({ serviceName: server.serviceName, token: vars.token }),
-      isPending: confirmTermVps.isPending,
+    policy: {
+      mutateAsync: (vars: { policy: string }) =>
+        termPolicyVps.mutateAsync({ serviceName: server.serviceName, policy: vars.policy }),
+      isPending: termPolicyVps.isPending,
     },
   };
   const [contactOpen, setContactOpen] = useState(false);

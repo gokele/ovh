@@ -367,6 +367,9 @@ func main() {
 			sc.GET("/:service_name/ongoing", handlers.GetOngoingTasks(state))
 			sc.GET("/:service_name/license/windows/compliant", handlers.GetCompliantWindowsVersions(state))
 			sc.GET("/:service_name/license/windows-sql/compliant", handlers.GetCompliantWindowsSqlVersions(state))
+			// 到期终止走 terminationPolicy,不是 /terminate ——
+			// 后者是立即终止,提交即暂停服务器
+			sc.PUT("/:service_name/termination-policy", handlers.UpdateTerminationPolicy(state))
 			sc.POST("/:service_name/terminate", handlers.TerminateService(state))
 			sc.POST("/:service_name/confirm-termination", handlers.ConfirmTermination(state))
 			sc.GET("/:service_name/spla", handlers.GetSPLAList(state))
@@ -414,6 +417,7 @@ func main() {
 
 			// 杂项
 			vc.POST("/:service_name/change-contact", handlers.ChangeVpsContact(state))
+			vc.PUT("/:service_name/termination-policy", handlers.UpdateVpsTerminationPolicy(state))
 			vc.POST("/:service_name/terminate", handlers.TerminateVps(state))
 			vc.POST("/:service_name/confirm-termination", handlers.ConfirmVpsTermination(state))
 			vc.GET("/:service_name/secondary-dns", handlers.GetVpsSecondaryDns(state))

@@ -393,6 +393,25 @@ export function useChangeVpsContact() {
   });
 }
 
+/**
+ * VPS 的到期终止策略。和独服同理：**不要**用 /terminate（那是立即终止）。
+ * 到期终止只能通过 PUT /services/{serviceId} 的 terminationPolicy 设置。
+ */
+export function useUpdateVpsTerminationPolicy() {
+  return useMutation({
+    mutationFn: async (vars: { serviceName: string; policy: string }) =>
+      (await api.put(`/vps-control/${vars.serviceName}/termination-policy`, {
+        policy: vars.policy,
+      })).data,
+  });
+}
+
+/**
+ * ⚠️ 立即终止 —— 提交并确认后 OVH 会**当场暂停** VPS，
+ * 并邮件通知「5 天内不付款就彻底清除硬盘数据」。
+ * 想要「到期才终止」请用 useUpdateVpsTerminationPolicy，不要用这个。
+ * 目前界面上没有入口，保留仅为将来做「立即终止」时复用。
+ */
 export function useTerminateVps() {
   return useMutation({
     mutationFn: async (vars: { serviceName: string }) =>

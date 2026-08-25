@@ -600,6 +600,14 @@ var terminationFutureUses = map[string]bool{
 	"SUBSCRIBE_SIMILAR_SERVICE_WITH_COMPETITOR":       true,
 }
 
+// TerminateService ⚠️ 立即终止。
+//
+// 实测(2026-08-25):这条链路走完之后 OVH **当场把服务器暂停**,并邮件通知
+// 「5 天内不付款就彻底清除硬盘数据,此操作无法撤销」—— 不是等到期日。
+//
+// 想要「到期才终止」请用 UpdateTerminationPolicy(PUT /services/{serviceId} 的
+// terminationPolicy = terminateAtExpirationDate)。OVH 的生命周期动作枚举里
+// terminate 和 terminateAtExpirationDate 是两个不同的动作,这个端点只对应前者。
 func TerminateService(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")

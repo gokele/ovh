@@ -126,34 +126,32 @@ export function useUpdateRenewal(serviceName: string) {
   });
 }
 
-/* ──────────── 服务终止(到期注销) ──────────── */
+/* ──────────── 到期终止策略 ──────────── */
 
 /**
- * 请求终止服务。OVH 会把确认 token 发到账户管理员邮箱，拿到后再调 confirm。
+ * 设置终止策略。
  *
- * 为什么「到期注销」不走 serviceInfos 的 renew 字段：那条路 OVH 会回
- * 400 "Arguments conflicting"，而且 OVH 自己的 issue 里记录着这组标志位
- * 行为不可预测（同一份 payload 发两次会在自动/手动之间来回跳）。
- * 终止是有专用端点的（POST /terminate + POST /confirmTermination），
- * 也是 OVH 控制台「Terminate my service」走的那条 —— 效果就是
- * 「取消续费，服务保留到当期结束后销毁」，正是这里要的语义。
+ * **不要**用 POST /terminate —— 那是「立即终止」，提交后 OVH 当场把服务器暂停，
+ * 并邮件通知「5 天内不付款就彻底清除硬盘数据」。这个坑真实踩过一次。
+ *
+ * OVH 的生命周期动作枚举把两件事分得很清楚：
+ *   terminate                  立即终止
+ *   terminateAtExpirationDate  到期终止（用到当期结束）
+ * 到期终止只能通过 PUT /services/{serviceId} 的 terminationPolicy 设置。
+ *
+ * policy 取值：
+ *   empty                      不终止 / 撤销已提交的到期终止
+ *   terminateAtExpirationDate  到期日终止
+ *   terminateAtEngagementDate  合同期结束时终止
  */
-export function useTerminateService(serviceName: string) {
+export function useUpdateTerminationPolicy(serviceName: string) {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () =>
-      (await api.post(`/server-control/${serviceName}/terminate`)).data as {
+    mutationFn: async (vars: { policy: string }) =>
+      (await api.put(`/server-control/${serviceName}/termination-policy`, vars)).data as {
         success: boolean;
         message: string;
       },
-  });
-}
-
-/** 用邮件里的 token 确认终止 */
-export function useConfirmTermination(serviceName: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (vars: { token: string; reason?: string; commentary?: string }) =>
-      (await api.post(`/server-control/${serviceName}/confirm-termination`, vars)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.serverControl.serviceInfo(serviceName) });
     },
