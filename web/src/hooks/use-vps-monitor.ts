@@ -5,6 +5,8 @@ import { toast } from "sonner";
 
 export interface VPSSubscription {
   id: string;
+  /** OVH 已经不卖这个型号了 —— 这条订阅永远不会响。后端每次读列表时现算，不落库 */
+  retired?: boolean;
   planCode: string;
   ovhSubsidiary: string;
   datacenters: string[];
@@ -14,6 +16,8 @@ export interface VPSSubscription {
   notifyUnavailable: boolean;
   autoOrder?: boolean;
   quantity?: number;
+  /** 自动下单时装什么系统。空 = 用 OVH 默认镜像 */
+  os?: string;
   /** 触发 auto-order 时用哪个 OVH 账户下单(空 = 只通知) */
   autoOrderAccountId?: string;
   lastStatus: Record<string, string>;
@@ -137,5 +141,39 @@ export function useClearVPSMonitor() {
       toast.success("已清空全部 VPS 订阅");
     },
     onError: (e: any) => toast.error(e.response?.data?.error || "清空失败"),
+  });
+}
+
+export interface VPSModel {
+  planCode: string;
+  name: string;
+  generation: string;
+  price?: string;
+  /** US 站点会把欧洲/加拿大机房的 VPS 以 -eu / -ca 后缀单独卖，同名不同货 */
+  location?: string;
+  /** 这个型号能装在哪些机房。三个站点取值完全不同 */
+  datacenters?: string[];
+  /** 下单时可选的系统。VPS 的系统是下单时就要定的，不是买完再装 */
+  osChoices?: string[];
+}
+
+/**
+ * 当前还在售的 VPS 型号，来自 OVH 实时目录。
+ *
+ * 为什么不写死：型号会**整代下架**。实测 vps-2025 全线已经退出 OVH 下单目录，
+ * 而这个下拉框以前就写死着它 —— 订阅一个停售型号，库存接口老实返回"全部无货"，
+ * 永远不跳变也就永远不通知，症状和"这机器确实抢手"一模一样。
+ */
+export function useVPSModels(subsidiary?: string) {
+  return useQuery({
+    queryKey: ["vps-monitor", "models", subsidiary || ""],
+    queryFn: async () =>
+      (
+        await api.get<{ subsidiary: string; models: VPSModel[] }>("/vps-monitor/models", {
+          params: subsidiary ? { subsidiary } : undefined,
+        })
+      ).data,
+    staleTime: 30 * 60 * 1000,
+    retry: 0,
   });
 }

@@ -24,6 +24,10 @@ import { useActiveAccount } from "@/hooks/use-active-account";
 import { findAccountByID, useAccounts } from "@/hooks/use-accounts";
 import { AccountChip } from "@/components/common/AccountChip";
 import {
+  defaultSubsidiaryForEndpoint,
+  subsidiariesForEndpoint,
+} from "@/lib/ovh-subsidiaries";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -50,6 +54,8 @@ import {
   useClearVPSMonitor,
   useCreateVPSMonitorSubscription,
   useUpdateVPSSubscription,
+  useVPSModels,
+  type VPSModel,
   useVPSMonitorHistory,
   type VPSSubscription,
 } from "@/hooks/use-vps-monitor";
@@ -60,29 +66,23 @@ export const Route = createFileRoute("/vps-monitor")({
   component: VPSMonitorPage,
 });
 
-const VPS_MODELS = [
-  { value: "vps-2025-model1", label: "VPS-1" },
-  { value: "vps-2025-model2", label: "VPS-2" },
-  { value: "vps-2025-model3", label: "VPS-3" },
-  { value: "vps-2025-model4", label: "VPS-4" },
-  { value: "vps-2025-model5", label: "VPS-5" },
-  { value: "vps-2025-model6", label: "VPS-6" },
+/**
+ * 兜底型号表：只在 OVH 目录拉不动（断网、被限流）时用。
+ *
+ * 不能只靠它：型号会**整代下架**。这份写死的 2025 代在 2026-08 已经全线退出
+ * OVH 下单目录，而当时界面上只有它 —— 订阅一个停售型号，库存接口老实返回
+ * "全部无货"，永远不跳变也就永远不通知，症状和"这机器确实抢手"一模一样。
+ */
+const FALLBACK_MODELS = [
+  { planCode: "vps-2027-model1", name: "VPS-1 2027", generation: "2027" },
+  { planCode: "vps-2027-model2", name: "VPS-2 2027", generation: "2027" },
+  { planCode: "vps-2027-model3", name: "VPS-3 2027", generation: "2027" },
+  { planCode: "vps-2027-model4", name: "VPS-4 2027", generation: "2027" },
 ];
 
-const SUBSIDIARIES = [
-  { value: "IE", label: "IE 爱尔兰" },
-  { value: "FR", label: "FR 法国" },
-  { value: "GB", label: "GB 英国" },
-  { value: "DE", label: "DE 德国" },
-  { value: "ES", label: "ES 西班牙" },
-  { value: "IT", label: "IT 意大利" },
-  { value: "PL", label: "PL 波兰" },
-  { value: "CA", label: "CA 加拿大" },
-  { value: "US", label: "US 美国" },
-];
-
-function modelLabel(code: string): string {
-  return VPS_MODELS.find((m) => m.value === code)?.label || code;
+/** 型号的显示名。目录还没加载时退回 planCode —— 比显示一个猜的名字诚实 */
+function modelLabel(code: string, models?: VPSModel[]): string {
+  return models?.find((m) => m.planCode === code)?.name || code;
 }
 
 function VPSMonitorPage() {
@@ -283,6 +283,16 @@ function VPSRow({
               <span className="font-semibold text-sm">{modelLabel(sub.planCode)}</span>
               <span className="font-mono text-[11px] text-muted-foreground">{sub.planCode}</span>
               <Chip tone="default">{sub.ovhSubsidiary}</Chip>
+              {sub.retired && (
+                <Chip tone="danger" title="OVH 已经不卖这个型号了，这条订阅永远不会有货">
+                  已停售
+                </Chip>
+              )}
+              {sub.autoOrder && sub.autoOrderAccountId && (
+                <Chip tone="solid">
+                  自动下单{sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
+                </Chip>
+              )}
             </div>
             <p className="text-xs text-muted-foreground mb-1.5">
               {sub.datacenters.length > 0
@@ -422,8 +432,8 @@ function AddVPSDialog({
   const isEdit = !!editing;
   // 门禁看的是「所有通道」,不是只看 Telegram —— 只配 webhook 的用户也该能订阅
   const [notifyBlocked, notifyReason, notifyChecking] = useNotifyGate();
-  const [vpsModel, setVpsModel] = useState(VPS_MODELS[0].value);
-  const [ovhSubsidiary, setOvhSubsidiary] = useState("IE");
+  const [vpsModel, setVpsModel] = useState("");
+  const [ovhSubsidiary, setOvhSubsidiary] = useState("");
   const [datacenters, setDatacenters] = useState("");
   const [monitorLinux, setMonitorLinux] = useState(true);
   const [monitorWindows, setMonitorWindows] = useState(true);
@@ -431,16 +441,26 @@ function AddVPSDialog({
   const [notifyUnavailable, setNotifyUnavailable] = useState(false);
   const [autoOrder, setAutoOrder] = useState(false);
   const [quantity, setQuantity] = useState(1);
+  // 空 = 用 OVH 默认镜像。VPS 的系统是下单时就要定的配置项,不是买完再装
+  const [os, setOs] = useState("");
   // 订阅的下单账户 = 左侧菜单栏的全局账户,不再单独选
   const [globalAccountId] = useActiveAccount();
   const { data: allAccounts } = useAccounts();
   const autoOrderAccountId =
     globalAccountId || allAccounts?.find((a) => a.isDefault)?.id || allAccounts?.[0]?.id || "";
   const activeAcc = findAccountByID(allAccounts, autoOrderAccountId);
+  // 订阅的站点必须和当前账户同区:三个站点的库存和购物车互不相通,
+  // 拿美区账户订阅欧区子公司,补货时才发现根本买不了。不该给的选项就别给。
+  const allowedSubsidiaries = subsidiariesForEndpoint(activeAcc?.endpoint);
+  // 型号来自 OVH 实时目录(按站点),不写死 —— 型号会整代下架
+  const models = useVPSModels(ovhSubsidiary);
+  const modelList: VPSModel[] = models.data?.models?.length
+    ? models.data.models
+    : (FALLBACK_MODELS as VPSModel[]);
 
   const reset = () => {
-    setVpsModel(VPS_MODELS[0].value);
-    setOvhSubsidiary("IE");
+    setVpsModel(modelList[0]?.planCode || "");
+    setOvhSubsidiary(defaultSubsidiaryForEndpoint(activeAcc?.endpoint));
     setDatacenters("");
     setMonitorLinux(true);
     setMonitorWindows(true);
@@ -448,6 +468,7 @@ function AddVPSDialog({
     setNotifyUnavailable(false);
     setAutoOrder(false);
     setQuantity(1);
+    setOs("");
   };
 
   // 打开时按 editing 重灌表单;带上 open 依赖,免得上次改了一半的内容留到下次
@@ -463,11 +484,30 @@ function AddVPSDialog({
       setNotifyUnavailable(editing.notifyUnavailable);
       setAutoOrder(!!editing.autoOrder);
       setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
+      setOs(editing.os || "");
     } else {
       reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing]);
+
+  // 目录是异步到的:先前选中的型号可能不在新站点的在售列表里
+  // (换了子公司,或兜底列表被真目录替换)。留着一个买不到的型号,
+  // 用户要到下单那一刻才知道。
+  const selected = modelList.find((m) => m.planCode === vpsModel);
+  useEffect(() => {
+    if (!open || isEdit) return;
+    if (!modelList.length) return;
+    if (!modelList.some((m) => m.planCode === vpsModel)) {
+      setVpsModel(modelList[0].planCode);
+    }
+  }, [open, isEdit, modelList, vpsModel]);
+
+  // 换了型号,原来选的系统可能不在新型号的可选列表里
+  useEffect(() => {
+    if (!os || !selected?.osChoices?.length) return;
+    if (!selected.osChoices.includes(os)) setOs("");
+  }, [selected, os]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -490,6 +530,7 @@ function AddVPSDialog({
       notifyUnavailable,
       autoOrder,
       quantity: autoOrder ? quantity : undefined,
+      os: autoOrder ? os : "",
       autoOrderAccountId: autoOrder ? autoOrderAccountId : "",
     };
     const done = {
@@ -544,18 +585,25 @@ function AddVPSDialog({
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                 VPS 型号 <span className="text-destructive">*</span>
               </label>
-              <Select value={vpsModel} onValueChange={setVpsModel}>
+              <Select value={vpsModel} onValueChange={setVpsModel} disabled={isEdit}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder={models.isPending ? "读取 OVH 目录…" : "选择型号"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {VPS_MODELS.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>
-                      {m.label} ({m.value})
+                  {modelList.map((m) => (
+                    <SelectItem key={m.planCode} value={m.planCode}>
+                      {m.name}
+                      {m.location ? ` · ${m.location}` : ""}
+                      {m.price ? ` · ${m.price}/月` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {models.isError
+                  ? "读不到 OVH 目录，下面是兜底列表，可能不是最新在售型号"
+                  : `${ovhSubsidiary} 当前在售 ${modelList.length} 款`}
+              </p>
             </div>
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">
@@ -566,9 +614,9 @@ function AddVPSDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {SUBSIDIARIES.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>
-                      {s.label}
+                  {allowedSubsidiaries.map((s) => (
+                    <SelectItem key={s.code} value={s.code}>
+                      {s.code} · {s.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -583,8 +631,13 @@ function AddVPSDialog({
             <Input
               value={datacenters}
               onChange={(e) => setDatacenters(e.target.value)}
-              placeholder="例如: eu-west-gra,ca-east-bhs 或留空监控所有"
+              placeholder="留空 = 监控所有机房"
             />
+            {selected?.datacenters?.length ? (
+              <p className="text-[11px] text-muted-foreground mt-1 break-all">
+                {selected.name} 在 {ovhSubsidiary} 可选：{selected.datacenters.join("、")}
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -666,6 +719,28 @@ function AddVPSDialog({
                     }
                   }}
                 />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                  安装系统
+                </label>
+                <Select value={os || "__default__"} onValueChange={(v) => setOs(v === "__default__" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__default__">用 OVH 默认镜像</SelectItem>
+                    {(selected?.osChoices || []).map((o) => (
+                      <SelectItem key={o} value={o}>
+                        {o}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  VPS 和独服不同：系统是**下单时**就要定的，买完再换要重装。
+                  不确定就留默认
+                </p>
               </div>
             </div>
           )}

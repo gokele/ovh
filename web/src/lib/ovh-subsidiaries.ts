@@ -66,3 +66,16 @@ export function defaultSubsidiaryForEndpoint(endpoint: string | undefined): stri
       return "IE";
   }
 }
+
+/**
+ * 某个账户能用的子公司。
+ *
+ * OVH 的 EU / US / CA 是三套互不相通的系统：账户在哪个站点，就只能用那个站点的
+ * 子公司下单、只能看到那个站点的库存。以前 VPS 页面把三个区的子公司混在一个
+ * 下拉框里，美区账户能选"爱尔兰"，订阅建出来后端才拒（400），
+ * 而用户只看到一个红色报错，不知道错在哪。不该给的选项就别给。
+ */
+export function subsidiariesForEndpoint(endpoint: string | undefined): OvhSubsidiary[] {
+  const region = endpointRegion(endpoint);
+  return OVH_SUBSIDIARIES.filter((s) => endpointRegion(s.endpoint) === region);
+}

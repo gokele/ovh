@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -127,6 +128,9 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 			NotifyAvailable    *bool     `json:"notifyAvailable"`
 			NotifyUnavailable  *bool     `json:"notifyUnavailable"`
 			AutoOrderAccountID *string   `json:"autoOrderAccountId"`
+			AutoOrder          *bool     `json:"autoOrder"`
+			Quantity           *int      `json:"quantity"`
+			OS                 *string   `json:"os"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "请求体格式错误: " + err.Error()})
@@ -168,6 +172,23 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		}
 		if body.AutoOrderAccountID != nil {
 			next.AutoOrderAccountID = *body.AutoOrderAccountID
+		}
+		if body.AutoOrder != nil {
+			next.AutoOrder = *body.AutoOrder
+		}
+		if body.Quantity != nil {
+			next.Quantity = *body.Quantity
+		}
+		if body.OS != nil {
+			next.OS = strings.TrimSpace(*body.OS)
+		}
+		// 没有下单账户就不可能自动下单 —— 让这两个字段自洽,
+		// 否则界面上会出现"开着自动下单但买不了"的状态
+		if next.AutoOrderAccountID == "" {
+			next.AutoOrder = false
+		}
+		if next.AutoOrder && next.Quantity < 1 {
+			next.Quantity = 1
 		}
 		if body.OvhSubsidiary != nil {
 			next.OvhSubsidiary = vps.NormalizeSubsidiary(*body.OvhSubsidiary)
@@ -237,6 +258,9 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		live.NotifyAvailable = next.NotifyAvailable
 		live.NotifyUnavailable = next.NotifyUnavailable
 		live.AutoOrderAccountID = next.AutoOrderAccountID
+		live.AutoOrder = next.AutoOrder
+		live.Quantity = next.Quantity
+		live.OS = next.OS
 		if resetStatus {
 			live.LastStatus = map[string]string{}
 		}

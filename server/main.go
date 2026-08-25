@@ -437,6 +437,8 @@ func main() {
 		}
 
 		// VPS monitor
+		// 在售型号来自 OVH 实时目录 —— 写死过的那份已经整代停售了
+		api.GET("/vps-monitor/models", handlers.GetVPSModels(state))
 		api.GET("/vps-monitor/subscriptions", handlers.GetVPSSubscriptions(state))
 		api.POST("/vps-monitor/subscriptions", handlers.AddVPSSubscription(state))
 		api.PUT("/vps-monitor/subscriptions/:subscription_id", handlers.UpdateVPSSubscription(state))

@@ -201,6 +201,14 @@ type VPSSubscription struct {
 	History            []map[string]interface{} `json:"history"`
 	CreatedAt          string                   `json:"createdAt"`
 	AutoOrderAccountID string                   `json:"autoOrderAccountId,omitempty"` // 空 = 触发时只通知不下单
+	// AutoOrder 有货时是否真的下单。和 AutoOrderAccountID 分开:
+	// 只填账户不代表要下单,用户可能只是想让通知里带上"用哪个账户能买"。
+	AutoOrder bool `json:"autoOrder,omitempty"`
+	// Quantity 每次下单几台
+	Quantity int `json:"quantity,omitempty"`
+	// OS 装什么系统。空 = 用 OVH 的默认值。
+	// VPS 和独服不同:系统是下单时就要定的配置项,不是买完再装。
+	OS string `json:"os,omitempty"`
 }
 
 // CacheInfo 服务器列表缓存信息

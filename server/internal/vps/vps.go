@@ -475,6 +475,15 @@ func MonitorLoop(state *app.State) {
 						state.Logger.Info(fmt.Sprintf("VPS %s 补货：%d个数据中心", sub.PlanCode, len(newAvailable)), "vps_monitor")
 						SendSummaryNotification(state, sub.PlanCode, ovhSub, newAvailable, "available")
 					}
+					// 补货了就下单。放在通知之后:先让用户知道有货,
+					// 下单本身要走五六次 OVH 往返,失败了通知也已经发出去了。
+					// 只认"无货→有货"这一种跳变,首次检查发现的存量不算 ——
+					// 那可能是一台挂了几个月的订阅刚启动,用户并没打算现在就买。
+					if len(newAvailable) > 0 && sub.AutoOrder {
+						toOrder := *sub
+						toOrder.OvhSubsidiary = ovhSub
+						autoOrderOnRestock(state, toOrder, newAvailable)
+					}
 					if len(newUnavailable) > 0 && sub.NotifyUnavailable {
 						state.Logger.Info(fmt.Sprintf("VPS %s 下架：%d个数据中心", sub.PlanCode, len(newUnavailable)), "vps_monitor")
 						SendSummaryNotification(state, sub.PlanCode, ovhSub, newUnavailable, "unavailable")

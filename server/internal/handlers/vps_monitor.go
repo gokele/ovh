@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -19,9 +20,9 @@ import (
 func GetVPSSubscriptions(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state.VPSSubsMu.Lock()
-		defer state.VPSSubsMu.Unlock()
 		if state.VPSSubscriptions == nil {
-			c.JSON(http.StatusOK, []types.VPSSubscription{})
+			state.VPSSubsMu.Unlock()
+			c.JSON(http.StatusOK, []annotatedVPSSub{})
 			return
 		}
 		// 保证每个 VPSSubscription 内部的 slice/map 字段不是 nil，
@@ -37,8 +38,34 @@ func GetVPSSubscriptions(state *app.State) gin.HandlerFunc {
 				state.VPSSubscriptions[i].LastStatus = map[string]string{}
 			}
 		}
-		c.JSON(http.StatusOK, state.VPSSubscriptions)
+		// 拿一份快照再放锁:下面要查目录,可能走网络(缓存没命中时),
+		// 拿着这把锁去等 HTTP 会把整个 VPS 监控循环卡住
+		snapshot := make([]types.VPSSubscription, len(state.VPSSubscriptions))
+		copy(snapshot, state.VPSSubscriptions)
+		state.VPSSubsMu.Unlock()
+
+		out := make([]annotatedVPSSub, 0, len(snapshot))
+		for _, sub := range snapshot {
+			row := annotatedVPSSub{VPSSubscription: sub}
+			// 停售型号的订阅永远不会响 —— 库存接口老实返回"全部无货",
+			// 不跳变也就不通知。用户看到的只是"一直没货",和"这机器确实抢手"
+			// 长得一模一样。目录查不动就不标(宁可不说,也不误报成停售)。
+			if ok, err := vps.IsOrderable(sub.OvhSubsidiary, sub.PlanCode); err == nil && !ok {
+				row.Retired = true
+			}
+			out = append(out, row)
+		}
+		c.JSON(http.StatusOK, out)
 	}
+}
+
+// annotatedVPSSub 订阅 + 一个不落库的体检结论。
+// 内嵌而不是加字段到 types.VPSSubscription:那个结构体是要写进数据库的,
+// 把一个每次都要重算的判断存进去,迟早会读到一份过期的结论。
+type annotatedVPSSub struct {
+	types.VPSSubscription
+	// Retired 这个型号 OVH 已经不卖了
+	Retired bool `json:"retired,omitempty"`
 }
 
 // AddVPSSubscription POST /api/vps-monitor/subscriptions
@@ -58,6 +85,9 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 			NotifyAvailable    *bool    `json:"notifyAvailable"`
 			NotifyUnavailable  *bool    `json:"notifyUnavailable"`
 			AutoOrderAccountID string   `json:"autoOrderAccountId"` // 空 = 触发时只通知不下单
+			AutoOrder          bool     `json:"autoOrder"`
+			Quantity           int      `json:"quantity"`
+			OS                 string   `json:"os"`
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.PlanCode == "" {
@@ -98,6 +128,16 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 				return
 			}
 		}
+		// 停售型号也只会表现为"永远无货":库存接口老实返回全部机房无货,
+		// 不跳变也就永远不通知。不拦(用户可能就是想盯着看它会不会回来),
+		// 但必须说出来 —— 否则这条订阅会安安静静地什么都不做。
+		retiredWarning := ""
+		if ok, oerr := vps.IsOrderable(body.OvhSubsidiary, body.PlanCode); oerr == nil && !ok {
+			retiredWarning = "OVH 在 " + body.OvhSubsidiary + " 已经不卖 " + body.PlanCode +
+				" 了(不在下单目录里),这条订阅大概率永远不会有货。建议换成当前在售的型号"
+			state.Logger.Warn("订阅了停售型号: "+body.PlanCode+" ("+body.OvhSubsidiary+")", "vps_monitor")
+		}
+
 		// 先探一次:planCode 分区(US 目录才有 -eu / -ca 后缀码),
 		// 拿错区的码 OVH 回 404,监控起来只会表现为"永远无货",不如在订阅时就说清楚。
 		if _, err := vps.CheckVPSDCAvailability(state, body.PlanCode, body.OvhSubsidiary); err != nil {
@@ -149,6 +189,12 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 			History:            []map[string]interface{}{},
 			CreatedAt:          types.NowISO(),
 			AutoOrderAccountID: body.AutoOrderAccountID,
+			AutoOrder:          body.AutoOrder && body.AutoOrderAccountID != "",
+			Quantity:           body.Quantity,
+			OS:                 strings.TrimSpace(body.OS),
+		}
+		if sub.AutoOrder && sub.Quantity < 1 {
+			sub.Quantity = 1
 		}
 		state.VPSSubscriptions = append(state.VPSSubscriptions, sub)
 		state.VPSSubsMu.Unlock()
@@ -159,7 +205,12 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 			vps.Start(state)
 			state.Logger.Info("自动启动VPS监控", "vps_monitor")
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "已订阅 " + body.PlanCode, "subscription": sub})
+		resp := gin.H{"status": "success", "message": "已订阅 " + body.PlanCode, "subscription": sub}
+		if retiredWarning != "" {
+			resp["status"] = "warning"
+			resp["retiredWarning"] = retiredWarning
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
