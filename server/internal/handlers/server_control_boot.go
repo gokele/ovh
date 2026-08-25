@@ -110,6 +110,19 @@ func SetBootConfig(state *app.State) gin.HandlerFunc {
 			noOVHResp(c)
 			return
 		}
+		// PUT /dedicated/server/{serviceName} 只发要改的那一个属性,不要"补全"。
+		//
+		// dedicated.server.Dedicated 里 monitoring / noIntervention / state 三个是
+		// readOnly:false + canBeNull:false,形状和 service.RenewType 那次
+		// 400 "[renew] Missing properties: (forced)" 一模一样,所以很容易被误判成
+		// "这里也漏了字段"。但 OVH 官方指南对这个端点写得很明确 —— 换启动盘就是
+		// "Specify 1 in the bootId attribute",指南里那段带 monitoring/state 的 JSON
+		// 是 GET 的响应示例,不是 PUT 的请求体模板:
+		// https://github.com/ovh/docs/blob/develop/pages/bare_metal_cloud/dedicated_servers/ipxe-scripts/guide.en-us.md
+		//
+		// canBeNull:false ⇒ 必填,这条只在 PUT 的**嵌套复杂对象**上成立(RenewType),
+		// 顶层模型不适用 —— 同理 order.cart.Creation 的 description/expire 也是
+		// canBeNull:false,而建车只发 ovhSubsidiary 一直是通的。
 		if err := client.Put("/dedicated/server/"+svc, map[string]interface{}{
 			"bootId": bootID,
 		}, nil); err != nil {
@@ -173,6 +186,19 @@ func SetMonitoringStatus(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 enabled 参数（必须显式传 true 或 false）"})
 			return
 		}
+		// PUT /dedicated/server/{serviceName} 只发要改的那一个属性,不要"补全"。
+		//
+		// dedicated.server.Dedicated 里 monitoring / noIntervention / state 三个是
+		// readOnly:false + canBeNull:false,形状和 service.RenewType 那次
+		// 400 "[renew] Missing properties: (forced)" 一模一样,所以很容易被误判成
+		// "这里也漏了字段"。但 OVH 官方指南对这个端点写得很明确 —— 换启动盘就是
+		// "Specify 1 in the bootId attribute",指南里那段带 monitoring/state 的 JSON
+		// 是 GET 的响应示例,不是 PUT 的请求体模板:
+		// https://github.com/ovh/docs/blob/develop/pages/bare_metal_cloud/dedicated_servers/ipxe-scripts/guide.en-us.md
+		//
+		// canBeNull:false ⇒ 必填,这条只在 PUT 的**嵌套复杂对象**上成立(RenewType),
+		// 顶层模型不适用 —— 同理 order.cart.Creation 的 description/expire 也是
+		// canBeNull:false,而建车只发 ovhSubsidiary 一直是通的。
 		if err := client.Put("/dedicated/server/"+svc, map[string]interface{}{
 			"monitoring": *enabled,
 		}, nil); err != nil {
@@ -292,6 +318,19 @@ func ChangeBootMode(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[Boot] 切换服务器 %s 启动模式到 %d", svc, body.BootID), "server_control")
+		// PUT /dedicated/server/{serviceName} 只发要改的那一个属性,不要"补全"。
+		//
+		// dedicated.server.Dedicated 里 monitoring / noIntervention / state 三个是
+		// readOnly:false + canBeNull:false,形状和 service.RenewType 那次
+		// 400 "[renew] Missing properties: (forced)" 一模一样,所以很容易被误判成
+		// "这里也漏了字段"。但 OVH 官方指南对这个端点写得很明确 —— 换启动盘就是
+		// "Specify 1 in the bootId attribute",指南里那段带 monitoring/state 的 JSON
+		// 是 GET 的响应示例,不是 PUT 的请求体模板:
+		// https://github.com/ovh/docs/blob/develop/pages/bare_metal_cloud/dedicated_servers/ipxe-scripts/guide.en-us.md
+		//
+		// canBeNull:false ⇒ 必填,这条只在 PUT 的**嵌套复杂对象**上成立(RenewType),
+		// 顶层模型不适用 —— 同理 order.cart.Creation 的 description/expire 也是
+		// canBeNull:false,而建车只发 ovhSubsidiary 一直是通的。
 		if err := client.Put("/dedicated/server/"+svc, map[string]interface{}{
 			"bootId": body.BootID,
 		}, nil); err != nil {
