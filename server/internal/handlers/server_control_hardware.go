@@ -507,35 +507,49 @@ func UpdateServiceRenewal(state *app.State) gin.HandlerFunc {
 			})
 			return
 		}
+		// forced 是 OVH 自己算的锁,原样回传 —— 它是 canBeNull=false,少了会被拒
+		forced := false
+		if f, ok := renew["forced"].(bool); ok {
+			forced = f
+		}
+
+		// 显式构造完整的 RenewType,不在 GET 回来的 map 上就地改。
+		//
+		// service.RenewType 里 automatic / deleteAtExpiration / forced 三个是
+		// canBeNull=false —— 少给任何一个,OVH 回
+		// 400 "[renew] Missing properties: (xxx) for type RenewType"。
+		// 光看 readOnly 挑字段是不够的,还得看 canBeNull:前者决定"能不能发",
+		// 后者决定"必不必须发"。(schema 里那个 required 字段全是 false,不可信。)
+		next := map[string]interface{}{"forced": forced}
 		switch body.Mode {
 		case "auto":
-			renew["automatic"] = true
-			renew["deleteAtExpiration"] = false
-			renew["manualPayment"] = false
+			next["automatic"] = true
+			next["deleteAtExpiration"] = false
+			next["manualPayment"] = false
 		case "manual":
-			renew["automatic"] = false
-			renew["deleteAtExpiration"] = false
-			renew["manualPayment"] = true
+			next["automatic"] = false
+			next["deleteAtExpiration"] = false
+			next["manualPayment"] = true
 		case "delete":
-			renew["automatic"] = false
-			renew["deleteAtExpiration"] = true
-			renew["manualPayment"] = false
+			next["automatic"] = false
+			next["deleteAtExpiration"] = true
+			next["manualPayment"] = false
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "mode 必须是 auto / manual / delete 之一"})
 			return
 		}
+		// period 可空:用户指定了就用,否则沿用 OVH 当前值
 		if body.Period > 0 {
-			renew["period"] = body.Period
+			next["period"] = body.Period
+		} else if pv, ok := renew["period"]; ok && pv != nil {
+			next["period"] = pv
 		}
-		delete(renew, "forced") // OVH 自己算的锁,回传没意义
 
-		// 只发可写字段。services.Service 里唯一可写的就是 renew,
-		// 其余(status / creation / expiration / serviceId / contact* ...)全是只读 ——
-		// 把 GET 回来的整个对象原样 PUT 回去,OVH 会直接 400
-		// "Try to alter read-only properties: status, creation, expiration"。
-		// 三个区的 schema 在这一点上完全一致。
+		// services.Service 里只有 renew 可写,其余 12 个字段全是只读 ——
+		// 把 GET 回来的整个对象发回去会被 OVH 400
+		// "Try to alter read-only properties: status, creation, expiration"
 		if err := client.Put("/dedicated/server/"+svc+"/serviceInfos",
-			map[string]interface{}{"renew": renew}, nil); err != nil {
+			map[string]interface{}{"renew": next}, nil); err != nil {
 			state.Logger.Error("修改服务器 "+svc+" 续费策略失败: "+err.Error(), "server_control")
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return

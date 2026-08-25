@@ -328,30 +328,39 @@ func UpdateVpsRenewal(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "该 VPS 处于 OVH 合同期内,续费策略由 OVH 锁定"})
 			return
 		}
+		// 同独服:service.RenewType 的 automatic / deleteAtExpiration / forced
+		// 三个 canBeNull=false,少给一个就是
+		// 400 "[renew] Missing properties: (xxx) for type RenewType"
+		forced := false
+		if f, ok := renew["forced"].(bool); ok {
+			forced = f
+		}
+		next := map[string]interface{}{"forced": forced}
 		switch body.Mode {
 		case "auto":
-			renew["automatic"] = true
-			renew["deleteAtExpiration"] = false
-			renew["manualPayment"] = false
+			next["automatic"] = true
+			next["deleteAtExpiration"] = false
+			next["manualPayment"] = false
 		case "manual":
-			renew["automatic"] = false
-			renew["deleteAtExpiration"] = false
-			renew["manualPayment"] = true
+			next["automatic"] = false
+			next["deleteAtExpiration"] = false
+			next["manualPayment"] = true
 		case "delete":
-			renew["automatic"] = false
-			renew["deleteAtExpiration"] = true
-			renew["manualPayment"] = false
+			next["automatic"] = false
+			next["deleteAtExpiration"] = true
+			next["manualPayment"] = false
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "mode 必须是 auto / manual / delete 之一"})
 			return
 		}
 		if body.Period > 0 {
-			renew["period"] = body.Period
+			next["period"] = body.Period
+		} else if pv, ok := renew["period"]; ok && pv != nil {
+			next["period"] = pv
 		}
-		delete(renew, "forced")
-		// 同独服:services.Service 只有 renew 可写,整对象发回去会被 400
+		// services.Service 只有 renew 可写,整对象发回去会被 400
 		if err := client.Put("/vps/"+svc+"/serviceInfos",
-			map[string]interface{}{"renew": renew}, nil); err != nil {
+			map[string]interface{}{"renew": next}, nil); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
