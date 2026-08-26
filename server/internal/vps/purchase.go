@@ -343,7 +343,11 @@ func autoOrderOnRestock(state *app.State, sub types.VPSSubscription, dcs []map[s
 		recordVPSPurchase(state, sub, code, out)
 
 		if out.Success {
-			msg := fmt.Sprintf("🎉 VPS 自动下单成功\n\n型号: %s\n机房: %s\n订单: %s\n%s",
+			// 同独服:checkout 是 autoPayWithPreferredPaymentMethod:false,
+			// "成功"= 订单已创建、未付款、逾期作废。通知里必须说清楚。
+			msg := fmt.Sprintf("🎉 VPS 下单成功\n\n型号: %s\n机房: %s\n订单: %s\n%s\n\n"+
+				"⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n"+
+				"(下单时已按惯例放弃 14 天撤销期,付款即开通)",
 				sub.PlanCode, code, out.OrderID, out.OrderURL)
 			notify.Broadcast(state, msg, nil)
 			// 抢到就停:订阅是"盯着补货",不是"把所有机房都买一遍"

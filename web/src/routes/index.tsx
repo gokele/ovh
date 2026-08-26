@@ -74,7 +74,7 @@ function DashboardPage() {
           loading={stats.isPending}
         />
         <KpiCard
-          label="抢购成功"
+          label="下单成功(待付款)"
           value={stats.data?.purchaseSuccess}
           icon={CheckCircle2}
           linkTo="/history"
