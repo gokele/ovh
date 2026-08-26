@@ -38,6 +38,9 @@ export interface VpsServiceInfo {
   renewalForced: boolean;
   renewalManualPayment: boolean;
   possibleRenewPeriod: number[];
+  /** 终止状态权威来源(lifecycle.pendingActions);读不到时后端不下发 */
+  terminationScheduled?: boolean;
+  terminationDate?: string;
 }
 
 export interface VpsIp {

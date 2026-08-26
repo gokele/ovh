@@ -557,8 +557,10 @@ function formatRenewal(info: {
   renewalPeriod: number;
   renewalDeleteAtExpiration: boolean;
   renewalForced: boolean;
+  terminationScheduled?: boolean;
 }): string {
-  if (info.renewalDeleteAtExpiration) return "到期注销";
+  // 终止状态以 lifecycle.pendingActions 为准(文档指定的读回路径),旧字段只兜底
+  if (info.terminationScheduled ?? info.renewalDeleteAtExpiration) return "到期终止";
   const period = info.renewalPeriod > 0 ? ` · ${info.renewalPeriod}月` : "";
   if (info.renewalForced) return `强制自动${period}`;
   return (info.renewalType ? "自动" : "手动") + period;

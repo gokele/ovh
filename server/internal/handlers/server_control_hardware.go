@@ -453,20 +453,21 @@ func GetServiceInfo(state *app.State) gin.HandlerFunc {
 				}
 			}
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"serviceInfo": gin.H{
-				"status":                    valueOr(info, "status", "unknown"),
-				"expiration":                valueOr(info, "expiration", ""),
-				"creation":                  valueOr(info, "creation", ""),
-				"renewalType":               automatic, // 自动续费 yes/no
-				"renewalPeriod":             period,    // 续费周期(月)
-				"renewalDeleteAtExpiration": deleteAtExpiration,
-				"renewalForced":             forced, // OVH 强制自动续费(不能改)
-				"renewalManualPayment":      manualPayment,
-				"possibleRenewPeriod":       possiblePeriods,
-			},
-		})
+		si := map[string]interface{}{
+			"status":                    valueOr(info, "status", "unknown"),
+			"expiration":                valueOr(info, "expiration", ""),
+			"creation":                  valueOr(info, "creation", ""),
+			"renewalType":               automatic, // 自动续费 yes/no
+			"renewalPeriod":             period,    // 续费周期(月)
+			"renewalDeleteAtExpiration": deleteAtExpiration,
+			"renewalForced":             forced, // OVH 强制自动续费(不能改)
+			"renewalManualPayment":      manualPayment,
+			"possibleRenewPeriod":       possiblePeriods,
+		}
+		// 终止状态从 lifecycle.pendingActions 读(文档指定的读回路径);
+		// renew.deleteAtExpiration 会不会随 terminationPolicy 同步,文档没说,不能赌它
+		attachTerminationState(state, client, serviceIDForDedicated, svc, "server_control", si)
+		c.JSON(http.StatusOK, gin.H{"success": true, "serviceInfo": si})
 	}
 }
 

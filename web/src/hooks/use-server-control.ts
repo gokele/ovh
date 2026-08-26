@@ -54,6 +54,11 @@ export interface ServiceInfo {
   renewalPeriod: number;
   /** 到期是否自动删除服务 —— true 等于"到期断网回收" */
   renewalDeleteAtExpiration: boolean;
+  /** 终止状态的权威来源:GET /services/{id} 的 lifecycle.pendingActions。
+   *  旧字段 renewalDeleteAtExpiration 会不会随 terminationPolicy 同步,OVH 文档没说,
+   *  显示"当前是不是到期终止"以这个为准。读不到时后端不下发,前端回退旧字段。 */
+  terminationScheduled?: boolean;
+  terminationDate?: string;
   /** OVH 是否强制自动续费(部分付费服务) */
   renewalForced: boolean;
   /** 是否要求手动支付(true 时余额扣款会跳过,需用户手动付) */

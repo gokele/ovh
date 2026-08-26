@@ -282,20 +282,20 @@ func GetVpsServiceInfo(state *app.State) gin.HandlerFunc {
 				}
 			}
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"serviceInfo": gin.H{
-				"status":                    valueOr(info, "status", "unknown"),
-				"expiration":                valueOr(info, "expiration", ""),
-				"creation":                  valueOr(info, "creation", ""),
-				"renewalType":               automatic,
-				"renewalPeriod":             period,
-				"renewalDeleteAtExpiration": delAtExp,
-				"renewalForced":             forced,
-				"renewalManualPayment":      manualPay,
-				"possibleRenewPeriod":       possiblePeriods,
-			},
-		})
+		si := map[string]interface{}{
+			"status":                    valueOr(info, "status", "unknown"),
+			"expiration":                valueOr(info, "expiration", ""),
+			"creation":                  valueOr(info, "creation", ""),
+			"renewalType":               automatic,
+			"renewalPeriod":             period,
+			"renewalDeleteAtExpiration": delAtExp,
+			"renewalForced":             forced,
+			"renewalManualPayment":      manualPay,
+			"possibleRenewPeriod":       possiblePeriods,
+		}
+		// 同独服:终止状态从 lifecycle.pendingActions 读,不赌 renew 字段
+		attachTerminationState(state, client, serviceIDForVps, svc, "vps_control", si)
+		c.JSON(http.StatusOK, gin.H{"success": true, "serviceInfo": si})
 	}
 }
 

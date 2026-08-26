@@ -103,3 +103,58 @@ func terminationPolicyHandler(
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": msg, "policy": body.Policy})
 	}
 }
+
+// lifecycleTermination 读回终止状态。
+//
+// 这是文档指定的唯一可靠读回路径:services.update.Service.terminationPolicy 只管写,
+// 读要走 GET /services/{serviceId} 的 billing.lifecycle.current ——
+// pendingActions(services.expanded.Lifecycle.ActionEnum[],含 terminate /
+// terminateAtExpirationDate / terminateAtEngagementDate / deleteAtExpiration)
+// 和 terminationDate("Scheduled termination date")。
+//
+// 旧接口 serviceInfos.renew.deleteAtExpiration 会不会随 terminationPolicy 同步,
+// 文档没有任何说法 —— 所以界面显示"当前是不是到期终止"不能赌它,必须读这里。
+func lifecycleTermination(client *ovhsdk.Client, serviceID int64) (scheduled bool, date string, err error) {
+	var svc struct {
+		Billing struct {
+			Lifecycle struct {
+				Current struct {
+					PendingActions  []string `json:"pendingActions"`
+					TerminationDate string   `json:"terminationDate"`
+				} `json:"current"`
+			} `json:"lifecycle"`
+		} `json:"billing"`
+	}
+	if err := client.Get(fmt.Sprintf("/services/%d", serviceID), &svc); err != nil {
+		return false, "", err
+	}
+	for _, a := range svc.Billing.Lifecycle.Current.PendingActions {
+		switch a {
+		case "terminate", "terminateAtExpirationDate", "terminateAtEngagementDate", "deleteAtExpiration":
+			return true, svc.Billing.Lifecycle.Current.TerminationDate, nil
+		}
+	}
+	return false, "", nil
+}
+
+// attachTerminationState 把终止状态并进 serviceInfo 响应。
+// 读取失败不致命 —— 退回旧的 renew.deleteAtExpiration 判断,但要记日志,
+// 别让"读不到"悄悄变成"没有终止计划"。
+func attachTerminationState(state *app.State, client *ovhsdk.Client,
+	resolveID func(*ovhsdk.Client, string) (int64, error),
+	svc, logSource string, out map[string]interface{}) {
+	serviceID, err := resolveID(client, svc)
+	if err != nil {
+		state.Logger.Warn(svc+" 取 serviceId 失败,终止状态回退到 renew 字段: "+err.Error(), logSource)
+		return
+	}
+	scheduled, date, err := lifecycleTermination(client, serviceID)
+	if err != nil {
+		state.Logger.Warn(svc+" 读取生命周期失败,终止状态回退到 renew 字段: "+err.Error(), logSource)
+		return
+	}
+	out["terminationScheduled"] = scheduled
+	if date != "" {
+		out["terminationDate"] = date
+	}
+}

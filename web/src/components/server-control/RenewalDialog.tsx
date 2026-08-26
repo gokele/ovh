@@ -54,7 +54,10 @@ export function RenewalDialog({
   /** 可选:不传则用 dedicated 的终止端点。VPS 必须传自己的 */
   termination?: TerminationMutations;
 }) {
-  const currentMode: RenewMode = info.renewalDeleteAtExpiration
+  // 终止状态以 lifecycle.pendingActions(terminationScheduled)为准 —— 那是文档指定的
+  // 读回路径;旧的 renewalDeleteAtExpiration 只在后端读不到 lifecycle 时兜底
+  const terminationOn = info.terminationScheduled ?? info.renewalDeleteAtExpiration;
+  const currentMode: RenewMode = terminationOn
     ? "delete"
     : info.renewalType
       ? "auto"

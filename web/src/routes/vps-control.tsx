@@ -449,8 +449,8 @@ function VpsDetail({
                 <Repeat className="w-3.5 h-3.5 text-muted-foreground" />
                 <span className="text-muted-foreground">续费</span>
                 <span className="font-medium">
-                  {info.data.renewalDeleteAtExpiration
-                    ? "到期注销"
+                  {(info.data.terminationScheduled ?? info.data.renewalDeleteAtExpiration)
+                    ? "到期终止"
                     : info.data.renewalForced
                       ? "强制自动"
                       : info.data.renewalType
