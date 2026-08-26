@@ -171,7 +171,8 @@ func PurchaseVPS(state *app.State, sub types.VPSSubscription, dcCode string) Out
 	// 5) 结账
 	var checkoutResult map[string]interface{}
 	if err := client.Post("/order/cart/"+cartID+"/checkout", map[string]interface{}{
-		"autoPayWithPreferredPaymentMethod": false,
+		// 订阅上显式打开"自动付款"才为 true;默认不替用户扣钱
+		"autoPayWithPreferredPaymentMethod": sub.AutoPay,
 		"waiveRetractationPeriod":           true,
 	}, &checkoutResult); err != nil {
 		// 配置接口对取值几乎不校验,真正的"这个机房没货"往往到 checkout 才报出来
@@ -345,10 +346,14 @@ func autoOrderOnRestock(state *app.State, sub types.VPSSubscription, dcs []map[s
 		if out.Success {
 			// 同独服:checkout 是 autoPayWithPreferredPaymentMethod:false,
 			// "成功"= 订单已创建、未付款、逾期作废。通知里必须说清楚。
-			msg := fmt.Sprintf("🎉 VPS 下单成功\n\n型号: %s\n机房: %s\n订单: %s\n%s\n\n"+
-				"⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n"+
-				"(下单时已按惯例放弃 14 天撤销期,付款即开通)",
-				sub.PlanCode, code, out.OrderID, out.OrderURL)
+			payNote := "⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n" +
+				"(下单时已按惯例放弃 14 天撤销期,付款即开通)"
+			if sub.AutoPay {
+				payNote = "💳 已请求用账户默认支付方式自动付款,请打开订单链接核对扣款是否成功。\n" +
+					"(下单时已按惯例放弃 14 天撤销期)"
+			}
+			msg := fmt.Sprintf("🎉 VPS 下单成功\n\n型号: %s\n机房: %s\n订单: %s\n%s\n\n%s",
+				sub.PlanCode, code, out.OrderID, out.OrderURL, payNote)
 			notify.Broadcast(state, msg, nil)
 			// 抢到就停:订阅是"盯着补货",不是"把所有机房都买一遍"
 			return

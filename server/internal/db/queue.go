@@ -26,6 +26,7 @@ type queueRow struct {
 	Priority           int     `db:"priority"`
 	FromTelegram       int     `db:"from_telegram"`
 	ConfigSniperTaskID string  `db:"config_sniper_task_id"`
+	AutoPay            int     `db:"auto_pay"`
 }
 
 func rowToQueueItem(r queueRow) types.QueueItem {
@@ -54,6 +55,7 @@ func rowToQueueItem(r queueRow) types.QueueItem {
 		Priority:           r.Priority,
 		FromTelegram:       r.FromTelegram == 1,
 		ConfigSniperTaskID: r.ConfigSniperTaskID,
+		AutoPay:            r.AutoPay == 1,
 	}
 }
 
@@ -89,6 +91,7 @@ func queueItemToRow(q types.QueueItem) (queueRow, error) {
 		Priority:           q.Priority,
 		FromTelegram:       bi(q.FromTelegram),
 		ConfigSniperTaskID: q.ConfigSniperTaskID,
+		AutoPay:            bi(q.AutoPay),
 	}, nil
 }
 
@@ -125,11 +128,11 @@ func (db *DB) ReplaceQueue(items []types.QueueItem) error {
 			INSERT INTO queue
 			(id, account_id, plan_code, datacenter, options, status, created_at, updated_at,
 			 retry_interval, retry_count, failure_count, max_retries, last_check_time,
-			 quick_order, priority, from_telegram, config_sniper_task_id)
+			 quick_order, priority, from_telegram, config_sniper_task_id, auto_pay)
 			VALUES
 			(:id, :account_id, :plan_code, :datacenter, :options, :status, :created_at, :updated_at,
 			 :retry_interval, :retry_count, :failure_count, :max_retries, :last_check_time,
-			 :quick_order, :priority, :from_telegram, :config_sniper_task_id)
+			 :quick_order, :priority, :from_telegram, :config_sniper_task_id, :auto_pay)
 		`, r)
 		if err != nil {
 			return fmt.Errorf("insert queue %s: %w", q.ID, err)

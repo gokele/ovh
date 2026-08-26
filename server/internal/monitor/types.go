@@ -77,6 +77,7 @@ type Subscription struct {
 	AutoOrder          bool              `json:"autoOrder,omitempty"`
 	Quantity           int               `json:"quantity,omitempty"`
 	AutoOrderAccountID string            `json:"autoOrderAccountId,omitempty"` // 空 = 触发时只通知不下单
+	AutoPay            bool              `json:"autoPay,omitempty"`            // 下单后自动付款(显式开关,默认关)
 
 	// —— 本轮可用性查询的诊断信息 ——
 	// 只存内存、不落库(每轮检查都会重算,持久化没有意义)。
@@ -107,6 +108,7 @@ type subCheckConfig struct {
 	AutoOrder          bool
 	Quantity           int
 	AutoOrderAccountID string
+	AutoPay            bool
 }
 
 func (s *Subscription) checkConfig() subCheckConfig {
@@ -122,6 +124,7 @@ func (s *Subscription) checkConfig() subCheckConfig {
 		AutoOrder:          s.AutoOrder,
 		Quantity:           s.Quantity,
 		AutoOrderAccountID: s.AutoOrderAccountID,
+		AutoPay:            s.AutoPay,
 	}
 }
 
@@ -216,6 +219,7 @@ func (s *Subscription) snapshot() *Subscription {
 		AutoOrder:          s.AutoOrder,
 		Quantity:           s.Quantity,
 		AutoOrderAccountID: s.AutoOrderAccountID,
+		AutoPay:            s.AutoPay,
 
 		LastCheckAt:         s.LastCheckAt,
 		LastCheckAccountID:  s.LastCheckAccountID,

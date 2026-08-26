@@ -30,8 +30,8 @@ func TestSubscriptionConcurrentAccess(t *testing.T) {
 			slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))),
 	}
 	m := New(state)
-	m.AddSubscription("24sk102-us", []string{"bhs", "vin"}, true, true, "SK102", nil, nil, false, 0, "")
-	m.AddSubscription("24adv01-v3", nil, true, false, "ADV1", nil, nil, true, 2, "acc-eu")
+	m.AddSubscription("24sk102-us", []string{"bhs", "vin"}, true, true, "SK102", nil, nil, false, 0, "", false)
+	m.AddSubscription("24adv01-v3", nil, true, false, "ADV1", nil, nil, true, 2, "acc-eu", false)
 
 	subs := func() []*Subscription {
 		m.subsMu.Lock()
@@ -116,7 +116,7 @@ func TestSubscriptionConcurrentAccess(t *testing.T) {
 				return
 			default:
 			}
-			m.AddSubscription("24sk102-us", []string{"bhs"}, i%2 == 0, true, "SK102", nil, nil, true, 1, "acc-us")
+			m.AddSubscription("24sk102-us", []string{"bhs"}, i%2 == 0, true, "SK102", nil, nil, true, 1, "acc-us", false)
 		}
 	}()
 
@@ -134,7 +134,7 @@ func TestSnapshotIsDeepCopy(t *testing.T) {
 			slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))),
 	}
 	m := New(state)
-	m.AddSubscription("24adv01-v3", []string{"gra"}, true, false, "ADV1", nil, nil, false, 0, "")
+	m.AddSubscription("24adv01-v3", []string{"gra"}, true, false, "ADV1", nil, nil, false, 0, "", false)
 
 	live := m.subscriptions[0]
 	live.replaceLastStatus(map[string]string{"gra|x": "available"})

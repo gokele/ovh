@@ -88,6 +88,7 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 			AutoOrder          bool     `json:"autoOrder"`
 			Quantity           int      `json:"quantity"`
 			OS                 string   `json:"os"`
+			AutoPay            bool     `json:"autoPay"`
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.PlanCode == "" {
@@ -192,6 +193,7 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 			AutoOrder:          body.AutoOrder && body.AutoOrderAccountID != "",
 			Quantity:           body.Quantity,
 			OS:                 strings.TrimSpace(body.OS),
+			AutoPay:            body.AutoPay && body.AutoOrder && body.AutoOrderAccountID != "",
 		}
 		if sub.AutoOrder && sub.Quantity < 1 {
 			sub.Quantity = 1

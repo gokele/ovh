@@ -55,6 +55,7 @@ func toDBSub(s *Subscription) types.Subscription {
 		AutoOrder:          s.AutoOrder,
 		Quantity:           s.Quantity,
 		AutoOrderAccountID: s.AutoOrderAccountID,
+		AutoPay:            s.AutoPay,
 	}
 }
 
@@ -90,6 +91,7 @@ func fromDBSub(s types.Subscription) *Subscription {
 		AutoOrder:          s.AutoOrder,
 		Quantity:           s.Quantity,
 		AutoOrderAccountID: s.AutoOrderAccountID,
+		AutoPay:            s.AutoPay,
 	}
 }
 

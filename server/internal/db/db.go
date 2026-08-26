@@ -71,6 +71,13 @@ func (db *DB) migrate() error {
 	// retraction_time:撤销权截止日。老库没有这一列,而 ListHistory 用 SELECT * + sqlx 严格映射,
 	// 只加结构体字段不加列会让整个历史列表报 missing destination name,两者必须同一次上线。
 	// failure_count:只记真正提交并失败的次数(无货轮次不计),MaxRetries 靠它封顶
+	// auto_pay:下单后用默认支付方式自动付款的显式开关
+	if err := db.addColumnIfMissing("queue", "auto_pay", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := db.addColumnIfMissing("monitor_subscriptions", "auto_pay", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	if err := db.addColumnIfMissing("queue", "failure_count", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}

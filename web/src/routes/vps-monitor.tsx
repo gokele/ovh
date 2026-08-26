@@ -289,8 +289,9 @@ function VPSRow({
                 </Chip>
               )}
               {sub.autoOrder && sub.autoOrderAccountId && (
-                <Chip tone="solid">
+                <Chip tone="solid" title={sub.autoPay ? "下单成功后自动付款" : "只下单,需自己付款"}>
                   自动下单{sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
+                  {sub.autoPay ? " · 自动付款" : ""}
                 </Chip>
               )}
             </div>
@@ -443,6 +444,8 @@ function AddVPSDialog({
   const [quantity, setQuantity] = useState(1);
   // 空 = 用 OVH 默认镜像。VPS 的系统是下单时就要定的配置项,不是买完再装
   const [os, setOs] = useState("");
+  // 默认不自动付款:自动扣钱必须显式打开
+  const [autoPay, setAutoPay] = useState(false);
   // 订阅的下单账户 = 左侧菜单栏的全局账户,不再单独选
   const [globalAccountId] = useActiveAccount();
   const { data: allAccounts } = useAccounts();
@@ -469,6 +472,7 @@ function AddVPSDialog({
     setAutoOrder(false);
     setQuantity(1);
     setOs("");
+    setAutoPay(false);
   };
 
   // 打开时按 editing 重灌表单;带上 open 依赖,免得上次改了一半的内容留到下次
@@ -485,6 +489,7 @@ function AddVPSDialog({
       setAutoOrder(!!editing.autoOrder);
       setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
       setOs(editing.os || "");
+      setAutoPay(!!editing.autoPay);
     } else {
       reset();
     }
@@ -532,6 +537,7 @@ function AddVPSDialog({
       quantity: autoOrder ? quantity : undefined,
       os: autoOrder ? os : "",
       autoOrderAccountId: autoOrder ? autoOrderAccountId : "",
+      autoPay: autoOrder ? autoPay : false,
     };
     const done = {
       onSuccess: () => {
@@ -740,6 +746,14 @@ function AddVPSDialog({
                 <p className="text-[11px] text-muted-foreground mt-1">
                   VPS 和独服不同：系统是**下单时**就要定的，买完再换要重装。
                   不确定就留默认
+                </p>
+                <label className="flex items-center gap-2 mt-2 cursor-pointer text-[12px]">
+                  <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
+                  下单成功后自动付款
+                </label>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  用 OVH 账户的默认支付方式扣款（需先在 OVH 设置好）。不勾则只下单，
+                  需要在订单过期前自己付款
                 </p>
               </div>
             </div>

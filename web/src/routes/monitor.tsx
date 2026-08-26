@@ -260,9 +260,10 @@ function SubRow({
               {sub.notifyUnavailable && <Chip tone="warning">无货提醒</Chip>}
               {sub.autoOrder && sub.autoOrderAccountId ? (
                 <>
-                  <Chip tone="solid">
+                  <Chip tone="solid" title={sub.autoPay ? "下单成功后自动付款" : "只下单,需自己付款"}>
                     自动下单
                     {sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
+                    {sub.autoPay ? " · 自动付款" : ""}
                   </Chip>
                   <span className="text-[11px] text-muted-foreground">→</span>
                   <AccountChip accountId={sub.autoOrderAccountId} />
@@ -398,6 +399,8 @@ function AddSubscriptionDialog({
   const [notifyUnavailable, setNotifyUnavailable] = useState(false);
   const [autoOrder, setAutoOrder] = useState(false);
   const [quantity, setQuantity] = useState(1);
+  // 默认不自动付款:自动扣钱必须显式打开
+  const [autoPay, setAutoPay] = useState(false);
   // 订阅的下单账户 = 左侧菜单栏的全局账户,不再单独选
   const [globalAccountId] = useActiveAccount();
   const { data: allAccounts } = useAccounts();
@@ -412,6 +415,7 @@ function AddSubscriptionDialog({
     setNotifyUnavailable(false);
     setAutoOrder(false);
     setQuantity(1);
+    setAutoPay(false);
   };
 
   // 每次打开都按当前 editing 重灌一次表单。依赖里带上 open,
@@ -425,6 +429,7 @@ function AddSubscriptionDialog({
       setNotifyUnavailable(editing.notifyUnavailable);
       setAutoOrder(!!editing.autoOrder);
       setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
+      setAutoPay(!!editing.autoPay);
     } else {
       reset();
     }
@@ -455,6 +460,7 @@ function AddSubscriptionDialog({
       autoOrder,
       quantity: autoOrder ? quantity : undefined,
       autoOrderAccountId: autoOrder ? autoOrderAccountId : "",
+      autoPay: autoOrder ? autoPay : false,
     };
     const done = {
       onSuccess: () => {
@@ -594,6 +600,14 @@ function AddSubscriptionDialog({
               />
               <p className="text-[11px] text-muted-foreground mt-1.5">
                 总下单量 = 检测出的配置数 × 可用数据中心数 × 数量
+              </p>
+              <label className="flex items-center gap-2 mt-2 cursor-pointer text-[12px]">
+                <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
+                下单成功后自动付款
+              </label>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                用 OVH 账户的默认支付方式扣款（需先在 OVH 设置好）。不勾则只下单，
+                需要在订单过期前自己付款
               </p>
             </div>
             </div>

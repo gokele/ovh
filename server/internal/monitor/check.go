@@ -672,7 +672,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 					"[monitor] %s 跳过自动下单:验价用的是账户 %q,而订阅指定的下单账户是 %q,两者不一致(下单账户可能已被删除)",
 					planCode, choice.accountID, cfg.AutoOrderAccountID), "monitor")
 			default:
-				m.batchOrder(planCode, configInfo, orderTargets, cfg.Quantity, cfg.AutoOrderAccountID)
+				m.batchOrder(planCode, configInfo, orderTargets, cfg.Quantity, cfg.AutoOrderAccountID, cfg.AutoPay)
 			}
 		}
 

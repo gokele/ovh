@@ -443,7 +443,10 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 	state.Logger.Info("对购物车 "+cartID+" 执行结账", "purchase")
 	var checkoutResult map[string]interface{}
 	checkoutPayload := map[string]interface{}{
-		"autoPayWithPreferredPaymentMethod": false,
+		// 用户在任务上显式打开了"自动付款"才为 true(schema 描述:
+		// "order will be automatically paid with preferred payment method",
+		// 需要 OVH 账户已设置默认支付方式)。默认 false:不替用户扣钱。
+		"autoPayWithPreferredPaymentMethod": item.AutoPay,
 		"waiveRetractationPeriod":           true,
 	}
 	if err := client.Post("/order/cart/"+cartID+"/checkout", checkoutPayload, &checkoutResult); err != nil {
@@ -491,10 +494,16 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 		// checkout 用的是 autoPayWithPreferredPaymentMethod:false ——
 		// "成功"的真实语义是「订单已创建、**还没付款**、逾期作废」。
 		// 通知里必须把这句说出来,否则用户看到🎉就睡了,订单过期机器就没了。
-		msg := fmt.Sprintf("🎉 OVH 服务器下单成功！\n\n服务器型号 (Plan Code): %s\n数据中心: %s\n订单 ID: %s\n订单链接: %s\n\n"+
-			"⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n"+
-			"(下单时已按惯例放弃 14 天撤销期,付款即开通)\n",
-			item.PlanCode, item.Datacenter, orderID, orderURL)
+		payNote := "⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n" +
+			"(下单时已按惯例放弃 14 天撤销期,付款即开通)\n"
+		if item.AutoPay {
+			// 只承诺我们真正知道的:已请求自动付款 ≠ 扣款一定成功
+			// (默认支付方式失效/余额不足时 OVH 不会扣成),让用户去核对
+			payNote = "💳 已请求用账户默认支付方式自动付款,请打开订单链接核对扣款是否成功。\n" +
+				"(下单时已按惯例放弃 14 天撤销期)\n"
+		}
+		msg := fmt.Sprintf("🎉 OVH 服务器下单成功！\n\n服务器型号 (Plan Code): %s\n数据中心: %s\n订单 ID: %s\n订单链接: %s\n\n%s",
+			item.PlanCode, item.Datacenter, orderID, orderURL, payNote)
 		if len(item.Options) > 0 {
 			msg += "自定义配置: " + strings.Join(item.Options, ", ") + "\n"
 		}

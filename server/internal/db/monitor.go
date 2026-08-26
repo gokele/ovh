@@ -19,6 +19,7 @@ type monitorSubRow struct {
 	AutoOrder          int    `db:"auto_order"`
 	Quantity           int    `db:"quantity"`
 	AutoOrderAccountID string `db:"auto_order_account_id"`
+	AutoPay            int    `db:"auto_pay"`
 }
 
 func rowToMonitorSub(r monitorSubRow) types.Subscription {
@@ -43,6 +44,7 @@ func rowToMonitorSub(r monitorSubRow) types.Subscription {
 		AutoOrder:          r.AutoOrder == 1,
 		Quantity:           r.Quantity,
 		AutoOrderAccountID: r.AutoOrderAccountID,
+		AutoPay:            r.AutoPay == 1,
 	}
 }
 
@@ -86,6 +88,7 @@ func monitorSubToRow(s types.Subscription) (monitorSubRow, error) {
 		AutoOrder:          bi(s.AutoOrder),
 		Quantity:           s.Quantity,
 		AutoOrderAccountID: s.AutoOrderAccountID,
+		AutoPay:            bi(s.AutoPay),
 	}, nil
 }
 
@@ -114,10 +117,10 @@ func (db *DB) UpsertMonitorSubscription(s types.Subscription) error {
 	_, err = db.NamedExec(`
 		INSERT INTO monitor_subscriptions
 		(plan_code, datacenters, notify_available, notify_unavailable, last_status,
-		 created_at, history, server_name, auto_order, quantity, auto_order_account_id)
+		 created_at, history, server_name, auto_order, quantity, auto_order_account_id, auto_pay)
 		VALUES
 		(:plan_code, :datacenters, :notify_available, :notify_unavailable, :last_status,
-		 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id)
+		 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id, :auto_pay)
 		ON CONFLICT(plan_code) DO UPDATE SET
 		  datacenters        = excluded.datacenters,
 		  notify_available   = excluded.notify_available,
@@ -127,7 +130,8 @@ func (db *DB) UpsertMonitorSubscription(s types.Subscription) error {
 		  server_name        = excluded.server_name,
 		  auto_order             = excluded.auto_order,
 		  quantity               = excluded.quantity,
-		  auto_order_account_id  = excluded.auto_order_account_id
+		  auto_order_account_id  = excluded.auto_order_account_id,
+		  auto_pay               = excluded.auto_pay
 	`, r)
 	if err != nil {
 		return fmt.Errorf("upsert monitor sub %s: %w", s.PlanCode, err)
@@ -153,10 +157,10 @@ func (db *DB) ReplaceMonitorSubscriptions(subs []types.Subscription) error {
 		_, err = tx.NamedExec(`
 			INSERT INTO monitor_subscriptions
 			(plan_code, datacenters, notify_available, notify_unavailable, last_status,
-			 created_at, history, server_name, auto_order, quantity, auto_order_account_id)
+			 created_at, history, server_name, auto_order, quantity, auto_order_account_id, auto_pay)
 			VALUES
 			(:plan_code, :datacenters, :notify_available, :notify_unavailable, :last_status,
-			 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id)
+			 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id, :auto_pay)
 		`, r)
 		if err != nil {
 			return fmt.Errorf("insert monitor sub %s: %w", s.PlanCode, err)

@@ -8,7 +8,7 @@ import (
 // autoOrderAccountID:auto_order 触发时用哪个账户下单;空 = 只通知不下单
 func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyAvailable, notifyUnavailable bool,
 	serverName string, lastStatus map[string]string, history []HistoryEntry, autoOrder bool, quantity int,
-	autoOrderAccountID string) {
+	autoOrderAccountID string, autoPay bool) {
 
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
@@ -36,6 +36,8 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 			}
 			s.ServerName = serverName
 			s.AutoOrderAccountID = autoOrderAccountID
+			// 自动付款依附于自动下单:不下单就谈不上付款
+			s.AutoPay = autoPay && autoOrder
 			if s.History == nil {
 				s.History = []HistoryEntry{}
 			}
@@ -62,6 +64,7 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 		CreatedAt:          time.Now().Format(time.RFC3339Nano),
 		History:            history,
 		AutoOrderAccountID: autoOrderAccountID,
+		AutoPay:            autoPay && autoOrder,
 	}
 	if autoOrder {
 		if quantity < 1 {
@@ -266,6 +269,7 @@ func (m *Monitor) SubscriptionConfig(planCode string) SubscriptionConfig {
 			AutoOrder:          s.AutoOrder,
 			Quantity:           s.Quantity,
 			AutoOrderAccountID: s.AutoOrderAccountID,
+			AutoPay:            s.AutoPay,
 		}
 		s.mu.Unlock()
 		return cfg
@@ -283,6 +287,7 @@ type SubscriptionConfig struct {
 	AutoOrder          bool
 	Quantity           int
 	AutoOrderAccountID string
+	AutoPay            bool
 }
 
 // ClearAccountRefs 把内存订阅里对某账户的引用清掉。

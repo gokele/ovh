@@ -82,13 +82,18 @@ type QueueItem struct {
 	// FailureCount 只统计"真的向 OVH 提交过并失败"的次数;无货的空轮不算。
 	// MaxRetries 封顶用它而不是 RetryCount —— 抢购的常态就是绝大多数轮次都无货,
 	// 拿轮次封顶会让任务在还没真正试过几次时就被判死。
-	FailureCount       int     `json:"failureCount,omitempty"`
-	MaxRetries         int     `json:"maxRetries,omitempty"`
-	LastCheckTime      float64 `json:"lastCheckTime"`
-	QuickOrder         bool    `json:"quickOrder,omitempty"`
-	Priority           int     `json:"priority,omitempty"`
-	FromTelegram       bool    `json:"fromTelegram,omitempty"`
-	ConfigSniperTaskID string  `json:"configSniperTaskId,omitempty"`
+	FailureCount  int     `json:"failureCount,omitempty"`
+	MaxRetries    int     `json:"maxRetries,omitempty"`
+	LastCheckTime float64 `json:"lastCheckTime"`
+	QuickOrder    bool    `json:"quickOrder,omitempty"`
+	Priority      int     `json:"priority,omitempty"`
+	FromTelegram  bool    `json:"fromTelegram,omitempty"`
+	// AutoPay 下单成功后让 OVH 用账户默认支付方式自动付款
+	// (checkout 的 autoPayWithPreferredPaymentMethod,schema 描述:
+	// "order will be automatically paid with preferred payment method")。
+	// 默认 false:自动扣钱必须是用户显式打开的开关,不能是隐含行为。
+	AutoPay            bool   `json:"autoPay,omitempty"`
+	ConfigSniperTaskID string `json:"configSniperTaskId,omitempty"`
 }
 
 // PriceInfo 价格信息
@@ -185,6 +190,8 @@ type Subscription struct {
 	AutoOrder          bool                       `json:"autoOrder,omitempty"`
 	Quantity           int                        `json:"quantity,omitempty"`
 	AutoOrderAccountID string                     `json:"autoOrderAccountId,omitempty"` // 空 = 触发时只通知不下单
+	// AutoPay 下单成功后用默认支付方式自动付款(显式开关,默认关)
+	AutoPay bool `json:"autoPay,omitempty"`
 }
 
 // VPSSubscription VPS 监控订阅
@@ -206,6 +213,8 @@ type VPSSubscription struct {
 	AutoOrder bool `json:"autoOrder,omitempty"`
 	// Quantity 每次下单几台
 	Quantity int `json:"quantity,omitempty"`
+	// AutoPay 下单成功后用 OVH 默认支付方式自动付款(用户显式开关)
+	AutoPay bool `json:"autoPay,omitempty"`
 	// OS 装什么系统。空 = 用 OVH 的默认值。
 	// VPS 和独服不同:系统是下单时就要定的配置项,不是买完再装。
 	OS string `json:"os,omitempty"`

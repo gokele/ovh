@@ -39,6 +39,9 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 			AutoOrder          bool     `json:"autoOrder"`
 			Quantity           int      `json:"quantity"`
 			AutoOrderAccountID string   `json:"autoOrderAccountId"` // 空 = 触发时只通知不下单
+			// AutoPay 下单成功后用默认支付方式自动付款。默认 false ——
+			// 自动扣钱必须是显式打开的开关
+			AutoPay bool `json:"autoPay"`
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.PlanCode == "" {
@@ -84,7 +87,7 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 		region, subsidiary, regionWarning := mon.PreflightRegion(body.PlanCode, body.AutoOrderAccountID)
 
 		mon.AddSubscription(body.PlanCode, body.Datacenters, notifyAvailable, notifyUnavailable,
-			serverName, nil, nil, body.AutoOrder, body.Quantity, body.AutoOrderAccountID)
+			serverName, nil, nil, body.AutoOrder, body.Quantity, body.AutoOrderAccountID, body.AutoPay)
 		mon.SaveToDB()
 
 		if !mon.Running() {
@@ -172,7 +175,7 @@ func BatchAddAll(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 				continue
 			}
 			mon.AddSubscription(pc, []string{}, notifyAvailable, notifyUnavailable,
-				server.Name, nil, nil, body.AutoOrder, 1, body.AutoOrderAccountID)
+				server.Name, nil, nil, body.AutoOrder, 1, body.AutoOrderAccountID, false)
 			added++
 			state.Logger.Debug("批量添加订阅: "+pc+" ("+server.Name+")", "monitor")
 		}

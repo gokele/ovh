@@ -640,6 +640,11 @@ function QueueRow({
             {item.options && item.options.length > 0 && (
               <Chip tone="default">含 {item.options.length} 个可选配置</Chip>
             )}
+            {item.autoPay && (
+              <Chip tone="warning" title="下单成功后会用 OVH 默认支付方式自动扣款">
+                自动付款
+              </Chip>
+            )}
             <TimingChip totalMs={timing?.totalMs} phases={timing?.phases} />
           </div>
           <div className="text-[11px] text-muted-foreground flex items-center gap-2 flex-wrap">

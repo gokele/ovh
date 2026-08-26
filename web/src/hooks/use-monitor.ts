@@ -13,6 +13,8 @@ export interface MonitorSubscription {
   quantity?: number;
   /** 触发 auto-order 时用哪个 OVH 账户下单;空 = 只通知 */
   autoOrderAccountId?: string;
+  /** 下单成功后自动付款(显式开关,默认关) */
+  autoPay?: boolean;
   lastStatus: Record<string, string>;
   createdAt: string;
 }

@@ -11,6 +11,7 @@ import { Chip } from "@/components/common/Chip";
 import { StatusDot } from "@/components/common/StatusDot";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useServers, useAddToMonitor, type ServerPlan } from "@/hooks/use-servers";
 import { useAccountInfo } from "@/hooks/use-account";
@@ -466,6 +467,8 @@ function DetailContent({
   const [selectedDCs, setSelectedDCs] = useState<string[]>([]);
   const [quantity, setQuantity] = useState("1");
   const [retryInterval, setRetryInterval] = useState("60");
+  // 默认不自动付款:自动扣钱必须是用户显式打开的
+  const [autoPay, setAutoPay] = useState(false);
   const toggleDC = (code: string) =>
     setSelectedDCs((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
   const qty = Math.max(1, Number(quantity) || 1);
@@ -752,8 +755,16 @@ function DetailContent({
             // 下单 checkout 带 waiveRetractationPeriod:true —— 替用户放弃了
             // 欧区 14 天法定撤销权(抢购要立即开通,这是常规做法),但必须让用户知情
             <span className="block text-[11px] mt-0.5">
-              下单成功后需自行付款；下单即放弃 14 天撤销期（立即开通）
+              {autoPay
+                ? "下单后将用 OVH 默认支付方式自动付款；下单即放弃 14 天撤销期"
+                : "下单成功后需自行付款；下单即放弃 14 天撤销期（立即开通）"}
             </span>
+          )}
+          {selectedDCs.length > 0 && (
+            <label className="flex items-center gap-1.5 mt-1 cursor-pointer text-[11px]">
+              <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
+              抢到后自动付款（需 OVH 账户已设置默认支付方式）
+            </label>
           )}
         </div>
         <Button variant="outline" onClick={onClose} disabled={create.isPending}>
@@ -791,6 +802,7 @@ function DetailContent({
               quantity: qty,
               retryInterval: Number(retryInterval) || 60,
               options: selectedValues,
+              autoPay,
             });
             if (result.success > 0) {
               toast.success(`已创建 ${result.success}/${result.total} 个抢购任务`);

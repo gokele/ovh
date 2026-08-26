@@ -32,6 +32,7 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 			Options            []string `json:"options"`
 			FromMonitor        bool     `json:"fromMonitor"`
 			SkipDuplicateCheck bool     `json:"skipDuplicateCheck"`
+			AutoPay            bool     `json:"autoPay"`
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.PlanCode == "" || body.Datacenter == "" {
@@ -196,6 +197,7 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 			Options:    options,
 			Status:     "running",
 			RetryCount: 0,
+			AutoPay:    body.AutoPay,
 			// MaxRetries 封顶的是**真正提交并失败的次数**(FailureCount),无货轮次不计。
 			// 早先按"检查轮次"封顶是错的:监控只在 无货→有货 的跳变上重新触发 quick-order,
 			// 一旦库存持续可见而下单侧连续吃 429/5xx,任务用尽轮次置 failed 后

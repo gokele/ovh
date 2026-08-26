@@ -42,6 +42,7 @@ func UpdateSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 			AutoOrder          *bool     `json:"autoOrder"`
 			Quantity           *int      `json:"quantity"`
 			AutoOrderAccountID *string   `json:"autoOrderAccountId"`
+			AutoPay            *bool     `json:"autoPay"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "请求体格式错误: " + err.Error()})
@@ -56,6 +57,7 @@ func UpdateSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 		autoOrder := cur.AutoOrder
 		quantity := cur.Quantity
 		accountID := cur.AutoOrderAccountID
+		autoPay := cur.AutoPay
 
 		if body.Datacenters != nil {
 			datacenters = *body.Datacenters
@@ -71,6 +73,9 @@ func UpdateSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 		}
 		if body.Quantity != nil {
 			quantity = *body.Quantity
+		}
+		if body.AutoPay != nil {
+			autoPay = *body.AutoPay
 		}
 		if body.AutoOrderAccountID != nil {
 			accountID = *body.AutoOrderAccountID
@@ -94,7 +99,7 @@ func UpdateSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 
 		// AddSubscription 对已存在的 planCode 是就地改配置,不会重置 LastStatus / History
 		mon.AddSubscription(planCode, datacenters, notifyAvailable, notifyUnavailable,
-			cur.ServerName, nil, nil, autoOrder, quantity, accountID)
+			cur.ServerName, nil, nil, autoOrder, quantity, accountID, autoPay)
 		mon.SaveToDB()
 		state.Logger.Info("更新服务器订阅配置: "+planCode, "monitor")
 
@@ -131,6 +136,7 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 			AutoOrder          *bool     `json:"autoOrder"`
 			Quantity           *int      `json:"quantity"`
 			OS                 *string   `json:"os"`
+			AutoPay            *bool     `json:"autoPay"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "请求体格式错误: " + err.Error()})
@@ -182,10 +188,17 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		if body.OS != nil {
 			next.OS = strings.TrimSpace(*body.OS)
 		}
+		if body.AutoPay != nil {
+			next.AutoPay = *body.AutoPay
+		}
 		// 没有下单账户就不可能自动下单 —— 让这两个字段自洽,
 		// 否则界面上会出现"开着自动下单但买不了"的状态
 		if next.AutoOrderAccountID == "" {
 			next.AutoOrder = false
+		}
+		// 自动付款依附于自动下单
+		if !next.AutoOrder {
+			next.AutoPay = false
 		}
 		if next.AutoOrder && next.Quantity < 1 {
 			next.Quantity = 1
@@ -261,6 +274,7 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		live.AutoOrder = next.AutoOrder
 		live.Quantity = next.Quantity
 		live.OS = next.OS
+		live.AutoPay = next.AutoPay
 		if resetStatus {
 			live.LastStatus = map[string]string{}
 		}

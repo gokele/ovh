@@ -10,6 +10,8 @@ export interface QueueItem {
   accountId: string;
   planCode: string;
   datacenter: string;
+  /** 下单成功后用 OVH 默认支付方式自动付款(显式开关,默认关) */
+  autoPay?: boolean;
   options: string[];
   status: QueueStatus;
   createdAt: string;
@@ -76,6 +78,7 @@ export function useCreateQueueItem() {
       options?: string[];
       retryInterval?: number;
       quantity?: number;
+      autoPay?: boolean;
     }) => {
       const qty = Math.max(1, payload.quantity ?? 1);
       const dcs = payload.datacenters;
@@ -90,6 +93,7 @@ export function useCreateQueueItem() {
               datacenter: dc,
               retryInterval: payload.retryInterval,
               options: payload.options || [],
+              autoPay: payload.autoPay ?? false,
             });
             success++;
           } catch (e) {

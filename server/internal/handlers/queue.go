@@ -24,6 +24,8 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			Datacenter    string   `json:"datacenter"`
 			Options       []string `json:"options"`
 			RetryInterval int      `json:"retryInterval"`
+			// AutoPay 下单成功后用默认支付方式自动付款(显式开关,默认关)
+			AutoPay bool `json:"autoPay"`
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.AccountID == "" {
@@ -67,6 +69,7 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			RetryInterval: body.RetryInterval,
 			RetryCount:    0,
 			LastCheckTime: 0,
+			AutoPay:       body.AutoPay,
 		}
 		state.QueueMu.Lock()
 		state.Queue = append(state.Queue, item)
