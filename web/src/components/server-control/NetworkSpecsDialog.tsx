@@ -1,4 +1,5 @@
 import { Network, RefreshCw, ArrowUp, ArrowDown, ArrowLeftRight, Cable } from "lucide-react";
+import { maskSensitive, useHideIp } from "@/hooks/use-hide-ip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/common/Skeleton";
@@ -26,6 +27,18 @@ export function NetworkSpecsDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const { hidden } = useHideIp();
+  // 路由信息里有 CIDR 和 IPv6,maskSensitive 的精确正则接不住,统一宽松打码:
+  // 保留首段,其余遮掉。开关关着时原样返回。
+  const maskAny = (v?: string) => {
+    if (!v) return v ?? "";
+    if (!hidden) return v;
+    const m4 = v.match(/^(\d{1,3})\./);
+    if (m4) return `${m4[1]}.***`;
+    const i = v.indexOf(":");
+    if (i > 0) return v.slice(0, i) + ":****";
+    return maskSensitive(v, hidden);
+  };
   const q = useServerNetworkSpecs(serviceName, open);
   const data = q.data;
 
@@ -84,9 +97,9 @@ export function NetworkSpecsDialog({
                   <div className="px-4 py-2 bg-secondary/50 text-[12px] font-semibold">IPv4 路由</div>
                   <KvRows
                     rows={[
-                      ["IP 地址", data.routing.ipv4.ip],
-                      ["网关", data.routing.ipv4.gateway],
-                      ["网段", data.routing.ipv4.network],
+                      ["IP 地址", maskAny(data.routing.ipv4.ip)],
+                      ["网关", maskAny(data.routing.ipv4.gateway)],
+                      ["网段", maskAny(data.routing.ipv4.network)],
                     ]}
                   />
                 </div>
@@ -98,9 +111,9 @@ export function NetworkSpecsDialog({
                   <div className="px-4 py-2 bg-secondary/50 text-[12px] font-semibold">IPv6 路由</div>
                   <KvRows
                     rows={[
-                      ["IP 地址", data.routing.ipv6.ip],
-                      ["网关", data.routing.ipv6.gateway],
-                      ["网段", data.routing.ipv6.network],
+                      ["IP 地址", maskAny(data.routing.ipv6.ip)],
+                      ["网关", maskAny(data.routing.ipv6.gateway)],
+                      ["网段", maskAny(data.routing.ipv6.network)],
                     ]}
                   />
                 </div>

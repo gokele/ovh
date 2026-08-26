@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useHideIp } from "@/hooks/use-hide-ip";
 import { FileText, RefreshCw, Trash2, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -25,7 +26,20 @@ export const Route = createFileRoute("/logs")({
   component: LogsPage,
 });
 
+
+/** 日志是自由文本,IP 和 serviceName(ns123.ip-54-38-222.eu,内嵌完整 IP)混在句子里。
+ *  隐私模式开着时对整行做子串级打码 —— 这个页面截图发群里排障是常态,
+ *  别的页面都打了码、日志页裸奔等于全部白打。 */
+function maskLogLine(text: string, hidden: boolean): string {
+  if (!hidden || !text) return text;
+  return text
+    .replace(/ip[-.]\d{1,3}[-.]\d{1,3}[-.]\d{1,3}[-.]\d{1,3}/gi, "ip-***-***-***-***")
+    .replace(/\b(\d{1,3})\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "$1.***.***.***")
+    .replace(/\b([0-9a-fA-F]{1,4}:){3,}[0-9a-fA-F:]+\b/g, "ipv6:****");
+}
+
 function LogsPage() {
+  const { hidden } = useHideIp();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const logs = useLogs(autoRefresh);
   const clear = useClearLogs();
@@ -141,6 +155,7 @@ function LogsPage() {
 }
 
 function LogRow({ log }: { log: LogEntry }) {
+  const { hidden } = useHideIp();
   const tone =
     log.level === "ERROR" ? "danger" :
     log.level === "WARNING" ? "warning" :
@@ -158,7 +173,7 @@ function LogRow({ log }: { log: LogEntry }) {
       </span>
       <Chip tone={tone as any} className="font-mono w-16 justify-center">{log.level}</Chip>
       <span className="font-mono text-muted-foreground w-28 truncate flex-shrink-0">[{log.source}]</span>
-      <span className="flex-1 break-words">{log.message}</span>
+      <span className="flex-1 break-words">{maskLogLine(log.message, hidden)}</span>
     </div>
   );
 }

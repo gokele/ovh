@@ -1,4 +1,11 @@
 import { useState } from "react";
+import { maskSensitive, useHideIp } from "@/hooks/use-hide-ip";
+
+/** CIDR(1.2.3.0/24)带掩码,maskSensitive 的 IPv4 正则吃不下,先拆开再打 */
+function maskBlockValue(v: string, hidden: boolean): string {
+  const [ip, mask] = (v || "").split("/");
+  return maskSensitive(ip, hidden) + (mask ? "/" + mask : "");
+}
 import {
   Zap, Shield, FolderArchive, Globe, Wifi, Network, ShoppingBag, Settings, MapPin,
   Power, AlertCircle, ShieldAlert, Plus, Trash2, KeyRound,
@@ -143,6 +150,7 @@ function FirewallPane({ serviceName }: { serviceName: string }) {
 // ─────────────────────────────── Backup FTP ───────────────────────────────
 
 function BackupFtpPane({ serviceName }: { serviceName: string }) {
+  const { hidden } = useHideIp();
   const { isUS, ready } = useActiveAccountEndpoint();
   // US 区官方 schema 里 backupFTP 五条路径全都不存在，请求发出去只会拿到 notAvailable。
   // 账户信息一加载完就本地拦下，省掉一次注定失败的往返（enabled=false 让 hook 根本不发请求）。
@@ -328,7 +336,7 @@ function BackupFtpPane({ serviceName }: { serviceName: string }) {
           <div className="border border-border rounded-2xl divide-y divide-border">
             {accessList.map((a, idx) => (
               <div key={a.ipBlock || idx} className="px-4 py-2.5 text-[13px] flex items-center gap-2 flex-wrap">
-                <code className="font-mono">{a.ipBlock}</code>
+                <code className="font-mono">{maskBlockValue(a.ipBlock, hidden)}</code>
                 {a.ftp && <Chip tone="default">FTP</Chip>}
                 {a.nfs && <Chip tone="default">NFS</Chip>}
                 {a.cifs && <Chip tone="default">CIFS</Chip>}
@@ -391,6 +399,7 @@ function SecondaryDnsPane({ serviceName }: { serviceName: string }) {
 // ─────────────────────────────── Virtual MAC ───────────────────────────────
 
 function VirtualMacPane({ serviceName }: { serviceName: string }) {
+  const { hidden } = useHideIp();
   const q = useServerVirtualMac(serviceName);
   if (q.isPending) return <PaneSkeleton />;
   if (q.isError) return <LoadFailed icon={Wifi} title="虚拟 MAC 读取失败" error={q.error} onRetry={() => q.refetch()} />;
@@ -407,7 +416,7 @@ function VirtualMacPane({ serviceName }: { serviceName: string }) {
               {m.type || "—"}
               <DetailErrorTag message={m._detailError} />
             </span>
-            <code className="font-mono text-muted-foreground sm:text-right break-all">{m.ipAddress || "—"}</code>
+            <code className="font-mono text-muted-foreground sm:text-right break-all">{m.ipAddress ? maskSensitive(m.ipAddress, hidden) : "—"}</code>
           </div>
         ))}
       </div>

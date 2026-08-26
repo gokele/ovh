@@ -33,7 +33,7 @@ export function BootModeDialog({
       toast.success("启动模式已切换");
       try {
         await reboot.mutateAsync(serviceName);
-        toast.success("服务器已重启，启动模式生效");
+        toast.success("重启任务已提交，启动模式将在几分钟内生效");
       } catch {
         toast.warning("启动模式已切换，但重启失败，请手动重启");
       }

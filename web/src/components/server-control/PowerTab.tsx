@@ -37,7 +37,7 @@ export function PowerTab({ server }: { server: OwnedServer }) {
         <ActionCard
           icon={Power}
           title="重启服务器"
-          description="发起一次软重启任务"
+          description="硬重启(相当于按电源键,未落盘的数据会丢)"
           onClick={() => action("重启", () => api.post(`/server-control/${server.serviceName}/reboot`))}
         />
         <ActionCard

@@ -164,7 +164,9 @@ function HistoryPage() {
                   <th className="px-4 py-3">价格</th>
                   <th className="px-4 py-3">状态</th>
                   <th className="px-4 py-3">时间</th>
-                  <th className="px-4 py-3">剩余</th>
+                  <th className="px-4 py-3" title="付款窗口:下单不会自动扣款,倒计时结束前未付款订单作废">
+                付款剩余
+              </th>
                   <th className="px-4 py-3">操作</th>
                 </tr>
               </thead>
@@ -224,7 +226,9 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
       </td>
       <td className="px-4 py-3">
         {item.status === "success" ? (
-          <Chip tone="success">成功</Chip>
+          <Chip tone="success" title="订单已创建,尚未付款 —— 倒计时结束前完成付款,否则作废">
+            成功·待付款
+          </Chip>
         ) : (
           <Chip tone="danger">失败</Chip>
         )}
@@ -293,7 +297,9 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
             <TimingChip totalMs={item.totalMs} phases={item.timing} />
           </div>
           {item.status === "success" ? (
-            <Chip tone="success">成功</Chip>
+            <Chip tone="success" title="订单已创建,尚未付款 —— 倒计时结束前完成付款,否则作废">
+            成功·待付款
+          </Chip>
           ) : (
             <Chip tone="danger">失败</Chip>
           )}

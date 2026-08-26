@@ -140,6 +140,8 @@ func main() {
 
 	// 监控器
 	mon := monitor.New(state)
+	// 删账户的级联清理需要摸到监控内存(SQL 清了、内存不清会被 SaveToDB 写回)
+	handlers.SetMonitorRef(mon)
 	mon.LoadFromDB()
 	console.Info("监控就绪", "checkInterval", mon.CheckInterval())
 

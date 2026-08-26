@@ -281,7 +281,7 @@ export function EngagementDialog({
           <ol className="space-y-1.5 text-[12px] text-muted-foreground list-decimal pl-5">
             <li>
               OVH 创建一笔<span className="font-semibold text-foreground">未付订单</span>
-              (就是该承诺期的总价)
+              (一次性预付=承诺期总价;周期付费=首期价)
             </li>
             <li>
               <span className="font-semibold text-foreground">付款前合同期不会激活</span>
@@ -317,7 +317,7 @@ export function EngagementDialog({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-destructive">确认改为「到期自动销毁服务」?</DialogTitle>
-            <DialogDescription>这是不可撤销的操作</DialogDescription>
+            <DialogDescription>承诺期结束时服务将被销毁</DialogDescription>
           </DialogHeader>
           <div className="text-[12px] text-muted-foreground space-y-1.5">
             <p>
@@ -357,15 +357,29 @@ function PricingRow({
   // 币种一律用 OVH 给的 currencyCode。以前兜底 "USD" —— 合同期这套端点三区都有,
   // 欧区账户的价格会被硬贴上 USD 标签。拿不到就只显示数字(formatMoney 不编货币符号)。
   const currency = pricing.price?.currencyCode || "";
-  const totalValue = pricing.price?.value ?? 0;
+  const priceValue = pricing.price?.value ?? 0;
+  // 承诺期总长(月),只用于标题展示
   const months = parseDurationMonths(pricing.engagementConfiguration?.duration || "");
-  const perMonth = months > 0 ? totalValue / months : 0;
-
-  const totalText =
-    pricing.price?.text || (totalValue > 0 ? formatMoney(totalValue, currency) : "—");
-  const perMonthText = perMonth > 0 ? `${formatMoney(perMonth, currency)} / 月` : "";
+  // 价格对应的周期是 pricing 行**自己的** duration —— schema 里它的描述是
+  // "Default renew interval"(一个续费区间)。以前拿承诺期月数去除:
+  // upfront 模式碰巧对(区间=承诺期),periodic 模式区间只有 1 个月,
+  // 月付价被再除以 12,「月均价」低了 12 倍 —— 用户会按假价签一年合同。
+  const intervalMonths = parseDurationMonths(pricing.duration || "");
+  const perMonth = intervalMonths > 0 ? priceValue / intervalMonths : 0;
 
   const isUpfront = pricing.pricingMode.toLowerCase().includes("upfront");
+  // 总价只有区间=承诺期(upfront)时才等于 price;periodic 的 price 是每期价,
+  // 总价 = 每期价 × 期数
+  const totalValue =
+    intervalMonths > 0 && months > 0 ? (priceValue / intervalMonths) * months : priceValue;
+  const totalText =
+    isUpfront && pricing.price?.text
+      ? pricing.price.text
+      : totalValue > 0
+        ? formatMoney(totalValue, currency)
+        : "—";
+  const perMonthText = perMonth > 0 ? `${formatMoney(perMonth, currency)} / 月` : "";
+
   const friendlyTitle = humanizeDescription(pricing.description, months, isUpfront);
 
   return (

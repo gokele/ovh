@@ -748,6 +748,13 @@ function DetailContent({
           {selectedDCs.length > 0
             ? `将创建 ${totalTasks} 个任务（${selectedDCs.length} DC × ${qty}）${selectedValues.length > 0 ? ` · ${selectedValues.length} 项选配` : ""}`
             : "请选数据中心"}
+          {selectedDCs.length > 0 && (
+            // 下单 checkout 带 waiveRetractationPeriod:true —— 替用户放弃了
+            // 欧区 14 天法定撤销权(抢购要立即开通,这是常规做法),但必须让用户知情
+            <span className="block text-[11px] mt-0.5">
+              下单成功后需自行付款；下单即放弃 14 天撤销期（立即开通）
+            </span>
+          )}
         </div>
         <Button variant="outline" onClick={onClose} disabled={create.isPending}>
           关闭

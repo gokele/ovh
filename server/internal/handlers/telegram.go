@@ -391,8 +391,14 @@ func handleTelegramMessage(state *app.State, c *gin.Context, msg map[string]inte
 		if len(orderInfo.Options) > 0 {
 			optsText = strings.Join(orderInfo.Options, ", ")
 		}
-		reply = fmt.Sprintf("✅ 下单成功！\n\n型号: %s\n机房: %s\n数量: %d\n配置: %s\n\n已创建: %d/%d 个订单\n系统将自动尝试下单。",
-			orderInfo.PlanCode, dcText, orderInfo.Quantity, optsText, result.CreatedOrders, result.TotalOrders)
+		// 这里只是把任务加进抢购队列,还没有真的下单 ——
+		// 措辞不能写"下单成功",那会让用户以为已经买到了。
+		// 另外不指定机房时任务数 = 配置数 × 有货机房数 × 数量,
+		// 可能远超用户直觉,必须把总数醒目地摆出来。
+		reply = fmt.Sprintf("📥 已创建 %d/%d 个抢购任务\n\n型号: %s\n机房: %s\n数量: %d\n配置: %s\n\n"+
+			"系统将自动尝试下单;每个任务下单成功后会单独通知(注意:下单成功≠已付款)。\n"+
+			"不想跑这么多任务就到「抢购队列」里删。",
+			result.CreatedOrders, result.TotalOrders, orderInfo.PlanCode, dcText, orderInfo.Quantity, optsText)
 	} else {
 		reply = "❌ 下单失败\n\n" + result.Message
 	}

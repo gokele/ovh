@@ -284,3 +284,29 @@ type SubscriptionConfig struct {
 	Quantity           int
 	AutoOrderAccountID string
 }
+
+// ClearAccountRefs 把内存订阅里对某账户的引用清掉。
+//
+// 删账户时 SQL 已经把 auto_order_account_id 清空,但 Monitor 内存里还是旧值 ——
+// 而 SaveToDB 是拿内存整表 Replace 回写的,任何一次订阅增删改都会把已删的
+// 账户 ID 复活回数据库,SQL 的级联清理等于白做。所以内存必须同步清。
+// 返回清了几条,给日志用。
+func (m *Monitor) ClearAccountRefs(accountID string) int {
+	if accountID == "" {
+		return 0
+	}
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+	n := 0
+	for _, s := range m.subscriptions {
+		s.mu.Lock()
+		if s.AutoOrderAccountID == accountID {
+			s.AutoOrderAccountID = ""
+			// 账户没了就不可能下单,别让 AutoOrder 停留在"开着但买不了"的假状态
+			s.AutoOrder = false
+			n++
+		}
+		s.mu.Unlock()
+	}
+	return n
+}

@@ -114,7 +114,7 @@ func terminationPolicyHandler(
 //
 // 旧接口 serviceInfos.renew.deleteAtExpiration 会不会随 terminationPolicy 同步,
 // 文档没有任何说法 —— 所以界面显示"当前是不是到期终止"不能赌它,必须读这里。
-func lifecycleTermination(client *ovhsdk.Client, serviceID int64) (scheduled bool, date string, err error) {
+func lifecycleTermination(client *ovhsdk.Client, serviceID int64) (scheduled bool, action, date string, err error) {
 	var svc struct {
 		Billing struct {
 			Lifecycle struct {
@@ -126,15 +126,17 @@ func lifecycleTermination(client *ovhsdk.Client, serviceID int64) (scheduled boo
 		} `json:"billing"`
 	}
 	if err := client.Get(fmt.Sprintf("/services/%d", serviceID), &svc); err != nil {
-		return false, "", err
+		return false, "", "", err
 	}
 	for _, a := range svc.Billing.Lifecycle.Current.PendingActions {
 		switch a {
 		case "terminate", "terminateAtExpirationDate", "terminateAtEngagementDate", "deleteAtExpiration":
-			return true, svc.Billing.Lifecycle.Current.TerminationDate, nil
+			// action 原样带出:terminate(立即终止处理中)和 terminateAtExpirationDate
+			// (到期才终止)是两个不同的动作,前端不能都显示成"到期终止"
+			return true, a, svc.Billing.Lifecycle.Current.TerminationDate, nil
 		}
 	}
-	return false, "", nil
+	return false, "", "", nil
 }
 
 // attachTerminationState 把终止状态并进 serviceInfo 响应。
@@ -148,12 +150,18 @@ func attachTerminationState(state *app.State, client *ovhsdk.Client,
 		state.Logger.Warn(svc+" 取 serviceId 失败,终止状态回退到 renew 字段: "+err.Error(), logSource)
 		return
 	}
-	scheduled, date, err := lifecycleTermination(client, serviceID)
+	scheduled, action, date, err := lifecycleTermination(client, serviceID)
 	if err != nil {
 		state.Logger.Warn(svc+" 读取生命周期失败,终止状态回退到 renew 字段: "+err.Error(), logSource)
+		// 读不到就明说读不到,别让"读取失败"悄悄变成"没有终止计划"——
+		// 对销毁级状态,前端要能显示"状态未知"
+		out["terminationStateUnknown"] = true
 		return
 	}
 	out["terminationScheduled"] = scheduled
+	if action != "" {
+		out["terminationAction"] = action
+	}
 	if date != "" {
 		out["terminationDate"] = date
 	}

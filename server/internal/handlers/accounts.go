@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/monitor"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -332,7 +334,14 @@ func verifyAccountCreds(state *app.State, accountID string) (bool, string) {
 
 // reloadAfterAccountDelete 删账户后,把内存里关联的 queue/history/sniper_tasks
 // 重新从 SQLite 加载(级联删除已经把这些行删掉了)
-func reloadAfterAccountDelete(state *app.State, _ string) {
+// monitorRef 由 main 注入。handlers 包里大多数函数按参数拿 *monitor.Monitor,
+// 但删账户的级联清理埋在 helper 里,加参数要改一串签名,注入一次更省事。
+var monitorRef *monitor.Monitor
+
+// SetMonitorRef main 启动时调用一次
+func SetMonitorRef(m *monitor.Monitor) { monitorRef = m }
+
+func reloadAfterAccountDelete(state *app.State, accountID string) {
 	if items, err := state.DB.ListQueue(); err == nil {
 		state.QueueMu.Lock()
 		state.Queue = items
@@ -349,10 +358,14 @@ func reloadAfterAccountDelete(state *app.State, _ string) {
 		}
 		state.HistoryMu.Unlock()
 	}
-	// 监控订阅的 auto_order_account_id 已经被 SQL UPDATE 清空了,
-	// 但内存里还是旧值,得重载
-	if subs, err := state.DB.ListMonitorSubscriptions(); err == nil {
-		_ = subs // 实际由 monitor 包自己 LoadFromDB,这里跳过
+	// 监控订阅的 auto_order_account_id 已经被 SQL UPDATE 清空,内存也必须同步清:
+	// SaveToDB 是拿内存整表 Replace 回写的,不清内存的话,下一次任何订阅增删改
+	// 都会把已删账户 ID 复活回数据库 —— 之前这里写着"由 monitor 包自己 LoadFromDB"
+	// 但那个重载从未发生,级联清理等于白做
+	if mon := monitorRef; mon != nil {
+		if n := mon.ClearAccountRefs(accountID); n > 0 {
+			state.Logger.Info(fmt.Sprintf("删账户 %s:已解除 %d 条监控订阅的自动下单绑定", accountID, n), "accounts")
+		}
 	}
 	if subs, err := state.DB.ListVPSSubscriptions(); err == nil {
 		state.VPSSubsMu.Lock()

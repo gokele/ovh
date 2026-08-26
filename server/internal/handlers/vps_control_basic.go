@@ -346,13 +346,11 @@ func UpdateVpsRenewal(state *app.State) gin.HandlerFunc {
 			next["deleteAtExpiration"] = false
 			next["manualPayment"] = true
 		case "delete":
-			// 到期注销不能靠 renew 标志位。实测 OVH 回 400 "Arguments conflicting",
-			// 而且 OVH 自己的 issue 里记着这组标志位行为不可预测(同一份 payload
-			// 发两次会在自动/手动之间来回跳)。注销有专用端点:
-			// POST /terminate 拿邮件 token,再 POST /confirmTermination 确认 ——
-			// 那也是 OVH 控制台「Terminate my service」走的那条。
+			// 到期终止不能靠 renew 标志位(OVH 回 400 "Arguments conflicting",行为不可预测)。
+			// 也**不能**指向 POST /terminate——那是立即终止,提交即暂停服务器,真实踩过。
+			// 唯一正确的路是 PUT /services/{serviceId} 的 terminationPolicy。
 			c.JSON(http.StatusBadRequest, gin.H{"success": false,
-				"error": "到期注销请走服务终止流程(需要邮件确认),不能通过续费策略设置"})
+				"error": "到期终止请用 PUT termination-policy 接口(terminationPolicy=terminateAtExpirationDate);不要调 /terminate——那是立即终止,提交即暂停服务"})
 			return
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "mode 必须是 auto / manual / delete 之一"})

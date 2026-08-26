@@ -488,7 +488,12 @@ func PurchaseServer(state *app.State, item *types.QueueItem) Outcome {
 	// 发送 Telegram 成功通知。TG token / chat id 仍然走全局 state.Config(Telegram 是平台级配置,跨账户共享)
 	tgCfg := state.Config.Get()
 	if tgCfg.TgToken != "" && tgCfg.TgChatID != "" {
-		msg := fmt.Sprintf("🎉 OVH 服务器抢购成功！🎉\n\n服务器型号 (Plan Code): %s\n数据中心: %s\n订单 ID: %s\n订单链接: %s\n",
+		// checkout 用的是 autoPayWithPreferredPaymentMethod:false ——
+		// "成功"的真实语义是「订单已创建、**还没付款**、逾期作废」。
+		// 通知里必须把这句说出来,否则用户看到🎉就睡了,订单过期机器就没了。
+		msg := fmt.Sprintf("🎉 OVH 服务器下单成功！\n\n服务器型号 (Plan Code): %s\n数据中心: %s\n订单 ID: %s\n订单链接: %s\n\n"+
+			"⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n"+
+			"(下单时已按惯例放弃 14 天撤销期,付款即开通)\n",
 			item.PlanCode, item.Datacenter, orderID, orderURL)
 		if len(item.Options) > 0 {
 			msg += "自定义配置: " + strings.Join(item.Options, ", ") + "\n"

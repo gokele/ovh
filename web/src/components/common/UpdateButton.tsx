@@ -50,6 +50,17 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
           window.clearInterval(timer);
           toast.success(`已更新到 v${now}，正在刷新页面`);
           setTimeout(() => window.location.reload(), 800);
+        } else if (now && target && now !== target && tries > 3) {
+          // 服务回来了但版本不是目标值 = 新版本没起来、回滚保护把旧版换回来了。
+          // 这是确凿信号，不能当"没消息"吞掉——以前这里会一路等到超时，
+          // 然后说"二进制可能已经替换成功"，两头都不对。
+          // 头几秒放过：旧进程还没退完时也会回旧版本号。
+          window.clearInterval(timer);
+          setWaitingRestart(false);
+          setStarted(false);
+          setFailed(
+            `更新到 v${target} 失败，已自动回滚到 v${now}。服务正常运行，详情见后端日志`
+          );
         }
       } catch {
         // 连不上是预期内的：进程正在被替换。继续等。

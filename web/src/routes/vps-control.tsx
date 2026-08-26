@@ -587,8 +587,13 @@ function VpsDetail({
                     {ip.type && <span className="text-[10px] text-muted-foreground">{ip.type}</span>}
                     {ip.geolocation && <span className="text-[10px] text-muted-foreground">{ip.geolocation}</span>}
                     {ip.reverse && (
-                      <span className="ml-auto text-[11px] text-muted-foreground font-mono truncate" title={ip.reverse}>
-                        ↩ {ip.reverse}
+                      // 反向 DNS 里就编码着完整 IP(ip-54-38-222.eu 形态),
+                      // IP 打了码、reverse 原样显示等于没打;title 同理
+                      <span
+                        className="ml-auto text-[11px] text-muted-foreground font-mono truncate"
+                        title={maskSensitive(ip.reverse, hidden)}
+                      >
+                        ↩ {maskSensitive(ip.reverse, hidden)}
                       </span>
                     )}
                   </div>

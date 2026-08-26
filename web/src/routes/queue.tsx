@@ -160,7 +160,7 @@ function QueuePage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>确认清空队列？</DialogTitle>
-            <DialogDescription>所有任务将被删除，此操作不可撤销。</DialogDescription>
+            <DialogDescription>所有任务将被删除，此操作不可撤销。正在执行中的下单(已走到结账那几秒的)可能仍会完成并产生真实订单。</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowClearDialog(false)}>
