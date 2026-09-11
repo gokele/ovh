@@ -80,7 +80,7 @@ function MonitorPage() {
     status.isPending ? "…" : status.isError || v === undefined ? "—" : v;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={Bell}
         title="服务器监控"

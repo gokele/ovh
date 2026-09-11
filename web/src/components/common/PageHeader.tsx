@@ -8,27 +8,39 @@ interface PageHeaderProps {
 }
 
 /**
- * 统一的页面顶部 header：
- * 左侧 icon 方块 + 标题 + 描述，右侧操作按钮
- * 所有页面都用这个，保持视觉一致
+ * 统一的页面顶部 header：左侧 icon 方块 + 标题 + 描述，右侧操作按钮。
+ *
+ * 手机端（< sm）刻意瘦一圈：
+ * - 不画 icon 方块 —— 它在 390px 宽里吃掉 40px 却不带信息，标题本身就是标识
+ * - 标题降到 17px，描述压成一行省略（描述多是「这页的数据是怎么来的」这类背景，
+ *   要看的人会看，但不该在首屏占两行）
+ * - 操作按钮跟标题挤同一行（以前它们各占一行，白吃 52px）
+ * 这几条加起来在手机上省掉约 90px —— 原来光页头就占首屏的 1/10。
  */
 export function PageHeader({ icon: Icon, title, description, action }: PageHeaderProps) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
-      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-secondary flex items-center justify-center flex-shrink-0">
-          <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-foreground" strokeWidth={1.75} />
+    <div className="flex items-start justify-between gap-2 sm:gap-4">
+      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+        {/* 图标方块只在 sm+ 出现 */}
+        <div className="hidden sm:flex w-11 h-11 rounded-xl bg-secondary items-center justify-center flex-shrink-0">
+          <Icon className="w-6 h-6 text-foreground" strokeWidth={1.75} />
         </div>
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-[28px] font-bold text-foreground leading-tight tracking-tight">
+          <h1 className="text-[17px] sm:text-[28px] font-bold text-foreground leading-tight tracking-tight truncate">
             {title}
           </h1>
           {description && (
-            <p className="text-[12px] sm:text-[14px] text-muted-foreground mt-0.5 line-clamp-2 sm:line-clamp-1">{description}</p>
+            <p className="text-[11px] sm:text-[14px] text-muted-foreground mt-0.5 line-clamp-1">
+              {description}
+            </p>
           )}
         </div>
       </div>
-      {action && <div className="flex items-center gap-2 flex-wrap sm:flex-shrink-0">{action}</div>}
+      {action && (
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end flex-shrink-0">
+          {action}
+        </div>
+      )}
     </div>
   );
 }

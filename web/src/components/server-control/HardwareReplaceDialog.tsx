@@ -161,7 +161,7 @@ export function HardwareReplaceDialog({
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 placeholder="Describe the issue in English (optional)…"
-                className="w-full px-3 py-2 border border-border rounded-md text-[13px] bg-background focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                className="w-full px-3 py-2 border border-border rounded-md text-base sm:text-[13px] bg-background focus:outline-none focus:ring-1 focus:ring-ring resize-none"
               />
             </div>
 
@@ -190,7 +190,7 @@ export function HardwareReplaceDialog({
                   value={diskInput}
                   onChange={(e) => setDiskInput(e.target.value)}
                   placeholder={"S3Z2NB0K123456\nS3Z2NB0K654321 2   ← 序列号后可跟槽位号"}
-                  className="w-full px-3 py-2 border border-border rounded-md text-[13px] font-mono bg-background focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                  className="w-full px-3 py-2 border border-border rounded-md text-base sm:text-[13px] font-mono bg-background focus:outline-none focus:ring-1 focus:ring-ring resize-none"
                 />
                 <label className="flex items-start gap-2 cursor-pointer text-[12px]">
                   <input

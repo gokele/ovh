@@ -303,11 +303,11 @@ function BackupFtpPane({ serviceName }: { serviceName: string }) {
             className="h-8 w-56 font-mono text-[12px]"
           />
           <label className="flex items-center gap-1 text-[11px] cursor-pointer">
-            <input type="checkbox" checked={nfs} onChange={(e) => setNfs(e.target.checked)} className="w-3.5 h-3.5" />
+            <input type="checkbox" checked={nfs} onChange={(e) => setNfs(e.target.checked)} className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
             NFS
           </label>
           <label className="flex items-center gap-1 text-[11px] cursor-pointer">
-            <input type="checkbox" checked={cifs} onChange={(e) => setCifs(e.target.checked)} className="w-3.5 h-3.5" />
+            <input type="checkbox" checked={cifs} onChange={(e) => setCifs(e.target.checked)} className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
             CIFS
           </label>
           <Button size="sm" variant="outline" className="h-8" onClick={handleAdd} disabled={addAccess.isPending}>

@@ -86,11 +86,11 @@ export function TimeslotsDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <label className="text-[11px] text-muted-foreground block mb-1">开始日期</label>
-              <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="text-[12px]" />
+              <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="text-base sm:text-[12px]" />
             </div>
             <div>
               <label className="text-[11px] text-muted-foreground block mb-1">结束日期</label>
-              <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="text-[12px]" />
+              <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="text-base sm:text-[12px]" />
             </div>
           </div>
           <p className="text-[11px] text-muted-foreground">

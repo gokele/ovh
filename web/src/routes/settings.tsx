@@ -111,7 +111,7 @@ function SettingsPage() {
   const savableSection = active === "password" || loaded;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={SettingsIcon}
         title="API 设置"
@@ -130,7 +130,14 @@ function SettingsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr] gap-4">
         {/* sub-nav:桌面竖向左栏,手机横向滚动 tab */}
-        <nav className="lg:space-y-1 flex lg:flex-col overflow-x-auto lg:overflow-visible gap-1 lg:gap-0 -mx-3 px-3 lg:mx-0 lg:px-0">
+        {/* 手机端这是一条横滑的 tab 条。原来右边直接被裁断,「通知通道」只露半个字,
+            看不出还能往右滑 —— 加一层右侧渐隐当作可滚动的提示,
+            并且隐藏滚动条(移动端本来就不显示,桌面横滑时那条也碍眼)。 */}
+        <div className="relative lg:contents">
+          {/* nav 用了 -mx-3 出血到屏幕边,渐隐也要跟着 -right-3,
+              否则它只盖到栅格格子的边界,真正被裁断的那几像素还是硬切 */}
+          <div className="pointer-events-none absolute -right-3 top-0 bottom-0 w-10 bg-gradient-to-l from-background via-background/80 to-transparent lg:hidden z-10" />
+        <nav className="lg:space-y-1 flex lg:flex-col overflow-x-auto lg:overflow-visible gap-1 lg:gap-0 -mx-3 px-3 lg:mx-0 lg:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {SECTIONS.map((s) => {
             const Icon = s.icon;
             const a = active === s.id;
@@ -153,10 +160,11 @@ function SettingsPage() {
             );
           })}
         </nav>
+        </div>
 
         {/* 右内容 */}
         <Card>
-          <CardContent className="p-4 sm:p-6">
+          <CardContent className="p-3 sm:p-6">
             {cfg.isPending ? (
               <Skeleton className="h-64 rounded-2xl" />
             ) : cfg.isError && active !== "password" && active !== "accounts" && active !== "cache" ? (

@@ -133,3 +133,17 @@
     background-color: hsl(var(--muted-foreground) / 0.5);
   }
 }
+
+@layer utilities {
+  /* 底部标签栏只在 lg 以下存在,所以这条内边距也只在 lg 以下加 ——
+     写成内联 style 的话桌面端会白吃 64px 死空间。
+     标签栏 52px + 12px 呼吸 + iPhone home 指示条的安全区。 */
+  .pb-tabbar {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 64px);
+  }
+  @media (min-width: 1024px) {
+    .pb-tabbar {
+      padding-bottom: 2rem;
+    }
+  }
+}

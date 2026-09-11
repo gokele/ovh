@@ -67,7 +67,7 @@ function LogsPage() {
   }, [filtered, autoRefresh, search, levelFilter]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={FileText}
         title="详细日志"
@@ -87,9 +87,11 @@ function LogsPage() {
       />
 
       <Card>
-        <CardContent className="p-5">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
-            <div className="relative">
+        <CardContent className="p-3 sm:p-5">
+          {/* 手机端:搜索框整行,级别下拉和自动刷新并排 —— 三个控件各占一行
+              在 390px 宽里要 150px,而首屏总共才 844px */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 items-center">
+            <div className="relative col-span-2 sm:col-span-1">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
               <Input
                 placeholder="搜索日志内容..."

@@ -10,7 +10,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(({ className, type,
       type={type}
       ref={ref}
       className={cn(
-        "flex h-10 w-full rounded-xl border border-input bg-background px-3.5 py-2 text-sm",
+        // 手机端必须 >= 16px:iOS Safari 在聚焦一个字号小于 16px 的输入框时
+        // 会自动把整个页面放大,用户得手动双指缩回去,每个搜索框都中招。
+        // h-11(44px) 同时满足可达性的最小点击区。
+        "flex h-11 sm:h-10 w-full rounded-xl border border-input bg-background px-3.5 py-2 text-base sm:text-sm",
         "placeholder:text-muted-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0",
         "disabled:cursor-not-allowed disabled:opacity-50",

@@ -143,7 +143,7 @@ function ServersPage() {
   const detailServer = detailPlanCode ? list.find((s) => s.planCode === detailPlanCode) || null : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={Server}
         title="服务器列表"
@@ -177,10 +177,11 @@ function ServersPage() {
         }
       />
 
-      {/* 工具条 */}
+      {/* 工具条。手机端:搜索框独占一行(要能看清输入),下面一行放「仅显示可用」+
+          结算币种 + 计数 —— 以前这四样各占一整行,在 390px 宽里白吃 ~240px。 */}
       <Card>
-        <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="relative flex-1 min-w-0">
+        <CardContent className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+          <div className="relative w-full sm:flex-1 min-w-0">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <Input
               placeholder="搜索 planCode / 型号 / CPU / 内存..."
@@ -189,10 +190,12 @@ function ServersPage() {
               className="pl-9 rounded-full"
             />
           </div>
+          {/* 手机端把下面三样裹进一行 flex,sm+ 时 contents 让它们回到父级排布 */}
+          <div className="flex items-center gap-2 flex-wrap sm:contents">
           <Button
             variant={onlyAvailable ? "default" : "outline"}
             size="sm"
-            className="rounded-full"
+            className="rounded-full flex-shrink-0"
             onClick={() => setOnlyAvailable((v) => !v)}
           >
             <Filter className="w-3.5 h-3.5" />
@@ -201,13 +204,14 @@ function ServersPage() {
           {/* 价格地区不再单独选:它以前只换价格、不换机型列表,而下拉里写着「US · 美国」,
               看上去像是切到了美区目录 —— 实际列表还是欧区的 planCode(24sk602 vs 美区的
               24sk602-v1-us),照着它下单必然被拒。现在币种直接跟当前账户的子公司走。 */}
-          <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border text-[12px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5 h-8 sm:h-9 px-2.5 sm:px-3 rounded-full border border-border text-[11px] sm:text-[12px] text-muted-foreground flex-shrink-0">
             <Globe className="w-3.5 h-3.5" />
             价格按 <b className="text-foreground font-semibold">{subsidiary}</b> 结算
           </span>
-          <span className="text-[12px] text-muted-foreground whitespace-nowrap">
+          <span className="text-[11px] sm:text-[12px] text-muted-foreground whitespace-nowrap">
             {q.isPending ? "加载中..." : `共 ${filtered.length} 款`}
           </span>
+          </div>
         </CardContent>
       </Card>
 
@@ -478,7 +482,7 @@ function DetailContent({
   const defaultAcc = useDefaultAccount();
   const { data: accounts } = useAccounts();
 
-  // 下单账户 = 左侧菜单栏选的那个全局账户,这里不再单独选。
+  // 下单账户 = 左侧菜单栏(手机端在顶栏)选的那个全局账户,这里不再单独选。
   // 拿不到时退回默认账户,避免刚装好还没选就点不了下单。
   const [globalAccountId] = useActiveAccount();
   const accountId = globalAccountId || defaultAcc?.id || "";
@@ -748,7 +752,7 @@ function DetailContent({
           <div className="space-y-3">
             <div>
               <label className="block text-[11px] text-muted-foreground mb-1">OVH 账户 *</label>
-              {/* 账户只在左侧菜单栏切,这里只显示当前是谁 —— 两个地方各切一次
+              {/* 账户只在左侧菜单栏(手机端在顶栏)切,这里只显示当前是谁 —— 两个地方各切一次
                   正是"欧区机型配美区账户"那类必然失败组合的来源 */}
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-secondary/30">
                 <User className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
@@ -758,7 +762,10 @@ function DetailContent({
                     {activeAccount.zone} · {regionLabel(endpointRegion(activeAccount.endpoint))}
                   </span>
                 )}
-                <span className="ml-auto text-[10px] text-muted-foreground">在左侧菜单切换</span>
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  <span className="lg:hidden">在顶栏切换</span>
+                  <span className="hidden lg:inline">在左侧菜单切换</span>
+                </span>
               </div>
               {orderEndpoint && (
                 <p className="text-[11px] text-muted-foreground mt-1">

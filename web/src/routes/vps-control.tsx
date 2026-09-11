@@ -89,7 +89,7 @@ function VpsControlPage() {
   const setAlias = useSetServerAlias();
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       <PageHeader
         title="VPS 控制"
         description="已购 VPS 的电源 / 快照 / 重装 / 控制台管理"

@@ -82,7 +82,7 @@ function ServerControlPage() {
   const activeAcc = accounts?.find((a) => a.id === activeAccount);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={Terminal}
         title="服务器控制"
@@ -96,7 +96,7 @@ function ServerControlPage() {
         }
         action={
           <div className="flex flex-wrap items-center gap-2">
-            {/* 账户在左侧菜单栏统一切换,这里只显示当前是谁 ——
+            {/* 账户在左侧菜单栏(手机端在顶栏)统一切换,这里只显示当前是谁 ——
                 以前这里也能切,和列表页那个各切各的,于是"用 A 账户浏览、用 B 账户下单"
                 一键就能做出来,而三区目录互不相通,这种组合必然失败 */}
             <span
@@ -107,7 +107,7 @@ function ServerControlPage() {
             >
               <User className={`w-3.5 h-3.5 ${accountsQ.isError ? "text-destructive" : "text-muted-foreground"}`} />
               {/* 账户列表读失败时绝不能显示「未选择账户」:那句话的意思是"你还没选",
-                  用户会去左侧菜单挑一个;这里其实是"我们不知道你选的是谁",该做的是重试。
+                  用户会去菜单里挑一个;这里其实是"我们不知道你选的是谁",该做的是重试。
                   三区目录互不相通,认错账户 = 后面所有操作打在错误的站点上。 */}
               {accountsQ.isError ? (
                 <button type="button" className="text-destructive underline" onClick={() => accountsQ.refetch()}>

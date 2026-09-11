@@ -9,7 +9,7 @@ import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
 import { cn } from "@/lib/utils";
 
 /**
- * 左侧菜单栏顶部的账户切换器 —— **全站唯一**的账户入口。
+ * 账户切换器(桌面在左侧栏顶部,手机在顶栏) —— **全站唯一**的账户入口。
  *
  * 为什么只留这一个：OVH 的 EU / US / CA 三个站点目录互不相通，同一台机器
  * 在欧区叫 24sk602、美区叫 24sk602-v1-us。以前列表页、下单对话框、服务器控制页
@@ -18,7 +18,14 @@ import { cn } from "@/lib/utils";
  *
  * 现在切一次，机型列表、可用性、价格、控制台、下单账户全部跟着走。
  */
-export function AccountSwitcher({ onNavigate }: { onNavigate?: () => void }) {
+export function AccountSwitcher({
+  onNavigate,
+  compact,
+}: {
+  onNavigate?: () => void;
+  /** 顶栏用的紧凑版:去掉「当前账户」标题和外边距,高度压到 36px 塞进 48px 的顶栏 */
+  compact?: boolean;
+}) {
   const accounts = useAccounts();
   const [activeId, setActive] = useActiveAccount();
   // 受控:选完要自己关掉。Radix Popover 默认不会因为点了内容里的按钮就收起,
@@ -50,7 +57,7 @@ export function AccountSwitcher({ onNavigate }: { onNavigate?: () => void }) {
   // 失败必须说成失败,并且给一个重试口。
   if (accounts.isError) {
     return (
-      <div className="mx-3 mt-3">
+      <div className={compact ? "" : "mx-3 mt-3"}>
         <LoadFailed
           title="账户列表读取失败"
           error={accounts.error}
@@ -66,7 +73,10 @@ export function AccountSwitcher({ onNavigate }: { onNavigate?: () => void }) {
       <Link
         to="/settings"
         onClick={onNavigate}
-        className="mx-3 mt-3 flex items-center gap-2 px-2.5 py-2 rounded-lg border border-dashed border-border text-[13px] text-muted-foreground hover:bg-muted transition-colors"
+        className={cn(
+          "flex items-center gap-2 px-2.5 rounded-lg border border-dashed border-border text-[13px] text-muted-foreground hover:bg-muted transition-colors",
+          compact ? "h-9" : "mx-3 mt-3 py-2"
+        )}
       >
         <Plus className="w-4 h-4" />
         添加 OVH 账户
@@ -75,25 +85,45 @@ export function AccountSwitcher({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   return (
-    <div className="px-3 mt-3">
-      <div className="px-0.5 mb-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-        当前账户
-      </div>
+    <div className={compact ? "min-w-0" : "px-3 mt-3"}>
+      {!compact && (
+        <div className="px-0.5 mb-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+          当前账户
+        </div>
+      )}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
-            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-border hover:bg-muted transition-colors text-left"
+            className={cn(
+              "w-full flex items-center gap-2 rounded-lg border border-border hover:bg-muted transition-colors text-left",
+              // 顶栏版:单行,账户名和站点码并排;侧栏版:两行
+              compact ? "h-9 px-2" : "px-2.5 py-2"
+            )}
             title="切换账户：机型列表、价格、库存、控制台全部跟着当前账户走"
           >
-            <span className="flex items-center justify-center w-7 h-7 rounded-md bg-secondary flex-shrink-0">
+            <span
+              className={cn(
+                "flex items-center justify-center rounded-md bg-secondary flex-shrink-0",
+                compact ? "w-6 h-6" : "w-7 h-7"
+              )}
+            >
               <User className="w-3.5 h-3.5" />
             </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium truncate">{active?.name || "选择账户"}</span>
-              <span className="block text-[11px] text-muted-foreground truncate">
-                {active ? `${active.zone} · ${zoneLabel(active.zone)}` : "未选择"}
+            {compact ? (
+              <span className="min-w-0 flex-1 flex items-baseline gap-1.5">
+                <span className="text-[13px] font-medium truncate">{active?.name || "选择账户"}</span>
+                <span className="text-[11px] text-muted-foreground flex-shrink-0">
+                  {active?.zone || ""}
+                </span>
               </span>
-            </span>
+            ) : (
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-medium truncate">{active?.name || "选择账户"}</span>
+                <span className="block text-[11px] text-muted-foreground truncate">
+                  {active ? `${active.zone} · ${zoneLabel(active.zone)}` : "未选择"}
+                </span>
+              </span>
+            )}
             <ChevronsUpDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
           </button>
         </PopoverTrigger>
@@ -107,7 +137,7 @@ export function AccountSwitcher({ onNavigate }: { onNavigate?: () => void }) {
                   setOpen(false);
                 }}
                 className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left text-[13px] transition-colors",
+                  "w-full flex items-center gap-2 px-2 py-2.5 sm:py-1.5 rounded-md text-left text-[13px] transition-colors",
                   a.id === activeId ? "bg-secondary" : "hover:bg-muted"
                 )}
               >

@@ -114,7 +114,7 @@ function VPSMonitorPage() {
     status.isPending ? "…" : status.isError || v === undefined ? "—" : v;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={Cloud}
         title="VPS 补货通知"
@@ -524,7 +524,7 @@ function AddVPSDialog({
   const [os, setOs] = useState("");
   // 默认不自动付款:自动扣钱必须显式打开
   const [autoPay, setAutoPay] = useState(false);
-  // 订阅的下单账户 = 左侧菜单栏的全局账户,不再单独选
+  // 订阅的下单账户 = 左侧菜单栏(手机端在顶栏)的全局账户,不再单独选
   const [globalAccountId] = useActiveAccount();
   const accountsQ = useAccounts();
   const allAccounts = accountsQ.data;

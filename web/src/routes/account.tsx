@@ -23,7 +23,7 @@ function AccountPage() {
   const me = q.data?.info;
   const loading = q.isPending;
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       <PageHeader icon={User} title="账户管理" description="查看和管理您的 OVH 账户信息" />
 
       {/* 后端在 /me 响应上打的 X-Subsidiary-Mismatch:账户里配的 zone 与 OVH 认定的

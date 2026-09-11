@@ -26,6 +26,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { LoadFailed, LoadFailedBanner, errorMessage } from "@/components/common/LoadFailed";
 import { Skeleton } from "@/components/common/Skeleton";
 import { MetricRing } from "@/components/common/MetricRing";
+import { useIsNarrow } from "@/hooks/use-narrow";
 import { useStats } from "@/hooks/use-stats";
 import { useQueueList, type QueueItem } from "@/hooks/use-queue";
 import { useSystemMetrics, useAppVersion, useUpdateCheck } from "@/hooks/use-system-metrics";
@@ -58,7 +59,7 @@ function DashboardPage() {
   const metricsTitle = sys.isError ? `系统监控读取失败:${errorMessage(sys.error)}` : "正在读取系统监控";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       <PageHeader icon={BarChart3} title="仪表盘" description="OVH 服务器抢购平台状态概览" />
 
       {stats.isError && (
@@ -69,8 +70,9 @@ function DashboardPage() {
         />
       )}
 
-      {/* 顶部 KPI */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* 顶部 KPI。手机端横排 3 列 —— 竖着叠 3 张卡要 540px,
+          占掉 844px 首屏的三分之二,而它们一共只有三个数字。 */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <KpiCard
           label="活跃队列"
           value={stats.data?.activeQueues}
@@ -110,7 +112,7 @@ function DashboardPage() {
       {/* 中部：活跃队列 + 系统状态 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2">
-          <CardContent className="p-6">
+          <CardContent className="p-3.5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <ClipboardList className="w-4 h-4 text-muted-foreground" />
@@ -178,7 +180,7 @@ function DashboardPage() {
         </Card>
 
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-3.5 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <CheckCheck className="w-4 h-4 text-muted-foreground" />
               <h2 className="text-[15px] font-semibold">系统状态</h2>
@@ -262,7 +264,7 @@ function DashboardPage() {
           读不到就换成未知环(空轨道 + 中心「—」),不要拿 `?? 0` 顶上去:
           三个 0% 的绿环是"宿主机很空闲"这条读数,而真相是我们一个数都没拿到。
           抢购工具里这条差别很要命 —— 用户会因为"机器闲着"去加并发、加任务。 */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <Card>
           <CardContent className="p-0">
             {sys.data ? (
@@ -354,19 +356,24 @@ function KpiCard({
   const valueUnknown = value === undefined;
   return (
     <Card>
-      <CardContent className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-[13px] text-muted-foreground font-medium">{label}</span>
-          <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
+      {/* 手机端三张卡并排,每张只有 ~120px 宽 —— 圆形图标、"查看队列 >" 这类
+          装饰在这个宽度里会把数字挤到换行,所以它们只在 sm+ 出现。
+          手机上留下的是这张卡真正要说的两件事:这是什么数、它是多少。 */}
+      <CardContent className="p-3 sm:p-5">
+        <div className="flex items-center justify-between sm:mb-4">
+          <span className="text-[11px] sm:text-[13px] text-muted-foreground font-medium leading-tight">
+            {label}
+          </span>
+          <div className="hidden sm:flex w-10 h-10 rounded-full bg-secondary items-center justify-center">
             <Icon className="w-5 h-5 text-foreground" strokeWidth={1.75} />
           </div>
         </div>
-        <div className="flex items-baseline">
+        <div className="flex items-baseline flex-wrap gap-x-1.5 mt-1 sm:mt-0">
           {loading ? (
-            <Skeleton className="w-16 h-10 rounded-md" />
+            <Skeleton className="w-12 sm:w-16 h-8 sm:h-10 rounded-md" />
           ) : (
             <span
-              className={`text-[32px] font-bold leading-none ${valueUnknown ? "text-muted-foreground" : ""}`}
+              className={`text-[24px] sm:text-[32px] font-bold leading-none ${valueUnknown ? "text-muted-foreground" : ""}`}
               title={valueUnknown ? "当前数值未知" : undefined}
             >
               {valueUnknown ? "—" : value}
@@ -375,12 +382,12 @@ function KpiCard({
           {extra}
         </div>
         {failed && (
-          <p className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-destructive">
-            <AlertTriangle className="w-3 h-3" />
+          <p className="mt-1 inline-flex items-center gap-1 text-[10px] sm:text-[11px] text-destructive">
+            <AlertTriangle className="w-3 h-3 flex-shrink-0" />
             读取失败
           </p>
         )}
-        <Link to={linkTo} className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+        <Link to={linkTo} className="hidden sm:inline-flex mt-3 items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
           {linkText}
           <ChevronRight className="w-3 h-3" />
         </Link>
@@ -477,7 +484,7 @@ function MetricRingUnknown({
   hint,
   title,
   failed,
-  size = 96,
+  size,
 }: {
   label: string;
   hint: string;
@@ -485,22 +492,29 @@ function MetricRingUnknown({
   failed?: boolean;
   size?: number;
 }) {
+  // 尺寸口径必须跟 MetricRing 完全一致,否则同一行里"有数据"和"没读到"
+  // 两种格子会一大一小,刷新时来回跳版
+  const narrow = useIsNarrow();
+  size = size ?? (narrow ? 68 : 96);
   const stroke = 8;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const visibleArc = 0.75 * c;
 
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-4 h-full" title={title}>
-      <div className="min-w-0">
-        <div className="text-[12px] text-muted-foreground">{label}</div>
+    <div
+      className="flex flex-col-reverse sm:flex-row items-center sm:justify-between gap-2 sm:gap-4 px-2.5 py-3 sm:px-5 sm:py-4 h-full"
+      title={title}
+    >
+      <div className="min-w-0 text-center sm:text-left">
+        <div className="text-[11px] sm:text-[12px] text-muted-foreground truncate">{label}</div>
         <div
-          className={`mt-1 text-[18px] font-semibold tabular-nums inline-flex items-center gap-1 ${
+          className={`mt-0.5 sm:mt-1 text-[11px] sm:text-[18px] font-semibold tabular-nums inline-flex items-center gap-1 ${
             failed ? "text-destructive" : "text-muted-foreground"
           }`}
         >
-          {failed && <AlertTriangle className="w-3.5 h-3.5" />}
-          {hint}
+          {failed && <AlertTriangle className="w-3 h-3 sm:w-3.5 sm:h-3.5 flex-shrink-0" />}
+          <span className="truncate">{hint}</span>
         </div>
       </div>
       <div className="relative flex-shrink-0" style={{ width: size, height: size }}>

@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useIsNarrow } from "@/hooks/use-narrow";
 
 /** 环形百分比卡片。左侧标签 + 副信息,右侧环 + 中心 %。
  *  纯 SVG 实现,无 recharts 依赖,极轻量。
@@ -8,13 +9,16 @@ export function MetricRing({
   label,
   subLabel,
   percent,
-  size = 96,
+  size,
 }: {
   label: string;
   subLabel: string;
   percent: number;
   size?: number;
 }) {
+  // 手机端三个环并排,96px 的环会把格子撑满没有留白
+  const narrow = useIsNarrow();
+  size = size ?? (narrow ? 68 : 96);
   const safePct = Math.max(0, Math.min(100, percent));
   const tone = safePct >= 85 ? "danger" : safePct >= 60 ? "warning" : "success";
 
@@ -41,10 +45,12 @@ export function MetricRing({
         : "text-emerald-600 dark:text-emerald-400";
 
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-4 h-full">
-      <div className="min-w-0">
-        <div className="text-[12px] text-muted-foreground">{label}</div>
-        <div className={cn("mt-1 text-[18px] font-semibold tabular-nums", toneText)}>
+    // 手机端三个环并排,每格只有 ~118px —— 左文右环那套横排会把两边都压扁,
+    // 所以窄屏改成竖排:环在上、文字在下,居中对齐。sm+ 回到原来的横排。
+    <div className="flex flex-col-reverse sm:flex-row items-center sm:justify-between gap-2 sm:gap-4 px-2.5 py-3 sm:px-5 sm:py-4 h-full">
+      <div className="min-w-0 text-center sm:text-left">
+        <div className="text-[11px] sm:text-[12px] text-muted-foreground truncate">{label}</div>
+        <div className={cn("mt-0.5 sm:mt-1 text-[12px] sm:text-[18px] font-semibold tabular-nums truncate", toneText)}>
           {subLabel}
         </div>
       </div>
