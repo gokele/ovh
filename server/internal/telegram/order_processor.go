@@ -206,18 +206,15 @@ func ProcessOrder(state *app.State, accountID, planCode, datacenter string, quan
 	// 只是白付了调度和 WaitGroup 的开销。入队是纯内存操作,一次锁全部 append 才是对的。
 	created := len(ordersToCreate)
 	if created > 0 {
-		state.QueueMu.Lock()
-		state.Queue = append(state.Queue, ordersToCreate...)
-		state.QueueMu.Unlock()
-		// 落库失败必须说出来 —— 不说的话用户以为任务建好了,重启后全没
-		if err := state.SaveQueue(); err != nil {
-			state.Logger.Error("Telegram 下单后保存队列失败: "+err.Error(), "telegram")
+		// 入队 + 落库是一件事:失败时 EnqueueItems 会把这批整体撤回,
+		// 不留"这次能跑但重启就丢"的半成功任务 —— 那种状态看起来完全正常
+		if err := state.EnqueueItems(ordersToCreate, false); err != nil {
+			state.Logger.Error("Telegram 下单后保存队列失败,已撤回: "+err.Error(), "telegram")
 			return OrderResult{
-				Success:       true,
-				TotalOrders:   totalOrders,
-				CreatedOrders: created,
-				Message: fmt.Sprintf("已创建 %d/%d 个订单(账户 %s)\n\n⚠️ 但没能写进数据库，重启后这些任务会消失：%s",
-					created, totalOrders, accLabel, err.Error()),
+				Success:     false,
+				TotalOrders: totalOrders,
+				Message: fmt.Sprintf("❌ 任务没能写进数据库，已全部撤回（避免出现重启就消失的假任务）：%s",
+					err.Error()),
 			}
 		}
 		state.Logger.Info(fmt.Sprintf("已创建 %d/%d 个订单", created, totalOrders), "telegram")

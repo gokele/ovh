@@ -50,7 +50,7 @@ import { TimingChip } from "@/components/common/TimingChip";
 import { AccountChip } from "@/components/common/AccountChip";
 import { PlanCodeCombobox } from "@/components/common/PlanCodeCombobox";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
-import { groupOptions, type OptionGroupKey } from "@/lib/option-groups";
+import { describeOptionCodes, groupOptions, type OptionGroupKey } from "@/lib/option-groups";
 import {
   useAvailability,
   buildVariantIndex,
@@ -788,7 +788,14 @@ function QueueRow({
             <AccountChip accountId={item.accountId} />
             <Chip tone="default">DC {item.datacenter.toUpperCase()}</Chip>
             {item.options && item.options.length > 0 && (
-              <Chip tone="default">含 {item.options.length} 个可选配置</Chip>
+              // 以前只显示个数。而一个型号底下几套配置的差别恰恰在这里 ——
+              // 同时下了三单时,用户看到三张"含 2 个可选配置"的卡片,
+              // 分不出哪一单抢的是 64G+NVMe、哪一单是 32G+HDD。
+              // describeOptionCodes 纯靠 code 正则解析,不需要目录,
+              // 机型下架或目录没拉到时也能显示。
+              <Chip tone="default" title={item.options.join("\n")}>
+                {describeOptionCodes(item.options)}
+              </Chip>
             )}
             {item.autoPay && (
               <Chip tone="warning" title="下单成功后会用 OVH 默认支付方式自动扣款">

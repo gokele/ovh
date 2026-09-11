@@ -4,14 +4,114 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/notify"
 	"github.com/ovh-buy/server/internal/types"
 )
 
 const concurrentBatchSize = 10
+
+// failNotice 把同一批任务的终止通知合并成一条。
+//
+// 为什么必须合并:一条 /buy 最多扇出 60 个任务(MaxOrderFanout),
+// 而跨区 planCode 这类 Fatal 是**每个任务第一轮就判**的 ——
+// 不合并的话用户会在几秒内收到 60 条一模一样的消息,
+// 手机被刷屏不说,真正要看的那条原因也被淹了。
+//
+// 合并键是 (planCode, 原因),因为同一批失败的原因必然相同;
+// 机房不同不拆开 —— "24sk602 在 6 个机房全失败"是一件事,不是六件。
+var failNotice = &failNotifier{seen: map[string]*failGroup{}}
+
+type failGroup struct {
+	first    time.Time
+	count    int
+	notified bool
+	planCode string
+	reason   string
+	fatal    bool
+	dcs      []string
+}
+
+type failNotifier struct {
+	mu   sync.Mutex
+	seen map[string]*failGroup
+}
+
+// failNoticeWindow 同一个 (planCode, 原因) 在这个窗口内只发一条。
+// 30 秒足够覆盖一批扇出任务的首轮判定(它们几乎同时跑),
+// 又短到不会把"半分钟后又一批真的失败了"给吞掉。
+const failNoticeWindow = 30 * time.Second
+
+// take 判断这条终止要不要发通知。返回 (消息, 是否发送)。
+// 窗口内第一条立刻发并带上"还会有更多"的说明;后续的只累加计数,不再发。
+func (f *failNotifier) take(item *types.QueueItem, reason string, fatal bool) (string, bool) {
+	key := item.PlanCode + "|" + reason
+	now := time.Now()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// 顺手清过期的,不引定时器
+	for k, g := range f.seen {
+		if now.Sub(g.first) > failNoticeWindow {
+			delete(f.seen, k)
+		}
+	}
+	g, ok := f.seen[key]
+	if !ok {
+		g = &failGroup{first: now, planCode: item.PlanCode, reason: reason, fatal: fatal}
+		f.seen[key] = g
+	}
+	g.count++
+	if item.Datacenter != "" && len(g.dcs) < 8 {
+		dup := false
+		for _, d := range g.dcs {
+			if d == item.Datacenter {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			g.dcs = append(g.dcs, item.Datacenter)
+		}
+	}
+	if g.notified {
+		return "", false
+	}
+	g.notified = true
+	return buildTaskFailedMessage(item, reason, fatal), true
+}
+
+// buildTaskFailedMessage 任务终止时发给用户的通知。
+//
+// 要回答三件事:哪一单、为什么停、我现在能做什么。
+// 尤其是"能做什么"—— Fatal 和用尽重试的下一步完全不同:
+// 前者改了才有用(换本区 planCode / 重新配账户),后者可以直接重开。
+func buildTaskFailedMessage(item *types.QueueItem, reason string, fatal bool) string {
+	var b strings.Builder
+	if fatal {
+		b.WriteString("🛑 抢购任务已停止（重试也不会变）" + "\n" + "\n")
+	} else {
+		b.WriteString("⚠️ 抢购任务已停止（连续下单失败）" + "\n" + "\n")
+	}
+	b.WriteString("型号：" + item.PlanCode + "\n")
+	if item.Datacenter != "" {
+		b.WriteString("机房：" + strings.ToUpper(item.Datacenter) + "\n")
+	}
+	b.WriteString("原因：" + reason + "\n")
+	if fatal {
+		b.WriteString("\n" + "这类失败换个时间点重试结果一样，需要先改掉原因。" + "\n" +
+			"常见的是型号和账户不在同一个区 —— 三个大区的目录互不相通，" + "\n" +
+			"同一台机器在不同区是不同的型号代码。发 /accounts 看当前账户。" + "\n")
+	} else {
+		b.WriteString("\n" + "库存可能已经被抢完。想接着抢就重新下一单。" + "\n")
+	}
+	b.WriteString("\n" + "查看 /queue · 历史里有完整报错")
+	return b.String()
+}
 
 func ProcessQueueLoop(state *app.State) {
 	for {
@@ -250,6 +350,16 @@ func ProcessQueueLoop(state *app.State) {
 					}
 				}
 				state.QueueMu.Unlock()
+				// 任务死了必须告诉用户。
+				//
+				// 以前这里只写日志:成功会 Broadcast 一条通知,失败终止却完全静默 ——
+				// 而下单时承诺的是"系统会一直重试到抢到为止"。跨区 planCode、
+				// 账户被删这类 Fatal 判定通常发生在第一轮,用户那边看到的是
+				// "已加入队列"之后再无音讯,以为还在抢,实际早就停了。
+				// 越是确定性失败越要说:它永远不会自己好。
+				if msg, ok := failNotice.take(&snapshot, stopReason, outcome.Fatal); ok {
+					notify.Broadcast(state, msg, nil)
+				}
 				state.Logger.Warn(fmt.Sprintf("任务 %s (%s @ %s) 置为 failed：%s",
 					it.ID, it.PlanCode, it.Datacenter, stopReason), "queue")
 			}

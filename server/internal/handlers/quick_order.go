@@ -215,10 +215,17 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 			QuickOrder:    true,
 			Priority:      100,
 		}
-		state.QueueMu.Lock()
-		state.Queue = append([]types.QueueItem{item}, state.Queue...)
-		state.QueueMu.Unlock()
-		_ = state.SaveQueue()
+		// 落库失败以前是 `_ = state.SaveQueue()` —— 直接吞掉。
+		// 这条路是监控触发的自动下单:发现有货 → 建任务 → 落库失败无人知晓,
+		// 重启后任务没了,而用户以为一直在抢。入队和落库必须是一件事。
+		if err := state.EnqueueItems([]types.QueueItem{item}, true); err != nil {
+			state.Logger.Error("自动下单任务落库失败,已撤回: "+err.Error(), "queue")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "任务没能写进数据库，已撤回（避免出现重启就消失的假任务）：" + err.Error(),
+			})
+			return
+		}
 
 		state.Logger.Info("快速下单: "+body.PlanCode+" ("+body.Datacenter+") 已加入队列", "quick_order")
 

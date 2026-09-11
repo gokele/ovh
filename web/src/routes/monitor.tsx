@@ -48,7 +48,7 @@ import {
 import { useNotifyGate } from "@/hooks/use-notify-channels";
 import { toast } from "sonner";
 import { useServers } from "@/hooks/use-servers";
-import { groupOptions, type OptionGroupKey } from "@/lib/option-groups";
+import { describeOptionCodes, groupOptions, type OptionGroupKey } from "@/lib/option-groups";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
 
 /** 服务器监控订阅 */
@@ -304,7 +304,7 @@ function SubRow({
                   必须在列表上一眼看得出来 */}
               {sub.options && sub.options.length > 0 ? (
                 <Chip tone="default" title={sub.options.join("\n")}>
-                  只盯 {sub.options.length} 项配置
+                  只盯 {describeOptionCodes(sub.options)}
                 </Chip>
               ) : (
                 <Chip tone="default" title="该型号的每套内存/存储组合都会各自触发通知与自动下单">

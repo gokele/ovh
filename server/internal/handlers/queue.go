@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -71,22 +73,19 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			LastCheckTime: 0,
 			AutoPay:       body.AutoPay,
 		}
-		state.QueueMu.Lock()
-		state.Queue = append(state.Queue, item)
-		state.QueueMu.Unlock()
-		// 落库失败不撤任务:它已经在内存里跑起来了,撤掉等于用户明确要抢的机器不抢了。
-		// 但必须说出来 —— 不落库意味着重启后这条任务就没了,而界面上它看着一切正常。
-		warn := ""
-		if err := state.SaveQueue(); err != nil {
-			warn = "任务已在本次运行中启动，但没能写进数据库，重启后会丢失：" + err.Error()
-			state.Logger.Error("添加任务后保存队列失败: "+err.Error(), "queue")
+		// 入队 + 落库是一件事:EnqueueItems 失败会把这条从内存撤回,
+		// 不留"这次能跑但重启就丢"的半成功任务
+		if err := state.EnqueueItems([]types.QueueItem{item}, false); err != nil {
+			state.Logger.Error("添加任务后保存队列失败,已撤回: "+err.Error(), "queue")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": "error",
+				"error":  "任务没能写进数据库，已撤回：" + err.Error(),
+			})
+			return
 		}
 		state.Logger.Info("添加任务 "+item.ID+" ("+item.PlanCode+" 在 "+item.Datacenter+", 账户 "+body.AccountID+") 到队列并立即启动 (状态: running)", "")
-		resp := gin.H{"status": "success", "id": item.ID}
-		if warn != "" {
-			resp["warning"] = warn
-		}
-		c.JSON(http.StatusOK, resp)
+		// 不再有 warning 分支:落库要么成功、要么整条撤回并报错,没有中间态
+		c.JSON(http.StatusOK, gin.H{"status": "success", "id": item.ID})
 	}
 }
 
@@ -233,7 +232,32 @@ func UpdateQueueStatus(state *app.State) gin.HandlerFunc {
 // 手动刷新所有未到终态订单的支付状态(GET /me/order/{id}/status)。
 // 后台每 10 分钟也会自动刷,这里是给"我刚付完款想马上看到"的场景。
 func RefreshOrderStatuses(state *app.State) gin.HandlerFunc {
+	// 手动刷新会对每条未终态订单各打一次 /me/order/{id},而 force=true 正是用来
+	// 跳过那个 2 分钟节流的 —— 等于把限流闸门交给用户的手速。
+	// OVH 对 /me 命名空间有自己的限流,打多了返回 429,而抢购主链路
+	// (查库存 / 建车 / 结账)跟它共用同一个账户配额:刷历史把配额刷没了,
+	// 补货那一刻就抢不到。所以入口这层必须有自己的节流。
+	var (
+		mu       sync.Mutex
+		lastCall time.Time
+	)
+	const minInterval = 15 * time.Second
+
 	return func(c *gin.Context) {
+		mu.Lock()
+		if wait := minInterval - time.Since(lastCall); !lastCall.IsZero() && wait > 0 {
+			mu.Unlock()
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"success": false,
+				"error": fmt.Sprintf("刷新太频繁,请等 %d 秒。手动刷新会对每条未完成订单各查一次 OVH,"+
+					"把账户配额刷光会影响正在跑的抢购。", int(wait.Seconds())+1),
+				"retryAfterSeconds": int(wait.Seconds()) + 1,
+			})
+			return
+		}
+		lastCall = time.Now()
+		mu.Unlock()
+
 		n := purchase.RefreshOrderStatuses(state, true)
 		c.JSON(http.StatusOK, gin.H{"success": true, "updated": n})
 	}

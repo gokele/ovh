@@ -451,6 +451,50 @@ func (s *State) LoadFailures() map[string]string {
 // 所有删任务的入口(网页删单个 / 清空、TG /cancel、处理器复核)都必须走这里。
 // 只写 DeletedTaskIDs 不调 cancel 的话,PurchaseServer 会把这一轮跑完 —— 包括结账:
 // 用户在"有货"通知弹出后两秒内点了删除,单照样下出去。
+// EnqueueItems 入队并落库。失败时把这批从内存里撤回,再把错返回给调用方。
+//
+// 四条入队路径(网页新建 / 快速下单 / TG 一键按钮 / TG 文本下单)以前各写各的,
+// 对"落库失败"的处理有四种:撤回+归还按钮、返回 warning 但内存保留、
+// 返回带警告的文本、以及 `_ = SaveQueue()` 直接吞掉。
+// 最后那种在自动下单路径上 —— 监控发现有货、建了任务、落库失败无人知晓,
+// 重启后任务没了,而用户以为一直在抢。
+//
+// 统一成一种语义:**要么内存和磁盘都有,要么两边都没有**。
+// 半成功状态("这次能跑但重启就丢")对抢购来说是最坏的,它看起来完全正常。
+//
+// prepend=true 把这批放到队首(快速下单要抢在别的任务前面)。
+func (s *State) EnqueueItems(items []types.QueueItem, prepend bool) error {
+	if len(items) == 0 {
+		return nil
+	}
+	s.QueueMu.Lock()
+	if prepend {
+		s.Queue = append(append([]types.QueueItem{}, items...), s.Queue...)
+	} else {
+		s.Queue = append(s.Queue, items...)
+	}
+	s.QueueMu.Unlock()
+
+	if err := s.SaveQueue(); err != nil {
+		// 撤回:按 ID 精确删,不能按下标 —— 这中间别的 goroutine 可能也在增删
+		ids := make(map[string]struct{}, len(items))
+		for _, it := range items {
+			ids[it.ID] = struct{}{}
+		}
+		s.QueueMu.Lock()
+		kept := make([]types.QueueItem, 0, len(s.Queue))
+		for _, it := range s.Queue {
+			if _, bad := ids[it.ID]; !bad {
+				kept = append(kept, it)
+			}
+		}
+		s.Queue = kept
+		s.QueueMu.Unlock()
+		return err
+	}
+	return nil
+}
+
 func (s *State) MarkTaskDeleted(id string) {
 	s.DeletedTaskIDsMu.Lock()
 	s.DeletedTaskIDs[id] = struct{}{}
