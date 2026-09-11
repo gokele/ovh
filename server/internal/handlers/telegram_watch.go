@@ -145,9 +145,8 @@ func watchText(state *app.State, mon *monitor.Monitor, args []string) string {
 		b.WriteString(fmt.Sprintf(
 			"\n⚠️ 这是真实下单，而且 %d 是**每个机房、每套配置**各 %d 台。\n"+
 				"这个型号如果有多套配置同时补货，实际下单数 = 配置数 × 机房数 × %d。\n"+
-				"想只盯一套配置，去掉 x%d 重发一次 /watch %s，我用按钮让你挑。\n"+
 				"抢到的订单默认不自动付款，需要你去付。\n",
-			quantity, quantity, quantity, quantity, planCode))
+			quantity, quantity, quantity))
 	} else {
 		b.WriteString("补货时：只发通知，你点按钮再下单\n")
 		b.WriteString("\n想补货就自动抢，加个数量：/watch " + planCode + " x1\n")

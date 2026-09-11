@@ -143,6 +143,30 @@ func (m *Monitor) FindSubscription(planCode string) *Subscription {
 }
 
 // SetKnownServers 用于从持久化恢复
+// SetSubscriptionOptions 只改一条订阅盯哪套配置,其余字段原样不动。
+// 返回 false = 没有这条订阅。
+//
+// 为什么不复用 AddSubscription:它是 upsert,调用方得把所有字段重新凑齐,
+// 漏一个就等于把用户的设置改掉(自动下单账户、数量、autoPay 都在里面)。
+// 而且这里只动 Options,不碰 LastStatus / History —— 状态一清,
+// 下一轮就会把"本来就有货"当成补货跳变,发一条根本没发生的通知外加真下单。
+func (m *Monitor) SetSubscriptionOptions(planCode string, options []string) bool {
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+	for _, sub := range m.subscriptions {
+		if sub.PlanCode != planCode {
+			continue
+		}
+		opts := make([]string, len(options))
+		copy(opts, options)
+		sub.mu.Lock()
+		sub.Options = opts
+		sub.mu.Unlock()
+		return true
+	}
+	return false
+}
+
 func (m *Monitor) SetKnownServers(set map[string]struct{}) {
 	m.subsMu.Lock()
 	m.knownServers = set

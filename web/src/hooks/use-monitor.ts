@@ -15,6 +15,14 @@ export interface MonitorSubscription {
   autoOrderAccountId?: string;
   /** 下单成功后自动付款(显式开关,默认关) */
   autoPay?: boolean;
+  /**
+   * 只盯这套配置(addon planCode 列表)。空 / 缺省 = 盯该型号的全部配置。
+   *
+   * 一个 planCode 底下常有好几套内存/存储组合，而通知和自动下单是**按配置逐套**
+   * 触发的 —— 不限定配置时「自动抢 1 台」会变成「每套配置在每个机房各抢 1 台」。
+   * 后端引擎一直支持这个字段，只是前端以前没接，所以网页建的订阅永远是「盯全部」。
+   */
+  options?: string[];
   lastStatus: Record<string, string>;
   createdAt: string;
 }

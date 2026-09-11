@@ -59,6 +59,16 @@ func handleCommand(state *app.State, mon *monitor.Monitor, chatID interface{}, m
 		// 而它们直接决定会不会抢到、以及会下多少单。
 		if hasExplicitQuantity(args) || len(args) == 0 {
 			reply = watchText(state, mon, args)
+			// 快捷式建完是"盯全部配置"。addon planCode 二三十字符,打不出来,
+			// 所以紧跟一排按钮让他一键改窄 —— 以前只能删掉订阅重发一次不带 x 的 /watch。
+			// 先把文本发出去再挂按钮:两条消息,前一条是结果,后一条是可选的下一步。
+			if len(args) > 0 && mon != nil {
+				telegram.SendReply(state, chatID, reply, messageID)
+				if offerNarrowConfig(state, chatID, messageID, strings.TrimSpace(args[0])) {
+					return true
+				}
+				return true
+			}
 		} else if startWatchFlow(state, mon, chatID, messageID, args[0], dcArgs(args[1:])) {
 			return true // 流程自己回复了
 		} else {

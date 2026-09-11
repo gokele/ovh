@@ -51,6 +51,10 @@ const (
 	stepOrderAccount flowStep = "order_account"
 	// stepOrderConfirm 文本下单前的确认(没显式写 @账户 时才走)。
 	stepOrderConfirm flowStep = "order_confirm"
+	// stepNarrowConfig 快捷式 /watch(带 x<数量>)建完订阅后,一键把它从
+	// "盯全部配置"改窄到某一套。addon planCode 动辄二三十字符,让用户打出来不现实,
+	// 所以只能用按钮 —— 而这条路以前不存在,用户只能删掉订阅重发一次不带 x 的 /watch。
+	stepNarrowConfig flowStep = "narrow_config"
 )
 
 type configChoice struct {
@@ -177,6 +181,30 @@ func enumerateConfigs(state *app.State, planCode, accountID string) []configChoi
 		return out[i].Label < out[j].Label
 	})
 	return out
+}
+
+// offerNarrowConfig 快捷式 /watch 建完订阅后,挂一排按钮让用户一键改窄配置。
+//
+// 返回 false = 没什么可挑的(只有一套配置),调用方不用额外说什么。
+// 故意放在订阅**已经建好之后**:快捷式的价值就是一条命令立刻开始盯,
+// 不能因为多了个选择步骤把它变成又一个向导。
+func offerNarrowConfig(state *app.State, chatID interface{}, messageID int64, planCode string) bool {
+	configs := enumerateConfigs(state, planCode, "")
+	if len(configs) <= 1 {
+		return false
+	}
+	f := &watchFlow{
+		ChatID:   chatID,
+		PlanCode: planCode,
+		Configs:  configs,
+		Step:     stepNarrowConfig,
+	}
+	tok := putFlow(f)
+	telegram.SendKeyboard(state, chatID, messageID,
+		fmt.Sprintf("🔧 %s 有 %d 套配置，现在盯的是**全部**。\n"+
+			"要只盯一套就点一下（随时可以改回来）：", planCode, len(configs)),
+		flowKeyboard(tok, configLabels(configs)))
+	return true
 }
 
 // startWatchFlow 开始分步选择。返回 false 表示不需要走流程（直接建订阅即可）。
@@ -339,6 +367,32 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 		}
 		telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "好", false)
 		askAccount(state, f, chatID, messageID)
+		return true
+
+	case stepNarrowConfig:
+		// 只改这条订阅的 Options,其余字段原样保留 ——
+		// 不能走"删了重建":那会清空 LastStatus,下一轮把本来就有货当成补货跳变,
+		// 发一条根本没发生的通知,还会真下单。
+		var opts []string
+		label := "全部配置"
+		if idx >= 0 && idx < len(f.Configs) && idx < flowMaxButtons {
+			opts = f.Configs[idx].Options
+			label = f.Configs[idx].Label
+		}
+		if !mon.SetSubscriptionOptions(f.PlanCode, opts) {
+			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "订阅已不在了", true)
+			telegram.SendReply(state, chatID, "这条订阅已经被删掉了，发 /watch "+f.PlanCode+" 重新开始。", messageID)
+			return true
+		}
+		mon.SaveToDB()
+		telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "好", false)
+		if len(opts) == 0 {
+			telegram.SendReply(state, chatID,
+				"🌐 "+f.PlanCode+" 改回盯全部配置。\n每套配置补货都会各自通知、各自下单。", messageID)
+		} else {
+			telegram.SendReply(state, chatID,
+				"🎯 "+f.PlanCode+" 现在只盯："+label+"\n其它配置补货不再通知，也不会下单。", messageID)
+		}
 		return true
 
 	case stepAccount:

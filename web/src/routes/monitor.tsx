@@ -12,7 +12,7 @@ import {
   Pencil,
   HelpCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,9 @@ import {
 } from "@/hooks/use-monitor";
 import { useNotifyGate } from "@/hooks/use-notify-channels";
 import { toast } from "sonner";
+import { useServers } from "@/hooks/use-servers";
+import { groupOptions, type OptionGroupKey } from "@/lib/option-groups";
+import { OptionGroupSection } from "@/components/common/OptionGroupSection";
 
 /** 服务器监控订阅 */
 export const Route = createFileRoute("/monitor")({
@@ -297,6 +300,17 @@ function SubRow({
                 : "监控所有数据中心"}
             </p>
             <div className="flex gap-1.5 flex-wrap items-center">
+              {/* 盯全部配置 vs 只盯一套,是「会不会一次触发好几单」的分水岭,
+                  必须在列表上一眼看得出来 */}
+              {sub.options && sub.options.length > 0 ? (
+                <Chip tone="default" title={sub.options.join("\n")}>
+                  只盯 {sub.options.length} 项配置
+                </Chip>
+              ) : (
+                <Chip tone="default" title="该型号的每套内存/存储组合都会各自触发通知与自动下单">
+                  盯全部配置
+                </Chip>
+              )}
               {sub.notifyAvailable && <Chip tone="success">有货提醒</Chip>}
               {sub.notifyUnavailable && <Chip tone="warning">无货提醒</Chip>}
               {sub.autoOrder && sub.autoOrderAccountId ? (
@@ -456,6 +470,30 @@ function AddSubscriptionDialog({
   const [quantity, setQuantity] = useState(1);
   // 默认不自动付款:自动扣钱必须显式打开
   const [autoPay, setAutoPay] = useState(false);
+  // 只盯哪一套配置。空 = 盯全部配置(老行为)。
+  // 后端引擎一直支持,以前前端没接 —— 于是网页建的订阅永远是「盯全部」,
+  // 而通知和自动下单是按配置逐套触发的:三套配置同时补货就是三份通知、三单。
+  const [picked, setPicked] = useState<Partial<Record<OptionGroupKey, string>>>({});
+  // 型号不在目录里(手输的冷门机型 / 目录没拉到)时退回手填,跟下单弹窗同一套策略
+  const [extraOptions, setExtraOptions] = useState("");
+  const serversQ = useServers();
+  const matchedServer = useMemo(
+    () => (serversQ.data || []).find((sv) => sv.planCode === planCode.trim()),
+    [serversQ.data, planCode]
+  );
+  const grouped = useMemo(
+    () => (matchedServer ? groupOptions(matchedServer.availableOptions) : null),
+    [matchedServer]
+  );
+  const defaultValueSet = useMemo(
+    () => new Set((matchedServer?.defaultOptions || []).map((o) => o.value)),
+    [matchedServer]
+  );
+  /** 提交给后端的 addon 列表:目录里有这个型号就走 chip,没有就走手填,二选一不混用 */
+  const chosenOptions = useMemo(() => {
+    if (matchedServer) return Object.values(picked).filter(Boolean) as string[];
+    return extraOptions.split(",").map((v) => v.trim()).filter(Boolean);
+  }, [matchedServer, picked, extraOptions]);
   // 订阅的下单账户 = 左侧菜单栏的全局账户,不再单独选
   const [globalAccountId] = useActiveAccount();
   const accountsQ = useAccounts();
@@ -476,6 +514,8 @@ function AddSubscriptionDialog({
     setAutoOrder(false);
     setQuantity(1);
     setAutoPay(false);
+    setPicked({});
+    setExtraOptions("");
   };
 
   // 每次打开都按当前 editing 重灌一次表单。依赖里带上 open,
@@ -490,11 +530,29 @@ function AddSubscriptionDialog({
       setAutoOrder(!!editing.autoOrder);
       setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
       setAutoPay(!!editing.autoPay);
+      // 回填已选配置:能映射到 chip 组的塞进 picked,剩下的塞进手填框。
+      // 不回填的话,用户只想改个机房、保存时 options 就被空数组覆盖 ——
+      // 订阅会从「只盯 64G+NVMe」悄悄变成「盯全部配置」。
+      const want = editing.options || [];
+      const g = matchedServer ? groupOptions(matchedServer.availableOptions) : null;
+      const next: Partial<Record<OptionGroupKey, string>> = {};
+      const used = new Set<string>();
+      if (g) {
+        for (const key of Object.keys(g) as OptionGroupKey[]) {
+          const hit = g[key].find((o) => want.includes(o.value));
+          if (hit) {
+            next[key] = hit.value;
+            used.add(hit.value);
+          }
+        }
+      }
+      setPicked(next);
+      setExtraOptions(want.filter((v) => !used.has(v)).join(", "));
     } else {
       reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editing]);
+  }, [open, editing, matchedServer]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -526,6 +584,9 @@ function AddSubscriptionDialog({
       quantity: autoOrder ? quantity : undefined,
       autoOrderAccountId: autoOrder ? autoOrderAccountId : "",
       autoPay: autoOrder ? autoPay : false,
+      // 始终显式传:PUT 用 *[]string 区分「没传」和「改成空数组」,
+      // 不传的话后端保留旧值,用户在界面上清空了配置却不生效
+      options: chosenOptions,
     };
     const done = {
       onSuccess: () => {
@@ -604,6 +665,57 @@ function AddSubscriptionDialog({
               onChange={(e) => setDatacenters(e.target.value)}
               placeholder="例如: gra,rbx,sbg 或留空监控所有"
             />
+          </div>
+
+          {/* 盯哪一套配置。
+              一个型号底下常有好几套内存/存储组合，而通知和自动下单是**按配置逐套**
+              触发的 —— 不限定的话「自动抢 1 台」= 每套配置在每个机房各抢 1 台。
+              留空保持老行为（盯全部），所以这一块默认是收起的提示而不是必填项。 */}
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              只盯这套配置（可选）
+            </label>
+            {serversQ.isPending ? (
+              <Skeleton className="h-16 rounded-xl" />
+            ) : grouped ? (
+              <div className="space-y-3 rounded-xl border border-border p-3.5">
+                {(["cpu", "memory", "systemStorage", "storage", "bandwidth", "vrack", "other"] as OptionGroupKey[])
+                  .filter((g) => (grouped[g] || []).length > 0)
+                  .map((g) => (
+                    <OptionGroupSection
+                      key={g}
+                      groupKey={g}
+                      options={grouped[g]}
+                      picked={picked[g] || ""}
+                      defaultValueSet={defaultValueSet}
+                      onPick={(v) =>
+                        setPicked((prev) => ({ ...prev, [g]: prev[g] === v ? "" : v }))
+                      }
+                    />
+                  ))}
+                {chosenOptions.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setPicked({})}
+                    className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                  >
+                    清空选择（改回盯全部配置）
+                  </button>
+                )}
+              </div>
+            ) : (
+              // 目录里没有这个型号（冷门机型 / 目录没拉到）→ 退回手填，跟下单弹窗同一策略
+              <Input
+                value={extraOptions}
+                onChange={(e) => setExtraOptions(e.target.value)}
+                placeholder="addon planCode，逗号分隔；留空 = 盯全部配置"
+              />
+            )}
+            <p className="text-[11px] text-muted-foreground mt-1">
+              {chosenOptions.length > 0
+                ? `已选 ${chosenOptions.length} 项，只有完全匹配的配置才会触发通知与自动下单`
+                : "留空 = 盯该型号的全部配置。多套配置同时补货时会逐套触发"}
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
