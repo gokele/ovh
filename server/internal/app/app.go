@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -137,6 +138,13 @@ type State struct {
 	DeletedTaskIDsMu sync.Mutex
 	DeletedTaskIDs   map[string]struct{}
 
+	// 正在跑 PurchaseServer 的任务 → 取消函数。
+	// DeletedTaskIDs 只是个标记,处理器要到下一轮才会看它;而一轮下单链路有 10 次
+	// OVH 调用、每次最长 60s。用户删任务的那一刻如果链路正跑到一半,这里的 cancel
+	// 让正在进行的 HTTP 调用立刻中断,而不是把这一轮跑完 —— 包括结账。
+	taskCancelMu sync.Mutex
+	taskCancel   map[string]context.CancelFunc
+
 	VPSSubsMu sync.Mutex
 
 	// 保存串行化锁。Save* 是"快照 + 全表覆盖",两个并发保存里
@@ -176,6 +184,7 @@ func NewState(paths storage.Paths, cfg *config.Store, lg *logger.Logger, sqliteD
 		ServerCache:           NewServerListCache(),
 		DB:                    sqliteDB,
 		DeletedTaskIDs:        make(map[string]struct{}),
+		taskCancel:            make(map[string]context.CancelFunc),
 		Accounts:              []types.OVHAccount{},
 		Queue:                 []types.QueueItem{},
 		History:               []types.PurchaseHistoryEntry{},
@@ -435,6 +444,58 @@ func (s *State) LoadFailures() map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// MarkTaskDeleted 标记任务已删除,并取消它正在进行的下单(如果有)。
+//
+// 所有删任务的入口(网页删单个 / 清空、TG /cancel、处理器复核)都必须走这里。
+// 只写 DeletedTaskIDs 不调 cancel 的话,PurchaseServer 会把这一轮跑完 —— 包括结账:
+// 用户在"有货"通知弹出后两秒内点了删除,单照样下出去。
+func (s *State) MarkTaskDeleted(id string) {
+	s.DeletedTaskIDsMu.Lock()
+	s.DeletedTaskIDs[id] = struct{}{}
+	s.DeletedTaskIDsMu.Unlock()
+
+	s.taskCancelMu.Lock()
+	cancel := s.taskCancel[id]
+	delete(s.taskCancel, id)
+	s.taskCancelMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// IsTaskDeleted 任务是否已被标记删除。
+func (s *State) IsTaskDeleted(id string) bool {
+	s.DeletedTaskIDsMu.Lock()
+	defer s.DeletedTaskIDsMu.Unlock()
+	_, ok := s.DeletedTaskIDs[id]
+	return ok
+}
+
+// RegisterTaskCancel 登记一个任务这一轮下单的取消函数。PurchaseServer 开跑前调。
+//
+// 调用方登记完必须再查一次 IsTaskDeleted:登记前一瞬间刚好被删的话,
+// MarkTaskDeleted 那时还找不到 cancel 函数,ctx 不会被取消 —— 那次复核把这个窗口堵上。
+func (s *State) RegisterTaskCancel(id string, cancel context.CancelFunc) {
+	s.taskCancelMu.Lock()
+	if s.taskCancel == nil {
+		s.taskCancel = make(map[string]context.CancelFunc)
+	}
+	s.taskCancel[id] = cancel
+	s.taskCancelMu.Unlock()
+}
+
+// UnregisterTaskCancel 一轮下单结束后注销并释放 ctx。用 defer 调,成败都要走。
+// 已被 MarkTaskDeleted 摘掉的话这里是空操作。
+func (s *State) UnregisterTaskCancel(id string) {
+	s.taskCancelMu.Lock()
+	cancel := s.taskCancel[id]
+	delete(s.taskCancel, id)
+	s.taskCancelMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // SaveHistory 把内存中 History 整表覆盖写入 SQLite

@@ -45,6 +45,37 @@ export function clearApiSecretKey(): void {
   window.localStorage.removeItem(API_KEY_STORAGE);
 }
 
+/**
+ * 会话失效广播。
+ *
+ * 为什么需要它：AuthGate 只在首次挂载时探测一次密钥，之后再不复查。
+ * 而密钥是会中途失效的（服务端换了 API_SECRET_KEY、或用户在另一个标签页清了它）。
+ * 以前这种情况下每个 401 都单独弹一次 toast —— 项目里有 14 个定时轮询，
+ * 最快 1 秒一次，于是屏幕上持续堆满"身份验证失败"，
+ * 而页面还停在那儿显示着一屏再也不会更新的旧数据，没有任何东西把用户送回登录界面。
+ *
+ * 现在 401 走这里：去掉本地失效的密钥、通知 AuthGate 重新弹登录覆盖层。
+ * toast 用固定 id，sonner 会替换而不是叠加，所以刷多少次 401 屏幕上也只有一条。
+ */
+type AuthFailureHandler = () => void;
+let authFailureHandler: AuthFailureHandler | null = null;
+
+/** AuthGate 挂载时注册；返回取消订阅函数 */
+export function onAuthFailure(fn: AuthFailureHandler): () => void {
+  authFailureHandler = fn;
+  return () => {
+    if (authFailureHandler === fn) authFailureHandler = null;
+  };
+}
+
+function notifyAuthFailure(): void {
+  // 固定 id：并发的十几个 401 只会留下一条 toast，而不是叠成一屏
+  toast.error("登录状态已失效，请重新输入 API 密钥", { id: "auth-expired" });
+  // 清掉失效的密钥：留着的话 AuthGate 重新挂载时又会拿它去探测，白跑一次
+  clearApiSecretKey();
+  authFailureHandler?.();
+}
+
 /** 创建 axios 实例，附带请求/响应拦截 */
 function createApiClient(): AxiosInstance {
   const client = axios.create({
@@ -80,12 +111,12 @@ function createApiClient(): AxiosInstance {
     return config;
   });
 
-  // 响应拦截：401 提示去配置
+  // 响应拦截：401 = 会话失效，通知 AuthGate 重新接管
   client.interceptors.response.use(
     (res) => res,
     (error: AxiosError<{ error?: string }>) => {
       if (error.response?.status === 401) {
-        toast.error("身份验证失败，请检查 API 设置");
+        notifyAuthFailure();
       } else if (error.response?.data?.error) {
         // 服务器明确的错误信息不在拦截层弹 toast，让业务层决定（避免重复提示）
       }

@@ -18,14 +18,51 @@ type Config struct {
 	// NotifyWebhookURL 第二条通知通道:一个接收 JSON POST 的地址(钉钉/飞书/Bark/自建都行)。
 	// 补货监控的全部价值就是"有货那一刻你能收到消息",单通道意味着 Telegram 一挂就全盲。
 	NotifyWebhookURL string `json:"notifyWebhookUrl,omitempty"`
+
+	// DefaultRetryInterval 新建抢购任务的默认重试间隔(秒)。
+	// 网页弹窗、TG /buy、上架通知里的一键下单按钮不显式指定时都用它。
+	// 以前四条入队路径各写各的(30 / 30 / 30,前端弹窗还显示 60),用户既改不了也对不上。
+	DefaultRetryInterval int `json:"defaultRetryInterval,omitempty"`
+	// QuickOrderRetryInterval 监控触发的自动下单(/watch 自动抢)用的重试间隔(秒)。
+	// 单独一个值是因为场景不同:货刚出现那一刻要抢,窗口可能只有几十秒,
+	// 所以默认比普通任务激进得多;但太密会吃 OVH 的 429,这里交给用户自己权衡。
+	QuickOrderRetryInterval int `json:"quickOrderRetryInterval,omitempty"`
+}
+
+// 重试间隔的默认值与合法区间(秒)。
+const (
+	DefaultTaskRetryInterval  = 60
+	DefaultQuickRetryInterval = 2
+	MinRetryInterval          = 1
+	MaxRetryInterval          = 86400
+)
+
+// ClampRetryInterval 把重试间隔夹到合法区间;<= 0 视为"没设",退回 fallback。
+//
+// 处理器、入队路径、设置保存都走这一个函数。0 必须兜住:处理器的就绪判断是
+// `now - last >= interval`,间隔为 0 时恒真,任务会每秒重试一次把 OVH 刷到 429 ——
+// 旧库里 retry_interval 列后加的行、任何忘了设这个字段的入队路径都会踩到。
+func ClampRetryInterval(v, fallback int) int {
+	if v <= 0 {
+		v = fallback
+	}
+	if v < MinRetryInterval {
+		return MinRetryInterval
+	}
+	if v > MaxRetryInterval {
+		return MaxRetryInterval
+	}
+	return v
 }
 
 // DefaultConfig 默认配置
 func DefaultConfig() Config {
 	return Config{
-		Endpoint: "ovh-eu",
-		IAM:      "go-ovh-ie",
-		Zone:     "IE",
+		Endpoint:                "ovh-eu",
+		IAM:                     "go-ovh-ie",
+		Zone:                    "IE",
+		DefaultRetryInterval:    DefaultTaskRetryInterval,
+		QuickOrderRetryInterval: DefaultQuickRetryInterval,
 	}
 }
 

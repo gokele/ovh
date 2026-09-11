@@ -206,8 +206,9 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 			// 一旦库存持续可见而下单侧连续吃 429/5xx,任务用尽轮次置 failed 后
 			// 就再也没人补这一枪 —— 自动下单会静默停摆到库存先消失再回来。
 			// 20 次真实失败已经足够说明不是偶发抖动;确定性错误另有 Fatal 闸门当场终止。
-			MaxRetries:    20,
-			RetryInterval: 2,
+			MaxRetries: 20,
+			// 监控触发的自动下单用单独的(更激进的)间隔,设置页可改
+			RetryInterval: state.Config.QuickOrderRetryInterval(),
 			CreatedAt:     now,
 			UpdatedAt:     now,
 			LastCheckTime: 0,

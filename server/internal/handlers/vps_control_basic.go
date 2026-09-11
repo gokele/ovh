@@ -233,7 +233,23 @@ func GetVpsServiceStatus(state *app.State) gin.HandlerFunc {
 		}
 		var status map[string]interface{}
 		if err := client.Get("/vps/"+svc+"/status", &status); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			// OVH 对这条路单独要一个 IAM 权限:vps:apiovh:status/get
+			// (官方 v1 schema 里它是 PRODUCTION,不是废弃,也不是三区差异)。
+			// consumer key 建的时候没勾到 GET /vps/* 就会吃 403 —— 而别的 VPS 端点
+			// (/vps/{sn} 要 vps:apiovh:get、/ips 要 ips/get)权限各自独立,照样能用,
+			// 所以用户看到的是"这一页大部分正常,唯独状态这块报 500"。
+			// 直接把 OVH 的英文 403 甩成 500,用户无从知道该去补哪一项权限。
+			code, msg := featureOVHErr(err)
+			if code == http.StatusForbidden {
+				c.JSON(http.StatusOK, gin.H{
+					"success": true, "status": nil, "unauthorized": true,
+					"message": "当前 OVH 凭据没有读取端口探测状态的权限（需要 IAM 权限 vps:apiovh:status/get）。" +
+						"到 OVH 控制台重新生成 Consumer Key、给它 GET /vps/* 的权限即可；" +
+						"这一项不影响 VPS 的其它功能。",
+				})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": msg})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "status": status})

@@ -34,6 +34,7 @@ import {
   useQueueList,
   useToggleQueueItem,
   useRemoveQueueItem,
+  useUpdateQueueInterval,
   useClearQueue,
   useCreateQueueItem,
   type QueueItem,
@@ -42,6 +43,7 @@ import {
 } from "@/hooks/use-queue";
 import { useServers } from "@/hooks/use-servers";
 import { OVH_DATACENTERS as OVH_DC_LIST } from "@/lib/datacenters";
+import { RETRY_INTERVAL, useSettings } from "@/hooks/use-settings";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
 import { TimingChip } from "@/components/common/TimingChip";
@@ -68,8 +70,70 @@ export const Route = createFileRoute("/queue")({
 /** OVH 数据中心列表：复用 lib/datacenters.ts 的共享常量 */
 const OVH_DATACENTERS = OVH_DC_LIST;
 
-/** 任务重试间隔默认值（秒），与后端 TASK_RETRY_INTERVAL 保持一致 */
-const DEFAULT_RETRY_INTERVAL = 60;
+/** 新建任务时的兜底间隔。真正的默认值来自设置（/api/settings.defaultRetryInterval），
+ *  这个常量只在配置还没读到时占位 —— 和后端 types.DefaultTaskRetryInterval 一致 */
+const FALLBACK_RETRY_INTERVAL = RETRY_INTERVAL.defaultTask;
+
+/**
+ * 队列卡片上那个可点的秒数。
+ *
+ * 点一下变输入框，回车/失焦提交。改的是这一条任务自己的间隔，
+ * 处理器每轮都读任务上的值，所以下一轮就生效，不用重建任务。
+ */
+function IntervalEditor({ id, value }: { id: string; value: number }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value));
+  const update = useUpdateQueueInterval();
+
+  const commit = () => {
+    setEditing(false);
+    const n = Number(draft);
+    if (!n || n === value) return setDraft(String(value));
+    if (n < RETRY_INTERVAL.min || n > RETRY_INTERVAL.max) {
+      toast.error(`重试间隔要在 ${RETRY_INTERVAL.min} ~ ${RETRY_INTERVAL.max} 秒之间`);
+      return setDraft(String(value));
+    }
+    update.mutate({ id, retryInterval: n });
+  };
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(String(value));
+          setEditing(true);
+        }}
+        className="font-medium text-foreground underline decoration-dotted underline-offset-2 hover:text-primary"
+        title="点击修改这条任务的重试间隔"
+      >
+        {value}
+      </button>
+    );
+  }
+  return (
+    <input
+      autoFocus
+      type="text"
+      inputMode="numeric"
+      value={draft}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v === "" || /^\d*$/.test(v)) setDraft(v);
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") {
+          setDraft(String(value));
+          setEditing(false);
+        }
+      }}
+      // 手机端 16px 防 iOS 聚焦缩放
+      className="w-14 px-1 py-0.5 rounded border border-input bg-background text-base sm:text-[11px] text-center"
+    />
+  );
+}
 
 function QueuePage() {
   const queue = useQueueList();
@@ -253,7 +317,16 @@ function CreateQueueDialog({
   const [planCode, setPlanCode] = useState(initialPlanCode || "");
   const [datacenters, setDatacenters] = useState<string[]>([]);
   const [quantity, setQuantity] = useState("1");
-  const [retryInterval, setRetryInterval] = useState(String(DEFAULT_RETRY_INTERVAL));
+  // 默认间隔跟着设置页走(配置没读到时用兜底常量)。
+  // 以前这里硬编码 60,而后端四条入队路径写的是 30 —— 弹窗显示的和实际用的对不上。
+  const settingsQ = useSettings();
+  const cfgDefault = settingsQ.data?.defaultRetryInterval || FALLBACK_RETRY_INTERVAL;
+  const [retryInterval, setRetryInterval] = useState("");
+  // 配置到手后填进去(用户还没动过输入框才填,不覆盖他正在打的字)
+  const touchedRef = useRef(false);
+  useEffect(() => {
+    if (!touchedRef.current) setRetryInterval(String(cfgDefault));
+  }, [cfgDefault]);
   // 默认不自动付款:自动扣钱必须显式打开。
   // 这个对话框和服务器卡片弹的那个是两条建任务入口,开关两边都要有 ——
   // 上一版只加了卡片那边,这边漏了
@@ -354,7 +427,8 @@ function CreateQueueDialog({
     setPlanCode("");
     setDatacenters([]);
     setQuantity("1");
-    setRetryInterval(String(DEFAULT_RETRY_INTERVAL));
+    touchedRef.current = false;
+    setRetryInterval(String(cfgDefault));
     setPicked({});
     setExtraInput("");
     prevPlanCodeRef.current = "";
@@ -384,7 +458,7 @@ function CreateQueueDialog({
       planCode: planCode.trim(),
       datacenters,
       quantity: qty,
-      retryInterval: Number(retryInterval) || DEFAULT_RETRY_INTERVAL,
+      retryInterval: Number(retryInterval) || cfgDefault,
       options: parsedOptions,
       autoPay,
     });
@@ -546,12 +620,13 @@ function CreateQueueDialog({
                 value={retryInterval}
                 onChange={(e) => {
                   const v = e.target.value;
+                  touchedRef.current = true;
                   if (v === "" || /^\d*$/.test(v)) setRetryInterval(v);
                 }}
-                placeholder={`默认: ${DEFAULT_RETRY_INTERVAL}`}
+                placeholder={`默认: ${cfgDefault}`}
               />
               <p className="text-[11px] text-muted-foreground mt-1">
-                抢购失败后等待秒数再重试
+                抢购失败后等待秒数再重试（默认值在「设置 → 抢购」里改）
               </p>
             </div>
           </div>
@@ -731,8 +806,16 @@ function QueueRow({
             ) : item.status === "completed" ? (
               <span>已完成</span>
             ) : (
-              <span>
-                下次尝试 {item.retryCount > 0 ? `${item.retryInterval}秒后（第 ${item.retryCount + 1} 次）` : "即将开始"}
+              <span className="inline-flex items-center gap-1">
+                下次尝试
+                {item.retryCount > 0 ? (
+                  <>
+                    <IntervalEditor id={item.id} value={item.retryInterval} />
+                    秒后（第 {item.retryCount + 1} 次）
+                  </>
+                ) : (
+                  "即将开始"
+                )}
               </span>
             )}
             {timing && (

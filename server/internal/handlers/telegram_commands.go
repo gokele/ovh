@@ -51,6 +51,8 @@ func handleCommand(state *app.State, mon *monitor.Monitor, chatID interface{}, m
 		reply = queueText(state)
 	case "cancel":
 		reply = cancelText(state, args)
+	case "interval", "iv":
+		reply = intervalText(state, args)
 	case "watch", "w":
 		// 带了 x<数量> = 用户明确知道自己要什么,直接建,不打断他。
 		// 否则走按钮流程:让他挑配置和账户 —— 这两件事不挑就等于默默替他决定,
@@ -118,6 +120,7 @@ func helpText() string {
 	b.WriteString("  /status   监控与队列总览\n")
 	b.WriteString("  /queue    正在抢的任务\n")
 	b.WriteString("  /cancel <任务号|all>  取消任务\n")
+	b.WriteString("  /interval [秒]   看/改新任务的默认重试间隔\n")
 	b.WriteString("  /subs     在盯哪些型号\n")
 	b.WriteString("  /accounts 看/切当前下单账户\n")
 	b.WriteString("  /recent   最近的抢购结果\n\n")
@@ -253,7 +256,8 @@ func queueText(state *app.State) string {
 			dc = "任意机房"
 		}
 		b.WriteString(fmt.Sprintf("%d. %s @ %s\n", i+1, it.PlanCode, strings.ToUpper(dc)))
-		b.WriteString("   状态 " + it.Status)
+		b.WriteString(fmt.Sprintf("   状态 %s · 每 %d 秒重试", it.Status,
+			types.ClampRetryInterval(it.RetryInterval, state.Config.RetryInterval())))
 		if it.FailureCount > 0 {
 			b.WriteString(fmt.Sprintf(" · 已失败 %d 次", it.FailureCount))
 		}
@@ -273,6 +277,30 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// intervalText /interval 看或改新建任务的默认重试间隔。
+// 只改默认值:已经在跑的任务各自带着自己的间隔,要改单个任务去网页「抢购队列」里点秒数。
+func intervalText(state *app.State, args []string) string {
+	cur := state.Config.RetryInterval()
+	quick := state.Config.QuickOrderRetryInterval()
+	if len(args) == 0 {
+		return fmt.Sprintf("⏱ 新任务默认重试间隔：%d 秒\n   监控自动下单间隔：%d 秒\n\n"+
+			"改默认值：/interval <秒>（%d ~ %d）\n单个任务的间隔到网页「抢购队列」里点秒数改。",
+			cur, quick, types.MinRetryInterval, types.MaxRetryInterval)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(args[0]))
+	if err != nil || n < types.MinRetryInterval || n > types.MaxRetryInterval {
+		return fmt.Sprintf("间隔要是 %d ~ %d 之间的整数秒，例如 /interval 60",
+			types.MinRetryInterval, types.MaxRetryInterval)
+	}
+	cfg := state.Config.Get()
+	cfg.DefaultRetryInterval = n
+	if err := state.Config.Set(cfg); err != nil {
+		return "❌ 保存失败：" + err.Error()
+	}
+	state.Logger.Info(fmt.Sprintf("Telegram 把默认重试间隔从 %d 改为 %d 秒", cur, n), "telegram")
+	return fmt.Sprintf("✅ 默认重试间隔已改为 %d 秒（之前 %d 秒）。\n只影响之后新建的任务。", n, cur)
 }
 
 func cancelText(state *app.State, args []string) string {
@@ -306,9 +334,7 @@ func cancelText(state *app.State, args []string) string {
 		idx := matched[i]
 		it := state.Queue[idx]
 		killed = append(killed, it.PlanCode+" @ "+strings.ToUpper(orAny(it.Datacenter)))
-		state.DeletedTaskIDsMu.Lock()
-		state.DeletedTaskIDs[it.ID] = struct{}{}
-		state.DeletedTaskIDsMu.Unlock()
+		state.MarkTaskDeleted(it.ID) // 同时取消它正在进行的下单
 		state.Queue = append(state.Queue[:idx], state.Queue[idx+1:]...)
 	}
 	state.QueueMu.Unlock()

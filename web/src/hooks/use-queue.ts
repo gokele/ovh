@@ -123,6 +123,20 @@ export function useToggleQueueItem() {
 }
 
 /** 删除单个任务 */
+/** 改单条任务的重试间隔。处理器每轮都读任务上的值，所以下一轮就生效 */
+export function useUpdateQueueInterval() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, retryInterval }: { id: string; retryInterval: number }) =>
+      (await api.put(`/queue/${id}/interval`, { retryInterval })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.queue.list() });
+      toast.success("重试间隔已更新");
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || "修改失败"),
+  });
+}
+
 export function useRemoveQueueItem() {
   const qc = useQueryClient();
   return useMutation({

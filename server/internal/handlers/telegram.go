@@ -312,7 +312,7 @@ func handleTelegramCallback(state *app.State, mon *monitor.Monitor, u *updateCtx
 		Status:        "running",
 		CreatedAt:     types.NowISO(),
 		UpdatedAt:     types.NowISO(),
-		RetryInterval: 30,
+		RetryInterval: state.Config.RetryInterval(),
 		RetryCount:    0,
 		LastCheckTime: 0,
 		FromTelegram:  true,

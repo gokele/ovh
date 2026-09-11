@@ -204,8 +204,10 @@ func runOrder(state *app.State, o *telegram.OrderInfo, accs []types.OVHAccount) 
 		res := telegram.ProcessOrder(state, accs[0].ID, o.PlanCode, o.Datacenter, o.Quantity, o.Options)
 		if res.Success {
 			return fmt.Sprintf("📥 已创建 %d/%d 个抢购任务\n\n型号: %s\n账户: %s\n\n"+
-				"系统会一直重试到抢到为止。下单成功≠已付款。\n查看 /queue · 取消 /cancel all",
-				res.CreatedOrders, res.TotalOrders, o.PlanCode, telegram.AccountLabel(accs[0]))
+				"系统会每 %d 秒重试一次，直到抢到为止。下单成功≠已付款。\n"+
+				"查看 /queue · 取消 /cancel all · 改间隔 /interval",
+				res.CreatedOrders, res.TotalOrders, o.PlanCode, telegram.AccountLabel(accs[0]),
+				state.Config.RetryInterval())
 		}
 		return "❌ 下单失败\n\n" + res.Message +
 			"\n\n💡 如果只是现在没货，可以挂着等补货：/watch " + o.PlanCode

@@ -55,9 +55,8 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": hint})
 			return
 		}
-		if body.RetryInterval == 0 {
-			body.RetryInterval = 30
-		}
+		// 没给 / 给 0 = 用全局默认(设置页可改);超出区间夹回来
+		body.RetryInterval = types.ClampRetryInterval(body.RetryInterval, state.Config.RetryInterval())
 		item := types.QueueItem{
 			ID:            uuid.NewString(),
 			AccountID:     body.AccountID,
@@ -96,10 +95,10 @@ func RemoveQueueItem(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 
-		state.DeletedTaskIDsMu.Lock()
-		state.DeletedTaskIDs[id] = struct{}{}
-		state.DeletedTaskIDsMu.Unlock()
-		state.Logger.Info("标记任务 "+id+" 为删除，后台线程将立即停止处理", "system")
+		// MarkTaskDeleted 除了打标记,还会取消这条任务正在进行的下单(如果它正跑在
+		// PurchaseServer 里)。以前只打标记,处理器要到下一轮才看得见,这一轮照跑到结账。
+		state.MarkTaskDeleted(id)
+		state.Logger.Info("标记任务 "+id+" 为删除，正在进行的下单已取消，后台线程将停止处理", "system")
 
 		state.QueueMu.Lock()
 		var removed *types.QueueItem
@@ -131,16 +130,56 @@ func RemoveQueueItem(state *app.State) gin.HandlerFunc {
 	}
 }
 
+// UpdateQueueInterval PUT /api/queue/:id/interval  body: { "retryInterval": 秒 }
+// 改一条正在跑的任务的重试间隔。处理器每轮都读 item 上的值,所以改完下一轮就生效。
+func UpdateQueueInterval(state *app.State) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var body struct {
+			RetryInterval int `json:"retryInterval"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil ||
+			body.RetryInterval < types.MinRetryInterval || body.RetryInterval > types.MaxRetryInterval {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error",
+				"error": fmt.Sprintf("重试间隔必须是 %d ~ %d 之间的整数秒", types.MinRetryInterval, types.MaxRetryInterval)})
+			return
+		}
+		found := false
+		state.QueueMu.Lock()
+		for i := range state.Queue {
+			if state.Queue[i].ID == id {
+				state.Queue[i].RetryInterval = body.RetryInterval
+				state.Queue[i].UpdatedAt = types.NowISO()
+				found = true
+				break
+			}
+		}
+		state.QueueMu.Unlock()
+		if !found {
+			c.JSON(http.StatusNotFound, gin.H{"status": "error", "error": "任务不存在"})
+			return
+		}
+		if err := state.SaveQueue(); err != nil {
+			state.Logger.Error("改任务间隔后保存队列失败: "+err.Error(), "queue")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": "error",
+				"error":  "间隔已在本次运行中改掉，但没能写进数据库，重启后会回到原值：" + err.Error(),
+			})
+			return
+		}
+		state.Logger.Info(fmt.Sprintf("任务 %s 重试间隔改为 %d 秒", id, body.RetryInterval), "queue")
+		c.JSON(http.StatusOK, gin.H{"status": "success"})
+	}
+}
+
 // ClearQueue DELETE /api/queue/clear
 func ClearQueue(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state.QueueMu.Lock()
 		count := len(state.Queue)
-		state.DeletedTaskIDsMu.Lock()
 		for _, it := range state.Queue {
-			state.DeletedTaskIDs[it.ID] = struct{}{}
+			state.MarkTaskDeleted(it.ID) // 同时取消正在进行的下单
 		}
-		state.DeletedTaskIDsMu.Unlock()
 		state.Queue = []types.QueueItem{}
 		state.QueueMu.Unlock()
 		if err := state.SaveQueue(); err != nil {

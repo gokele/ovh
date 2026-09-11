@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Settings as SettingsIcon, KeyRound, Globe, Send, Database, Save, AlertTriangle, CheckCircle2, Plus, Star, RotateCw, Trash2, Pencil, BellRing, RefreshCw, Radio, Network, Fingerprint, ShieldAlert, Radar, Ban, Activity } from "lucide-react";
+import { Settings as SettingsIcon, KeyRound, Globe, Send, Database, Save, AlertTriangle, CheckCircle2, Plus, Star, RotateCw, Trash2, Pencil, BellRing, RefreshCw, Radio, Network, Fingerprint, ShieldAlert, Radar, Ban, Activity, Timer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { LoadFailed, LoadFailedBanner } from "@/components/common/LoadFailed";
@@ -13,6 +13,7 @@ import { Chip } from "@/components/common/Chip";
 import { StatusDot } from "@/components/common/StatusDot";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
+  RETRY_INTERVAL,
   useSettings,
   useSaveSettings,
   useCacheInfo,
@@ -64,6 +65,7 @@ export const Route = createFileRoute("/settings")({
 const SECTIONS = [
   { id: "password", icon: KeyRound, label: "访问密码" },
   { id: "accounts", icon: Globe, label: "OVH 账户" },
+  { id: "purchase", icon: Timer, label: "抢购" },
   { id: "telegram", icon: Send, label: "Telegram" },
   { id: "notify", icon: BellRing, label: "通知通道" },
   { id: "cache", icon: Database, label: "缓存管理" },
@@ -89,7 +91,9 @@ function SettingsPage() {
     setApiKey(getApiSecretKey() || "");
   }, []);
 
-  const set = (k: keyof SettingsConfig, v: string) => setForm((prev) => ({ ...prev, [k]: v }));
+  // 值类型按 key 取:抢购间隔是 number | undefined,其余是 string
+  const set = <K extends keyof SettingsConfig>(k: K, v: SettingsConfig[K]) =>
+    setForm((prev) => ({ ...prev, [k]: v }));
 
   const onSave = () => {
     // 配置没读到手的时候,form 还停在初始的 {} —— 所有输入框看上去都是"未配置"。
@@ -195,6 +199,8 @@ function SettingsPage() {
               <TelegramSection form={form} set={set} />
             ) : active === "notify" ? (
               <NotifySection form={form} set={set} />
+            ) : active === "purchase" ? (
+              <PurchaseSection form={form} set={set} />
             ) : (
               <CacheSection />
             )}
@@ -202,6 +208,71 @@ function SettingsPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+/**
+ * 抢购参数。
+ *
+ * 这两个间隔以前是散在四条入队路径里的字面量（30 / 30 / 30 / 2），用户既改不了、
+ * 前端弹窗显示的默认值（60）还跟后端实际用的（30）对不上。现在统一读这里。
+ */
+function PurchaseSection({
+  form,
+  set,
+}: {
+  form: SettingsConfig;
+  set: <K extends keyof SettingsConfig>(k: K, v: SettingsConfig[K]) => void;
+}) {
+  /** 秒数输入：允许中途空串（正在删改），失焦/提交时后端会把 0 夹回默认值 */
+  const numField = (k: "defaultRetryInterval" | "quickOrderRetryInterval", fallback: number) => (
+    <Input
+      type="text"
+      inputMode="numeric"
+      value={form[k] === undefined ? "" : String(form[k])}
+      placeholder={`默认 ${fallback}`}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v === "") return set(k, undefined);
+        if (/^\d+$/.test(v)) set(k, Number(v));
+      }}
+    />
+  );
+
+  const invalid = (v?: number) =>
+    v !== undefined && (v < RETRY_INTERVAL.min || v > RETRY_INTERVAL.max);
+
+  return (
+    <Section title="抢购参数">
+      <Field
+        label="新任务默认重试间隔（秒）"
+        hint={`网页新建任务、Telegram /buy、上架通知里的一键下单按钮都用它。留空 = ${RETRY_INTERVAL.defaultTask} 秒。范围 ${RETRY_INTERVAL.min} ~ ${RETRY_INTERVAL.max}。`}
+      >
+        {numField("defaultRetryInterval", RETRY_INTERVAL.defaultTask)}
+        {invalid(form.defaultRetryInterval) && (
+          <p className="text-[11px] text-destructive mt-1">
+            要在 {RETRY_INTERVAL.min} ~ {RETRY_INTERVAL.max} 之间
+          </p>
+        )}
+      </Field>
+
+      <Field
+        label="监控自动下单间隔（秒）"
+        hint={`/watch 自动抢触发的任务用这个。货刚出现那一刻窗口可能只有几十秒，所以默认比普通任务激进（${RETRY_INTERVAL.defaultQuick} 秒）；但太密会吃 OVH 的 429，自己权衡。`}
+      >
+        {numField("quickOrderRetryInterval", RETRY_INTERVAL.defaultQuick)}
+        {invalid(form.quickOrderRetryInterval) && (
+          <p className="text-[11px] text-destructive mt-1">
+            要在 {RETRY_INTERVAL.min} ~ {RETRY_INTERVAL.max} 之间
+          </p>
+        )}
+      </Field>
+
+      <div className="rounded-2xl border border-border bg-secondary/30 px-4 py-3 text-[12px] text-muted-foreground">
+        只影响<b className="text-foreground">之后新建</b>的任务。已经在队列里跑的任务各自带着自己的间隔，
+        要改单个任务去「抢购队列」页点那条任务的秒数。
+      </div>
+    </Section>
   );
 }
 

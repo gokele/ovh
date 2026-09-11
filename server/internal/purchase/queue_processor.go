@@ -1,6 +1,7 @@
 package purchase
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -97,15 +98,17 @@ func ProcessQueueLoop(state *app.State) {
 			}
 			// 复核：sorted 是 snapshot，与此同时用户可能删过；如果不在 queue 里则标记 deleted 并跳过
 			if _, exists := queueIDs[it.ID]; !exists {
-				state.DeletedTaskIDsMu.Lock()
-				state.DeletedTaskIDs[it.ID] = struct{}{}
-				state.DeletedTaskIDsMu.Unlock()
+				state.MarkTaskDeleted(it.ID)
 				continue
 			}
 			if it.Status != "running" {
 				continue
 			}
-			if it.LastCheckTime == 0 || float64(current)-it.LastCheckTime >= float64(it.RetryInterval) {
+			// 间隔 <= 0 一律按全局默认算(ClampRetryInterval 里兜住)。
+			// 不兜的话 `now - last >= 0` 恒真,任务每秒重试一次把 OVH 刷到 429 ——
+			// 旧库里 retry_interval 列后加的行会是 0,忘了设这个字段的入队路径也会是 0。
+			interval := types.ClampRetryInterval(it.RetryInterval, state.Config.RetryInterval())
+			if it.LastCheckTime == 0 || float64(current)-it.LastCheckTime >= float64(interval) {
 				ready = append(ready, it)
 			}
 		}
@@ -116,10 +119,7 @@ func ProcessQueueLoop(state *app.State) {
 			var procMu sync.Mutex
 
 			processSingle := func(it types.QueueItem) {
-				state.DeletedTaskIDsMu.Lock()
-				_, deleted := state.DeletedTaskIDs[it.ID]
-				state.DeletedTaskIDsMu.Unlock()
-				if deleted {
+				if state.IsTaskDeleted(it.ID) {
 					return
 				}
 
@@ -137,6 +137,11 @@ func ProcessQueueLoop(state *app.State) {
 					return
 				}
 				isFirstAttempt := current.LastCheckTime == 0
+				// 自愈:间隔为 0 的老任务把有效值写回去,界面上就不再显示"0 秒后",
+				// 下一次 SaveQueue 顺带落库,以后也不用每轮再兜底
+				if current.RetryInterval <= 0 {
+					current.RetryInterval = state.Config.RetryInterval()
+				}
 				current.LastCheckTime = float64(time.Now().Unix())
 				current.RetryCount++
 				current.UpdatedAt = types.NowISO()
@@ -150,7 +155,22 @@ func ProcessQueueLoop(state *app.State) {
 					state.Logger.Info("重试检查任务 "+it.ID+": "+it.PlanCode+" 在 "+it.Datacenter, "queue")
 				}
 
-				outcome := PurchaseServer(state, &snapshot)
+				// 给这一轮下单挂一个可取消的 ctx 并登记到 State。用户从任何入口删任务
+				// 都会经由 MarkTaskDeleted 调 cancel,正在进行的 OVH 调用立刻中断。
+				ctx, cancel := context.WithCancel(context.Background())
+				state.RegisterTaskCancel(it.ID, cancel)
+				defer state.UnregisterTaskCancel(it.ID)
+				// 登记后复核:上面那次 IsTaskDeleted 到这里之间被删的话,
+				// MarkTaskDeleted 当时还找不到 cancel 函数,ctx 不会被取消。
+				if state.IsTaskDeleted(it.ID) {
+					return
+				}
+
+				outcome := PurchaseServer(ctx, state, &snapshot)
+				if outcome.Cancelled {
+					// 用户删的,不是失败:不动 FailureCount、不置 failed,队列里也已经没有它了
+					return
+				}
 				if outcome.Success {
 					state.QueueMu.Lock()
 					for i := range state.Queue {

@@ -3,7 +3,7 @@ import { KeyRound, Loader2, ShieldAlert } from "lucide-react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getApiSecretKey, setApiSecretKey, clearApiSecretKey } from "@/lib/api";
+import { getApiSecretKey, setApiSecretKey, clearApiSecretKey, onAuthFailure } from "@/lib/api";
 
 type AuthState = "checking" | "needs-auth" | "authed";
 
@@ -14,10 +14,24 @@ type AuthState = "checking" | "needs-auth" | "authed";
  *   - 用户在浏览器上看不到任何应用内容，也点不到任何路由 / 按钮（fixed inset-0 + 高 z-index）
  *   - 输入 key → 临时塞到 localStorage → 再次探测 /api/stats，通过才放行
  * - 验证用裸 axios，不走带拦截器的 `api` 客户端：避免循环弹 toast
+ * - 进入应用后仍订阅 401：密钥会中途失效（服务端换了 key、别的标签页清了它），
+ *   那时用户会卡在一屏永远不再更新的旧数据上。收到 401 就重新弹登录覆盖层。
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>("checking");
   const [errMsg, setErrMsg] = useState<string>("");
+
+  // 进入应用后订阅会话失效。
+  //
+  // 只在 authed 状态下订阅:needs-auth 时用户正在登录覆盖层里,
+  // 而覆盖层的验证走裸 axios 不经过拦截器,不会有 401 打进来。
+  useEffect(() => {
+    if (state !== "authed") return;
+    return onAuthFailure(() => {
+      setErrMsg("登录状态已失效，请重新输入 API 密钥");
+      setState("needs-auth");
+    });
+  }, [state]);
 
   // 启动时检查一次
   useEffect(() => {

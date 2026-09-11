@@ -16,7 +16,7 @@ func ListServerAliases(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acc, ok := ovhAccountFor(state, c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "未配置 OVH 账户"})
+			c.JSON(http.StatusPreconditionFailed, gin.H{"error": "未配置 OVH 账户", "code": "NO_OVH_ACCOUNT"})
 			return
 		}
 		m, err := state.DB.ListAliasesByAccount(acc.ID)
@@ -38,7 +38,7 @@ func SetServerAlias(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acc, ok := ovhAccountFor(state, c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "未配置 OVH 账户"})
+			c.JSON(http.StatusPreconditionFailed, gin.H{"error": "未配置 OVH 账户", "code": "NO_OVH_ACCOUNT"})
 			return
 		}
 		svc := strings.TrimSpace(c.Param("service_name"))
@@ -65,7 +65,7 @@ func DeleteServerAlias(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acc, ok := ovhAccountFor(state, c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "未配置 OVH 账户"})
+			c.JSON(http.StatusPreconditionFailed, gin.H{"error": "未配置 OVH 账户", "code": "NO_OVH_ACCOUNT"})
 			return
 		}
 		svc := strings.TrimSpace(c.Param("service_name"))

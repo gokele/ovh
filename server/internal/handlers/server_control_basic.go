@@ -19,9 +19,19 @@ import (
 	"github.com/ovh-buy/server/internal/ovh"
 )
 
-// noOVHResp 401 帮助
+// noOVHResp 当前账户取不到 OVH 客户端时的统一响应。
+//
+// 用 412 Precondition Failed 而不是 401:401 的语义是"你的身份凭据不对",
+// 前端的 401 拦截器会据此判定会话失效、把用户踢回登录界面。
+// 而这里的真实含义是"你还没添加 OVH 账户(或它的凭据不全)"—— 用户访问后端的
+// API 密钥完全正确。混用 401 会让没配账户的用户被反复踢出登录页,
+// 而他怎么重新输密钥都没用,因为问题根本不在密钥上。
 func noOVHResp(c *gin.Context) {
-	c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "未配置OVH API密钥"})
+	c.JSON(http.StatusPreconditionFailed, gin.H{
+		"success": false,
+		"error":   "未配置 OVH 账户或凭据不全，请到「设置 → OVH 账户」添加",
+		"code":    "NO_OVH_ACCOUNT",
+	})
 }
 
 // ── 区域门控 ──────────────────────────────────────────────────────────────

@@ -56,6 +56,9 @@ func SaveSettings(state *app.State) gin.HandlerFunc {
 		if newCfg.Zone == "" {
 			newCfg.Zone = "IE"
 		}
+		// 前端留空 / 传 0 = 用默认;超出区间夹回来。存进去的永远是明确的数
+		newCfg.DefaultRetryInterval = types.ClampRetryInterval(newCfg.DefaultRetryInterval, types.DefaultTaskRetryInterval)
+		newCfg.QuickOrderRetryInterval = types.ClampRetryInterval(newCfg.QuickOrderRetryInterval, types.DefaultQuickRetryInterval)
 
 		if err := state.Config.Set(newCfg); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": err.Error()})
