@@ -10,7 +10,6 @@ import {
   Plus,
   AlertTriangle,
   Pencil,
-  User,
   HelpCircle,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -654,14 +653,9 @@ function AddSubscriptionDialog({
                     </Button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-secondary/30">
-                    <User className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-[13px] font-medium">
-                      {accountsQ.isPending ? "读取账户…" : activeAcc?.name || "未选择账户"}
-                    </span>
-                    {activeAcc && <span className="text-[11px] text-muted-foreground">{activeAcc.zone}</span>}
-                    <span className="ml-auto text-[10px] text-muted-foreground">在左侧菜单切换</span>
-                  </div>
+                  // 当前账户不在这里重复 —— 切换器在顶栏(手机)/侧栏(桌面)始终可见。
+                  // 只保留下面那句"触发时用这个账户下单",它说的是行为不是身份。
+                  null
                 )}
                 <p className="text-[11px] text-muted-foreground mt-1">
                   触发时用这个账户下单;关掉上面的开关 = 只通知不下单

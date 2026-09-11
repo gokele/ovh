@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, CalendarPlus, Repeat, Activity, Network, CalendarRange, User } from "lucide-react";
+import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, CalendarPlus, Repeat, Activity, Network, CalendarRange } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -86,44 +86,11 @@ function ServerControlPage() {
       <PageHeader
         icon={Terminal}
         title="服务器控制"
-        description={
-          activeAcc
-            ? `管理 OVH 独立服务器 · 当前账户 ${activeAcc.name} (${activeAcc.zone})`
-            : accountsQ.isError
-              // 账户列表没拉到时不能沉默地退回默认文案,否则用户以为"就是没显示账户名"
-              ? "管理 OVH 独立服务器 · 账户信息读取失败,下面的数据属于哪个账户暂时无法确认"
-              : "管理 OVH 独立服务器"
-        }
+        // 当前账户不在这里重复 —— 顶栏(手机)/侧栏(桌面)的切换器是全站唯一的账户显示位,
+        // 它同时也负责把"账户列表读取失败"这件事说出来,所以这里不必再挂一份。
+        description="管理 OVH 独立服务器"
         action={
           <div className="flex flex-wrap items-center gap-2">
-            {/* 账户在左侧菜单栏(手机端在顶栏)统一切换,这里只显示当前是谁 ——
-                以前这里也能切,和列表页那个各切各的,于是"用 A 账户浏览、用 B 账户下单"
-                一键就能做出来,而三区目录互不相通,这种组合必然失败 */}
-            <span
-              className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-md border text-[12px] ${
-                accountsQ.isError ? "border-destructive/40 bg-destructive/5" : "border-border"
-              }`}
-              title={accountsQ.isError ? errorMessage(accountsQ.error) : undefined}
-            >
-              <User className={`w-3.5 h-3.5 ${accountsQ.isError ? "text-destructive" : "text-muted-foreground"}`} />
-              {/* 账户列表读失败时绝不能显示「未选择账户」:那句话的意思是"你还没选",
-                  用户会去菜单里挑一个;这里其实是"我们不知道你选的是谁",该做的是重试。
-                  三区目录互不相通,认错账户 = 后面所有操作打在错误的站点上。 */}
-              {accountsQ.isError ? (
-                <button type="button" className="text-destructive underline" onClick={() => accountsQ.refetch()}>
-                  账户读取失败 · 重试
-                </button>
-              ) : accountsQ.isPending ? (
-                <span className="text-muted-foreground">账户读取中…</span>
-              ) : (
-                <>
-                  {(accounts || []).find((a) => a.id === activeAccount)?.name || "未选择账户"}
-                  <span className="text-muted-foreground">
-                    {(accounts || []).find((a) => a.id === activeAccount)?.zone}
-                  </span>
-                </>
-              )}
-            </span>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="outline" size="icon" onClick={toggle} aria-label={hidden ? "显示 IP / MAC" : "隐藏 IP"}>

@@ -111,34 +111,22 @@ function VpsControlPage() {
       {/* 账户 + VPS 选择 */}
       <Card>
         <CardContent className="p-4 flex flex-wrap items-center gap-3">
-          {/* 账户在左侧菜单栏统一切换,这里只显示 */}
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-muted-foreground">账户</span>
-            {/* 账户列表没读到时不能显示「未选择」:那句话的意思是"你还没挑账户",用户会去左侧菜单点一下,
-                可实际上是接口挂了,点开也没有可选项。而且整页的大区门控(isUS / region)全靠这份列表里的
-                endpoint,读不到就默认按欧区渲染,所以这里必须显式报错 + 给重试。 */}
-            <span
-              className={
-                "inline-flex items-center gap-1.5 h-9 px-3 rounded-md border text-[12px] " +
-                (accountsQ.isError ? "border-destructive/40 bg-destructive/5" : "border-border")
-              }
-              title={accountsQ.isError ? errorMessage(accountsQ.error) : undefined}
+          {/* 当前账户不在这里重复显示 —— 顶栏(手机)/侧栏(桌面)的切换器是全站唯一的账户显示位。
+              但「读取失败」必须留在本页:整页的大区门控(isUS / region)全靠这份列表里的
+              endpoint,读不到就默认按欧区渲染 —— 用户会对着一份**错误区域**的界面操作,
+              而切换器那边只说得出"账户没读到",说不出这一页会因此渲染成什么样。 */}
+          {accountsQ.isError && (
+            <div
+              className="flex items-center gap-2 h-9 px-3 rounded-md border border-destructive/40 bg-destructive/5 text-[12px]"
+              title={errorMessage(accountsQ.error)}
             >
-              <User className={"w-3.5 h-3.5 " + (accountsQ.isError ? "text-destructive" : "text-muted-foreground")} />
-              {accountsQ.isError ? (
-                <>
-                  <span className="text-destructive">账户列表读取失败</span>
-                  <button type="button" className="underline text-muted-foreground" onClick={() => accountsQ.refetch()}>
-                    重试
-                  </button>
-                </>
-              ) : accountsQ.isPending ? (
-                <span className="text-muted-foreground">加载中…</span>
-              ) : (
-                (accounts || []).find((a) => a.id === activeAccount)?.name || "未选择"
-              )}
-            </span>
-          </div>
+              <User className="w-3.5 h-3.5 text-destructive" />
+              <span className="text-destructive">账户读取失败，本页按欧区渲染，区域相关功能可能不对</span>
+              <button type="button" className="underline text-muted-foreground" onClick={() => accountsQ.refetch()}>
+                重试
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-2 flex-1 min-w-[280px]">
             <span className="text-[12px] text-muted-foreground">VPS</span>
             <Select value={selectedName || ""} onValueChange={setSelectedName}>

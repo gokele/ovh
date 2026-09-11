@@ -411,28 +411,13 @@ function CreateQueueDialog({
         </DialogHeader>
 
         <div className="space-y-5 py-2">
-          {/* 账户只在左侧菜单栏(手机端在顶栏)切,这里只显示当前是谁 */}
+          {/* 当前账户不在这里重复显示 —— 顶栏(手机)/侧栏(桌面)的切换器始终可见,
+              对话框打开时它也没被盖住。
+              但下面这两条要留着:一条是规则(拿错站点的 planCode 必然被拒),
+              一条是提交会被拦掉的理由,都不是"当前账户是谁"的重复。 */}
           <div>
-            <label className="block text-[13px] font-medium mb-1.5">OVH 账户</label>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-secondary/30">
-              {/* 「未选择账户」只该出现在"确实没选/没有账户"时。列表没读到也写这四个字,
-                  等于把一次网络失败说成用户自己的配置问题。 */}
-              <span className="text-[13px] font-medium">
-                {activeAcc?.name ||
-                  (accountsQ.isPending
-                    ? "读取账户中…"
-                    : accountsQ.isError
-                      ? "账户列表读取失败"
-                      : "未选择账户")}
-              </span>
-              {activeAcc && <span className="text-[11px] text-muted-foreground">{activeAcc.zone}</span>}
-              <span className="ml-auto text-[10px] text-muted-foreground">
-                  <span className="lg:hidden">在顶栏切换</span>
-                  <span className="hidden lg:inline">在左侧菜单切换</span>
-                </span>
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              下单用该账户的凭据,购物车 subsidiary 跟随账户 zone。planCode 也要是这个站点的 ——
+            <p className="text-[11px] text-muted-foreground">
+              下单用当前账户的凭据,购物车 subsidiary 跟随账户 zone。planCode 也要是这个站点的 ——
               三区目录互不相通
             </p>
             {/* 没有账户就没法下单,底下的创建按钮会一直灰着 —— 必须讲清是"没读到"还是"真没有" */}

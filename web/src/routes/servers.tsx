@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { isOrderable } from "@/lib/availability";
 import {
   Server, RefreshCw, Search, Bell, ShoppingCart, Cpu, MemoryStick, HardDrive, Wifi,
-  Filter, MapPin, User, Globe } from "lucide-react";
+  Filter, MapPin, Globe } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -751,22 +751,9 @@ function DetailContent({
           </h3>
           <div className="space-y-3">
             <div>
-              <label className="block text-[11px] text-muted-foreground mb-1">OVH 账户 *</label>
-              {/* 账户只在左侧菜单栏(手机端在顶栏)切,这里只显示当前是谁 —— 两个地方各切一次
-                  正是"欧区机型配美区账户"那类必然失败组合的来源 */}
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-secondary/30">
-                <User className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                <span className="text-[13px] font-medium">{activeAccount?.name || "未选择账户"}</span>
-                {activeAccount && (
-                  <span className="text-[11px] text-muted-foreground">
-                    {activeAccount.zone} · {regionLabel(endpointRegion(activeAccount.endpoint))}
-                  </span>
-                )}
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  <span className="lg:hidden">在顶栏切换</span>
-                  <span className="hidden lg:inline">在左侧菜单切换</span>
-                </span>
-              </div>
+              {/* 当前账户不在这里重复 —— 切换器在顶栏(手机)/侧栏(桌面)始终可见。
+                  下面这句留着:它说的不是"账户是谁",而是"这些红绿点是按哪个站点查的",
+                  库存判断的口径跟着账户走,这是本页独有的信息。 */}
               {orderEndpoint && (
                 <p className="text-[11px] text-muted-foreground mt-1">
                   机房与配置的红绿点按该账户所在站点（{regionLabel(endpointRegion(orderEndpoint))}）实时查询
