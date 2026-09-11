@@ -32,12 +32,16 @@ export function TopBar() {
   return (
     <header className="sticky top-0 z-30 h-12 sm:h-14 flex items-center gap-2 px-3 sm:px-8 bg-background/95 backdrop-blur-sm border-b border-border">
       <MobileMenu />
-      {/* 手机端顶栏放账户切换器,不放页名 ——
-          页名下面的 PageHeader 已经写了,而账户切换器原来只在侧栏里,
-          手机端侧栏隐藏、汉堡又收给了平板,不挪上来的话手机上根本切不了账户。
-          三区(EU/US/CA)目录互不相通,切错账户后面每一步都打在错误的站点上,
-          所以这个入口在任何尺寸下都必须存在。 */}
-      <div className="sm:hidden flex-1 min-w-0">
+      {/* 手机端顶栏:左边页名,右边账户 chip。
+          页名放这儿之后 PageHeader 里那个标题就是重复的,已经在手机端隐掉。
+          账户切换器必须常驻:三区(EU/US/CA)目录互不相通,切错账户后面每一步
+          都打在错误的站点上 —— 而它原来只在侧栏里,手机端侧栏隐藏、汉堡又收给了
+          平板,不挪上来的话手机上根本切不了。放右边是因为它是全局控制,
+          跟"当前在哪一页"不是一类东西。 */}
+      <span className="sm:hidden text-[15px] font-semibold text-foreground truncate">
+        {meta.label}
+      </span>
+      <div className="sm:hidden ml-auto flex-shrink-0 max-w-[52%]">
         <AccountSwitcher compact />
       </div>
       <div className="hidden sm:flex items-center gap-2.5 min-w-0">

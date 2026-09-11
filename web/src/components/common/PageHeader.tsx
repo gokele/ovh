@@ -26,7 +26,9 @@ export function PageHeader({ icon: Icon, title, description, action }: PageHeade
           <Icon className="w-6 h-6 text-foreground" strokeWidth={1.75} />
         </div>
         <div className="min-w-0">
-          <h1 className="text-[17px] sm:text-[28px] font-bold text-foreground leading-tight tracking-tight truncate">
+          {/* 标题在手机端由顶栏承担,这里再写一遍就是同一句话占两行。
+              sm+ 顶栏是完整面包屑,标题才回到页面里。 */}
+          <h1 className="hidden sm:block text-[28px] font-bold text-foreground leading-tight tracking-tight truncate">
             {title}
           </h1>
           {description && (
