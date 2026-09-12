@@ -25,6 +25,21 @@ var retractionReasons = []gin.H{
 	{"value": "other", "label": "其它"},
 }
 
+// retractionSupportedRegion 这个大区的 API 有没有撤单接口。
+//
+// 实测三份 schema(eu / api.us.ovhcloud.com / ca):
+//
+//	EU  POST /me/order/{id}/retraction  ✓
+//	CA  POST /me/order/{id}/retraction  ✓
+//	US  ——  整个接口不存在,只有只读的 /me/refund
+//
+// 而三个区的 billing.Order 都带 retractionDate 字段。也就是说美区账户完全
+// 可能查到一个撤回截止日、界面上显示出按钮,点下去 404 —— 正是这个功能
+// 最该避免的那种按钮。所以区域必须单独挡,不能只依赖 retractionDate 有没有。
+func retractionSupportedRegion(endpoint string) bool {
+	return ovh.EndpointRegion(endpoint) != "US"
+}
+
 func isValidRetractionReason(v string) bool {
 	for _, r := range retractionReasons {
 		if r["value"] == v {
@@ -94,6 +109,18 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 			return
 		}
 
+		if !retractionSupportedRegion(acc.Endpoint) {
+			// 挡在最前面:美区连接口都没有,再往下查订单纯属浪费一次 OVH 调用
+			c.JSON(http.StatusOK, gin.H{
+				"success":  true,
+				"eligible": false,
+				"reason":   "region_unsupported",
+				"message":  "美区（OVHcloud US）的 API 没有撤单接口，这台机器不能从这里申请撤单。如需退款请联系 OVH 美区客服",
+				"reasons":  retractionReasons,
+			})
+			return
+		}
+
 		orderID, found, err := orderForService(state, c, svc)
 		if err != nil {
 			// 映射没拉到 ≠ 这台机器没有撤回权。必须说成"没查到",
@@ -135,16 +162,22 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 		orderURL := ovh.ManagerOrderURL(acc.Endpoint, strconv.FormatInt(orderID, 10))
 
 		if retractionDate == "" {
-			// OVH 没给撤回截止日 = 这单没有撤回权。
-			// 最常见的原因就是下单时弃了权(本程序 v0.1.24 之前的所有订单都是)。
+			// OVH 没给撤回截止日 = 它认为这单没有撤回权。
+			//
+			// 原因不止一种,不能像以前那样只报"下单时弃权了"—— 那是把其中一种可能
+			// 说成了确定结论。企业账户(legalform 不是 individual)本来就没有消费者
+			// 撤回权,某些产品也可能不在范围内。这里只陈述事实 + 列可能性,
+			// 不替 OVH 解释它为什么不给。
 			c.JSON(http.StatusOK, gin.H{
 				"success":  true,
 				"eligible": false,
-				"reason":   "waived",
+				"reason":   "no_retraction_right",
 				"orderId":  orderID,
 				"orderUrl": orderURL,
-				"message":  "这一单没有撤回权。v0.1.24 之前下的单在结账时就放弃了 14 天撤回期，之后下的单不会",
-				"reasons":  retractionReasons,
+				"message": "OVH 没有给这张订单撤回期。常见原因：" +
+					"① v0.1.24 之前下的单在结账时就放弃了撤回权（之后下的单不会）；" +
+					"② 企业/机构账户没有消费者撤回权；③ 该产品不在撤回范围内",
+				"reasons": retractionReasons,
 			})
 			return
 		}
@@ -199,6 +232,20 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 		client, err := ovhClientFor(state, c)
 		if err != nil {
 			noOVHResp(c)
+			return
+		}
+		acc, ok := ovhAccountFor(state, c)
+		if !ok {
+			noOVHResp(c)
+			return
+		}
+		if !retractionSupportedRegion(acc.Endpoint) {
+			// 前端在 GET 那步就不会显示按钮,这里是纵深防御:接口可以被直接调,
+			// 而打过去的结果是 OVH 404,报错会很难懂
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "美区（OVHcloud US）的 API 没有撤单接口，无法从这里申请撤单",
+			})
 			return
 		}
 		svc := strings.TrimSpace(c.Param("service_name"))
