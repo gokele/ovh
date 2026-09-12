@@ -1,16 +1,20 @@
 import { useState } from "react";
-import { AlertCircle, Cpu, Mail } from "lucide-react";
+import { AlertCircle, CalendarRange, Cpu, Mail, Network } from "lucide-react";
 import type { OwnedServer } from "@/hooks/use-server-control";
 import { useServerInterventions } from "@/hooks/use-server-control";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/common/Skeleton";
 import { Chip } from "@/components/common/Chip";
 import { useActiveAccountEndpoint } from "@/components/common/active-endpoint";
+import { NetworkSpecsDialog } from "@/components/server-control/NetworkSpecsDialog";
+import { EngagementDialog } from "@/components/server-control/EngagementDialog";
 import { HardwareReplaceDialog } from "./HardwareReplaceDialog";
 import { ChangeContactDialog } from "./ChangeContactDialog";
 
 /** 维护 Tab：维护记录列表 + 硬件更换工单 + 变更联系人 */
 export function MaintenanceTab({ server }: { server: OwnedServer }) {
+  const [netSpecsOpen, setNetSpecsOpen] = useState(false);
+  const [engagementOpen, setEngagementOpen] = useState(false);
   const interventions = useServerInterventions(server.serviceName);
   const [hwOpen, setHwOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
@@ -55,7 +59,22 @@ export function MaintenanceTab({ server }: { server: OwnedServer }) {
           )}
         </div>
 
+        {/* 四张同类卡片:都是"偶尔打开一次的对话框"。
+            网络规格和合同期原来在页面顶部当胶囊按钮 —— 它们没有值可显示,
+            只是个入口,却各占 100px 把标签行挤到换行。放这里才是它们的同类。 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <ActionCard
+            icon={Network}
+            title="网络规格"
+            description="带宽四档 + IPv4 / IPv6 路由"
+            onClick={() => setNetSpecsOpen(true)}
+          />
+          <ActionCard
+            icon={CalendarRange}
+            title="合同期"
+            description="切换更长承诺期享受折扣 / 改到期策略"
+            onClick={() => setEngagementOpen(true)}
+          />
           <ActionCard
             icon={Cpu}
             title="硬件更换"
@@ -76,6 +95,16 @@ export function MaintenanceTab({ server }: { server: OwnedServer }) {
         </div>
       </div>
 
+      <NetworkSpecsDialog
+        serviceName={server.serviceName}
+        open={netSpecsOpen}
+        onOpenChange={setNetSpecsOpen}
+      />
+      <EngagementDialog
+        serviceName={server.serviceName}
+        open={engagementOpen}
+        onOpenChange={setEngagementOpen}
+      />
       <HardwareReplaceDialog serviceName={server.serviceName} open={hwOpen} onOpenChange={setHwOpen} />
       <ChangeContactDialog serviceName={server.serviceName} open={contactOpen} onOpenChange={setContactOpen} />
     </>
