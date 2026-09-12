@@ -1436,6 +1436,8 @@ export interface RetractionInfo {
   message?: string;
   orderId?: number;
   orderUrl?: string;
+  /** 下单日。撤回期从这天起算，不是从服务器开通日起算 —— 两者常差好几天 */
+  orderDate?: string;
   retractionDate?: string;
   hoursLeft?: number;
   reasons?: { value: string; label: string }[];

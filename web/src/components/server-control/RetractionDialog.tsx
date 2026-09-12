@@ -71,7 +71,17 @@ export function RetractionDialog({
               提交后 OVH 会退掉这张订单并<b>注销这台服务器</b>，上面的数据一并消失。
               这个操作不可撤销。
               {deadline && (
-                <div className="mt-1 text-muted-foreground">撤回期截止：{deadline}</div>
+                <div className="mt-1 text-muted-foreground">
+                  撤回期截止：{deadline}
+                  {info.orderDate && (
+                    // 起算点要写出来:用户会拿剩余天数去对「开通日 + 14 天」,
+                    // 而撤回期是从下单起算的,机器常常下单后几天才交付
+                    <span className="block mt-0.5">
+                      从下单（{new Date(info.orderDate).toLocaleDateString("zh-CN")}）起算，
+                      不是从服务器开通日起算
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>

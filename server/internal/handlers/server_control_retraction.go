@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	ovhsdk "github.com/ovh/go-ovh/ovh"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -318,14 +319,21 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 			return
 		}
 
+		// orderDate 一起带上:撤回期是从**下单**起算的,不是从服务器开通起算。
+		// 只给"还剩 N 天"的话,用户会拿它去对「开通日 + 14 天」,对不上就以为算错了 ——
+		// 机器常常是下单后几天才交付,两个日期差好几天。把起止都写出来就没得猜。
+		orderDate, _ := order["date"].(string)
 		c.JSON(http.StatusOK, gin.H{
 			"success":        true,
 			"eligible":       true,
 			"orderId":        orderID,
 			"orderUrl":       orderURL,
+			"orderDate":      orderDate,
 			"retractionDate": retractionDate,
-			"hoursLeft":      int(time.Until(deadline).Hours()),
-			"reasons":        retractionReasons,
+			// 向上取整:剩 47.9 小时说成"1 天"会让用户以为还有一整天缓冲,
+			// 实际不到两天。宁可说得紧一点。
+			"hoursLeft": int(math.Ceil(time.Until(deadline).Hours())),
+			"reasons":   retractionReasons,
 		})
 	}
 }

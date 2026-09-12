@@ -152,8 +152,11 @@ function ServerControlPage() {
                 )}
               </div>
               {selected && (
+                // 只显示 IP。型号和机房左边的选择器胶囊里已经有了,
+                // 下面的硬件卡片里还有第三遍 —— 同一串信息在一屏里出现三次,
+                // 而这一行唯一独有的信息就是 IP。
                 <div className="text-[11px] sm:text-[12px] text-muted-foreground break-all sm:truncate font-mono">
-                  {selected.commercialRange} · {selected.datacenter.toUpperCase()} · {maskSensitive(selected.ip, hidden)}
+                  {maskSensitive(selected.ip, hidden)}
                 </div>
               )}
             </div>
@@ -433,16 +436,32 @@ function ServerTabs({ server }: { server: OwnedServer }) {
             <div className="flex flex-wrap gap-2 items-center">
               {info.data && (
                 <>
-                  <InfoPill
-                    icon={<CalendarClock className="w-3.5 h-3.5" />}
-                    label="到期"
-                    value={info.data.expiration ? new Date(info.data.expiration).toLocaleDateString("zh-CN") : "—"}
-                  />
-                  <InfoPill
-                    icon={<CalendarPlus className="w-3.5 h-3.5" />}
-                    label="开通"
-                    value={info.data.creation ? new Date(info.data.creation).toLocaleDateString("zh-CN") : "—"}
-                  />
+                  {/* 放在整行最前面,而且是唯一带强调色的一颗。
+                      这一行剩下的都是"看一眼就过"的信息(到期日、开通日、OS),
+                      只有它是有硬截止时间的不可逆动作 —— 混在中间、样式又一样的话,
+                      一个 2 天后就永久消失的权利会被当成又一个日期划过去。
+
+                      过期 / 没有撤回权 / 没查到订单都不显示:
+                      一个点了必然失败的退款按钮比没有按钮更糟。 */}
+                  {retraction.data?.eligible && (
+                    <InfoPill
+                      icon={<Undo2 className="w-3.5 h-3.5" />}
+                      label="可撤单"
+                      tone="urgent"
+                      value={
+                        typeof retraction.data.hoursLeft === "number"
+                          ? retraction.data.hoursLeft >= 24
+                            ? `还剩 ${Math.floor(retraction.data.hoursLeft / 24)} 天`
+                            : `还剩 ${retraction.data.hoursLeft} 小时`
+                          : "窗口内"
+                      }
+                      onClick={() => setRetractOpen(true)}
+                      title={retractionWindowText(retraction.data)}
+                    />
+                  )}
+                  {/* 能点的排前面(续费改策略、OS 开重装),纯展示的排后面。
+                      以前是「到期 开通 续费 OS」混排,而它们里只有两个能点 ——
+                      鼠标不悬停上去根本看不出来,能改的设置就这么被当成了标签。 */}
                   <InfoPill
                     icon={<Repeat className="w-3.5 h-3.5" />}
                     label="续费"
@@ -455,24 +474,20 @@ function ServerTabs({ server }: { server: OwnedServer }) {
                     value={server.os || "—"}
                     onClick={() => setReinstallOpen(true)}
                   />
-                  {/* 撤回期内才出现。过期 / 没有撤回权 / 没查到订单都不显示 ——
-                      一个点了必然失败的退款按钮比没有按钮更糟。
-                      剩余时间写出来:这是个有硬截止时间的权利,只写"可撤单"
-                      用户不知道自己还剩多久。 */}
-                  {retraction.data?.eligible && (
-                    <InfoPill
-                      icon={<Undo2 className="w-3.5 h-3.5" />}
-                      label="可撤单"
-                      value={
-                        typeof retraction.data.hoursLeft === "number"
-                          ? retraction.data.hoursLeft >= 24
-                            ? `还剩 ${Math.floor(retraction.data.hoursLeft / 24)} 天`
-                            : `还剩 ${retraction.data.hoursLeft} 小时`
-                          : "窗口内"
-                      }
-                      onClick={() => setRetractOpen(true)}
-                    />
-                  )}
+
+                  {/* 分隔:右边全是只读日期,点了没反应 */}
+                  <span className="w-px h-4 bg-border mx-0.5" aria-hidden />
+
+                  <InfoPill
+                    icon={<CalendarClock className="w-3.5 h-3.5" />}
+                    label="到期"
+                    value={info.data.expiration ? new Date(info.data.expiration).toLocaleDateString("zh-CN") : "—"}
+                  />
+                  <InfoPill
+                    icon={<CalendarPlus className="w-3.5 h-3.5" />}
+                    label="开通"
+                    value={info.data.creation ? new Date(info.data.creation).toLocaleDateString("zh-CN") : "—"}
+                  />
                 </>
               )}
 
@@ -606,19 +621,33 @@ function InfoPill({
   label,
   value,
   onClick,
+  tone,
+  title,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   onClick?: () => void;
+  /** 悬停说明。给那些"一个数字说不清"的胶囊用(比如撤回期要写清起止) */
+  title?: string;
+  /**
+   * urgent:有硬截止时间的不可逆动作(目前只有撤单)。
+   *
+   * 不给它单独的视觉权重的话,「可撤单 还剩 2 天」会和「到期 2026/10/7」
+   * 「开通 2026/9/7」完全等价 —— 而前者是过了就永远没有的权利,
+   * 后者只是两个日期。一排一模一样的胶囊里,用户不会注意到那个倒计时。
+   */
+  tone?: "urgent";
 }) {
   // 注意:本项目 --accent 在亮色模式被定义为近黑色(用作强调对比),不能用作 hover bg。
   // 跟旁边 Button outline 变体对齐(用 hover:bg-muted,见 button.tsx)。
   const cls = [
     "inline-flex items-center gap-1.5 h-7 pl-2.5 pr-3 rounded-full border text-[12px]",
-    onClick
-      ? "border-border bg-background hover:bg-muted cursor-pointer transition-colors shadow-sm"
-      : "border-border bg-secondary/50",
+    tone === "urgent"
+      ? "border-warning/50 bg-warning/10 hover:bg-warning/20 cursor-pointer transition-colors shadow-sm"
+      : onClick
+        ? "border-border bg-background hover:bg-muted cursor-pointer transition-colors shadow-sm"
+        : "border-border bg-secondary/50",
   ].join(" ");
   const inner = (
     <>
@@ -631,12 +660,28 @@ function InfoPill({
   );
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={cls}>
+      <button type="button" onClick={onClick} className={cls} title={title}>
         {inner}
       </button>
     );
   }
-  return <div className={cls}>{inner}</div>;
+  return <div className={cls} title={title}>{inner}</div>;
+}
+
+/**
+ * 撤回期的悬停说明:把起止都写出来。
+ *
+ * 只显示"还剩 N 天"的话没法自查 —— 用户会拿它去对「开通日 + 14 天」,
+ * 对不上就以为程序算错了。而撤回期是从**下单**起算的,机器常常下单后
+ * 几天才交付,两个日期差好几天,对不上才是正常的。
+ */
+function retractionWindowText(r: { orderDate?: string; retractionDate?: string }): string {
+  const fmt = (v?: string) => (v ? new Date(v).toLocaleString("zh-CN") : "");
+  const end = fmt(r.retractionDate);
+  const start = fmt(r.orderDate);
+  if (!end) return "在撤回期内";
+  if (!start) return `撤回期截止 ${end}（OVH 给的日期）`;
+  return `撤回期 ${start} → ${end}\n从下单起算，不是从服务器开通起算`;
 }
 
 /** 续费状态友好文案。OVH 在 manager 后台标的 "Cancellation scheduled"
