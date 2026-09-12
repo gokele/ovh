@@ -502,8 +502,19 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		// "order will be automatically paid with preferred payment method",
 		// 需要 OVH 账户已设置默认支付方式)。默认 false:不替用户扣钱。
 		"autoPayWithPreferredPaymentMethod": item.AutoPay,
-		"waiveRetractationPeriod":           true,
 	}
+	// 不发 waiveRetractationPeriod。
+	//
+	// 这个字段的意思是"放弃 14 天无理由撤回权"(官方定义:order will be processed
+	// with waiving retractation period)。它在 schema 里是 required:false,
+	// 以前这里写死 true —— 每一单都替用户把这个权利交出去,而旁边的 autoPay
+	// 明明是跟着用户开关走的,说明当时对"不能替用户做花钱决定"是有意识的。
+	//
+	// 不传 = 不主动弃权。这不影响拿到机器的速度:checkout 只是创建订单
+	// (进 notPaid),真正开通要等付款,卡点从来不是这个字段。
+	// 而且方向上是可恢复的 —— 真需要弃权还有 POST /me/order/{id}/waiveRetraction
+	// 可以事后补;反过来结账时一旦 true,权利当场消失,没有任何接口能拿回来。
+
 	if err := client.PostWithContext(context.WithoutCancel(ctx), "/order/cart/"+cartID+"/checkout", checkoutPayload, &checkoutResult); err != nil {
 		// POST /item/{id}/configuration 对取值不做任何校验 —— 实测在 EU 车上把
 		// dedicated_datacenter 设成 "hil"、region 设成 "usa" 都会 200 返回配置项 id,
@@ -925,8 +936,13 @@ func backfillOrderDetail(state *app.State, client *ovhsdk.Client, taskID, orderI
 
 	// billing.Order 里 expirationDate（订单待付款到期作废时间）与 retractionDate
 	// （法定撤销权截止日）是两个语义完全不同的 datetime，历史里展示的"过期时间"
-	// 指的是前者；何况 checkout 传了 waiveRetractationPeriod:true 已经放弃撤销期，
-	// 拿 retractionDate 当付款截止时间会让用户误判付款窗口。
+	// 指的是前者，拿 retractionDate 当付款截止时间会让用户误判付款窗口。
+	//
+	// 注意 retractionDate 现在是有意义的:checkout 不再传 waiveRetractationPeriod,
+	// 撤回权没被放弃,这个日期就是"在此之前还能申请无理由撤单"的真实截止时间。
+	// 而这个 fix 之前下的单都弃权了,OVH 对它们不返回 retractionDate ——
+	// 前端据此判断要不要显示撤回入口,不用自己算 14 天(算了就会给老订单
+	// 显示一个点了必然失败的按钮)。
 	expirationTime := ""
 	if exp, ok := orderInfo["expirationDate"].(string); ok && exp != "" {
 		expirationTime = exp

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, CalendarPlus, Repeat, Activity, Network, CalendarRange } from "lucide-react";
+import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, CalendarPlus, Repeat, Activity, Network, CalendarRange, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +17,7 @@ import {
   useServerServiceInfo,
   useServerMonitoring,
   useToggleMonitoring,
+  useRetraction,
   type OwnedServer,
   terminationLabel,
 } from "@/hooks/use-server-control";
@@ -34,6 +35,7 @@ import { MaintenanceTab } from "@/components/server-control/MaintenanceTab";
 import { AdvancedTab } from "@/components/server-control/AdvancedTab";
 import { NetworkSpecsDialog } from "@/components/server-control/NetworkSpecsDialog";
 import { RenewalDialog } from "@/components/server-control/RenewalDialog";
+import { RetractionDialog } from "@/components/server-control/RetractionDialog";
 import { ReinstallDialog } from "@/components/server-control/ReinstallDialog";
 import { EngagementDialog } from "@/components/server-control/EngagementDialog";
 import { toast } from "sonner";
@@ -376,6 +378,11 @@ function RenameDialog({
 
 function ServerTabs({ server }: { server: OwnedServer }) {
   const info = useServerServiceInfo(server.serviceName);
+  // 14 天无理由撤单的资格。只有 OVH 明确说还在窗口内才会渲染入口 ——
+  // 判据是它返回的 retractionDate,不是自己算"开通不到 14 天":
+  // v0.1.24 之前下的单在结账时就弃权了,自己算会给它们显示一个必然失败的按钮。
+  const retraction = useRetraction(server.serviceName);
+  const [retractOpen, setRetractOpen] = useState(false);
   const monitoring = useServerMonitoring(server.serviceName);
   const toggleMon = useToggleMonitoring();
   const [netSpecsOpen, setNetSpecsOpen] = useState(false);
@@ -448,6 +455,24 @@ function ServerTabs({ server }: { server: OwnedServer }) {
                     value={server.os || "—"}
                     onClick={() => setReinstallOpen(true)}
                   />
+                  {/* 撤回期内才出现。过期 / 没有撤回权 / 没查到订单都不显示 ——
+                      一个点了必然失败的退款按钮比没有按钮更糟。
+                      剩余时间写出来:这是个有硬截止时间的权利,只写"可撤单"
+                      用户不知道自己还剩多久。 */}
+                  {retraction.data?.eligible && (
+                    <InfoPill
+                      icon={<Undo2 className="w-3.5 h-3.5" />}
+                      label="可撤单"
+                      value={
+                        typeof retraction.data.hoursLeft === "number"
+                          ? retraction.data.hoursLeft >= 24
+                            ? `还剩 ${Math.floor(retraction.data.hoursLeft / 24)} 天`
+                            : `还剩 ${retraction.data.hoursLeft} 小时`
+                          : "窗口内"
+                      }
+                      onClick={() => setRetractOpen(true)}
+                    />
+                  )}
                 </>
               )}
 
@@ -536,6 +561,26 @@ function ServerTabs({ server }: { server: OwnedServer }) {
           open={renewalOpen}
           onOpenChange={setRenewalOpen}
         />
+      )}
+
+      {/* 撤单对话框。只在 eligible 时才可能打开,所以这里直接用 retraction.data */}
+
+      {retraction.data?.eligible && (
+
+        <RetractionDialog
+
+          serviceName={server.serviceName}
+
+          displayName={server.serviceName}
+
+          info={retraction.data}
+
+          open={retractOpen}
+
+          onOpenChange={setRetractOpen}
+
+        />
+
       )}
 
       <ReinstallDialog

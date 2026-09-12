@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 import { qk } from "@/lib/query";
 import type { PartialList } from "./partial-list";
 import { useActiveAccount } from "@/hooks/use-active-account";
@@ -1424,5 +1425,60 @@ export function useRebootServer() {
       const res = await api.post(`/server-control/${serviceName}/reboot`);
       return res.data;
     },
+  });
+}
+
+/** 14 天无理由撤单的资格。eligible=false 时 reason 区分几种完全不同的"不能退" */
+export interface RetractionInfo {
+  eligible: boolean;
+  /** waived=下单时弃权 / expired=过期 / order_not_found / order_lookup_failed / order_read_failed / bad_date */
+  reason?: string;
+  message?: string;
+  orderId?: number;
+  orderUrl?: string;
+  retractionDate?: string;
+  hoursLeft?: number;
+  reasons?: { value: string; label: string }[];
+}
+
+/**
+ * 这台机器还能不能无理由撤单。
+ *
+ * 判据是 OVH 返回的 retractionDate,不是前端自己算"开通不到 14 天" ——
+ * v0.1.24 之前下的单在结账时就放弃了撤回权,OVH 不给它们 retractionDate。
+ * 自己算的话那些机器会显示一个点了必然失败的退款按钮。
+ *
+ * 不自动重试:订单映射冷的时候后端会返回 order_lookup_failed 让用户去同步,
+ * 反复重试只会对着同一个冷缓存打空枪。
+ */
+export function useRetraction(serviceName: string | null) {
+  return useQuery<RetractionInfo>({
+    queryKey: ["server-control", "retraction", serviceName],
+    queryFn: async () =>
+      (await api.get<RetractionInfo>(`/server-control/${encodeURIComponent(serviceName!)}/retraction`)).data,
+    enabled: !!serviceName,
+    staleTime: 5 * 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** 提交撤单申请。不可逆:订单退款 + 服务器注销 */
+export function useRequestRetraction(serviceName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (p: { reason: string; comment: string }) =>
+      (
+        await api.post(`/server-control/${encodeURIComponent(serviceName)}/retraction`, {
+          ...p,
+          confirm: true,
+        })
+      ).data,
+    onSuccess: (d: any) => {
+      qc.invalidateQueries({ queryKey: ["server-control", "retraction"] });
+      qc.invalidateQueries({ queryKey: ["server-control", "list"] });
+      toast.success(d?.message || "撤单申请已提交");
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.error || "撤单申请失败"),
   });
 }

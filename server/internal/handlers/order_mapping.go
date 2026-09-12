@@ -50,6 +50,28 @@ func invalidateOrderMappingCache(accountID string) {
 	orderMappingMu.Unlock()
 }
 
+// orderMappingFor 只读订单映射缓存,不触发同步。
+//
+// 为什么不复用 GetOrderMapping 的同步逻辑:那是一次几十个 OVH 请求、要跑好几秒的
+// 全量扫描(/dedicated/server + 每台的 serviceInfos + /me/order + 每单的 details)。
+// 撤回入口只是页面上一个小卡片,不该因为渲染它就把账户配额打一遍 ——
+// 而这个配额和抢购主链路是共用的。
+//
+// 缓存冷时返回 ok=false,调用方据此提示"去点同步订单",而不是自己发起同步。
+func orderMappingFor(state *app.State, c *gin.Context) (map[string]interface{}, error) {
+	acc, ok := ovhAccountFor(state, c)
+	if !ok {
+		return nil, fmt.Errorf("未配置 OVH 账户")
+	}
+	orderMappingMu.Lock()
+	defer orderMappingMu.Unlock()
+	entry, hit := orderMappingCache[acc.ID]
+	if !hit || time.Since(entry.at) >= orderMappingDuration {
+		return nil, fmt.Errorf("订单映射尚未同步或已过期,请先在服务器控制页点「同步订单」")
+	}
+	return entry.mapping, nil
+}
+
 // GetOrderMapping GET /api/server-control/order-mapping
 func GetOrderMapping(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {

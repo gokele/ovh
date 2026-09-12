@@ -318,6 +318,10 @@ func main() {
 			sc.PUT("/:service_name/alias", handlers.SetServerAlias(state))
 			sc.DELETE("/:service_name/alias", handlers.DeleteServerAlias(state))
 			sc.GET("/order-mapping", handlers.GetOrderMapping(state))
+			// 14 天无理由撤单:GET 判断这台机器还能不能退(依据 OVH 的 retractionDate,
+			// 不是自己算 14 天),POST 真正提交申请(不可逆,要求 confirm:true)
+			sc.GET("/:service_name/retraction", handlers.GetRetraction(state))
+			sc.POST("/:service_name/retraction", handlers.PostRetraction(state))
 			sc.POST("/:service_name/reboot", handlers.Reboot(state))
 			sc.GET("/:service_name/templates", handlers.GetOSTemplates(state))
 			sc.POST("/:service_name/install", handlers.InstallOS(state))

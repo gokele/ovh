@@ -170,10 +170,12 @@ func PurchaseVPS(state *app.State, sub types.VPSSubscription, dcCode string) Out
 
 	// 5) 结账
 	var checkoutResult map[string]interface{}
+	// 同独服:不发 waiveRetractationPeriod(放弃 14 天撤回权)。
+	// schema 里它是 required:false,不传即不主动弃权;真要弃权可以事后调
+	// POST /me/order/{id}/waiveRetraction,而结账时传 true 则不可逆。
 	if err := client.Post("/order/cart/"+cartID+"/checkout", map[string]interface{}{
 		// 订阅上显式打开"自动付款"才为 true;默认不替用户扣钱
 		"autoPayWithPreferredPaymentMethod": sub.AutoPay,
-		"waiveRetractationPeriod":           true,
 	}, &checkoutResult); err != nil {
 		// 配置接口对取值几乎不校验,真正的"这个机房没货"往往到 checkout 才报出来
 		return Outcome{Reason: "结账失败: " + err.Error()}

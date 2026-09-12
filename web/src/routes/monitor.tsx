@@ -12,7 +12,7 @@ import {
   Pencil,
   HelpCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -520,6 +520,12 @@ function AddSubscriptionDialog({
 
   // 每次打开都按当前 editing 重灌一次表单。依赖里带上 open,
   // 否则用户改了几个字段又取消,下次打开看到的还是上次改了一半的样子。
+  //
+  // 依赖里**绝不能**放 matchedServer:它随用户打字而变(打到目录里真实存在的
+  // 型号那一刻从 undefined 变成对象)。新增模式下 effect 一重跑就走 else 分支
+  // reset(),把用户刚打进去的型号清空 —— 清空后又匹配不上,再触发一轮,
+  // 来回抖动直接撞 React 的 Maximum update depth exceeded。
+  // 这正是 v0.1.22 那个"输入 24sk202 就闪退"。
   useEffect(() => {
     if (!open) return;
     if (editing) {
@@ -530,28 +536,55 @@ function AddSubscriptionDialog({
       setAutoOrder(!!editing.autoOrder);
       setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
       setAutoPay(!!editing.autoPay);
-      // 回填已选配置:能映射到 chip 组的塞进 picked,剩下的塞进手填框。
-      // 不回填的话,用户只想改个机房、保存时 options 就被空数组覆盖 ——
-      // 订阅会从「只盯 64G+NVMe」悄悄变成「盯全部配置」。
-      const want = editing.options || [];
-      const g = matchedServer ? groupOptions(matchedServer.availableOptions) : null;
-      const next: Partial<Record<OptionGroupKey, string>> = {};
-      const used = new Set<string>();
-      if (g) {
-        for (const key of Object.keys(g) as OptionGroupKey[]) {
-          const hit = g[key].find((o) => want.includes(o.value));
-          if (hit) {
-            next[key] = hit.value;
-            used.add(hit.value);
-          }
-        }
-      }
-      setPicked(next);
-      setExtraOptions(want.filter((v) => !used.has(v)).join(", "));
+      // 配置的回填交给下面那个 effect —— 它要等目录到位才能把 addon code
+      // 映射成 chip,而目录是异步来的,不能塞进这个"打开即重灌"的 effect 里
     } else {
       reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editing]);
+
+  // 编辑模式下回填已选配置。单独一个 effect,因为它要等 matchedServer(目录)到位,
+  // 而目录是异步来的。它只写 picked / extraOptions,绝不碰 planCode —— 上面那个
+  // effect 才负责表单重灌,两者职责不能混,混了就是上面注释里说的那个死循环。
+  //
+  // filledFor 保证每次打开只回填一次:用户开始手动改配置之后,目录刷新
+  // (useServers 有 refetch)不该把他的选择重置回订阅里存的那份。
+  const filledFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open || !editing) {
+      filledFor.current = null;
+      return;
+    }
+    if (filledFor.current === editing.planCode) return;
+
+    const want = editing.options || [];
+    if (want.length === 0) {
+      // 订阅本来就是"盯全部配置",没什么可回填的。标记成已处理,
+      // 免得目录到位后再进来一次
+      filledFor.current = editing.planCode;
+      setPicked({});
+      setExtraOptions("");
+      return;
+    }
+    // 目录还没到:先什么都别做,等它来了这个 effect 会因为 matchedServer 变化再跑一次。
+    // 这时候如果贸然把 want 全塞进手填框,目录一到位又要清掉重来,用户会看到闪一下。
+    if (!matchedServer) return;
+
+    filledFor.current = editing.planCode;
+    const g = groupOptions(matchedServer.availableOptions);
+    const next: Partial<Record<OptionGroupKey, string>> = {};
+    const used = new Set<string>();
+    for (const key of Object.keys(g) as OptionGroupKey[]) {
+      const hit = (g[key] || []).find((o) => want.includes(o.value));
+      if (hit) {
+        next[key] = hit.value;
+        used.add(hit.value);
+      }
+    }
+    setPicked(next);
+    // chip 没覆盖到的 addon 走手填框,不能丢 —— 丢了保存时就把它从订阅里抹掉了
+    setExtraOptions(want.filter((v) => !used.has(v)).join(", "));
   }, [open, editing, matchedServer]);
 
   const submit = (e: React.FormEvent) => {
