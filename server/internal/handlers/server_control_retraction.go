@@ -2,9 +2,13 @@ package handlers
 
 import (
 	"fmt"
+	ovhsdk "github.com/ovh/go-ovh/ovh"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -49,34 +53,131 @@ func isValidRetractionReason(v string) bool {
 	return false
 }
 
-// orderForService 从订单映射里找出这台机器对应的订单号。
+// retractionLookup 一次查找的结果。负结果也缓存 —— 页面每次渲染都会问一遍,
+// 不缓存的话"这台机器没有可撤订单"这个结论要反复用几十个请求去重算。
+type retractionLookup struct {
+	orderID int64
+	found   bool
+	at      time.Time
+}
+
+var (
+	retractionLookupMu    sync.Mutex
+	retractionLookupCache = map[string]retractionLookup{} // accountID|serviceName → 结果
+)
+
+const (
+	// retractionLookupTTL 查找结果的缓存时长。撤回期是按天算的,
+	// 5 分钟内不会有新订单进入或退出窗口。
+	retractionLookupTTL = 5 * time.Minute
+	// retractionScanDays 往回扫多少天的订单。
+	// 撤回期 14 天,多给一周的余量:OVH 可能从交付而不是下单起算,
+	// 而这个函数的判据是订单自己的 retractionDate,扫宽一点不会误判,
+	// 只是多看几个订单头。
+	retractionScanDays = 21
+)
+
+// retractableOrderFor 找出这台机器**还在撤回期内**的订单号。
 //
-// 只读 GetOrderMapping 那套缓存(按账户分 key,10 分钟),不触发同步 ——
-// 同步是几十个 OVH 请求的全量扫描,而它和抢购主链路共用账户配额。
-// 缓存冷时返回错误,让前端提示用户去点「同步订单」。
-func orderForService(state *app.State, c *gin.Context, serviceName string) (int64, bool, error) {
-	mapping, err := orderMappingFor(state, c)
-	if err != nil {
-		return 0, false, err
+// 为什么不用 GetOrderMapping 那套缓存:它只在用户点「同步订单」时才填充,
+// 而前端根本没有那个入口(grep order-mapping 在 web/ 里零命中)——
+// 依赖它等于这个功能永远不显示。这是 v0.1.24/v0.1.25 的实际状况。
+//
+// 也不该顺手触发那套同步:它是几十个 OVH 请求的全量扫描(所有服务器的
+// serviceInfos + 所有订单的所有明细),而配额和抢购主链路共用。
+//
+// 这里的做法是按撤回期的实际范围剪枝:
+//  1. GET /me/order?date.from=21天前 —— 只拿最近的订单号,通常个位数
+//  2. 对每个订单 GET /me/order/{id} 看 retractionDate ——
+//     没有或已过期的当场剪掉,一个请求换一次剪枝
+//  3. 只有还在窗口内的(通常 0~1 个)才去查明细找 serviceName
+//
+// 绝大多数账户在第 2 步就全被剪光,总开销是"最近订单数 + 1"个请求。
+func retractableOrderFor(state *app.State, c *gin.Context, client *ovhsdk.Client,
+	accountID, serviceName string) (int64, bool, error) {
+
+	key := accountID + "|" + serviceName
+	retractionLookupMu.Lock()
+	if e, hit := retractionLookupCache[key]; hit && time.Since(e.at) < retractionLookupTTL {
+		retractionLookupMu.Unlock()
+		return e.orderID, e.found, nil
 	}
-	raw, ok := mapping[serviceName]
-	if !ok {
-		return 0, false, nil
+	retractionLookupMu.Unlock()
+
+	remember := func(id int64, found bool) {
+		retractionLookupMu.Lock()
+		retractionLookupCache[key] = retractionLookup{orderID: id, found: found, at: time.Now()}
+		retractionLookupMu.Unlock()
 	}
-	info, ok := raw.(map[string]interface{})
-	if !ok {
-		return 0, false, nil
+
+	// 订单映射碰巧热着就先用它,省掉下面整套扫描
+	if mapping, err := orderMappingFor(state, c); err == nil {
+		if raw, ok := mapping[serviceName]; ok {
+			if info, ok := raw.(map[string]interface{}); ok {
+				if id, ok := toOrderID(info["orderId"]); ok {
+					remember(id, true)
+					return id, true, nil
+				}
+			}
+		}
 	}
-	switch v := info["orderId"].(type) {
-	case int64:
-		return v, true, nil
-	case float64:
-		return int64(v), true, nil
-	case string:
-		n, err := strconv.ParseInt(v, 10, 64)
-		return n, err == nil, nil
+
+	from := time.Now().AddDate(0, 0, -retractionScanDays).UTC().Format(time.RFC3339)
+	var ids []int64
+	if err := client.Get("/me/order?date.from="+url.QueryEscape(from), &ids); err != nil {
+		return 0, false, fmt.Errorf("读取最近订单列表失败: %w", err)
 	}
+	// 新的在前:撤回期内的订单必然是最近下的
+	sort.Slice(ids, func(i, j int) bool { return ids[i] > ids[j] })
+
+	for _, id := range ids {
+		var order map[string]interface{}
+		if err := client.Get(fmt.Sprintf("/me/order/%d", id), &order); err != nil {
+			continue // 单个订单读不到不影响别的
+		}
+		rd, _ := order["retractionDate"].(string)
+		if rd == "" {
+			continue // 没有撤回权,剪掉
+		}
+		if dl, ok := parseOVHTime(rd); !ok || time.Now().After(dl) {
+			continue // 已过期,剪掉
+		}
+		// 这一单还在窗口内 —— 值得花请求去看它是不是这台机器
+		var detailIDs []int64
+		if err := client.Get(fmt.Sprintf("/me/order/%d/details", id), &detailIDs); err != nil {
+			continue
+		}
+		for _, did := range detailIDs {
+			var d map[string]interface{}
+			if err := client.Get(fmt.Sprintf("/me/order/%d/details/%d", id, did), &d); err != nil {
+				continue
+			}
+			// 整单没取消但某条明细被取消是常态,这种不算
+			if cancelled, _ := d["cancelled"].(bool); cancelled {
+				continue
+			}
+			if dom, _ := d["domain"].(string); dom == serviceName {
+				remember(id, true)
+				return id, true, nil
+			}
+		}
+	}
+	remember(0, false)
 	return 0, false, nil
+}
+
+// toOrderID JSON 里的订单号可能是 int64 / float64 / string
+func toOrderID(v interface{}) (int64, bool) {
+	switch t := v.(type) {
+	case int64:
+		return t, true
+	case float64:
+		return int64(t), true
+	case string:
+		n, err := strconv.ParseInt(t, 10, 64)
+		return n, err == nil
+	}
+	return 0, false
 }
 
 // GetRetraction GET /api/server-control/:service_name/retraction
@@ -121,26 +222,33 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 			return
 		}
 
-		orderID, found, err := orderForService(state, c, svc)
+		orderID, found, err := retractableOrderFor(state, c, client, acc.ID, svc)
 		if err != nil {
-			// 映射没拉到 ≠ 这台机器没有撤回权。必须说成"没查到",
-			// 否则用户会以为权利已经没了而放弃,而真相只是这次同步失败。
+			// 查询失败 ≠ 这台机器没有撤回权。必须说成"没查到" ——
+			// 说成"不能退"的话用户会以为权利已经没了而放弃,而真相只是这次请求挂了。
 			c.JSON(http.StatusOK, gin.H{
 				"success":  true,
 				"eligible": false,
 				"reason":   "order_lookup_failed",
-				"message":  "没能查到这台机器对应的订单（" + err.Error() + "），无法判断是否还能撤回，请重试",
+				"message":  "查询订单失败（" + err.Error() + "），无法判断是否还能撤回，请重试",
 				"reasons":  retractionReasons,
 			})
 			return
 		}
 		if !found {
+			// retractableOrderFor 扫的是"最近 21 天里还在撤回期内的订单",
+			// 所以没找到有好几种含义,不能笼统说成"没找到订单"——
+			// 那听起来像系统出了问题,而实际上多半是这台机器本来就不在撤回期内。
 			c.JSON(http.StatusOK, gin.H{
 				"success":  true,
 				"eligible": false,
-				"reason":   "order_not_found",
-				"message":  "没找到这台机器对应的订单。订单映射按账户缓存，可以到「同步订单」刷新后再看",
-				"reasons":  retractionReasons,
+				"reason":   "no_retractable_order",
+				"message": fmt.Sprintf(
+					"最近 %d 天内没有找到这台机器仍在撤回期的订单。可能是："+
+						"① 这台机器下单已超过 %d 天；② v0.1.25 之前下的单在结账时就放弃了撤回权"+
+						"（之后下的单不会）；③ 撤回期已经结束",
+					retractionScanDays, retractionScanDays),
+				"reasons": retractionReasons,
 			})
 			return
 		}
@@ -175,7 +283,7 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 				"orderId":  orderID,
 				"orderUrl": orderURL,
 				"message": "OVH 没有给这张订单撤回期。常见原因：" +
-					"① v0.1.24 之前下的单在结账时就放弃了撤回权（之后下的单不会）；" +
+					"① v0.1.24 之前下的单在结账时就放弃了撤回权；" +
 					"② 企业/机构账户没有消费者撤回权；③ 该产品不在撤回范围内",
 				"reasons": retractionReasons,
 			})
@@ -276,7 +384,7 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 			return
 		}
 
-		orderID, found, err := orderForService(state, c, svc)
+		orderID, found, err := retractableOrderFor(state, c, client, acc.ID, svc)
 		if err != nil || !found {
 			msg := "没找到这台机器对应的订单"
 			if err != nil {
