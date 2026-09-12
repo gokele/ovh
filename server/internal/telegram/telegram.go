@@ -98,9 +98,15 @@ func SendMessage(state *app.State, message string, replyMarkup map[string]interf
 		return false
 	}
 
-	state.Logger.Info(fmt.Sprintf("准备发送Telegram消息，ChatID: %s, TokenLength: %d", cfg.TgChatID, len(cfg.TgToken)), "")
+	// 超 4096 字符 Telegram 直接 400,整条消息丢掉 —— 而走这条路的是补货通知
+	// 和抢购结果,恰恰是最不能丢的。截断后至少把前 4095 个字送到。
+	// 按字符截不按字节:按字节切会把中文劈成半个字,发出去是乱码。
+	if n := len([]rune(message)); n > MaxMessageRunes {
+		state.Logger.Warn(fmt.Sprintf("Telegram 消息 %d 字符超过 %d 上限,已截断发送",
+			n, MaxMessageRunes), "telegram")
+		message = truncateRunes(message, MaxMessageRunes)
+	}
 
-	url := "https://api.telegram.org/bot" + cfg.TgToken + "/sendMessage"
 	payload := map[string]interface{}{
 		"chat_id": cfg.TgChatID,
 		"text":    message,
@@ -109,36 +115,14 @@ func SendMessage(state *app.State, message string, replyMarkup map[string]interf
 		payload["reply_markup"] = replyMarkup
 	}
 
-	body, _ := json.Marshal(payload)
-
-	// 不能截断了事:"https://api.telegram.org/bot" 就占 28 字符,
-	// 取前 45 位等于每发一条消息就把 Token 前 17 位记进日志。
-	state.Logger.Info("发送HTTP请求到Telegram API: "+scrub(url), "")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		state.Logger.Error("发送Telegram消息时发生未预期错误: "+scrub(err.Error()), "")
+	if _, err := call(state, cfg.TgToken, "sendMessage", payload, 10*time.Second); err != nil {
+		// 这里必须是 Error:补货通知发不出去 = 用户错过这一波货,
+		// 而他不会知道曾经有过货
+		state.Logger.Error("发送 Telegram 消息失败: "+err.Error(), "telegram")
 		return false
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		state.Logger.Error("发送Telegram消息时发生网络错误: "+scrub(err.Error()), "")
-		return false
-	}
-	defer resp.Body.Close()
-
-	state.Logger.Info(fmt.Sprintf("Telegram API响应: 状态码=%d", resp.StatusCode), "")
-
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode == http.StatusOK {
-		state.Logger.Info("Telegram响应数据: "+string(respBody), "")
-		state.Logger.Info("成功发送消息到Telegram", "")
-		return true
-	}
-	state.Logger.Error(fmt.Sprintf("发送消息到Telegram失败: 状态码=%d, 响应=%s", resp.StatusCode, string(respBody)), "")
-	return false
+	state.Logger.Info("成功发送消息到 Telegram", "telegram")
+	return true
 }
 
 // AnswerCallback 应答 callback_query
@@ -147,43 +131,40 @@ func AnswerCallback(state *app.State, callbackQueryID, text string, showAlert bo
 	if cfg.TgToken == "" {
 		return
 	}
-	payload := map[string]interface{}{
+	// 官方限 0-200 字符,超了整个 answerCallbackQuery 被拒 ——
+	// 表现是用户点了按钮、转圈半天没有任何提示,而按钮其实已经生效了。
+	_, err := call(state, cfg.TgToken, "answerCallbackQuery", map[string]interface{}{
 		"callback_query_id": callbackQueryID,
-		"text":              text,
+		"text":              truncateRunes(text, MaxCallbackAnswerRunes),
 		"show_alert":        showAlert,
-	}
-	body, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 5 * time.Second}
-	req, _ := http.NewRequest(http.MethodPost,
-		"https://api.telegram.org/bot"+cfg.TgToken+"/answerCallbackQuery",
-		bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err == nil {
-		resp.Body.Close()
+	}, 5*time.Second)
+	if err != nil {
+		// Debug 而不是 Warn:回调应答只是个气泡提示,失败不影响按钮本身的效果。
+		// 但必须留痕 —— 以前这里完全静默,"点了没反应"根本无从查起。
+		state.Logger.Debug("回应 Telegram 按钮点击失败: "+err.Error(), "telegram")
 	}
 }
 
-// SendReply 回复指定消息
+// SendReply 回复指定消息。
+//
+// 这是所有 /命令 回复的主路径。以前它是 `if err == nil { resp.Body.Close() }` ——
+// 网络错误和 Telegram 的 ok:false 全吞掉:用户发了 /queue 收不到任何东西,
+// 而日志里一个字都没有,没法排查。
 func SendReply(state *app.State, chatID interface{}, text string, replyToMessageID int64) {
 	cfg := state.Config.Get()
 	if cfg.TgToken == "" {
 		return
 	}
-	payload := map[string]interface{}{
+	// 超 4096 字符 Telegram 直接 400,整条消息丢掉。截断后至少把前 4095 个字送到,
+	// 而不是让用户什么都收不到。
+	text = truncateRunes(text, MaxMessageRunes)
+	_, err := call(state, cfg.TgToken, "sendMessage", map[string]interface{}{
 		"chat_id":             chatID,
 		"text":                text,
 		"reply_to_message_id": replyToMessageID,
-	}
-	body, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequest(http.MethodPost,
-		"https://api.telegram.org/bot"+cfg.TgToken+"/sendMessage",
-		bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err == nil {
-		resp.Body.Close()
+	}, 10*time.Second)
+	if err != nil {
+		state.Logger.Warn("回复 Telegram 消息失败: "+err.Error(), "telegram")
 	}
 }
 

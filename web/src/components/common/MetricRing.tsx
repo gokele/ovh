@@ -58,13 +58,14 @@ export function MetricRing({
         className="relative flex-shrink-0"
         style={{ width: size, height: size }}
       >
-        <svg
-          width={size}
-          height={size}
-          viewBox={`0 0 ${size} ${size}`}
-          // 旋转使缺口落在底部正中:从 12 点顺时针看，270° 弧 → 起点 = -135° (左上)
-          style={{ transform: "rotate(135deg)" }}
-        >
+        {/* 旋转必须作用在内部的 <g> 上,不能加在 <svg> 元素本身。
+            加在 svg 上的话,旋转 135° 会把它的**包围盒**撑成 size×√2
+            (96px 的环量出来是 136px),超出父容器 20px ——
+            画出来的圆没变形(圆旋转还是圆),但那 20px 会参与布局计算,
+            在窄容器里能把兄弟元素挤走甚至撑出横向滚动条。
+            放进 <g transform> 则是在 viewBox 坐标系里转,svg 本身仍是 size×size。 */}
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <g transform={`rotate(135 ${size / 2} ${size / 2})`}>
           {/* 背景轨道 */}
           <circle
             cx={size / 2}
@@ -87,6 +88,7 @@ export function MetricRing({
             className={cn(toneStroke, "transition-[stroke-dasharray] duration-700")}
             strokeDasharray={dashArray}
           />
+          </g>
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
           <span className={cn("text-[20px] font-semibold tabular-nums", toneText)}>

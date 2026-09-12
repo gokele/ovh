@@ -38,8 +38,12 @@ export function PageHeader({ icon: Icon, title, description, action }: PageHeade
           )}
         </div>
       </div>
+      {/* 按钮容器不能用 flex-shrink-0:它让容器保持 max-content 宽度,
+          于是 flex-wrap 永远不触发 —— VPS 补货页四个按钮在手机上
+          422px 塞进 366px,把整页撑出横向滚动条。
+          min-w-0 + 允许收缩,按钮才会真的换行。 */}
       {action && (
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end flex-shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end min-w-0">
           {action}
         </div>
       )}
