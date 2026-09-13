@@ -438,11 +438,33 @@ func SetMonitorRef(m *monitor.Monitor) { monitorRef = m }
 func reloadAfterAccountDelete(state *app.State, accountID string) {
 	if items, err := state.DB.ListQueue(); err == nil {
 		state.QueueMu.Lock()
+		// 被级联删掉的任务里,可能有正跑在 PurchaseServer 中段的。
+		// 光用新列表覆盖内存,那些协程收不到任何信号:
+		// 队列处理器每轮是拿 state.Queue 的**快照**去复核"还在不在队列里"的,
+		// 而它们已经不在快照里了 —— 那条复核永远轮不到它们。
+		// 结果是协程拿着已删账户的凭据把整条建车链路跑完,一路 401/403。
+		// 删单、清空队列、TG /cancel 三个入口都调了 MarkTaskDeleted,
+		// 只有这里漏了。MarkTaskDeleted 会 cancel 它们的 ctx,
+		// 正在进行的 OVH 调用当场中断。
+		alive := make(map[string]struct{}, len(items))
+		for _, it := range items {
+			alive[it.ID] = struct{}{}
+		}
+		gone := []string{}
+		for _, it := range state.Queue {
+			if _, ok := alive[it.ID]; !ok {
+				gone = append(gone, it.ID)
+			}
+		}
 		state.Queue = items
 		if state.Queue == nil {
 			state.Queue = []types.QueueItem{}
 		}
 		state.QueueMu.Unlock()
+		// 出锁再标记:MarkTaskDeleted 会同步调 cancel,不该占着 QueueMu
+		for _, id := range gone {
+			state.MarkTaskDeleted(id)
+		}
 	}
 	if items, err := state.DB.ListHistory(); err == nil {
 		state.HistoryMu.Lock()

@@ -799,12 +799,14 @@ function DetailContent({
             ? `将创建 ${totalTasks} 个任务（${selectedDCs.length} DC × ${qty}）${selectedValues.length > 0 ? ` · ${selectedValues.length} 项选配` : ""}`
             : "请选数据中心"}
           {selectedDCs.length > 0 && (
-            // 下单 checkout 带 waiveRetractationPeriod:true —— 替用户放弃了
-            // 欧区 14 天法定撤销权(抢购要立即开通,这是常规做法),但必须让用户知情
+            // 这里以前写着"下单即放弃 14 天撤销期" —— 那是 checkout 硬传
+            // waiveRetractationPeriod:true 时代的说明。那个参数已经删了
+            // (schema 里 required:false,不传就是不弃权),撤回权现在是保留的,
+            // 机器控制页还专门有撤单入口。留着这句话会让用户以为退不了。
             <span className="block text-[11px] mt-0.5">
               {autoPay
-                ? "下单后将用 OVH 默认支付方式自动付款；下单即放弃 14 天撤销期"
-                : "下单成功后需自行付款；下单即放弃 14 天撤销期（立即开通）"}
+                ? "下单后将用 OVH 默认支付方式自动付款"
+                : "下单成功后需自行付款"}
             </span>
           )}
           {selectedDCs.length > 0 && (
@@ -823,7 +825,17 @@ function DetailContent({
           onClick={() =>
             addMon.mutate({
               planCode: server.planCode,
-              datacenters: dialogDCs.map((dc) => dc.code),
+              // 跟着用户在上面勾的机房走。以前这里固定传 dialogDCs(全部机房),
+              // 用户勾了 GRA 却会收到所有机房的补货通知。
+              // 一个都没勾才按"监控所有"处理 —— 那是明确的空选。
+              datacenters:
+                selectedDCs.length > 0 ? selectedDCs : dialogDCs.map((dc) => dc.code),
+              // 选配也要带上。订阅本身是支持 options 的(后端 AddSubscription
+              // 有这个字段),漏传的后果是:用户特意选了 64G 内存 + 2x960 SSD,
+              // 加进监控后盯的却是这个 planCode 底下的**所有**配置组合 ——
+              // 通知按每套配置逐套触发,之后若在监控页打开自动下单,
+              // 抢到的会是基础配置那台。
+              options: selectedValues,
               serverName: server.name,
             })
           }

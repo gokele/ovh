@@ -88,7 +88,13 @@ export function useServers(showApiServers: boolean = true) {
 export function useAddToMonitor() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { planCode: string; datacenters: string[]; serverName?: string }) =>
+    mutationFn: async (payload: {
+      planCode: string;
+      datacenters: string[];
+      /** 只盯这套配置(addon planCode)。空 = 该机型底下所有配置组合 */
+      options?: string[];
+      serverName?: string;
+    }) =>
       (await api.post("/monitor/subscriptions", { ...payload, notifyAvailable: true, notifyUnavailable: false })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.monitor.list() });

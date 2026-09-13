@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/ovh-buy/server/internal/app"
 )
@@ -184,7 +183,25 @@ type OrderInfo struct {
 	Options  []string
 }
 
-// 格式: plancode [datacenter] [quantity] [options(逗号分隔)]
+// 格式: <planCode> [机房] [数量] [配置...]
+//
+// 除 planCode 必须打头外,后面的部分**位置无关**,按形状认:
+//
+//	@xxx    → 账户(任意位置,手机上很容易顺手打在末尾)
+//	纯数字   → 数量
+//	3~4 字母 → 机房(不区分大小写,统一转小写)
+//	其余     → 配置(addon planCode),逗号或空格分隔都认
+//
+// 以前这里是按**位置**猜的:先找带逗号的词当 options,剩下的按
+// switch len(remaining) 分 case 1 / case 2。三种常见写法全都静默失效:
+//
+//	24ska01 gra softraid-2x960ssd     配置没逗号 → 配置被丢掉
+//	24ska01 gra 2 softraid-2x960ssd   剩 3 个词 → switch 没有 case 3,
+//	                                  机房、数量、配置**全部**丢掉
+//	24ska01 GRA 2                     机房要求全小写 → 机房和数量都丢掉
+//
+// 而丢掉是没有任何报错的:任务照样建,用户拿到的是基础配置的机器。
+// 这正是"TG 上下单总是无法选择配置"的来源。
 func ParseOrderMessage(text string) *OrderInfo {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -198,70 +215,66 @@ func ParseOrderMessage(text string) *OrderInfo {
 		PlanCode: parts[0],
 		Quantity: 1,
 	}
-	remaining := []string{}
-	if len(parts) > 1 {
-		remaining = parts[1:]
-	}
-	// 先把 @账户 摘出来,它可以出现在任何位置 ——
-	// 手机上打字容易顺手打在末尾,而末尾正好是 options 的地盘。
-	// 摘早一点,下面的机房/数量/配置解析就完全不用知道它的存在。
-	kept := remaining[:0]
-	for _, p := range remaining {
-		if strings.HasPrefix(p, "@") && len(p) > 1 {
-			if result.AccountRef == "" {
-				result.AccountRef = strings.ToLower(p[1:])
-			}
-			continue
-		}
-		kept = append(kept, p)
-	}
-	remaining = kept
-	if len(remaining) == 0 {
+	if len(parts) == 1 {
 		return result
 	}
 
-	// 找包含逗号的部分 = options
-	optionsStart := -1
-	for i, p := range remaining {
-		if strings.Contains(p, ",") {
-			optionsStart = i
-			break
-		}
-	}
-	if optionsStart >= 0 {
-		optsText := strings.Join(remaining[optionsStart:], " ")
-		for _, o := range strings.Split(optsText, ",") {
-			o = strings.TrimSpace(o)
-			if o != "" {
+	addOption := func(s string) {
+		// 逗号分隔和空格分隔都认,混用也认
+		for _, o := range strings.Split(s, ",") {
+			if o = strings.TrimSpace(o); o != "" {
 				result.Options = append(result.Options, o)
 			}
 		}
-		remaining = remaining[:optionsStart]
 	}
 
-	switch len(remaining) {
-	case 1:
-		p := remaining[0]
-		if n, ok := parsePositiveInt(p); ok {
-			result.Quantity = clampQuantity(n)
-		} else if len(p) >= 3 && len(p) <= 4 && isAllLowerAlpha(p) {
-			result.Datacenter = p
-		}
-	case 2:
-		p1, p2 := remaining[0], remaining[1]
-		if len(p1) >= 3 && len(p1) <= 4 && isAllLowerAlpha(p1) {
-			result.Datacenter = p1
-			if n, ok := parsePositiveInt(p2); ok {
-				result.Quantity = clampQuantity(n)
+	qtySet := false
+	for _, p := range parts[1:] {
+		switch {
+		case strings.HasPrefix(p, "@"):
+			// 账户。裸 @ 是打漏了,直接丢 —— 它不是配置项,
+			// 当配置发给 OVH 只会换来一个看不懂的 400。
+			if len(p) > 1 && result.AccountRef == "" {
+				result.AccountRef = strings.ToLower(p[1:])
 			}
-		} else if n, ok := parsePositiveInt(p1); ok {
+		case !qtySet && isPositiveInt(p):
+			// 只认第一个纯数字。第二个数字多半是配置里的型号
+			// (比如手滑把 "2 960" 打成两个词),当数量会把数量改错。
+			n, _ := parsePositiveInt(p)
 			result.Quantity = clampQuantity(n)
-			if len(p2) >= 3 && len(p2) <= 4 && isAllLowerAlpha(p2) {
-				result.Datacenter = p2
-			}
+			qtySet = true
+		case result.Datacenter == "" && isDatacenterCode(p):
+			// OVH 独服机房码都是 3~4 个纯字母(gra/rbx/sbg/bhs/waw/eri/sgp…),
+			// 而 addon planCode 一律带连字符和数字(ram-64g-noecc-2133、
+			// softraid-2x960ssd),两者不会撞。
+			result.Datacenter = strings.ToLower(p)
+		default:
+			addOption(p)
 		}
 	}
 	return result
+}
+
+// isDatacenterCode 长得像机房码:3~4 个 ASCII 字母,不区分大小写。
+// 只判形状不查词表 —— OVH 随时开新机房,写死一张表就意味着
+// 每开一个机房都要发版,而中间那段时间用户的 /buy 会静默丢掉机房。
+func isDatacenterCode(s string) bool {
+	if len(s) < 3 || len(s) > 4 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+			return false
+		}
+	}
+	return true
+}
+
+// isPositiveInt 纯十进制 ASCII 数字
+func isPositiveInt(s string) bool {
+	_, ok := parsePositiveInt(s)
+	return ok
 }
 
 // parsePositiveInt 只接受纯十进制 ASCII 数字字符串，
@@ -300,15 +313,6 @@ func parsePositiveInt(s string) (int, bool) {
 		return 0, false
 	}
 	return n, true
-}
-
-func isAllLowerAlpha(s string) bool {
-	for _, r := range s {
-		if !unicode.IsLetter(r) || !unicode.IsLower(r) {
-			return false
-		}
-	}
-	return len(s) > 0
 }
 
 func min(a, b int) int {

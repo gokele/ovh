@@ -500,6 +500,10 @@ func monitorLoopGen(state *app.State, gen int64) {
 				newAvailable := []map[string]interface{}{}
 				newUnavailable := []map[string]interface{}{}
 				isFirstCheckOverall := len(lastStatus) == 0
+				// 勾了机房却一个都没匹配上 = 这条订阅永远不会响。
+				// 不报出来的话它和"这些机房目前无货"表现完全一样:
+				// 界面正常、日志干净、就是永远不动。
+				matchedDC := false
 
 				for _, dcRaw := range dcsRaw {
 					dc, ok := dcRaw.(map[string]interface{})
@@ -520,7 +524,14 @@ func monitorLoopGen(state *app.State, gen int64) {
 					if len(monitoredDCs) > 0 {
 						found := false
 						for _, m := range monitoredDCs {
-							if m == code {
+							// 必须不分大小写。这一边是 OVH 返回的 code
+							// (可用性接口给的是 GRA / BHS / US-EAST-VA 这种大写,
+							// 见 purchase.go 的 dcRegion 表),另一边是用户在输入框里
+							// **手打**的一串文本,中间没有任何一层做过归一。
+							// 用 == 的话大小写一对不上就全部 continue 掉:
+							// 订阅恒定 0 状态更新、不发通知、不下单,而界面上它
+							// 显示得完全正常 —— 这是最难被发现的那种坏法。
+							if strings.EqualFold(strings.TrimSpace(m), code) {
 								found = true
 								break
 							}
@@ -529,6 +540,7 @@ func monitorLoopGen(state *app.State, gen int64) {
 							continue
 						}
 					}
+					matchedDC = true
 					oldStatus, hasOld := lastStatus[code]
 					if !hasOld {
 						initialAvailable = append(initialAvailable, map[string]interface{}{
@@ -586,6 +598,23 @@ func monitorLoopGen(state *app.State, gen int64) {
 						}
 					}
 					lastStatus[code] = currentStatus
+				}
+
+				if len(monitoredDCs) > 0 && !matchedDC {
+					// 把 OVH 这次真正返回的机房码一并写出来,用户照着改就行。
+					// 最常见的原因是机房码打错了或大小写/前缀不对
+					// (比如把 US-EAST-VA 写成 va)。
+					avail := make([]string, 0, len(dcsRaw))
+					for _, dcRaw := range dcsRaw {
+						if dc, ok := dcRaw.(map[string]interface{}); ok {
+							if c, _ := dc["code"].(string); c != "" {
+								avail = append(avail, c)
+							}
+						}
+					}
+					state.Logger.Warn(fmt.Sprintf(
+						"VPS 订阅 %s 指定的机房 %v 一个都不在 OVH 返回的列表里,这条订阅不会有任何通知。OVH 当前返回:%v",
+						sub.PlanCode, monitoredDCs, avail), "vps_monitor")
 				}
 
 				if isFirstCheckOverall && len(initialAvailable) > 0 && sub.NotifyAvailable {

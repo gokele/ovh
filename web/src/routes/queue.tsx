@@ -637,8 +637,8 @@ function CreateQueueDialog({
           </label>
           <p className="text-[11px] text-muted-foreground -mt-2">
             {autoPay
-              ? "下单成功后用 OVH 默认支付方式自动扣款（需先在 OVH 设置好）；下单即放弃 14 天撤销期"
-              : "不勾则只下单：需在订单过期前自己付款；下单即放弃 14 天撤销期"}
+              ? "下单成功后用 OVH 默认支付方式自动扣款（需先在 OVH 设置好）"
+              : "不勾则只下单：需在订单过期前自己付款"}
           </p>
 
           {/* 可选配置:planCode 在 catalog 里 → 走 chip 选择;

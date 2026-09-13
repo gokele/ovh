@@ -266,10 +266,29 @@ func RefreshOrderStatuses(state *app.State) gin.HandlerFunc {
 // ClearPurchaseHistory DELETE /api/purchase-history
 func ClearPurchaseHistory(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 落库失败必须报出去。上面的 ClearQueue 就是这么写的,只有这里
+		// 用 `_ =` 把错吞了 —— 表现是前端弹"已清空"、库里其实一条没删,
+		// 重启后整个购买历史原样复活。用户会以为是程序把删掉的记录找回来了。
 		state.HistoryMu.Lock()
-		state.History = state.History[:0]
+		backup := make([]types.PurchaseHistoryEntry, len(state.History))
+		copy(backup, state.History)
+		state.History = []types.PurchaseHistoryEntry{}
 		state.HistoryMu.Unlock()
-		_ = state.SaveHistory()
+
+		if err := state.SaveHistory(); err != nil {
+			// 内存回滚,让两边保持一致 —— 否则界面是空的、库里是满的,
+			// 下一次任何写历史的操作都会把整表按"空"覆盖回去。
+			// 回滚要保留这中间新落的记录(下单完成会 append),所以是拼接不是覆盖。
+			state.HistoryMu.Lock()
+			state.History = append(backup, state.History...)
+			state.HistoryMu.Unlock()
+			state.Logger.Error("清空购买历史失败: "+err.Error(), "queue")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": "error",
+				"error":  "没能写进数据库，购买历史未被清空：" + err.Error(),
+			})
+			return
+		}
 		state.Logger.Info("Purchase history cleared", "")
 		c.JSON(http.StatusOK, gin.H{"status": "success"})
 	}
