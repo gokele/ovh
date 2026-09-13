@@ -235,7 +235,7 @@ function ServerSelector({
               <StatusDot tone={selected.state === "ok" ? "success" : "warning"} size="xs" />
               <span className="font-semibold">{maskSensitive(displayName(selected), hidden)}</span>
               <span className="text-[11px] text-muted-foreground font-sans ml-1">
-                {selected.commercialRange} · {selected.datacenter.toUpperCase()}
+                {selected.commercialRange} · {(selected.datacenter || "").toUpperCase()}
               </span>
             </div>
           )}
@@ -260,7 +260,7 @@ function ServerSelector({
               <StatusDot tone={s.state === "ok" ? "success" : "warning"} size="xs" />
               <span className="font-semibold">{maskSensitive(displayName(s), hidden)}</span>
               <span className="text-[11px] text-muted-foreground font-sans ml-1">
-                {s.commercialRange} · {s.datacenter.toUpperCase()}
+                {s.commercialRange} · {(s.datacenter || "").toUpperCase()}
               </span>
             </div>
           </SelectItem>

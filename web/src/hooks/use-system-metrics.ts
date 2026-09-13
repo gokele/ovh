@@ -5,7 +5,10 @@ import { api } from "@/lib/api";
 export function useAppVersion() {
   return useQuery({
     queryKey: ["app", "version"],
-    queryFn: async () => (await api.get<{ version: string }>("/version")).data.version,
+    // ?? "" 不能省:queryFn 返回 undefined 会被 react-query 当成错误抛,
+    // 而这个 hook 用在仪表盘上 —— 抛出去就是整页白屏。
+    // 后端正常返回 { version }, 这里防的是响应结构意外(代理插页、网关 200 带错误体)。
+    queryFn: async () => (await api.get<{ version: string }>("/version")).data?.version ?? "",
     staleTime: Infinity, // 进程跑起来版本号不会变,缓存到 unmount
     gcTime: Infinity,
     retry: 0,

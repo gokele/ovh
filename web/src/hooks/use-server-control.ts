@@ -575,10 +575,17 @@ export interface DiskGroupDisk {
   unit: string;
   technology?: string;
   interface?: string;
+  /** OVH dedicated.server.DiskTypeEnum:NVMe / SSD / SAS / SATA / Unknown */
+  diskType?: string;
 }
 export interface DiskGroup {
   raidController?: string;
   disks: DiskGroupDisk[];
+  /** 后端一直在发这个字段(server_control_hardware.go),只是类型里漏了声明。
+   *  它是区分 SSD 和机械盘的唯一依据 —— 混合盘要靠它决定系统装哪一组。 */
+  diskType?: string;
+  description?: string;
+  id?: number;
 }
 
 export function useServerDiskInfo(serviceName: string | null, enabled = true) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { HardDrive, Search, AlertTriangle, Database, Plus, X as XIcon, Cog, Zap, RefreshCw, Loader2 } from "lucide-react";
+import { HardDrive, Search, AlertTriangle, Database, Plus, X as XIcon, Cog, Zap, RefreshCw, Loader2, Wand2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import {
 } from "@/hooks/use-server-control";
 import { OsIcon, detectOsKind, osBrandColor } from "@/components/server-control/OsIcon";
 import { toast } from "sonner";
+import { buildSmartPlan } from "@/lib/smart-storage";
 
 /** OS 分组的中文标签 + 显示顺序(按用户使用频率排) */
 const OS_GROUPS: { kind: ReturnType<typeof detectOsKind>; label: string }[] = [
@@ -123,9 +124,15 @@ export function ReinstallDialog({
   const [useSoftwareRaid, setUseSoftwareRaid] = useState(false);
   const [softwareRaidLevel, setSoftwareRaidLevel] = useState("raid1");
   const [customPartitions, setCustomPartitions] = useState<CustomPartition[]>([]);
+  const [showSmart, setShowSmart] = useState(false);
 
   // 内置分区方案
   const ps = useServerPartitionSchemes(serviceName, templateName || null);
+  // 智能配置方案:随磁盘信息和所选系统变化。纯函数,见 lib/smart-storage.ts
+  const smartPlan = useMemo(
+    () => buildSmartPlan(disk.data || {}, detectOsKind(templateName)),
+    [disk.data, templateName]
+  );
   const [partitionSchemeName, setPartitionSchemeName] = useState("");
 
   // 确认
@@ -860,8 +867,22 @@ export function ReinstallDialog({
 
                 {/* 自定义分区 */}
                 <div className="border-t border-border pt-3">
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <h4 className="text-[12px] font-semibold">自定义分区方案（可选）</h4>
+                    <div className="flex flex-wrap gap-2">
+                    {/* 智能配置:按实际磁盘生成一份方案,省掉手填。
+                        混合盘(多磁盘组)也给方案 —— 挑最快的组装系统,
+                        而不是笼统回落"用默认分区"。 */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setShowSmart(true)}
+                      disabled={!disk.data || Object.keys(disk.data).length === 0}
+                    >
+                      <Wand2 className="w-3.5 h-3.5 mr-1" />
+                      智能配置
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
@@ -886,6 +907,7 @@ export function ReinstallDialog({
                       <Plus className="w-3.5 h-3.5 mr-1" />
                       添加分区
                     </Button>
+                    </div>
                   </div>
                   <p className="text-[11px] text-muted-foreground mb-2">留空则使用默认分区。size=0 表示剩余空间。</p>
                   {customPartitions.length > 0 && (
@@ -941,6 +963,86 @@ export function ReinstallDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* 智能配置确认。不直接套用 —— 分区是不可逆操作的入口,
+          必须先让用户看清"装在哪个组、为什么、另一个组会怎样"。 */}
+      <Dialog open={showSmart} onOpenChange={setShowSmart}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="w-4 h-4" />
+              智能配置
+            </DialogTitle>
+            <DialogDescription>按这台机器的实际磁盘生成一份分区方案，生成后还能逐条改</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="rounded-xl border border-border bg-muted/40 px-3.5 py-3">
+              <p className="text-[12px] font-medium mb-1.5">检测到的磁盘</p>
+              {smartPlan.groups.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">没读到磁盘组信息</p>
+              ) : (
+                <ul className="text-[11px] text-muted-foreground space-y-0.5">
+                  {smartPlan.groups.map((g) => (
+                    <li key={g.id}>
+                      磁盘组 {g.id}：{g.label}
+                      {g.id === smartPlan.targetGroupId && !smartPlan.blocked && (
+                        <span className="ml-1.5 text-foreground font-medium">← 装系统</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {smartPlan.blocked ? (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 px-3.5 py-3">
+                <p className="text-[12px] leading-relaxed">{smartPlan.blocked}</p>
+              </div>
+            ) : (
+              <>
+                <div className="rounded-xl border border-border px-3.5 py-3">
+                  <p className="text-[12px] font-medium mb-1.5">将生成的分区</p>
+                  <div className="space-y-1">
+                    {smartPlan.partitions.map((p, i) => (
+                      <div key={i} className="text-[11px] font-mono flex flex-wrap gap-x-2">
+                        <span className="text-foreground">{p.mountpoint}</span>
+                        <span className="text-muted-foreground">{p.filesystem}</span>
+                        <span className="text-muted-foreground">{p.size === 0 ? "剩余空间" : `${p.size}MB`}</span>
+                        <span className="text-muted-foreground">磁盘组{p.diskGroupId}</span>
+                        {p.raid && <span className="text-muted-foreground">{p.raid.toUpperCase()}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <ul className="text-[11px] text-muted-foreground space-y-1 list-disc pl-4">
+                  {smartPlan.notes.map((n, i) => (
+                    <li key={i}>{n}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSmart(false)}>
+              取消
+            </Button>
+            <Button
+              disabled={!!smartPlan.blocked || smartPlan.partitions.length === 0}
+              onClick={() => {
+                // 覆盖而不是追加:用户点"智能配置"要的是一份完整方案,
+                // 追加会和他之前手填的撞车(比如两个 size=0)
+                setCustomPartitions(smartPlan.partitions);
+                setShowSmart(false);
+                toast.success(`已生成 ${smartPlan.partitions.length} 个分区，可继续手动调整`);
+              }}
+            >
+              应用这份方案
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
