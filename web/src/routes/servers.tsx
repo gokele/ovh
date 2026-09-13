@@ -46,6 +46,7 @@ import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
 import { formatMoney, CURRENCY_UNKNOWN_HINT } from "@/lib/money";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
 import { endpointRegion, regionLabel } from "@/lib/ovh-regions";
+import { clampOrderPlan, MAX_ORDER_QUANTITY, MAX_ORDER_FANOUT } from "@/lib/order-limits";
 
 /** 服务器列表：卡片网格 + 详情弹窗 */
 export const Route = createFileRoute("/servers")({
@@ -511,8 +512,11 @@ function DetailContent({
   const [autoPay, setAutoPay] = useState(false);
   const toggleDC = (code: string) =>
     setSelectedDCs((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
-  const qty = Math.max(1, Number(quantity) || 1);
-  const totalTasks = selectedDCs.length * qty;
+  // 和后端同一套上限:界面上先把数量收住,别让用户看到一个建不出来的数字。
+  // 真正的闸门在后端 EnqueueItems,这里只是提前说清楚。
+  const orderPlan = clampOrderPlan(selectedDCs.length, Number(quantity) || 1);
+  const qty = orderPlan.quantity;
+  const totalTasks = orderPlan.total;
   // 静态可用性兜底：实时还没返回时也能看到目录里的初始数据
   const staticDcMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -771,13 +775,22 @@ function DetailContent({
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] text-muted-foreground mb-1">每个数据中心数量</label>
+                <label className="block text-[11px] text-muted-foreground mb-1">
+                  每个数据中心数量<span className="ml-1 opacity-60">最多 {MAX_ORDER_QUANTITY}</span>
+                </label>
                 <Input
                   type="number"
                   min={1}
+                  max={MAX_ORDER_QUANTITY}
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
                 />
+                {orderPlan.clamped && (
+                  // 光靠 max= 挡不住手打的值,得把实际会用的数字说出来
+                  <p className="text-[11px] text-amber-600 dark:text-amber-500 mt-1">
+                    已按 {qty} 台/机房计算（单次最多 {MAX_ORDER_FANOUT} 个任务）
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-[11px] text-muted-foreground mb-1">重试间隔（秒）</label>

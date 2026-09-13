@@ -317,14 +317,14 @@ func isMalformedQuantity(s string) bool {
 
 // parsePositiveInt 只接受纯十进制 ASCII 数字字符串，
 // 不接受 "-1" / "+5" / " 3" 等带符号或空白的版本（strconv.Atoi 会通过）。
-// MaxOrderQuantity 一条聊天消息能指定的最大数量。
-// 没有上限时 "planCode 4000000000" 会让 order_processor 先把 40 亿个
-// QueueItem append 进一个切片 —— 进程当场 OOM 被杀。
-const MaxOrderQuantity = 20
-
-// MaxOrderFanout 一条消息最多创建多少个抢购任务。
-// 不指定机房时任务数 = 配置数 × 有货机房数 × 数量,很容易远超用户直觉。
-const MaxOrderFanout = 60
+// MaxOrderQuantity / MaxOrderFanout 下单规模上限。
+// 定义挪到了 types —— 它们是产品级约束,不是 TG 专有的:
+// 网页端那条入队路径原来完全没有上界(见 types 里的说明)。
+// 这里留别名,TG 侧的引用不用改。
+const (
+	MaxOrderQuantity = types.MaxOrderQuantity
+	MaxOrderFanout   = types.MaxOrderFanout
+)
 
 // clampQuantity 把数量夹到 [1, MaxOrderQuantity]
 func clampQuantity(n int) int {

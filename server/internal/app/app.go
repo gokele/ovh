@@ -468,6 +468,21 @@ func (s *State) EnqueueItems(items []types.QueueItem, prepend bool) error {
 		return nil
 	}
 	s.QueueMu.Lock()
+	// 队列总量闸门。放在这里是因为四条入队路径(网页新建 / 快速下单 / TG 文本下单 /
+	// 监控自动下单)全都汇到这个函数 —— 加一次就都受保护。
+	//
+	// 要防的是"多打一个数字"这种事:网页端建任务的循环没有上界,
+	// 数量填 9999 × 5 个机房 = 近 5 万条任务,而每一条都是一次真实下单尝试。
+	// 正常用法离 MaxQueueItems 很远,撞上它基本可以断定是填错了。
+	if len(s.Queue)+len(items) > types.MaxQueueItems {
+		have, want := len(s.Queue), len(items)
+		s.QueueMu.Unlock()
+		return fmt.Errorf(
+			"队列里已有 %d 条任务,这次还要加 %d 条,会超过上限 %d。"+
+				"每条任务都是一次真实的下单尝试 —— 请先确认数量没填错,"+
+				"或到队列页清理掉不需要的任务",
+			have, want, types.MaxQueueItems)
+	}
 	if prepend {
 		s.Queue = append(append([]types.QueueItem{}, items...), s.Queue...)
 	} else {

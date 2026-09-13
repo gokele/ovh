@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { toast } from "sonner";
+import { clampOrderPlan, MAX_ORDER_QUANTITY, MAX_ORDER_FANOUT } from "@/lib/order-limits";
+import { errorMessage } from "@/components/common/LoadFailed";
 
 export type QueueStatus = "pending" | "running" | "paused" | "completed" | "failed";
 
@@ -80,10 +82,22 @@ export function useCreateQueueItem() {
       quantity?: number;
       autoPay?: boolean;
     }) => {
-      const qty = Math.max(1, payload.quantity ?? 1);
       const dcs = payload.datacenters;
+      // 上界以前完全没有:填 9999 × 5 个机房 = 近 5 万次串行 POST。
+      // 后端 EnqueueItems 也会拒,但那是在发出几百个请求之后 —— 这里先收住。
+      const plan = clampOrderPlan(dcs.length, payload.quantity ?? 1);
+      const qty = plan.quantity;
+      if (plan.clamped) {
+        toast.warning(
+          `每个机房最多 ${MAX_ORDER_QUANTITY} 台、单次最多 ${MAX_ORDER_FANOUT} 个任务，` +
+            `已按 ${qty} 台/机房（共 ${plan.total} 个任务）创建`
+        );
+      }
       let success = 0;
       let failed = 0;
+      // 第一条失败原因要留下来。以前是 catch 里 failed++ 就完了,
+      // 用户看到「N 个任务创建失败」却不知道为什么(比如撞上了队列总量闸门)。
+      let firstError = "";
       for (const dc of dcs) {
         for (let i = 0; i < qty; i++) {
           try {
@@ -96,12 +110,14 @@ export function useCreateQueueItem() {
               autoPay: payload.autoPay ?? false,
             });
             success++;
-          } catch (e) {
+          } catch (e: any) {
             failed++;
+            if (!firstError) firstError = errorMessage(e);
           }
         }
       }
-      return { success, failed, total: dcs.length * qty };
+      if (failed > 0 && firstError) toast.error(`有任务没能创建：${firstError}`);
+      return { success, failed, total: dcs.length * qty, firstError };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.queue.list() });

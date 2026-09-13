@@ -1,9 +1,11 @@
 package app
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ovh-buy/server/internal/config"
@@ -85,3 +87,64 @@ func TestEnqueueItemsAllOrNothing(t *testing.T) {
 type errStub struct{}
 
 func (errStub) Error() string { return "模拟启动时读表失败" }
+
+// 队列总量闸门。
+//
+// 要防的是"多打一个数字":网页端建任务的循环是 for dc { for i < qty { 建一条 } },
+// 两个上界都没有 —— 数量填 9999、选 5 个机房就是近 5 万条任务,
+// 而每一条都是一次真实的下单尝试。TG 那条路早就有 MaxOrderQuantity/MaxOrderFanout,
+// 网页端没有,这是同一个能力只做了一半的老毛病。
+//
+// 闸门放在 EnqueueItems 是因为四条入队路径全汇到这里,加一次就都受保护。
+func TestEnqueueItemsRejectsRunawayBatch(t *testing.T) {
+	s := enqueueTestState(t)
+
+	mk := func(n int, prefix string) []types.QueueItem {
+		out := make([]types.QueueItem, n)
+		for i := range out {
+			out[i] = types.QueueItem{
+				ID: fmt.Sprintf("%s-%d", prefix, i), PlanCode: "24sk602",
+				Datacenter: "gra", Status: "running",
+			}
+		}
+		return out
+	}
+
+	// 先填到接近上限:这一批必须能进
+	if err := s.EnqueueItems(mk(types.MaxQueueItems-1, "ok"), false); err != nil {
+		t.Fatalf("上限内的批次不该被拒: %v", err)
+	}
+	if len(s.Queue) != types.MaxQueueItems-1 {
+		t.Fatalf("队列应有 %d 条,实际 %d", types.MaxQueueItems-1, len(s.Queue))
+	}
+
+	// 正好到上限:仍然放行,闸门不能早关一条
+	if err := s.EnqueueItems(mk(1, "edge"), false); err != nil {
+		t.Fatalf("正好到上限不该被拒: %v", err)
+	}
+
+	// 再加就必须拒绝,而且一条都不能落进去(全有或全无)
+	before := len(s.Queue)
+	err := s.EnqueueItems(mk(10, "over"), false)
+	if err == nil {
+		t.Fatal("超过上限的批次没有被拒绝")
+	}
+	if len(s.Queue) != before {
+		t.Errorf("被拒的批次污染了队列:之前 %d 条,现在 %d 条", before, len(s.Queue))
+	}
+	// 报错要说清楚是什么情况,不能只甩一个 "limit exceeded"
+	for _, want := range []string{"上限", "下单尝试"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("报错里缺少 %q,用户看不懂该怎么办:%s", want, err.Error())
+		}
+	}
+
+	// 落库的内容要和内存一致 —— 被拒的那批不能出现在库里
+	rows, derr := s.DB.ListQueue()
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	if len(rows) != before {
+		t.Errorf("库里有 %d 条,内存里 %d 条", len(rows), before)
+	}
+}
