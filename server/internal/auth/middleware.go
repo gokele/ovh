@@ -57,6 +57,22 @@ func Middleware(cfg Config) gin.HandlerFunc {
 			return
 		}
 
+		// 先看这个来源是不是已经猜错太多次。放在读 header 之前:
+		// 被挡下的请求不该再进入任何比较逻辑。
+		if blocked, wait := authBlocked(c.ClientIP(), time.Now()); blocked {
+			secs := int(wait.Seconds()) + 1
+			c.Header("Retry-After", strconv.Itoa(secs))
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": "Too many failed attempts",
+				"message": "API 密钥连续错误次数过多,已暂时拒绝该来源的请求。" +
+					"请等待约 " + strconv.Itoa(secs) + " 秒后再试;" +
+					"如果忘了密钥,它在服务器的 .env 文件里(API_SECRET_KEY)",
+				"code":       "AUTH_RATE_LIMITED",
+				"retryAfter": secs,
+			})
+			return
+		}
+
 		key := c.GetHeader("X-API-Key")
 		if key == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -71,13 +87,18 @@ func Middleware(cfg Config) gin.HandlerFunc {
 		// 但同项目的 telegram/security.go 已经用了 ConstantTimeCompare,
 		// 没有理由这里松一档。
 		if subtle.ConstantTimeCompare([]byte(key), []byte(cfg.APIKey)) != 1 {
+			// 记一次失败。不限次数的话,端口可达的人可以一秒几千次地猜 ——
+			// 而这个服务能用你的 OVH 账户下单。
+			recordAuthFailure(c.ClientIP(), time.Now())
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error":   "Invalid API key",
-				"message": "API密钥无效，禁止访问",
+				"message": "API 密钥无效。它在服务器的 .env 文件里(API_SECRET_KEY);连续错误多次后会被暂时锁定",
 				"code":    "INVALID_API_KEY",
 			})
 			return
 		}
+		// 对了就清零:打错一次的正常用户不该被后面的请求连坐
+		clearAuthFailures(c.ClientIP())
 
 		// X-Request-Time 时间戳校验。
 		//

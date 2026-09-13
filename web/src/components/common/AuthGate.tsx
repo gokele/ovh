@@ -40,19 +40,28 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setState("needs-auth");
       return;
     }
-    verifyKey(stored)
-      .then((ok) => {
-        if (ok) setState("authed");
-        else {
-          clearApiSecretKey();
-          setErrMsg("已保存的 API 密钥失效，请重新输入");
-          setState("needs-auth");
-        }
-      })
-      .catch(() => {
-        // 网络错误：放行进入应用，让单个请求的拦截器 / 业务层处理报错
+    verifyKey(stored).then((r) => {
+      if (r.ok) {
         setState("authed");
-      });
+        return;
+      }
+      if (r.reason === "unreachable") {
+        // 后端没起来/网络问题:放行进入应用,让各请求自己报错 ——
+        // 卡在这一层的话用户连界面都看不到,更不知道发生了什么。
+        setState("authed");
+        return;
+      }
+      if (r.reason === "rate-limited") {
+        // 限流不能放行:放进去只会让每个请求都 429,而且不断续上限流窗口。
+        // 也不清除已保存的密钥 —— 它可能本来就是对的,只是被别人试错连累了。
+        setErrMsg(r.message);
+        setState("needs-auth");
+        return;
+      }
+      clearApiSecretKey();
+      setErrMsg("已保存的 API 密钥失效，请重新输入");
+      setState("needs-auth");
+    });
   }, []);
 
   if (state === "checking") {
@@ -89,6 +98,14 @@ function LoginOverlay({
 }) {
   const [key, setKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // 限流倒计时。被挡住时把提交按钮也锁上 —— 用户一直点只会让窗口不断续上,
+  // 而他看到的还是同一句错误,会以为是密钥的问题。
+  const [cooldown, setCooldown] = useState(0);
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown((n) => (n <= 1 ? 0 : n - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
   const [error, setError] = useState<string>(initialError || "");
 
   const submit = async () => {
@@ -100,11 +117,13 @@ function LoginOverlay({
     setSubmitting(true);
     setError("");
     try {
-      const ok = await verifyKey(trimmed);
-      if (ok) {
+      const r = await verifyKey(trimmed);
+      if (r.ok) {
         onSuccess(trimmed);
       } else {
-        setError("密钥无效（服务端返回 401）");
+        setError(r.message);
+        // 被限流时把按钮也锁住:不锁的话用户会一直点,而每次点都在续限流窗口
+        if (r.reason === "rate-limited" && r.retryAfter) setCooldown(r.retryAfter);
       }
     } catch (e: any) {
       setError(e?.message || "验证失败，请检查网络或后端服务");
@@ -147,12 +166,18 @@ function LoginOverlay({
           {error && <p className="text-[11px] text-destructive">{error}</p>}
         </div>
 
-        <Button onClick={submit} disabled={submitting || !key.trim()} className="w-full">
+        <Button
+          onClick={submit}
+          disabled={submitting || !key.trim() || cooldown > 0}
+          className="w-full"
+        >
           {submitting ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
               验证中…
             </>
+          ) : cooldown > 0 ? (
+            `请等待 ${cooldown} 秒`
           ) : (
             "验证并进入"
           )}
@@ -172,20 +197,55 @@ function LoginOverlay({
  * - 401 → key 无效（返回 false）
  * - 其它（网络 / 5xx） → 抛错让调用方决定
  */
-async function verifyKey(key: string): Promise<boolean> {
+/**
+ * 校验密钥。
+ *
+ * 返回结构化结果而不是 boolean:密钥错、被限流、后端连不上是三件不同的事,
+ * 给用户的下一步也完全不同(改密钥 / 等一会儿 / 看后端是否在跑)。
+ * 以前统一压成 true/false,429 会走到"其它状态码"分支抛出「后端返回 429」——
+ * 一个裸状态码,用户只会继续重试,而重试正是让限流窗口一直续上的原因。
+ */
+type VerifyResult =
+  | { ok: true }
+  | { ok: false; reason: "bad-key" | "rate-limited" | "unreachable"; message: string; retryAfter?: number };
+
+async function verifyKey(key: string): Promise<VerifyResult> {
+  let res;
   try {
-    const res = await axios.get("/api/stats", {
+    res = await axios.get("/api/stats", {
       headers: { "X-API-Key": key },
       timeout: 10000,
-      // 别让 axios 把 401 当成 reject，自己判 status
+      // 别让 axios 把 401/429 当成 reject，自己判 status
       validateStatus: () => true,
     });
-    if (res.status === 200) return true;
-    if (res.status === 401) return false;
-    // 其它非 2xx 当成网络异常抛出
-    throw new Error(`后端返回 ${res.status}`);
   } catch (e: any) {
-    if (e?.response?.status === 401) return false;
-    throw e;
+    return {
+      ok: false,
+      reason: "unreachable",
+      message: `连不上后端服务(${e?.message || "网络错误"})。确认后端已启动、地址和端口正确后重试。`,
+    };
   }
+  if (res.status === 200) return { ok: true };
+  if (res.status === 401) {
+    return {
+      ok: false,
+      reason: "bad-key",
+      message: "密钥不对。它是后端 .env 文件里的 API_SECRET_KEY;没设置过的话默认是 123456(强烈建议改掉)。",
+    };
+  }
+  if (res.status === 429) {
+    // 后端已经给了带"等多久"的中文说明,原样用它,别自己另编一句
+    const secs = Number(res.data?.retryAfter) || Number(res.headers?.["retry-after"]) || 60;
+    return {
+      ok: false,
+      reason: "rate-limited",
+      retryAfter: secs,
+      message: res.data?.message || `密钥连续错误次数过多,请约 ${secs} 秒后再试。`,
+    };
+  }
+  return {
+    ok: false,
+    reason: "unreachable",
+    message: `后端返回了 HTTP ${res.status},不是预期的响应。确认前面没有挡着反向代理或登录页。`,
+  };
 }
