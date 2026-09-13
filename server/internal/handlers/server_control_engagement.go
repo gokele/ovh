@@ -9,6 +9,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/numconv"
+	"github.com/ovh-buy/server/internal/ovh"
 )
 
 // engagementEndStrategies 对应 schema 的 services.billing.engagement.EndStrategyEnum,
@@ -46,7 +47,7 @@ func GetEngagement(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForDedicated(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		var eng map[string]interface{}
@@ -58,7 +59,7 @@ func GetEngagement(state *app.State) gin.HandlerFunc {
 				return
 			}
 			state.Logger.Error(fmt.Sprintf("查询服务器 %s(serviceId=%d) 合同期失败: %s", svc, serviceID, err.Error()), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "查询合同期失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "查询合同期失败: " + ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "engagement": eng, "serviceId": serviceID})
@@ -77,12 +78,12 @@ func GetEngagementAvailable(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForDedicated(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		var pricings []map[string]interface{}
 		if err := client.Get(fmt.Sprintf("/services/%d/billing/engagement/available", serviceID), &pricings); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "pricings": pricings})
@@ -101,7 +102,7 @@ func GetEngagementRequest(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForDedicated(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		var req map[string]interface{}
@@ -113,7 +114,7 @@ func GetEngagementRequest(state *app.State) gin.HandlerFunc {
 				return
 			}
 			state.Logger.Error(fmt.Sprintf("查询服务器 %s(serviceId=%d) 合同期变更请求失败: %s", svc, serviceID, err.Error()), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "查询合同期变更请求失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "查询合同期变更请求失败: " + ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "request": req})
@@ -140,14 +141,14 @@ func CreateEngagementRequest(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForDedicated(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		var result map[string]interface{}
 		err = client.Post(fmt.Sprintf("/services/%d/billing/engagement/request", serviceID),
 			map[string]interface{}{"pricingMode": body.PricingMode}, &result)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("服务器 %s engagement 请求已提交: pricingMode=%s", svc, body.PricingMode), "server_control")
@@ -167,11 +168,11 @@ func DeleteEngagementRequest(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForDedicated(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		if err := client.Delete(fmt.Sprintf("/services/%d/billing/engagement/request", serviceID), nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("服务器 %s engagement 请求已撤销", svc), "server_control")
@@ -210,7 +211,7 @@ func UpdateEngagementEndRule(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForDedicated(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		if body.Strategy == "CANCEL_SERVICE" {
@@ -218,7 +219,7 @@ func UpdateEngagementEndRule(state *app.State) gin.HandlerFunc {
 		}
 		if err := client.Put(fmt.Sprintf("/services/%d/billing/engagement/endRule", serviceID),
 			map[string]interface{}{"strategy": body.Strategy}, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("服务器 %s engagement endRule 已改为 %s", svc, body.Strategy), "server_control")

@@ -8,6 +8,7 @@ import (
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/ovh"
 )
 
 // 到期终止策略。
@@ -84,12 +85,12 @@ func terminationPolicyHandler(
 		serviceID, err := resolveID(client, svc)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false,
-				"error": "取 serviceId 失败: " + err.Error()})
+				"error": "取 serviceId 失败: " + ovh.Explain(err)})
 			return
 		}
 		if err := setTerminationPolicy(client, serviceID, body.Policy); err != nil {
 			state.Logger.Error(label+" "+svc+" 设置终止策略失败: "+err.Error(), logSource)
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 

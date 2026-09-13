@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/ovh"
 )
 
 // GetVpsSnapshot GET /api/vps-control/:service_name/snapshot
@@ -35,7 +36,7 @@ func GetVpsSnapshot(state *app.State) gin.HandlerFunc {
 				return
 			}
 			state.Logger.Error("VPS "+svc+" 读取快照失败: "+err.Error(), "vps_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "snapshot": snap})
@@ -77,7 +78,7 @@ func CreateVpsSnapshot(state *app.State) gin.HandlerFunc {
 				})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 创建快照任务已提交", "vps_control")
@@ -105,7 +106,7 @@ func UpdateVpsSnapshotDescription(state *app.State) gin.HandlerFunc {
 		// 那会把只读字段一并发回,被 OVH 400 掉
 		if err := client.Put("/vps/"+svc+"/snapshot",
 			map[string]interface{}{"description": body.Description}, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 快照描述已更新", "vps_control")
@@ -127,7 +128,7 @@ func RevertVpsSnapshot(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Post("/vps/"+svc+"/snapshot/revert", map[string]interface{}{}, &task); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Warn("VPS "+svc+" 已触发快照回滚 (destructive)", "vps_control")
@@ -148,7 +149,7 @@ func DeleteVpsSnapshot(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Delete("/vps/"+svc+"/snapshot", &task); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 快照已删除", "vps_control")

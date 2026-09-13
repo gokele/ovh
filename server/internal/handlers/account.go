@@ -282,7 +282,7 @@ func GetAccountInfo(state *app.State) gin.HandlerFunc {
 		var info map[string]interface{}
 		if err := client.Get("/me", &info); err != nil {
 			state.Logger.Error("获取账户信息失败: "+err.Error(), "account_management")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取账户信息失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取账户信息失败: " + ovh.Explain(err)})
 			return
 		}
 		// 这个接口的响应体是 OVH 的 nichandle 原样透传(前端按 OVH 字段渲染),
@@ -309,7 +309,7 @@ func GetAccountRefunds(state *app.State) gin.HandlerFunc {
 		ids, warn, err := fetchRecentBillingIDs(client, "/me/refund", accountBillingListSize)
 		if err != nil {
 			state.Logger.Error("获取退款列表失败: "+err.Error(), "account_management")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取退款列表失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取退款列表失败: " + ovh.Explain(err)})
 			return
 		}
 		if warn != "" {
@@ -345,7 +345,7 @@ func GetCreditBalance(state *app.State) gin.HandlerFunc {
 		var names []string
 		if err := client.Get("/me/credit/balance", &names); err != nil {
 			state.Logger.Error("获取信用余额失败: "+err.Error(), "account_management")
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取信用余额失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取信用余额失败: " + ovh.Explain(err)})
 			return
 		}
 		// 并发拉详情
@@ -369,7 +369,7 @@ func GetEmailHistory(state *app.State) gin.HandlerFunc {
 		var ids []interface{}
 		if err := client.Get("/me/notification/email/history", &ids); err != nil {
 			state.Logger.Error("获取邮件历史失败: "+err.Error(), "account_management")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取邮件历史失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取邮件历史失败: " + ovh.Explain(err)})
 			return
 		}
 		// 倒序
@@ -438,7 +438,7 @@ func GetContactChangeRequests(state *app.State) gin.HandlerFunc {
 		var ids []interface{}
 		if err := client.Get("/me/task/contactChange", &ids); err != nil {
 			state.Logger.Error("获取联系人变更请求列表失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取联系人变更请求列表失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取联系人变更请求列表失败: " + ovh.Explain(err)})
 			return
 		}
 		// 并发拉详情
@@ -474,7 +474,7 @@ func GetContactChangeRequestDetail(state *app.State) gin.HandlerFunc {
 		var d map[string]interface{}
 		if err := client.Get(fmt.Sprintf("/me/task/contactChange/%d", taskID), &d); err != nil {
 			state.Logger.Error(fmt.Sprintf("获取联系人变更请求 %d 详情失败: %s", taskID, err.Error()), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取联系人变更请求详情失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取联系人变更请求详情失败: " + ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("成功获取联系人变更请求 %d 详情", taskID), "server_control")
@@ -509,7 +509,7 @@ func AcceptContactChangeRequest(state *app.State) gin.HandlerFunc {
 			"token": body.Token,
 		}, nil); err != nil {
 			state.Logger.Error(fmt.Sprintf("接受联系人变更请求 %d 失败: %s", taskID, err.Error()), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "接受联系人变更请求失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "接受联系人变更请求失败: " + ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("成功接受联系人变更请求 %d", taskID), "server_control")
@@ -544,7 +544,7 @@ func RefuseContactChangeRequest(state *app.State) gin.HandlerFunc {
 			"token": body.Token,
 		}, nil); err != nil {
 			state.Logger.Error(fmt.Sprintf("拒绝联系人变更请求 %d 失败: %s", taskID, err.Error()), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "拒绝联系人变更请求失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "拒绝联系人变更请求失败: " + ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("成功拒绝联系人变更请求 %d", taskID), "server_control")
@@ -569,7 +569,7 @@ func ResendContactChangeEmail(state *app.State) gin.HandlerFunc {
 		}
 		if err := client.Post(fmt.Sprintf("/me/task/contactChange/%d/resendEmail", taskID), map[string]interface{}{}, nil); err != nil {
 			state.Logger.Error(fmt.Sprintf("重发联系人变更请求 %d 邮件失败: %s", taskID, err.Error()), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "重发邮件失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "重发邮件失败: " + ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("成功重发联系人变更请求 %d 的邮件", taskID), "server_control")
@@ -588,7 +588,7 @@ func GetSubAccounts(state *app.State) gin.HandlerFunc {
 		var ids []interface{}
 		if err := client.Get("/me/subAccount", &ids); err != nil {
 			state.Logger.Error("获取子账户列表失败: "+err.Error(), "account_management")
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取子账户列表失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取子账户列表失败: " + ovh.Explain(err)})
 			return
 		}
 		// 并发拉详情
@@ -612,7 +612,7 @@ func GetAccountBills(state *app.State) gin.HandlerFunc {
 		ids, warn, err := fetchRecentBillingIDs(client, "/me/bill", accountBillingListSize)
 		if err != nil {
 			state.Logger.Error("获取账单列表失败: "+err.Error(), "account_management")
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取账单列表失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "获取账单列表失败: " + ovh.Explain(err)})
 			return
 		}
 		if warn != "" {

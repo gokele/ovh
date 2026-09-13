@@ -10,6 +10,7 @@ import (
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/ovh"
 )
 
 // miscParallelGetStringKeys 与 util.go 的 parallelGetStringKeys 同构,额外把每项的错误带出来。
@@ -109,7 +110,7 @@ func GetSecondaryDNS(state *app.State) gin.HandlerFunc {
 		}
 		var domains []string
 		if err := client.Get("/dedicated/server/"+svc+"/secondaryDnsDomains", &domains); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		details, detailErrs := miscParallelGetStringKeys(client, domains, func(d string) string {
@@ -140,7 +141,7 @@ func AddSecondaryDNS(state *app.State) gin.HandlerFunc {
 			return
 		}
 		if err := client.Post("/dedicated/server/"+svc+"/secondaryDnsDomains", map[string]interface{}{"domain": body.Domain}, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("添加从DNS域名 "+body.Domain+" 成功", "server_control")
@@ -158,7 +159,7 @@ func DeleteSecondaryDNS(state *app.State) gin.HandlerFunc {
 			return
 		}
 		if err := client.Delete("/dedicated/server/"+svc+"/secondaryDnsDomains/"+domain, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("删除从DNS域名 "+domain+" 成功", "server_control")
@@ -177,7 +178,7 @@ func GetVirtualMACList(state *app.State) gin.HandlerFunc {
 		}
 		var macs []string
 		if err := client.Get("/dedicated/server/"+svc+"/virtualMac", &macs); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		details, detailErrs := miscParallelGetStringKeys(client, macs, func(m string) string {
@@ -222,7 +223,7 @@ func CreateVirtualMAC(state *app.State) gin.HandlerFunc {
 			"type":               body.Type,
 			"virtualMachineName": body.VirtualMachineName,
 		}, &result); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("创建虚拟MAC成功: "+body.IPAddress, "server_control")
@@ -241,7 +242,7 @@ func GetVirtualNetworkInterfaces(state *app.State) gin.HandlerFunc {
 		}
 		var uuids []string
 		if err := client.Get("/dedicated/server/"+svc+"/virtualNetworkInterface", &uuids); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		details, detailErrs := miscParallelGetStringKeys(client, uuids, func(u string) string {
@@ -270,7 +271,7 @@ func EnableVirtualNetworkInterface(state *app.State) gin.HandlerFunc {
 		// body 保持空对象(schema 无 body 参数),不改成 nil 是为了不动现在跑得通的请求形态。
 		var task map[string]interface{}
 		if err := client.Post("/dedicated/server/"+svc+"/virtualNetworkInterface/"+id+"/enable", map[string]interface{}{}, &task); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("启用虚拟网络接口 %s 成功, taskId=%v", id, task["taskId"]), "server_control")
@@ -291,7 +292,7 @@ func DisableVirtualNetworkInterface(state *app.State) gin.HandlerFunc {
 		// 这里只补回被丢弃的 dedicated.server.Task,让前端能跟踪 OLA 任务进度
 		var task map[string]interface{}
 		if err := client.Post("/dedicated/server/"+svc+"/virtualNetworkInterface/"+id+"/disable", map[string]interface{}{}, &task); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("禁用虚拟网络接口 %s 成功, taskId=%v", id, task["taskId"]), "server_control")
@@ -310,7 +311,7 @@ func GetVRackList(state *app.State) gin.HandlerFunc {
 		}
 		var vracks []string
 		if err := client.Get("/dedicated/server/"+svc+"/vrack", &vracks); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		details, detailErrs := miscParallelGetStringKeys(client, vracks, func(v string) string {
@@ -334,7 +335,7 @@ func RemoveFromVRack(state *app.State) gin.HandlerFunc {
 			return
 		}
 		if err := client.Delete("/dedicated/server/"+svc+"/vrack/"+vrack, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("从vRack "+vrack+" 移除服务器成功", "server_control")
@@ -353,7 +354,7 @@ func GetOrderableBandwidth(state *app.State) gin.HandlerFunc {
 		}
 		var d interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/orderable/bandwidth", &d); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "orderable": d})
@@ -370,7 +371,7 @@ func GetOrderableTraffic(state *app.State) gin.HandlerFunc {
 		}
 		var d interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/orderable/traffic", &d); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "orderable": d})
@@ -387,7 +388,7 @@ func GetOrderableIP(state *app.State) gin.HandlerFunc {
 		}
 		var d interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/orderable/ip", &d); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "orderable": d})
@@ -405,7 +406,7 @@ func GetServerOptions(state *app.State) gin.HandlerFunc {
 		}
 		var opts []string
 		if err := client.Get("/dedicated/server/"+svc+"/option", &opts); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		details, detailErrs := miscParallelGetStringKeys(client, opts, func(o string) string {
@@ -430,7 +431,7 @@ func GetIPSpecs(state *app.State) gin.HandlerFunc {
 		}
 		var d interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/specifications/ip", &d); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "ipSpecs": d})
@@ -457,7 +458,7 @@ func GetIPCanBeMovedTo(state *app.State) gin.HandlerFunc {
 		// 不猜语义:出错就原样把 OVH 的错误交出去,由调用方判断,免得把权限/网络故障说成"不能迁移"
 		if err := client.Get("/dedicated/server/"+svc+"/ipCanBeMovedTo?ip="+url.QueryEscape(ip), nil); err != nil {
 			state.Logger.Warn("检查 IP "+ip+" 能否迁移到服务器 "+svc+" 失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error(), "ip": ip})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err), "ip": ip})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "canBeMoved": true, "ip": ip})
@@ -474,7 +475,7 @@ func GetIPCountryAvailable(state *app.State) gin.HandlerFunc {
 		}
 		var d interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/ipCountryAvailable", &d); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "countries": d})
@@ -503,7 +504,7 @@ func MoveIP(state *app.State) gin.HandlerFunc {
 		if err := client.Post("/dedicated/server/"+svc+"/ipMove", map[string]interface{}{
 			"ip": body.IP,
 		}, &result); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("IP迁移任务已创建: "+body.IP+" -> "+svc, "server_control")
@@ -522,7 +523,7 @@ func GetOngoingTasks(state *app.State) gin.HandlerFunc {
 		}
 		var d interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/ongoing", &d); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "ongoing": d})
@@ -547,7 +548,7 @@ func GetCompliantWindowsVersions(state *app.State) gin.HandlerFunc {
 		}
 		var d interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/license/compliantWindows", &d); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "versions": d})
@@ -564,7 +565,7 @@ func GetCompliantWindowsSqlVersions(state *app.State) gin.HandlerFunc {
 		}
 		var d interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/license/compliantWindowsSqlServer", &d); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "versions": d})
@@ -621,7 +622,7 @@ func TerminateService(state *app.State) gin.HandlerFunc {
 		// 所以这里不能把它当 token 交给前端,否则用户会拿这段文字去确认终止
 		var resp string
 		if err := client.Post("/dedicated/server/"+svc+"/terminate", map[string]interface{}{}, &resp); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Warn("服务器 "+svc+" 终止请求已提交, token 已发送至管理员邮箱", "server_control")
@@ -672,7 +673,7 @@ func ConfirmTermination(state *app.State) gin.HandlerFunc {
 		// OVH /confirmTermination 返回 string(确认信息)
 		var resp string
 		if err := client.Post("/dedicated/server/"+svc+"/confirmTermination", payload, &resp); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Warn("服务器 "+svc+" 终止已确认", "server_control")
@@ -692,7 +693,7 @@ func GetSPLAList(state *app.State) gin.HandlerFunc {
 		var ids []interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/spla", &ids); err != nil {
 			state.Logger.Error("获取SPLA列表失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		details, detailErrs := miscParallelGetDetails(client, ids, func(k interface{}) string {
@@ -739,7 +740,7 @@ func CreateSPLA(state *app.State) gin.HandlerFunc {
 		var newID int64
 		if err := client.Post("/dedicated/server/"+svc+"/spla", payload, &newID); err != nil {
 			state.Logger.Error("创建SPLA许可证失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("创建SPLA许可证成功: %s, id=%d", body.Type, newID), "server_control")

@@ -10,6 +10,7 @@ import (
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/ovh"
 )
 
 // 区域核对结论(逐条对过 EU / US / CA 三站的 /1.0/ip.json):
@@ -71,7 +72,7 @@ func GetVpsMitigation(state *app.State) gin.HandlerFunc {
 		}
 		var ips []string
 		if err := client.Get("/vps/"+svc+"/ips", &ips); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		type ipResult struct {
@@ -172,7 +173,7 @@ func EnableVpsMitigation(state *app.State) gin.HandlerFunc {
 		var result map[string]interface{}
 		if err := client.Post("/ip/"+encoded+"/mitigation",
 			map[string]interface{}{"ipOnMitigation": ip}, &result); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("VPS IP "+ip+" 启用永久 DDoS 缓解", "vps_control")
@@ -200,7 +201,7 @@ func DisableVpsMitigation(state *app.State) gin.HandlerFunc {
 		}
 		encoded := strings.ReplaceAll(resolveIPBlock(client, ipBlock), "/", "%2F")
 		if err := client.Delete("/ip/"+encoded+"/mitigation/"+ip, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("VPS IP "+ip+" 关闭永久 DDoS 缓解", "vps_control")

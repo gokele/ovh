@@ -86,7 +86,7 @@ func GetVpsCurrentOS(state *app.State) gin.HandlerFunc {
 				return
 			}
 			state.Logger.Error("VPS "+svc+" 读取当前系统失败: "+err.Error(), "vps_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		name, _ := img["name"].(string)
@@ -153,7 +153,7 @@ func GetVpsTemplates(state *app.State) gin.HandlerFunc {
 		// 通用退路 /images/available(三区都有)
 		var imageIDs []string
 		if err := client.Get("/vps/"+svc+"/images/available", &imageIDs); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		list, failed := buildUsImageList(client, svc, imageIDs)
@@ -408,7 +408,7 @@ func ReinstallVps(state *app.State) gin.HandlerFunc {
 			var task map[string]interface{}
 			if err := client.Post("/vps/"+svc+"/rebuild", params, &task); err != nil {
 				state.Logger.Error("VPS "+svc+" rebuild 失败: "+err.Error(), "vps_control")
-				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 				return
 			}
 			state.Logger.Info(fmt.Sprintf("VPS %s rebuild 任务已创建: imageId=%s (endpoint=%s)", svc, imageID, acc.Endpoint), "vps_control")
@@ -433,7 +433,7 @@ func ReinstallVps(state *app.State) gin.HandlerFunc {
 		var task map[string]interface{}
 		if err := client.Post("/vps/"+svc+"/reinstall", params, &task); err != nil {
 			state.Logger.Error("VPS "+svc+" reinstall 失败: "+err.Error(), "vps_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("VPS %s reinstall 任务已创建: templateId=%d", svc, tid), "vps_control")
@@ -453,7 +453,7 @@ func GetVpsTasks(state *app.State) gin.HandlerFunc {
 		}
 		var ids []int64
 		if err := client.Get("/vps/"+svc+"/tasks", &ids); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		// schema 只承诺 long[],对顺序没有任何约定。以前直接取切片尾部 10 个当「最近」,
@@ -511,7 +511,7 @@ func GetVpsTaskDetail(state *app.State) gin.HandlerFunc {
 		}
 		var d map[string]interface{}
 		if err := client.Get(fmt.Sprintf("/vps/%s/tasks/%s", svc, taskID), &d); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "task": d})

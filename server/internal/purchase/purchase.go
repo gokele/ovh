@@ -87,7 +87,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		recordTiming(timingKey, tl, "failed")
 		errMsg := err.Error()
 		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, errMsg), "purchase")
-		recordFailure(state, item, errMsg)
+		recordFailure(state, item, ovh.Explain(err))
 		return attemptOutcome(err)
 	}
 	tl.mark("查库存")
@@ -199,7 +199,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			return cancelledOutcome(state, item, "建购物车")
 		}
 		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, err.Error()), "purchase")
-		recordFailure(state, item, err.Error())
+		recordFailure(state, item, ovh.Explain(err))
 		return attemptOutcome(err)
 	}
 	cartID, _ = cartResult["cartId"].(string)
@@ -240,7 +240,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		errMsg := err.Error()
 		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, errMsg), "purchase")
 		state.Logger.Error("错误发生时的购物车ID: "+cartID, "purchase")
-		recordFailure(state, item, errMsg)
+		recordFailure(state, item, ovh.Explain(err))
 		return attemptOutcome(err)
 	}
 	tl.mark("绑定购物车")
@@ -282,7 +282,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			}
 			state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, err.Error()), "purchase")
 			state.Logger.Error(fmt.Sprintf("错误发生时的购物车ID: %s", cartID), "purchase")
-			recordFailure(state, item, err.Error())
+			recordFailure(state, item, ovh.Explain(err))
 			return attemptOutcome(err)
 		}
 	}
@@ -382,7 +382,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误(%s): %s", item.PlanCode, cfg.label, errMsg), "purchase")
 			state.Logger.Error(fmt.Sprintf("错误发生时的购物车ID: %s", cartID), "purchase")
 			state.Logger.Error(fmt.Sprintf("错误发生时的基础商品ID: %d", itemID), "purchase")
-			recordFailure(state, item, errMsg)
+			recordFailure(state, item, ovh.Explain(err))
 			return attemptOutcome(err)
 		}
 	}
@@ -405,7 +405,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 					return cancelledOutcome(state, item, "查硬件选项")
 				}
 				// 拉 eco/options 失败 → 中止订单。否则会用基础 plan 默认存储（多半是 HDD）下到错误配置
-				errMsg := fmt.Sprintf("获取 Eco 硬件选项列表失败: %s（用户指定了 %d 个选项，无法验证，已取消下单避免下到错误配置）", err.Error(), len(filtered))
+				errMsg := fmt.Sprintf("获取 Eco 硬件选项列表失败: %s（用户指定了 %d 个选项，无法验证，已取消下单避免下到错误配置）", ovh.Explain(err), len(filtered))
 				state.Logger.Error(errMsg, "purchase")
 				recordFailure(state, item, errMsg)
 				return attemptOutcome(err)
@@ -472,7 +472,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 					}
 					state.Logger.Error(fmt.Sprintf("添加 Eco 选项 %s 失败: %s", t.planCode, err.Error()), "purchase")
 					// 关键选项添加失败 → 整单失败。不能静默继续 checkout,否则会下到错误配置。
-					errMsg := fmt.Sprintf("添加 Eco 选项 %s 失败: %s（已取消下单避免下到错误配置）", t.planCode, err.Error())
+					errMsg := fmt.Sprintf("添加 Eco 选项 %s 失败: %s（已取消下单避免下到错误配置）", t.planCode, ovh.Explain(err))
 					recordFailure(state, item, errMsg)
 					return attemptOutcome(err)
 				}
@@ -521,7 +521,9 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		// 直到 summary/checkout 才报 "<fqn> is not available in hil"。
 		// 也就是说"配置全设成功"根本不代表值合法,错的机房/区域只能在这里现原形,
 		// 必须把它翻成用户看得懂的话,否则历史里只有一句英文 OVH 报错。
-		errMsg := err.Error()
+		// 用 Explain 而不是 err.Error():这条是用户在「购买历史」里唯一能看到的说明。
+		// Explain 把原文原样嵌在后面,所以下面那句 Contains 判断照样成立。
+		errMsg := ovh.Explain(err)
 		if strings.Contains(errMsg, "is not available in") {
 			errMsg = fmt.Sprintf("%s（机房 %s 不在子公司 %s 的 %s 目录里；OVH 三站目录独立，同一机型在不同区可选的机房不同）",
 				errMsg, apiDC, subsidiary, item.PlanCode)
@@ -529,7 +531,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		tl.mark("下单")
 		recordTiming(timingKey, tl, "failed")
 		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s (%s)", item.PlanCode, errMsg, tl.String()), "purchase")
-		recordFailure(state, item, errMsg)
+		recordFailure(state, item, ovh.Explain(err))
 		// checkout 这一步最要紧:补货瞬间大家都在下单,429 是常态。
 		// 把它记成一次"真正的失败尝试"会让任务在唯一有货的那一分钟里自己判死。
 		return attemptOutcome(err)

@@ -311,6 +311,9 @@ func main() {
 
 		// Server control - basic
 		sc := api.Group("/server-control")
+		// :service_name 会被直接拼进 OVH 的请求路径,先在组上统一挡一道 ——
+		// 名字里带 # 或 ? 会让请求被静默发到另一个端点,见 ValidateServiceName
+		sc.Use(handlers.ValidateServiceName())
 		{
 			sc.GET("/list", handlers.ListMyServers(state))
 			// 服务器本地别名:纯本地显示用,不下发 OVH
@@ -443,6 +446,9 @@ func main() {
 
 		// VPS control(已购 VPS 管理)
 		vc := api.Group("/vps-control")
+		// :service_name 会被直接拼进 OVH 的请求路径,先在组上统一挡一道 ——
+		// 名字里带 # 或 ? 会让请求被静默发到另一个端点,见 ValidateServiceName
+		vc.Use(handlers.ValidateServiceName())
 		{
 			vc.GET("/list", handlers.ListVps(state))
 			vc.GET("/:service_name/info", handlers.GetVpsInfo(state))

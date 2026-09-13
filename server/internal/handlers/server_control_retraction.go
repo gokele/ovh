@@ -231,7 +231,7 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 				"success":  true,
 				"eligible": false,
 				"reason":   "order_lookup_failed",
-				"message":  "查询订单失败（" + err.Error() + "），无法判断是否还能撤回，请重试",
+				"message":  "查询订单失败（" + ovh.Explain(err) + "），无法判断是否还能撤回，请重试",
 				"reasons":  retractionReasons,
 			})
 			return
@@ -261,7 +261,7 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 				"eligible": false,
 				"reason":   "order_read_failed",
 				"orderId":  orderID,
-				"message":  "订单详情读取失败（" + err.Error() + "），无法判断是否还能撤回，请重试",
+				"message":  "订单详情读取失败（" + ovh.Explain(err) + "），无法判断是否还能撤回，请重试",
 				"reasons":  retractionReasons,
 			})
 			return
@@ -371,7 +371,7 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 			Confirm bool   `json:"confirm"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请求体不合法: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请求体不合法: " + ovh.Explain(err)})
 			return
 		}
 		if !body.Confirm {
@@ -410,7 +410,7 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 			state.Logger.Error(fmt.Sprintf("申请撤单失败 (订单 %d / %s): %s", orderID, svc, err.Error()), "server_control")
 			c.JSON(http.StatusBadGateway, gin.H{
 				"success": false,
-				"error":   "OVH 拒绝了撤单申请: " + err.Error(),
+				"error":   "OVH 拒绝了撤单申请: " + ovh.Explain(err),
 			})
 			return
 		}

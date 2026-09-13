@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -24,7 +25,7 @@ func SaveSettings(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var newCfg types.Config
 		if err := c.ShouldBindJSON(&newCfg); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": ovh.Explain(err)})
 			return
 		}
 
@@ -61,7 +62,7 @@ func SaveSettings(state *app.State) gin.HandlerFunc {
 		newCfg.QuickOrderRetryInterval = types.ClampRetryInterval(newCfg.QuickOrderRetryInterval, types.DefaultQuickRetryInterval)
 
 		if err := state.Config.Set(newCfg); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("API settings updated in config.json", "system")

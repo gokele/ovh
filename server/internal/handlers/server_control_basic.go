@@ -73,7 +73,7 @@ func ListMyServers(state *app.State) gin.HandlerFunc {
 		var names []string
 		if err := client.Get("/dedicated/server", &names); err != nil {
 			state.Logger.Error("获取服务器列表失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("获取服务器列表成功，共 %d 台", len(names)), "server_control")
@@ -193,7 +193,7 @@ func Reboot(state *app.State) gin.HandlerFunc {
 		var result map[string]interface{}
 		if err := client.Post("/dedicated/server/"+svc+"/reboot", map[string]interface{}{}, &result); err != nil {
 			state.Logger.Error("重启服务器 "+svc+" 失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("服务器 "+svc+" 重启请求已发送", "server_control")
@@ -217,7 +217,7 @@ func GetOSTemplates(state *app.State) gin.HandlerFunc {
 		var templates map[string]interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/install/compatibleTemplates", &templates); err != nil {
 			state.Logger.Error("获取服务器 "+svc+" 系统模板失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		var allNames []string
@@ -580,7 +580,7 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 		}
 		var body map[string]interface{}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请求体格式错误: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请求体格式错误: " + ovh.Explain(err)})
 			return
 		}
 		templateName, _ := body["templateName"].(string)
@@ -775,7 +775,7 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 			// 硬件 RAID 重装 100% 被 OVH 拒；现在显式映射成 schema 结构
 			storage, serr := normalizeStorageConfig(body["storageConfig"])
 			if serr != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": serr.Error()})
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": ovh.Explain(serr)})
 				return
 			}
 			state.Logger.Info("使用自定义存储配置", "server_control")
@@ -801,7 +801,7 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 		var result map[string]interface{}
 		if err := client.Post("/dedicated/server/"+svc+"/reinstall", installParams, &result); err != nil {
 			state.Logger.Error("重装服务器 "+svc+" 系统失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "OVH API错误: " + err.Error()})
+			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "OVH API错误: " + ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info("服务器 "+svc+" 系统重装请求已发送，模板: "+templateName, "server_control")
@@ -980,7 +980,7 @@ func GetInstallStatus(state *app.State) gin.HandlerFunc {
 				}
 			}
 			state.Logger.Error("获取服务器 "+svc+" 安装状态失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		elapsedTime := 0
@@ -1061,7 +1061,7 @@ func GetServerTasks(state *app.State) gin.HandlerFunc {
 		var taskIDs []interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/task", &taskIDs); err != nil {
 			state.Logger.Error("获取服务器 "+svc+" 任务列表失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		// schema 只承诺返回 long[]、没承诺顺序，所以先自己按 id 升序排再取最近 10 个
@@ -1200,7 +1200,7 @@ func GetTaskAvailableTimeslots(state *app.State) gin.HandlerFunc {
 				}
 			}
 			state.Logger.Error("[Task] 可用时间段API错误: "+err.Error(), "server_control")
-			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		if slots == nil {
@@ -1229,7 +1229,7 @@ func ScheduleTaskTimeslot(state *app.State) gin.HandlerFunc {
 			HasPerformedBackup *bool  `json:"hasPerformedBackup"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请求体格式错误: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请求体格式错误: " + ovh.Explain(err)})
 			return
 		}
 		wanted := strings.TrimSpace(body.WantedBeginingDate)
@@ -1277,7 +1277,7 @@ func ScheduleTaskTimeslot(state *app.State) gin.HandlerFunc {
 				}
 			}
 			state.Logger.Error("[Task] 预约任务API错误: "+err.Error(), "server_control")
-			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": err.Error()})
+			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[Task] 任务 %s 干预时间预约成功", taskID), "server_control")

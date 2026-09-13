@@ -95,7 +95,7 @@ func PurchaseVPS(state *app.State, sub types.VPSSubscription, dcCode string) Out
 	// 1) 建购物车
 	var cartResult map[string]interface{}
 	if err := client.Post("/order/cart", map[string]interface{}{"ovhSubsidiary": subsidiary}, &cartResult); err != nil {
-		return Outcome{Reason: "创建购物车失败: " + err.Error()}
+		return Outcome{Reason: "创建购物车失败: " + ovh.Explain(err)}
 	}
 	cartID, _ := cartResult["cartId"].(string)
 	if cartID == "" {
@@ -118,7 +118,7 @@ func PurchaseVPS(state *app.State, sub types.VPSSubscription, dcCode string) Out
 	// 免得 OVH 后端出现"cart 未绑定就 checkout"的边界错误。
 	// 这个端点只有 path 参数、没有 body,传 {} 会被算进签名导致 400。
 	if err := client.Post("/order/cart/"+cartID+"/assign", nil, nil); err != nil {
-		return Outcome{Reason: "绑定购物车失败: " + err.Error()}
+		return Outcome{Reason: "绑定购物车失败: " + ovh.Explain(err)}
 	}
 
 	// 3) 加商品。duration / pricingMode 是必填,合法组合来自 GET /order/cart/{id}/vps
@@ -163,7 +163,7 @@ func PurchaseVPS(state *app.State, sub types.VPSSubscription, dcCode string) Out
 			map[string]interface{}{"label": cfg.label, "value": cfg.value}, nil); err != nil {
 			// 配置项被拒 = 这套组合买不到,重试无用
 			return Outcome{Fatal: true, Reason: fmt.Sprintf(
-				"设置 %s=%s 失败: %s", cfg.label, cfg.value, err.Error())}
+				"设置 %s=%s 失败: %s", cfg.label, cfg.value, ovh.Explain(err))}
 		}
 		state.Logger.Info(fmt.Sprintf("[VPS下单] 配置 %s = %s", cfg.label, cfg.value), "vps_purchase")
 	}
@@ -178,7 +178,7 @@ func PurchaseVPS(state *app.State, sub types.VPSSubscription, dcCode string) Out
 		"autoPayWithPreferredPaymentMethod": sub.AutoPay,
 	}, &checkoutResult); err != nil {
 		// 配置接口对取值几乎不校验,真正的"这个机房没货"往往到 checkout 才报出来
-		return Outcome{Reason: "结账失败: " + err.Error()}
+		return Outcome{Reason: "结账失败: " + ovh.Explain(err)}
 	}
 
 	orderID := numconv.ToString(checkoutResult["orderId"])
