@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/types"
 )
 
 const (
@@ -64,8 +65,10 @@ func idInCSV(id, csv string) bool {
 	if id == "" {
 		return false
 	}
-	for _, p := range strings.Split(csv, ",") {
-		if normalizeID(strings.TrimSpace(p)) == id {
+	// 走 SplitList:这串 chat ID 是用户在设置页手打的,中文输入法打出的全角逗号
+	// 会让整条白名单匹配不上任何人 —— 表现是自己被锁在机器人外面,且毫无提示。
+	for _, p := range types.SplitList(csv) {
+		if normalizeID(p) == id {
 			return true
 		}
 	}

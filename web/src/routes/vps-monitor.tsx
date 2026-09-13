@@ -62,6 +62,7 @@ import {
   type VPSSubscription,
 } from "@/hooks/use-vps-monitor";
 import { useNotifyGate } from "@/hooks/use-notify-channels";
+import { splitList } from "@/lib/split-list";
 
 /** VPS 补货通知 */
 export const Route = createFileRoute("/vps-monitor")({
@@ -600,10 +601,7 @@ function AddVPSDialog({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const dcs = datacenters
-      .split(",")
-      .map((d) => d.trim())
-      .filter(Boolean);
+    const dcs = splitList(datacenters);
 
     if (autoOrder && !autoOrderAccountId) {
       // 读失败和"真的没账户"要给不同的话:前者该重试,后者该去加账户

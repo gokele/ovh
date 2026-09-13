@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { PartialNotice } from "@/components/common/PartialNotice";
 import { useVpsTemplates, useReinstallVps, useVpsCurrentOS, type VpsTemplate } from "@/hooks/use-vps-control";
 import { toast } from "sonner";
+import { splitList } from "@/lib/split-list";
 
 /** VPS 重装系统:模板列表 + 语言 + SSH key 选项 + 二次确认 */
 export function VpsReinstallDialog({
@@ -59,10 +60,7 @@ export function VpsReinstallDialog({
       toast.error("VPS 名称不匹配,无法确认");
       return;
     }
-    const sshKey = sshKeyNames
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const sshKey = splitList(sshKeyNames);
     try {
       await reinstall.mutateAsync({
         templateId,

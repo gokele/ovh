@@ -50,6 +50,7 @@ import { toast } from "sonner";
 import { useServers } from "@/hooks/use-servers";
 import { describeOptionCodes, groupOptions, type OptionGroupKey } from "@/lib/option-groups";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
+import { splitList } from "@/lib/split-list";
 
 /** 服务器监控订阅 */
 export const Route = createFileRoute("/monitor")({
@@ -492,7 +493,7 @@ function AddSubscriptionDialog({
   /** 提交给后端的 addon 列表:目录里有这个型号就走 chip,没有就走手填,二选一不混用 */
   const chosenOptions = useMemo(() => {
     if (matchedServer) return Object.values(picked).filter(Boolean) as string[];
-    return extraOptions.split(",").map((v) => v.trim()).filter(Boolean);
+    return splitList(extraOptions);
   }, [matchedServer, picked, extraOptions]);
   // 订阅的下单账户 = 左侧菜单栏的全局账户,不再单独选
   const [globalAccountId] = useActiveAccount();
@@ -594,10 +595,7 @@ function AddSubscriptionDialog({
       toast.error("请输入服务器型号");
       return;
     }
-    const dcs = datacenters
-      .split(",")
-      .map((d) => d.trim())
-      .filter(Boolean);
+    const dcs = splitList(datacenters);
 
     if (autoOrder && !autoOrderAccountId) {
       // 读失败和"真的没账户"要给不同的话:前者该重试,后者该去加账户

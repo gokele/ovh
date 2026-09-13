@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/ovh-buy/server/internal/app"
+
+	"github.com/ovh-buy/server/internal/types"
 )
 
 // VerifyConfig 检查 Telegram 是否可用:Token / Chat ID 是否填写 + bot 是否能 getMe + chat 是否可访问。
@@ -220,12 +222,11 @@ func ParseOrderMessage(text string) *OrderInfo {
 	}
 
 	addOption := func(s string) {
-		// 逗号分隔和空格分隔都认,混用也认
-		for _, o := range strings.Split(s, ",") {
-			if o = strings.TrimSpace(o); o != "" {
-				result.Options = append(result.Options, o)
-			}
-		}
+		// 逗号分隔和空格分隔都认,混用也认。
+		// 走 types.SplitList 是为了认全角逗号 —— 中文输入法默认打出来的是「，」,
+		// 只切半角的话 `ram-64g，softraid-2x960ssd` 会变成**一个**配置项,
+		// 匹配不上任何 addon,而且不报错:单照下,只是配置悄悄没了。
+		result.Options = append(result.Options, types.SplitList(s)...)
 	}
 
 	qtySet := false
@@ -248,6 +249,14 @@ func ParseOrderMessage(text string) *OrderInfo {
 			// 而 addon planCode 一律带连字符和数字(ram-64g-noecc-2133、
 			// softraid-2x960ssd),两者不会撞。
 			result.Datacenter = strings.ToLower(p)
+		case isMalformedQuantity(p):
+			// 写成 -1 / +2 / 3.5 这种:意图显然是数量,只是写得不合法。
+			// 丢给 addOption 会把 "-1" 当成 addon planCode 发给 OVH,
+			// 换回一句用户看不懂的英文报错。数量有默认值,忽略即可。
+			//
+			// 注意只挡带符号/小数点的写法。裸的正整数(比如 "24ska01 gra 2 960"
+			// 里的 960)照旧进 options —— 它多半是配置项被空格打断了,
+			// 留在 options 里用户能在下单确认那条消息里看见,丢掉就永远不知道。
 		default:
 			addOption(p)
 		}
@@ -275,6 +284,35 @@ func isDatacenterCode(s string) bool {
 func isPositiveInt(s string) bool {
 	_, ok := parsePositiveInt(s)
 	return ok
+}
+
+// isMalformedQuantity 带符号或带小数点的数字,比如 -1 / +2 / 3.5。
+// 这种写法只可能是在写数量(addon planCode 不长这样),只是写得不合法。
+// 裸的正整数不算 —— 那个由调用方按位置决定是数量还是配置。
+func isMalformedQuantity(s string) bool {
+	if s == "" {
+		return false
+	}
+	signed := s[0] == '+' || s[0] == '-'
+	if signed {
+		s = s[1:]
+	}
+	if s == "" {
+		return false
+	}
+	dot := false
+	digits := false
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c >= '0' && c <= '9':
+			digits = true
+		case c == '.':
+			dot = true
+		default:
+			return false
+		}
+	}
+	return digits && (signed || dot)
 }
 
 // parsePositiveInt 只接受纯十进制 ASCII 数字字符串，

@@ -275,23 +275,11 @@ func GetAvailability(state *app.State) gin.HandlerFunc {
 					}
 				}
 			case string:
-				for _, s := range strings.Split(v, ",") {
-					s = strings.TrimSpace(s)
-					if s != "" {
-						options = append(options, s)
-					}
-				}
+				// 全角逗号也要认:这串是人打的,中文输入法默认给「，」
+				options = append(options, types.SplitList(v)...)
 			}
 		} else {
-			optsStr := c.Query("options")
-			if optsStr != "" {
-				for _, s := range strings.Split(optsStr, ",") {
-					s = strings.TrimSpace(s)
-					if s != "" {
-						options = append(options, s)
-					}
-				}
-			}
+			options = append(options, types.SplitList(c.Query("options"))...)
 		}
 
 		state.Logger.Debug("查询可用性: plan_code="+planCode+", method="+c.Request.Method, "availability")

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/numconv"
+	"github.com/ovh-buy/server/internal/types"
 )
 
 // hardwareParallelGetDetails 与 util.go 的 parallelGetDetails 行为一致,但额外把每个
@@ -801,11 +802,8 @@ func parseMemorySlots(raw interface{}) []string {
 			}
 		}
 	case string:
-		for _, s := range strings.Split(v, ",") {
-			if s = strings.TrimSpace(s); s != "" {
-				out = append(out, s)
-			}
-		}
+		// 全角逗号同样要认,理由见 types.SplitList
+		out = append(out, types.SplitList(v)...)
 	}
 	return out
 }

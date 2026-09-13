@@ -331,6 +331,35 @@ func AddonFamiliesForPlan(state *app.State, accountID, planCode string) (map[str
 	return pc.addonFamilies, nil
 }
 
+// CanonicalPlanCode 在本子公司目录里按**大小写无关**找回 planCode 的正确拼写。
+//
+// 为什么需要:OVH 的 planCode 绝大多数是全小写,但不是全部 —— 实测三区公开目录
+// 2393 个 planCode 里有 16 个带大写(vps-2025-model1.LZ 这一批 VPS 及其 option)。
+// 所以**不能**在入口处一律 ToLower 归一化:那会把这批 VPS 直接弄坏。
+//
+// 能做的是反过来:用户拼错大小写时,把目录里的正确写法找出来告诉他。
+// 手机键盘会自动把首字母大写,这个错误比想象中常见,而它的表现是
+// 「查不到这个机型」—— 用户会以为机型下架了,根本想不到是大小写。
+//
+// 只在精确匹配失败后调用,正常路径一次都不会走到这里。
+func CanonicalPlanCode(state *app.State, accountID, planCode string) (string, bool) {
+	want := strings.ToLower(strings.TrimSpace(planCode))
+	if want == "" {
+		return "", false
+	}
+	acc, _ := state.FindAccount(accountID)
+	cat, err := loadSubsidiaryCatalog(state, SubsidiaryOfAccount(acc))
+	if err != nil {
+		return "", false
+	}
+	for code := range cat.plans {
+		if strings.ToLower(code) == want {
+			return code, code != planCode
+		}
+	}
+	return "", false
+}
+
 // regionBucketForDC 机房归属的 region 桶(只在 plan 有多个候选时用来消歧)。
 //
 // 必须先把机房码规范化:三个站点的 availabilities 都会返回长码

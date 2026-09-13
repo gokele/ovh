@@ -53,6 +53,18 @@ func ClassifyPlan(state *app.State, accountID, planCode, logSource string) (Plan
 		return PlanVerdictUnknown, ""
 	}
 
+	// 先看是不是纯粹的大小写问题 —— 目录已经在内存里,这一步不发网络请求,
+	// 而且能把下面那次探测也省掉。
+	//
+	// 不在入口处统一 ToLower 是因为目录里确实存在带大写的 planCode
+	// (vps-2025-model1.LZ 那一批),一律转小写会把它们弄坏。详见 CanonicalPlanCode。
+	if canonical, differs := CanonicalPlanCode(state, accountID, planCode); differs {
+		return PlanVerdictNoSuchPlan, fmt.Sprintf(
+			"机型 %s 的大小写不对。本区目录里它的正确写法是 %s —— 照这个改一下就能下单了。"+
+				"(planCode 区分大小写,而手机键盘常会自动把首字母变大写)",
+			planCode, canonical)
+	}
+
 	// 本区排第一:命中就立刻返回,只花一次公开请求
 	region, probeErr := RegionOfPlan(state, planCode, []string{accRegion, "EU", "US", "CA"})
 	if probeErr != nil {

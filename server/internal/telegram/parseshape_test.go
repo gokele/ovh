@@ -93,3 +93,42 @@ func TestParseOrderMessageOnlyFirstNumberIsQuantity(t *testing.T) {
 		t.Errorf("第二个数字应落进 options,实际 %v", got.Options)
 	}
 }
+
+// 中文输入法打出来的是全角标点。用户在手机上发 `24ska01 gra 2 ram-64g，softraid-2x960ssd`
+// 时,以前会把整串配置当成**一个** addon planCode ——
+// 匹配不上任何东西,而且不报错:单照下,只是配置悄悄没了。
+// 这正是"TG 上下单总是选不了配置"的另一半原因。
+func TestParseOrderMessageAcceptsFullWidthPunctuation(t *testing.T) {
+	cases := []string{
+		"24ska01 gra 2 ram-64g，softraid-2x960ssd", // 全角逗号
+		"24ska01 gra 2 ram-64g、softraid-2x960ssd", // 顿号
+		"24ska01　gra　2　ram-64g，softraid-2x960ssd", // 全角空格 + 全角逗号
+	}
+	for _, in := range cases {
+		got := ParseOrderMessage(in)
+		if got == nil {
+			t.Errorf("%q 解析失败", in)
+			continue
+		}
+		if got.Datacenter != "gra" || got.Quantity != 2 {
+			t.Errorf("%q → dc=%q qty=%d,期望 gra/2", in, got.Datacenter, got.Quantity)
+		}
+		if strings.Join(got.Options, ",") != "ram-64g,softraid-2x960ssd" {
+			t.Errorf("%q → opts=%v,期望两项拆开", in, got.Options)
+		}
+	}
+}
+
+// 数量写成 -1 / 3.5 这种:意图是数量、只是写得不合法,不能当成配置项发给 OVH
+// (换回来的是一句用户看不懂的英文报错)。
+func TestParseOrderMessageMalformedQuantityIsNotAnOption(t *testing.T) {
+	for _, in := range []string{"24ska01 gra -1", "24ska01 gra +2", "24ska01 gra 3.5"} {
+		got := ParseOrderMessage(in)
+		if len(got.Options) != 0 {
+			t.Errorf("%q → 写坏的数量落进了 options: %v", in, got.Options)
+		}
+		if got.Datacenter != "gra" {
+			t.Errorf("%q → 机房被带偏: %q", in, got.Datacenter)
+		}
+	}
+}

@@ -51,6 +51,7 @@ import { AccountChip } from "@/components/common/AccountChip";
 import { PlanCodeCombobox } from "@/components/common/PlanCodeCombobox";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
 import { describeOptionCodes, groupOptions, type OptionGroupKey } from "@/lib/option-groups";
+import { splitList } from "@/lib/split-list";
 import {
   useAvailability,
   buildVariantIndex,
@@ -359,7 +360,7 @@ function CreateQueueDialog({
       // 走"外部带 initialOptions 进来"分支:
       //   - 能映射到 chip 组的塞进 picked
       //   - 剩下没匹配上的(chip 没覆盖到的 addon)塞进 extraInput
-      const wantedList = initialOptions.split(",").map((v) => v.trim()).filter(Boolean);
+      const wantedList = splitList(initialOptions);
       const consumed = new Set<string>();
       const next: Partial<Record<OptionGroupKey, string>> = {};
       const groupedMap = matchedServer ? groupOptions(matchedServer.availableOptions) : null;
@@ -398,10 +399,7 @@ function CreateQueueDialog({
     if (matchedServer) {
       return Object.values(picked).filter(Boolean) as string[];
     }
-    return extraInput
-      .split(",")
-      .map((v) => v.trim())
-      .filter(Boolean);
+    return splitList(extraInput);
   }, [matchedServer, picked, extraInput]);
 
   // option chip 的绿/红点:跟服务器列表对话框同一套逻辑
