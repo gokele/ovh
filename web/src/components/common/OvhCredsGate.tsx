@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
 import { apiBaseUrlForEndpoint, endpointRegion } from "@/lib/ovh-regions";
+import { OvhTokenGuide } from "@/components/common/OvhTokenGuide";
 
 const PREFETCH_STALE = 2 * 60 * 60_000;
 
@@ -201,17 +202,10 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
               placeholder="主号"
             />
           </Field>
-          <Field label="APP KEY *">
-            <PasswordInput value={form.appKey} onChange={(v) => set("appKey", v)} placeholder="xxxxxxxxxxxxxxxx" />
-          </Field>
-          <Field label="APP SECRET *">
-            <PasswordInput value={form.appSecret} onChange={(v) => set("appSecret", v)} placeholder="xxxxxxxxxxxxxxxx" />
-          </Field>
-          <Field label="CONSUMER KEY *">
-            <PasswordInput value={form.consumerKey} onChange={(v) => set("consumerKey", v)} placeholder="xxxxxxxxxxxxxxxx" />
-          </Field>
-
-          <Field label="OVH 子公司 (Zone)">
+          {/* 子公司必须排在密钥前面:token 申请地址跟着它变,
+              先填密钥再选站点的话,用户很可能已经在错误的站点申请过一遍了。 */}
+          {/* 大白话说明放在前面,Endpoint / IAM 这种只有开发者关心的排后面 */}
+          <Field label="OVH 子公司 (Zone) *">
             <Select value={form.zone} onValueChange={(v) => set("zone", v)}>
               <SelectTrigger>
                 <SelectValue />
@@ -225,11 +219,27 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground mt-1.5">
+              你的 OVH 账号注册在哪个国家/地区。它决定去哪个站点申请密钥,选错了密钥用不了。
+            </p>
+            <p className="text-[10px] text-muted-foreground/80 mt-1">
               Endpoint <code className="px-1 py-0.5 bg-muted rounded">{endpointForZone(form.zone)}</code>
               {" · "}IAM <code className="px-1 py-0.5 bg-muted rounded">go-ovh-{form.zone.toLowerCase()}</code>
-              {" 由子公司自动派生"}
+              {" 由它自动派生,不用管"}
             </p>
           </Field>
+
+          <OvhTokenGuide endpoint={endpointForZone(form.zone || "IE")} />
+
+          <Field label="APP KEY *" hint="OVH 申请页上的 Application Key">
+            <PasswordInput value={form.appKey} onChange={(v) => set("appKey", v)} placeholder="从 OVH 申请页复制" />
+          </Field>
+          <Field label="APP SECRET *" hint="OVH 申请页上的 Application Secret">
+            <PasswordInput value={form.appSecret} onChange={(v) => set("appSecret", v)} placeholder="从 OVH 申请页复制" />
+          </Field>
+          <Field label="CONSUMER KEY *" hint="OVH 申请页上的 Consumer Key">
+            <PasswordInput value={form.consumerKey} onChange={(v) => set("consumerKey", v)} placeholder="从 OVH 申请页复制" />
+          </Field>
+
 
           {error && <p className="text-[12px] text-destructive">{error}</p>}
         </div>
@@ -248,21 +258,6 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
           )}
         </Button>
 
-        <p className="text-[10px] text-muted-foreground leading-relaxed">
-          {/* createToken 页面是按站点分开的:三站的 token 互不通用,
-              美区账户拿 eu.api.ovh.com 申请的 token 永远登不进去(实测三站的
-              /createToken/ 各自 200)。链接必须跟着上面选的子公司走。 */}
-          凭据保存到本地 SQLite,不会上传。还没有?去
-          <a
-            href={`${tokenSiteUrl}/createToken/`}
-            target="_blank"
-            rel="noreferrer"
-            className="underline mx-1"
-          >
-            {tokenSiteUrl.replace("https://", "")}/createToken
-          </a>
-          申请（{form.zone} 属于该站点，别在其它站点申请）。
-        </p>
       </div>
     </div>
   );

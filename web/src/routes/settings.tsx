@@ -26,6 +26,7 @@ import { useNotifyChannels, useTestNotification } from "@/hooks/use-notify-chann
 import { cn } from "@/lib/utils";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
 import { apiBaseUrlForEndpoint } from "@/lib/ovh-regions";
+import { OvhTokenGuide } from "@/components/common/OvhTokenGuide";
 import {
   useAccounts,
   useCreateAccount,
@@ -1485,21 +1486,10 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
               </p>
             )}
           </Field>
-          <Field label="APP KEY *">
-            <Input type="password" value={form.appKey} onChange={(e) => set("appKey", e.target.value)}
-              placeholder={isEdit ? (acc?.appKey || "留空 = 不修改") : "xxxxxxxxxxxxxxxx"} />
-          </Field>
-          <Field label="APP SECRET *">
-            <Input type="password" value={form.appSecret} onChange={(e) => set("appSecret", e.target.value)}
-              placeholder={isEdit ? (acc?.appSecret || "留空 = 不修改") : "xxxxxxxxxxxxxxxx"} />
-          </Field>
-          <Field label="CONSUMER KEY *">
-            <Input type="password" value={form.consumerKey} onChange={(e) => set("consumerKey", e.target.value)}
-              placeholder={isEdit ? (acc?.consumerKey || "留空 = 不修改") : "xxxxxxxxxxxxxxxx"} />
-          </Field>
+          {/* 顺序和首次录入页一致:子公司在前 —— token 申请地址跟着它变 */}
           <Field
-            label="OVH 子公司 (Zone)"
-            hint={`Endpoint ${endpointForZone(form.zone)} · IAM go-ovh-${form.zone.toLowerCase()} 由子公司自动派生`}
+            label="OVH 子公司 (Zone) *"
+            hint={`你的 OVH 账号注册在哪个国家/地区。Endpoint ${endpointForZone(form.zone)} · IAM go-ovh-${form.zone.toLowerCase()} 由它自动派生`}
           >
             <Select value={form.zone} onValueChange={(v) => set("zone", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1511,6 +1501,22 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
                 ))}
               </SelectContent>
             </Select>
+          </Field>
+
+          {/* 改已有账户时不重复这块:那时用户手上早就有密钥了 */}
+          {!isEdit && <OvhTokenGuide endpoint={endpointForZone(form.zone)} />}
+
+          <Field label="APP KEY *" hint={isEdit ? undefined : "OVH 申请页上的 Application Key"}>
+            <Input type="password" value={form.appKey} onChange={(e) => set("appKey", e.target.value)}
+              placeholder={isEdit ? (acc?.appKey || "留空 = 不修改") : "从 OVH 申请页复制"} />
+          </Field>
+          <Field label="APP SECRET *" hint={isEdit ? undefined : "OVH 申请页上的 Application Secret"}>
+            <Input type="password" value={form.appSecret} onChange={(e) => set("appSecret", e.target.value)}
+              placeholder={isEdit ? (acc?.appSecret || "留空 = 不修改") : "从 OVH 申请页复制"} />
+          </Field>
+          <Field label="CONSUMER KEY *" hint={isEdit ? undefined : "OVH 申请页上的 Consumer Key"}>
+            <Input type="password" value={form.consumerKey} onChange={(e) => set("consumerKey", e.target.value)}
+              placeholder={isEdit ? (acc?.consumerKey || "留空 = 不修改") : "从 OVH 申请页复制"} />
           </Field>
 
           {/* ── 出站配置 ───────────────────────────────────────────────── */}
