@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Power, RotateCw, HardDrive, Monitor, Zap, Server, Cog, Activity } from "lucide-react";
+import { Power, RotateCw, HardDrive, Monitor, Zap, Server, Cog, Activity, LifeBuoy } from "lucide-react";
 import type { OwnedServer } from "@/hooks/use-server-control";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,7 @@ import { BiosDialog } from "./BiosDialog";
 import { InstallProgressDialog } from "./InstallProgressDialog";
 import { IpmiDialog } from "./IpmiDialog";
 import { SplaDialog } from "./SplaDialog";
+import { RescueDialog } from "./RescueDialog";
 
 /** 电源与系统 Tab：重启 / 重装 / IPMI / 启动模式 / 解锁 Windows / 任务 / BIOS / 安装进度 */
 export function PowerTab({ server }: { server: OwnedServer }) {
@@ -25,6 +26,7 @@ export function PowerTab({ server }: { server: OwnedServer }) {
   const [ipmiOpen, setIpmiOpen] = useState(false);
   const [splaOpen, setSplaOpen] = useState(false);
   const [rebootOpen, setRebootOpen] = useState(false);
+  const [rescueOpen, setRescueOpen] = useState(false);
   const [rebooting, setRebooting] = useState(false);
 
   const doReboot = async () => {
@@ -49,6 +51,15 @@ export function PowerTab({ server }: { server: OwnedServer }) {
           title="重启服务器"
           description="硬重启(相当于按电源键,未落盘的数据会丢)"
           onClick={() => setRebootOpen(true)}
+          tone="warning"
+        />
+        {/* 救援排在重装前面:遇到"进不去系统"时,该先进救援看看,
+            而不是直接重装把数据抹掉。顺序本身就是一种引导。 */}
+        <ActionCard
+          icon={LifeBuoy}
+          title="一键救援系统"
+          description="进救援模式修系统(不动硬盘数据),自动改启动项+重启"
+          onClick={() => setRescueOpen(true)}
           tone="warning"
         />
         <ActionCard
@@ -100,6 +111,12 @@ export function PowerTab({ server }: { server: OwnedServer }) {
 
       <SplaDialog serviceName={server.serviceName} open={splaOpen} onOpenChange={setSplaOpen} />
       <BootModeDialog serviceName={server.serviceName} open={bootOpen} onOpenChange={setBootOpen} />
+      <RescueDialog
+        serviceName={server.serviceName}
+        displayName={server.name}
+        open={rescueOpen}
+        onOpenChange={setRescueOpen}
+      />
       <TasksDialog serviceName={server.serviceName} open={tasksOpen} onOpenChange={setTasksOpen} />
       <ReinstallDialog serviceName={server.serviceName} open={reinstallOpen} onOpenChange={setReinstallOpen} />
       <BiosDialog serviceName={server.serviceName} open={biosOpen} onOpenChange={setBiosOpen} />

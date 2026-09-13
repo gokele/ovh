@@ -1491,3 +1491,64 @@ export function useRequestRetraction(serviceName: string) {
     onError: (e: any) => toast.error(e?.response?.data?.error || "撤单申请失败"),
   });
 }
+
+// ───────────────────────────────── 救援模式 ─────────────────────────────────
+
+export interface RescueBoot {
+  bootId: number;
+  bootType?: string;
+  kernel?: string;
+  description?: string;
+}
+export interface RescueStatus {
+  inRescue: boolean;
+  currentBoot: number;
+  rescueMail?: string;
+  boots: RescueBoot[];
+}
+
+/** 这台机现在是不是救援启动 + 有哪些救援项可选 */
+export function useRescueStatus(serviceName: string | null, enabled = true) {
+  return useQuery({
+    queryKey: qk.serverControl.rescue(serviceName || ""),
+    queryFn: async (): Promise<RescueStatus> => {
+      const d = (await api.get(`/server-control/${serviceName}/rescue`)).data;
+      return {
+        inRescue: d?.inRescue === true,
+        currentBoot: Number(d?.currentBoot) || 0,
+        rescueMail: d?.rescueMail || "",
+        boots: Array.isArray(d?.boots) ? d.boots : [],
+      };
+    },
+    enabled: !!serviceName && enabled,
+    staleTime: 30_000,
+  });
+}
+
+/** 进救援:改 netboot + 设收信邮箱 + 重启,一次做完 */
+export function useEnterRescue(serviceName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { email?: string; sshKey?: string; bootId?: number }) =>
+      (await api.post(`/server-control/${serviceName}/rescue`, { ...v, confirm: true })).data,
+    onSuccess: (d: any) => {
+      toast.success(d?.message || "已切到救援模式并重启");
+      qc.invalidateQueries({ queryKey: qk.serverControl.rescue(serviceName) });
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || "进入救援模式失败"),
+  });
+}
+
+/** 退出救援:切回硬盘启动 + 重启 */
+export function useExitRescue(serviceName: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post(`/server-control/${serviceName}/rescue/exit`, { confirm: true })).data,
+    onSuccess: (d: any) => {
+      toast.success(d?.message || "已切回硬盘启动并重启");
+      qc.invalidateQueries({ queryKey: qk.serverControl.rescue(serviceName) });
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error || "退出救援模式失败"),
+  });
+}

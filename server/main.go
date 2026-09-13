@@ -337,6 +337,11 @@ func main() {
 			sc.POST("/:service_name/tasks/:task_id/schedule", handlers.ScheduleTaskTimeslot(state))
 
 			// boot/monitoring
+			// 一键救援:改 netboot → 设收信邮箱 → 重启,三步合一。
+			// 手动做要在 OVH 后台点四步,而漏掉最后的重启是最常见的错误。
+			sc.GET("/:service_name/rescue", handlers.GetRescueStatus(state))
+			sc.POST("/:service_name/rescue", handlers.EnterRescue(state))
+			sc.POST("/:service_name/rescue/exit", handlers.ExitRescue(state))
 			sc.GET("/:service_name/boot", handlers.GetBootConfig(state))
 			sc.PUT("/:service_name/boot/:boot_id", handlers.SetBootConfig(state))
 			sc.GET("/:service_name/monitoring", handlers.GetMonitoringStatus(state))
