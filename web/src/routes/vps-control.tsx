@@ -95,7 +95,7 @@ function VpsControlPage() {
         description="已购 VPS 的电源 / 快照 / 重装 / 控制台管理"
         icon={Cloud}
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" size="sm" onClick={toggle}>
               {hidden ? <EyeOff className="w-4 h-4 mr-1" /> : <Eye className="w-4 h-4 mr-1" />}
               {hidden ? "显示 IP" : "隐藏 IP"}

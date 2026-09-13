@@ -142,7 +142,7 @@ function HistoryPage() {
         title="抢购历史"
         description="查看服务器购买历史记录"
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button
               variant="outline"
               onClick={() => refreshStatus.mutate()}

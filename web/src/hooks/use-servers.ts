@@ -55,7 +55,12 @@ export function useServers(showApiServers: boolean = true) {
       const params: Record<string, unknown> = { showApiServers };
       if (accountId) params.account = accountId;
       const res = await api.get("/servers", { params });
-      return (res.data.servers || res.data || []) as ServerPlan[];
+      // 必须确保是数组:调用方直接 .find() / .map(),拿到对象就是整页白屏
+      // (「Something went wrong!」那种,比任何报错都难查)。
+      // 后端正常返回 { servers: [...] },这里防的是响应结构意外的情况 ——
+      // 反向代理插了一页、网关返回 200 带错误体、以后重构改了字段名。
+      const raw = res.data?.servers ?? res.data;
+      return (Array.isArray(raw) ? raw : []) as ServerPlan[];
     },
     // 账户列表还没到手时不发请求:否则会先按默认视角拉一份完整目录(后端要打 ~100 次 OVH),
     // 紧接着 key 变了再拉一次。等一下就好,这个查询本来就有 2 小时缓存。

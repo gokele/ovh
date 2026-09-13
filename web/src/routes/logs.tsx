@@ -73,7 +73,7 @@ function LogsPage() {
         title="详细日志"
         description="查看系统运行日志记录"
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={() => logs.refetch()} disabled={logs.isFetching}>
               <RefreshCw className={`w-4 h-4 ${logs.isFetching ? "animate-spin" : ""}`} />
               刷新

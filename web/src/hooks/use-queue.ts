@@ -59,7 +59,10 @@ export function usePurchaseTimings() {
   return useQuery({
     queryKey: ["queue", "timings"],
     queryFn: async () =>
-      (await api.get<{ timings: Record<string, PurchaseTiming> }>("/queue/timings")).data.timings,
+      // ?? {} 不能省:queryFn 返回 undefined 会被 react-query 当成错误抛出,
+      // 整个 timings 查询翻进 isError,页面顶部弹一条"耗时读取失败"的横幅 ——
+      // 而真实情况只是这一轮还没有任何计时数据。
+      (await api.get<{ timings: Record<string, PurchaseTiming> }>("/queue/timings")).data?.timings ?? {},
     refetchInterval: 5000,
   });
 }

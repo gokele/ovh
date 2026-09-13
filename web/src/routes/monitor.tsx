@@ -89,7 +89,7 @@ function MonitorPage() {
         title="服务器监控"
         description="自动监控服务器可用性变化并推送通知"
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={() => list.refetch()} disabled={list.isFetching}>
               <RefreshCw className={`w-4 h-4 ${list.isFetching ? "animate-spin" : ""}`} />
               刷新

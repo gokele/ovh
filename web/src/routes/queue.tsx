@@ -20,7 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Chip } from "@/components/common/Chip";
 import { StatusDot } from "@/components/common/StatusDot";
 import { EmptyState } from "@/components/common/EmptyState";
-import { LoadFailed, LoadFailedBanner } from "@/components/common/LoadFailed";
+import { LoadFailed, LoadFailedBanner, errorMessage } from "@/components/common/LoadFailed";
 import { Skeleton } from "@/components/common/Skeleton";
 import {
   Dialog,
@@ -162,6 +162,60 @@ function QueuePage() {
 
   const items = queue.data || [];
 
+  // —— 批量操作 ——
+  // 一条 /buy 或一次网页建单最多扇出 60 个任务(MAX_ORDER_FANOUT),
+  // 而在这之前只能一个一个点暂停/删除。抢购结束后清理一批失败任务是高频动作,
+  // 「清空」又太狠(会把还在跑的一起删掉)。
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [showBatchDelete, setShowBatchDelete] = useState(false);
+
+  // 任务被别处删掉(TG /cancel、监控自动清理)后,选中集合里会留下不存在的 id。
+  // 不剪掉的话「已选 3 项」里可能有 2 项早就没了,批量操作会静默少做几件。
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const alive = new Set(items.map((i) => i.id));
+      const next = new Set([...prev].filter((id) => alive.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [items]);
+
+  const selectedItems = items.filter((i) => selected.has(i.id));
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  const allSelected = items.length > 0 && selected.size === items.length;
+
+  /** 逐条执行并汇总成一条结果,不要弹 N 个 toast */
+  const runBatch = async (
+    label: string,
+    targets: QueueItem[],
+    fn: (it: QueueItem) => Promise<unknown>
+  ) => {
+    if (targets.length === 0) return;
+    setBatchRunning(true);
+    let ok = 0;
+    let firstError = "";
+    for (const it of targets) {
+      try {
+        await fn(it);
+        ok++;
+      } catch (e) {
+        if (!firstError) firstError = errorMessage(e);
+      }
+    }
+    setBatchRunning(false);
+    setSelected(new Set());
+    const failed = targets.length - ok;
+    if (failed === 0) toast.success(`已${label} ${ok} 个任务`);
+    else toast.error(`${label}:成功 ${ok} 个,失败 ${failed} 个。${firstError}`);
+    queue.refetch();
+  };
+
   return (
     <div className="space-y-3 sm:space-y-6">
       <PageHeader
@@ -169,7 +223,9 @@ function QueuePage() {
         title="抢购队列"
         description="管理自动抢购服务器的队列"
         action={
-          <div className="flex gap-2">
+          // 必须 flex-wrap:PageHeader 外层允许换行,内层不换的话整排按钮保持
+          // max-content 宽度,在 390px 上会被挤出左边界(实测 left=-19px)。
+          <div className="flex flex-wrap justify-end gap-2">
             <Button onClick={() => setShowCreateDialog(true)}>
               <Plus className="w-4 h-4" />
               新建抢购任务
@@ -177,6 +233,13 @@ function QueuePage() {
             <Button variant="outline" onClick={() => queue.refetch()} disabled={queue.isFetching}>
               <RefreshCw className={`w-4 h-4 ${queue.isFetching ? "animate-spin" : ""}`} />
               刷新
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setSelected(allSelected ? new Set() : new Set(items.map((i) => i.id)))}
+              disabled={items.length === 0}
+            >
+              {allSelected ? "取消全选" : "全选"}
             </Button>
             <Button
               variant="outline"
@@ -229,11 +292,58 @@ function QueuePage() {
         </Card>
       ) : (
         <div className="space-y-3">
+          {selected.size > 0 && (
+            // 贴在列表顶部而不是浮在底部:手机上底部有 tab 栏,浮层会盖住它
+            <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-background/95 backdrop-blur px-3 py-2 shadow-sm">
+              <span className="text-[13px] font-medium">已选 {selected.size} 个</span>
+              <div className="flex flex-wrap gap-1.5 ml-auto">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={batchRunning}
+                  onClick={() =>
+                    runBatch("暂停", selectedItems.filter((i) => i.status === "running"), (it) =>
+                      toggle.mutateAsync({ id: it.id, action: "pause" })
+                    )
+                  }
+                >
+                  <PauseCircle className="w-3.5 h-3.5" />暂停
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={batchRunning}
+                  onClick={() =>
+                    runBatch("恢复", selectedItems.filter((i) => i.status === "paused"), (it) =>
+                      toggle.mutateAsync({ id: it.id, action: "resume" })
+                    )
+                  }
+                >
+                  <PlayCircle className="w-3.5 h-3.5" />恢复
+                </Button>
+                {/* 删除是不可逆的,单独走二次确认,不能和暂停放同一个手势层级 */}
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={batchRunning}
+                  onClick={() => setShowBatchDelete(true)}
+                >
+                  {batchRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  删除
+                </Button>
+                <Button size="sm" variant="ghost" disabled={batchRunning} onClick={() => setSelected(new Set())}>
+                  取消选择
+                </Button>
+              </div>
+            </div>
+          )}
           {items.map((q) => (
             <QueueRow
               key={q.id}
               item={q}
               timing={timings.data?.[`${q.planCode}@${q.datacenter}`]}
+              selected={selected.has(q.id)}
+              onSelect={() => toggleSelect(q.id)}
               onToggle={() =>
                 toggle.mutate({
                   id: q.id,
@@ -245,6 +355,32 @@ function QueuePage() {
           ))}
         </div>
       )}
+
+      <Dialog open={showBatchDelete} onOpenChange={setShowBatchDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除选中的 {selected.size} 个任务？</DialogTitle>
+            <DialogDescription>
+              此操作不可撤销。正在执行中的下单（已走到结账那几秒的）可能仍会完成并产生真实订单。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBatchDelete(false)} disabled={batchRunning}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={batchRunning}
+              onClick={() => {
+                setShowBatchDelete(false);
+                void runBatch("删除", selectedItems, (it) => remove.mutateAsync(it.id));
+              }}
+            >
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
         <DialogContent>
@@ -741,11 +877,15 @@ function CreateQueueDialog({
 function QueueRow({
   item,
   timing,
+  selected,
+  onSelect,
   onToggle,
   onDelete,
 }: {
   item: QueueItem;
   timing?: PurchaseTiming;
+  selected: boolean;
+  onSelect: () => void;
   onToggle: () => void;
   onDelete: () => void;
 }) {
@@ -783,8 +923,16 @@ function QueueRow({
 
   return (
     <Card>
-      <CardContent className="p-3 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex-1 min-w-0">
+      <CardContent className="p-3 sm:p-5 flex flex-col sm:flex-row sm:items-start gap-3">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          {/* 复选框单独占一列,点它不会触发行上的其它动作 */}
+          <Checkbox
+            checked={selected}
+            onCheckedChange={onSelect}
+            aria-label={`选择任务 ${item.planCode} @ ${item.datacenter}`}
+            className="mt-0.5 flex-shrink-0"
+          />
+          <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="font-mono font-semibold text-sm">{item.planCode}</span>
             <AccountChip accountId={item.accountId} />
@@ -850,6 +998,7 @@ function QueueRow({
             )}
             <span>·</span>
             <span>{new Date(item.createdAt).toLocaleString()}</span>
+          </div>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">

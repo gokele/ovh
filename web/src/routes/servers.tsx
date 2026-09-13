@@ -150,7 +150,7 @@ function ServersPage() {
         title="服务器列表"
         description="目录、价格、可用性全部走访问触发的缓存，2 小时内复用"
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <CacheBadge />
             <Button
               variant="outline"
