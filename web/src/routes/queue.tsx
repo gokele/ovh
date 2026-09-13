@@ -52,6 +52,7 @@ import { PlanCodeCombobox } from "@/components/common/PlanCodeCombobox";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
 import { describeOptionCodes, groupOptions, type OptionGroupKey } from "@/lib/option-groups";
 import { splitList } from "@/lib/split-list";
+import { clampOrderPlan, MAX_ORDER_QUANTITY, MAX_ORDER_FANOUT } from "@/lib/order-limits";
 import {
   useAvailability,
   buildVariantIndex,
@@ -417,8 +418,11 @@ function CreateQueueDialog({
     );
   };
 
-  const qty = Number(quantity) || 1;
-  const totalTasks = datacenters.length * qty;
+  // 和 servers.tsx 用同一套上限:预览行必须说真会创建的数,
+  // 否则会出现"提示 5000 个任务、实际建 60 个"。
+  const orderPlan = clampOrderPlan(datacenters.length, Number(quantity) || 1);
+  const qty = orderPlan.quantity;
+  const totalTasks = orderPlan.total;
   const canSubmit = !!accountId && planCode.trim().length > 0 && datacenters.length > 0 && qty > 0;
 
   const reset = () => {
@@ -605,7 +609,7 @@ function CreateQueueDialog({
                 placeholder="默认: 1"
               />
               <p className="text-[11px] text-muted-foreground mt-1">
-                每台服务器单独成单
+                每台服务器单独成单（每机房最多 {MAX_ORDER_QUANTITY} 台，单次最多 {MAX_ORDER_FANOUT} 个任务）
               </p>
             </div>
             <div>

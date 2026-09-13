@@ -293,14 +293,16 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 			withoutTaxVal, _ := extractPriceField(pricesField["withoutTax"])
 			taxVal, _ := extractPriceField(pricesField["tax"])
 
+			// 币种只存在于每个 order.Price 对象里(withTax / withoutTax / tax 各带一份),
+			// order.OrderPrices **没有**顶层 currencyCode —— 这里以前会去读那个字段,
+			// 它在三个区的 schema 里都不存在,恒为 nil,是一句基于错误假设的死代码。
+			// 依次从三个价格对象里取,哪个有就用哪个。
 			currency := withTaxCurrency
 			if currency == "" {
-				if c, ok := pricesField["currencyCode"].(string); ok {
-					currency = c
-				}
+				_, currency = extractPriceField(pricesField["withoutTax"])
 			}
 			if currency == "" {
-				_, currency = extractPriceField(pricesField["withoutTax"])
+				_, currency = extractPriceField(pricesField["tax"])
 			}
 			// 以前这里兜底写死 "EUR"。币种是跟子公司走的,不是跟站点走的:
 			// 实测公开目录 locale.currencyCode —— IE=EUR / CA=QC=CAD / US=WE=WS=USD /
