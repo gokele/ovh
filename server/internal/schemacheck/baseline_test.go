@@ -65,112 +65,205 @@ type baseline map[string]map[string]endpointSig
 
 func baselinePath() string { return filepath.Join("testdata", "ovh-endpoints.json") }
 
-// usedEndpoints 代码在用的端点。手工维护:自动扫路径拼接不可靠(路径是 "+svc+" 拼出来的),
-// 而漏掉一个端点比多写一个危险得多 —— 多写只是多一条噪声,漏掉就是漂移无人发现。
-// 加新端点时把它加进来。
+// usedEndpoints 代码在用的端点,漂移检测就盯这一批。
+//
+// 这份清单**必须覆盖代码里每一个 OVH 调用** —— usage_test.go 的
+// TestDriftListCoversEveryCalledEndpoint 每次 go test 都会用 AST 扫一遍源码来核对,
+// 漏了当场失败并打出该补哪几行。
+//
+// 以前这里是纯手工维护的,理由写的是"自动扫路径拼接不可靠"。那句话对正则成立、
+// 对 AST 不成立,而手工的代价是实测只覆盖了实际调用的一半多一点:
+// POST /me/order/{orderId}/retraction、整套 features/backupFTP、ola/aggregation、
+// VPS 的 reinstall/images/tasks 当时都不在里面 —— OVH 改了它们的签名不会有人知道。
+//
+// 清单里有、AST 扫不到的是正常的:目录和 VPS 机房可用性走公开 URL(裸 HTTP,
+// 不经 OVH 客户端),它们同样需要监控。TestDriftListExtrasAreReported 会把这批列出来。
 var usedEndpoints = []string{
 	// —— 独服 ——
 	"GET /dedicated/server",
+	"GET /dedicated/server/datacenter/availabilities",
 	"GET /dedicated/server/{serviceName}",
 	"PUT /dedicated/server/{serviceName}",
+	"GET /dedicated/server/{serviceName}/backupCloudOfferDetails",
+	"GET /dedicated/server/{serviceName}/biosSettings",
+	"GET /dedicated/server/{serviceName}/biosSettings/sgx",
+	"GET /dedicated/server/{serviceName}/boot",
+	"GET /dedicated/server/{serviceName}/boot/{bootId}",
+	"GET /dedicated/server/{serviceName}/burst",
+	"PUT /dedicated/server/{serviceName}/burst",
+	"POST /dedicated/server/{serviceName}/changeContact",
+	"POST /dedicated/server/{serviceName}/confirmTermination",
+	"DELETE /dedicated/server/{serviceName}/features/backupCloud",
+	"GET /dedicated/server/{serviceName}/features/backupCloud",
+	"POST /dedicated/server/{serviceName}/features/backupCloud",
+	"POST /dedicated/server/{serviceName}/features/backupCloud/password",
+	"DELETE /dedicated/server/{serviceName}/features/backupFTP",
+	"GET /dedicated/server/{serviceName}/features/backupFTP",
+	"POST /dedicated/server/{serviceName}/features/backupFTP",
+	"GET /dedicated/server/{serviceName}/features/backupFTP/access",
+	"POST /dedicated/server/{serviceName}/features/backupFTP/access",
+	"GET /dedicated/server/{serviceName}/features/backupFTP/authorizableBlocks",
+	"POST /dedicated/server/{serviceName}/features/backupFTP/password",
+	"GET /dedicated/server/{serviceName}/features/firewall",
+	"PUT /dedicated/server/{serviceName}/features/firewall",
+	"GET /dedicated/server/{serviceName}/features/ipmi",
+	"GET /dedicated/server/{serviceName}/features/ipmi/access",
+	"POST /dedicated/server/{serviceName}/features/ipmi/access",
+	"GET /dedicated/server/{serviceName}/install/compatibleTemplates",
+	"GET /dedicated/server/{serviceName}/install/hardwareRaidProfile",
+	"GET /dedicated/server/{serviceName}/install/status",
+	"GET /dedicated/server/{serviceName}/intervention",
+	"GET /dedicated/server/{serviceName}/intervention/{interventionId}",
+	"GET /dedicated/server/{serviceName}/ipCanBeMovedTo",
+	"GET /dedicated/server/{serviceName}/ipCountryAvailable",
+	"POST /dedicated/server/{serviceName}/ipMove",
+	"GET /dedicated/server/{serviceName}/ips",
+	"GET /dedicated/server/{serviceName}/license/compliantWindows",
+	"GET /dedicated/server/{serviceName}/license/compliantWindowsSqlServer",
+	"GET /dedicated/server/{serviceName}/mrtg",
+	"GET /dedicated/server/{serviceName}/networkInterfaceController",
+	"GET /dedicated/server/{serviceName}/networkInterfaceController/{mac}/mrtg",
+	"POST /dedicated/server/{serviceName}/ola/aggregation",
+	"POST /dedicated/server/{serviceName}/ola/reset",
+	"GET /dedicated/server/{serviceName}/ongoing",
+	"GET /dedicated/server/{serviceName}/option",
+	"GET /dedicated/server/{serviceName}/orderable/bandwidth",
+	"GET /dedicated/server/{serviceName}/orderable/ip",
+	"GET /dedicated/server/{serviceName}/orderable/traffic",
+	"GET /dedicated/server/{serviceName}/plannedIntervention",
+	"GET /dedicated/server/{serviceName}/plannedIntervention/{interventionId}",
+	"POST /dedicated/server/{serviceName}/reboot",
+	"POST /dedicated/server/{serviceName}/reinstall",
+	"GET /dedicated/server/{serviceName}/secondaryDnsDomains",
+	"POST /dedicated/server/{serviceName}/secondaryDnsDomains",
+	"DELETE /dedicated/server/{serviceName}/secondaryDnsDomains/{domain}",
 	"GET /dedicated/server/{serviceName}/serviceInfos",
 	"PUT /dedicated/server/{serviceName}/serviceInfos",
 	"GET /dedicated/server/{serviceName}/specifications/hardware",
+	"GET /dedicated/server/{serviceName}/specifications/ip",
 	"GET /dedicated/server/{serviceName}/specifications/network",
-	"POST /dedicated/server/{serviceName}/reboot",
-	"POST /dedicated/server/{serviceName}/reinstall",
-	"GET /dedicated/server/{serviceName}/install/status",
-	"GET /dedicated/server/{serviceName}/boot",
-	"GET /dedicated/server/{serviceName}/boot/{bootId}",
-	"GET /dedicated/server/{serviceName}/task",
-	"GET /dedicated/server/{serviceName}/task/{taskId}",
-	"POST /dedicated/server/{serviceName}/task/{taskId}/cancel",
-	"GET /dedicated/server/{serviceName}/task/{taskId}/availableTimeslots",
-	"POST /dedicated/server/{serviceName}/task/{taskId}/schedule",
-	"POST /dedicated/server/{serviceName}/terminate",
-	"POST /dedicated/server/{serviceName}/confirmTermination",
-	"POST /dedicated/server/{serviceName}/changeContact",
-	"GET /dedicated/server/{serviceName}/intervention",
-	"POST /dedicated/server/{serviceName}/support/replace/hardDiskDrive",
-	"POST /dedicated/server/{serviceName}/support/replace/memory",
-	"POST /dedicated/server/{serviceName}/support/replace/cooling",
-	"GET /dedicated/server/{serviceName}/ipmi",
-	"POST /dedicated/server/{serviceName}/features/ipmi/access",
-	"GET /dedicated/server/{serviceName}/features/ipmi/access",
-	"GET /dedicated/server/{serviceName}/features/firewall",
-	"PUT /dedicated/server/{serviceName}/features/firewall",
-	"GET /dedicated/server/{serviceName}/burst",
-	"PUT /dedicated/server/{serviceName}/burst",
-	"GET /dedicated/server/{serviceName}/mrtg",
-	"GET /dedicated/server/{serviceName}/networkInterfaceController",
-	"GET /dedicated/server/{serviceName}/biosSettings",
 	"GET /dedicated/server/{serviceName}/spla",
 	"POST /dedicated/server/{serviceName}/spla",
+	"POST /dedicated/server/{serviceName}/support/replace/cooling",
+	"POST /dedicated/server/{serviceName}/support/replace/hardDiskDrive",
+	"POST /dedicated/server/{serviceName}/support/replace/memory",
+	"GET /dedicated/server/{serviceName}/task",
+	"GET /dedicated/server/{serviceName}/task/{taskId}",
+	"GET /dedicated/server/{serviceName}/task/{taskId}/availableTimeslots",
+	"POST /dedicated/server/{serviceName}/task/{taskId}/cancel",
+	"POST /dedicated/server/{serviceName}/task/{taskId}/schedule",
+	"POST /dedicated/server/{serviceName}/terminate",
+	"GET /dedicated/server/{serviceName}/virtualMac",
 	"POST /dedicated/server/{serviceName}/virtualMac",
+	"GET /dedicated/server/{serviceName}/virtualNetworkInterface",
+	"POST /dedicated/server/{serviceName}/virtualNetworkInterface/{uuid}/disable",
+	"POST /dedicated/server/{serviceName}/virtualNetworkInterface/{uuid}/enable",
 	"GET /dedicated/server/{serviceName}/vrack",
-	"GET /dedicated/server/datacenter/availabilities",
+	"DELETE /dedicated/server/{serviceName}/vrack/{vrack}",
+
+	// —— 安装模板 ——
 	"GET /dedicated/installationTemplate",
 	"GET /dedicated/installationTemplate/{templateName}",
 	"GET /dedicated/installationTemplate/{templateName}/partitionScheme",
+	"GET /dedicated/installationTemplate/{templateName}/partitionScheme/{schemeName}",
+	"GET /dedicated/installationTemplate/{templateName}/partitionScheme/{schemeName}/partition",
+	"GET /dedicated/installationTemplate/{templateName}/partitionScheme/{schemeName}/partition/{mountpoint}",
 
 	// —— VPS ——
 	"GET /vps",
+	"GET /vps/order/rule/datacenter",
 	"GET /vps/{serviceName}",
 	"PUT /vps/{serviceName}",
-	"GET /vps/{serviceName}/serviceInfos",
-	"PUT /vps/{serviceName}/serviceInfos",
-	"POST /vps/{serviceName}/reboot",
-	"POST /vps/{serviceName}/start",
-	"POST /vps/{serviceName}/stop",
-	"POST /vps/{serviceName}/reinstall",
-	"POST /vps/{serviceName}/rebuild",
-	"GET /vps/{serviceName}/snapshot",
-	"PUT /vps/{serviceName}/snapshot",
+	"GET /vps/{serviceName}/automatedBackup",
+	"POST /vps/{serviceName}/changeContact",
+	"POST /vps/{serviceName}/confirmTermination",
 	"POST /vps/{serviceName}/createSnapshot",
-	"POST /vps/{serviceName}/snapshot/revert",
+	"GET /vps/{serviceName}/datacenter",
+	"GET /vps/{serviceName}/distribution",
+	"POST /vps/{serviceName}/getConsoleUrl",
+	"GET /vps/{serviceName}/images/available",
+	"GET /vps/{serviceName}/images/current",
 	"GET /vps/{serviceName}/ips",
 	"PUT /vps/{serviceName}/ips/{ipAddress}",
+	"GET /vps/{serviceName}/option",
+	"DELETE /vps/{serviceName}/option/{option}",
+	"POST /vps/{serviceName}/reboot",
+	"POST /vps/{serviceName}/rebuild",
+	"POST /vps/{serviceName}/reinstall",
+	"GET /vps/{serviceName}/secondaryDnsDomains",
+	"POST /vps/{serviceName}/secondaryDnsDomains",
+	"DELETE /vps/{serviceName}/secondaryDnsDomains/{domain}",
+	"GET /vps/{serviceName}/serviceInfos",
+	"PUT /vps/{serviceName}/serviceInfos",
+	"POST /vps/{serviceName}/setPassword",
+	"DELETE /vps/{serviceName}/snapshot",
+	"GET /vps/{serviceName}/snapshot",
+	"PUT /vps/{serviceName}/snapshot",
+	"POST /vps/{serviceName}/snapshot/revert",
+	"POST /vps/{serviceName}/start",
+	"GET /vps/{serviceName}/status",
+	"POST /vps/{serviceName}/stop",
+	"GET /vps/{serviceName}/tasks",
+	"GET /vps/{serviceName}/tasks/{id}",
+	"GET /vps/{serviceName}/templates",
 	"POST /vps/{serviceName}/terminate",
-	"POST /vps/{serviceName}/confirmTermination",
-	"GET /vps/order/rule/datacenter",
 
-	// —— 下单 ——
+	// —— 下单 / 目录 ——
 	"POST /order/cart",
 	"DELETE /order/cart/{cartId}",
 	"POST /order/cart/{cartId}/assign",
+	"POST /order/cart/{cartId}/checkout",
 	"GET /order/cart/{cartId}/eco",
 	"POST /order/cart/{cartId}/eco",
 	"GET /order/cart/{cartId}/eco/options",
 	"POST /order/cart/{cartId}/eco/options",
+	"POST /order/cart/{cartId}/item/{itemId}/configuration",
+	"GET /order/cart/{cartId}/item/{itemId}/requiredConfiguration",
+	"GET /order/cart/{cartId}/summary",
 	"GET /order/cart/{cartId}/vps",
 	"POST /order/cart/{cartId}/vps",
-	"GET /order/cart/{cartId}/item/{itemId}/requiredConfiguration",
-	"POST /order/cart/{cartId}/item/{itemId}/configuration",
-	"GET /order/cart/{cartId}/summary",
-	"POST /order/cart/{cartId}/checkout",
 	"GET /order/catalog/public/eco",
 	"GET /order/catalog/public/vps",
 
-	// —— 账户 / 服务 ——
+	// —— 账户 ——
 	"GET /me",
 	"GET /me/bill",
+	"GET /me/credit/balance",
+	"GET /me/notification/email/history",
 	"GET /me/order",
 	"GET /me/order/{orderId}",
+	"GET /me/order/{orderId}/details",
+	"GET /me/order/{orderId}/details/{orderDetailId}",
+	"POST /me/order/{orderId}/retraction",
 	"GET /me/order/{orderId}/status",
+	"GET /me/subAccount",
+	"GET /me/task/contactChange",
+	"GET /me/task/contactChange/{id}",
+	"POST /me/task/contactChange/{id}/accept",
+	"POST /me/task/contactChange/{id}/refuse",
+	"POST /me/task/contactChange/{id}/resendEmail",
+
+	// —— 服务(续费、终止、承诺期) ——
 	"GET /services/{serviceId}",
 	"PUT /services/{serviceId}",
 	"GET /services/{serviceId}/billing/engagement",
 	"GET /services/{serviceId}/billing/engagement/available",
-	"POST /services/{serviceId}/billing/engagement/request",
 	"PUT /services/{serviceId}/billing/engagement/endRule",
+	"DELETE /services/{serviceId}/billing/engagement/request",
+	"GET /services/{serviceId}/billing/engagement/request",
+	"POST /services/{serviceId}/billing/engagement/request",
 
 	// —— IP ——
 	"GET /ip",
 	"GET /ip/{ip}",
-	"GET /ip/{ip}/reverse",
-	"POST /ip/{ip}/reverse",
 	"GET /ip/{ip}/mitigation",
 	"POST /ip/{ip}/mitigation",
+	"DELETE /ip/{ip}/mitigation/{ipOnMitigation}",
+	"GET /ip/{ip}/mitigation/{ipOnMitigation}",
+	"GET /ip/{ip}/reverse",
+	"POST /ip/{ip}/reverse",
+	"DELETE /ip/{ip}/reverse/{ipReverse}",
+	"GET /ip/{ip}/reverse/{ipReverse}",
 }
 
 func fetchSchema(region, ns string) (map[string]interface{}, error) {
@@ -241,6 +334,22 @@ func collect(t *testing.T) baseline {
 				}
 			}
 		}
+	}
+	// 清单里写错的端点会永远静默缺席:collect 找不到就跳过,基线里没有它,
+	// 于是"端点整个消失了"那条比对也永远轮不到它 —— 一个写错的路径
+	// 会伪装成"一直被监控着"。实际就踩过一次:清单里写的是
+	// /dedicated/server/{serviceName}/ipmi,而三个区都只有 /features/ipmi。
+	var never []string
+	for _, e := range usedEndpoints {
+		if len(out[e]) == 0 {
+			never = append(never, e)
+		}
+	}
+	if len(never) > 0 {
+		sort.Strings(never)
+		t.Errorf("usedEndpoints 里这 %d 个端点在 EU / US / CA 三个区都找不到 —— "+
+			"要么路径拼错了,要么 OVH 已经把它们删了:\n  %s",
+			len(never), strings.Join(never, "\n  "))
 	}
 	return out
 }
