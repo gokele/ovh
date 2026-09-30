@@ -1258,7 +1258,7 @@ function proxyInputError(raw: string): string {
   const authorityPart = authorityMatch ? authorityMatch[1] : "";
   const hasExplicitPort = Boolean(u.port) || /:\d+$/.test(authorityPart);
   if (!hasExplicitPort) {
-    console.log("11111")
+    return "缺少端口 —— 必须显式写出来,例如 :1080";
   }
   return "";
 }
