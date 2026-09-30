@@ -5,6 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OVH 控制台</title>
     <meta name="description" content="OVH 服务器抢购与监控平台" />
+    <meta name="theme-color" content="#ffffff" />
+    <!-- 防白闪:在首帧之前把 dark class 挂好。
+         解析规则必须与 src/lib/theme.ts 保持一致(默认 system)。
+         theme-color 同步更新 —— 手机浏览器的地址栏区域颜色跟它走,
+         深色模式下留白色会顶上白一条,和下方界面割裂。 -->
+    <script>
+      (function () {
+        try {
+          var m = localStorage.getItem("ovh-theme") || "system";
+          var dark =
+            m === "dark" ||
+            (m !== "light" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+          // 与 globals.css 的 --background 保持一致:浅 #ffffff / 深 #0f0f0f
+          document
+            .querySelector('meta[name="theme-color"]')
+            .setAttribute("content", dark ? "#0f0f0f" : "#ffffff");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -122,7 +122,7 @@ export function SplaDialog({
             <div className="flex items-center justify-between gap-2">
               <p className="text-[12px] font-semibold">解锁 Windows 安装</p>
               {unlocked && !unknown && (
-                <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-500">
+                <span className="inline-flex items-center gap-1 text-[11px] text-success">
                   <ShieldCheck className="w-3.5 h-3.5" />
                   已解锁
                 </span>
@@ -152,7 +152,7 @@ export function SplaDialog({
                   : "一键解锁 Windows 安装"}
             </Button>
             {spla.isError && (
-              <p className="text-[11px] text-amber-600 dark:text-amber-500">
+              <p className="text-[11px] text-warning">
                 没读到这台机器已有的授权记录，无法判断是否已解锁 —— 按钮仍可点，
                 如果之前登记过，OVH 会直接拒绝，不会重复计费。
               </p>
@@ -185,8 +185,8 @@ export function SplaDialog({
             />
           </div>
 
-          <div className="border border-amber-500/40 bg-amber-500/10 rounded-xl p-2.5 flex gap-2">
-            <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="border border-warning/40 bg-warning/10 rounded-xl p-2.5 flex gap-2">
+            <AlertCircle className="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" />
             <p className="text-[11px] text-muted-foreground">
               这里填你自己购买的 SPLA 授权序列号（SQL Server 的两类只能走这里）。
               这一步是把授权<b>登记</b>到 OVH 名下，不是申请或生成授权 ——

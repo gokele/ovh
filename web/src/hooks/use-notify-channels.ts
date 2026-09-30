@@ -38,7 +38,13 @@ export function useNotifyChannels(verify = true) {
 export function useNotifyGate(): [boolean, string, boolean] {
   const q = useNotifyChannels(true);
   if (q.isPending) return [false, "", true];
-  if (!q.data) return [false, "", false];
+  // 形状不对(缺 channels / anyAvailable)按"无法判断"处理,不拦截 ——
+  // 这只是前端预检,后端在提交时还有真正的强校验;宁可放行到后端,
+  // 也不要因为一次响应抖动把订阅入口整个锁死,更不能在这里崩掉整页
+  // (这个 hook 被 AddSubscriptionDialog 常驻调用,崩 = 监控页全白)
+  if (!q.data || !Array.isArray(q.data.channels) || typeof q.data.anyAvailable !== "boolean") {
+    return [false, "", false];
+  }
   if (q.data.anyAvailable) return [false, "", false];
   const detail = q.data.channels
     .filter((c) => c.configured && !c.ok)

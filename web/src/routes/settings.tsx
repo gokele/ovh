@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Settings as SettingsIcon, KeyRound, Globe, Send, Database, Save, AlertTriangle, CheckCircle2, Plus, Star, RotateCw, Trash2, Pencil, BellRing, RefreshCw, Radio, Network, Fingerprint, ShieldAlert, Radar, Ban, Activity, Timer } from "lucide-react";
+import { Settings as SettingsIcon, KeyRound, Globe, Send, Database, Save, AlertTriangle, CheckCircle2, Plus, Star, RotateCw, Trash2, Pencil, BellRing, RefreshCw, Radio, Network, Fingerprint, ShieldAlert, Radar, Ban, Activity, Timer, Palette, Sun, Moon, Monitor } from "lucide-react";
+import { useTheme } from "@/hooks/use-theme";
+import type { ThemeMode } from "@/lib/theme";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { LoadFailed, LoadFailedBanner } from "@/components/common/LoadFailed";
@@ -65,6 +67,7 @@ export const Route = createFileRoute("/settings")({
 
 const SECTIONS = [
   { id: "password", icon: KeyRound, label: "访问密码" },
+  { id: "appearance", icon: Palette, label: "外观" },
   { id: "accounts", icon: Globe, label: "OVH 账户" },
   { id: "purchase", icon: Timer, label: "抢购" },
   { id: "telegram", icon: Send, label: "Telegram" },
@@ -172,7 +175,7 @@ function SettingsPage() {
           <CardContent className="p-3 sm:p-6">
             {cfg.isPending ? (
               <Skeleton className="h-64 rounded-2xl" />
-            ) : cfg.isError && active !== "password" && active !== "accounts" && active !== "cache" ? (
+            ) : cfg.isError && active !== "password" && active !== "appearance" && active !== "accounts" && active !== "cache" ? (
               // 配置读失败时,Telegram / 通知通道那些输入框会全渲染成空 ——
               // 看上去就是"你还没配过",而实际上后端存着真实配置。
               // 在这里直接换成失败态,顺便挡住"照着空表单点保存"这条把配置删干净的路。
@@ -194,6 +197,8 @@ function SettingsPage() {
                   />
                 </Field>
               </Section>
+            ) : active === "appearance" ? (
+              <AppearanceSection />
             ) : active === "accounts" ? (
               <AccountsSection />
             ) : active === "telegram" ? (
@@ -286,6 +291,50 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** 外观:浅色 / 深色 / 跟随系统。纯前端偏好,存浏览器 localStorage,
+ *  不走后端配置 —— 换个浏览器或设备要重选,但它也不该跟着后端走。 */
+function AppearanceSection() {
+  const { mode, resolved, setMode } = useTheme();
+  const options: { value: ThemeMode; label: string; desc: string; icon: React.ReactNode }[] = [
+    { value: "system", label: "跟随系统", desc: "跟随系统的浅色/深色设置自动切换", icon: <Monitor className="w-4 h-4" /> },
+    { value: "light", label: "浅色", desc: "始终使用浅色", icon: <Sun className="w-4 h-4" /> },
+    { value: "dark", label: "深色", desc: "始终使用深色(夜间)", icon: <Moon className="w-4 h-4" /> },
+  ];
+  return (
+    <Section title="外观">
+      <div className="space-y-2">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => setMode(o.value)}
+            className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+              mode === o.value
+                ? "border-foreground/60 bg-accent"
+                : "border-border hover:bg-accent/50"
+            }`}
+          >
+            <span className={mode === o.value ? "text-foreground" : "text-muted-foreground"}>{o.icon}</span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[13px] font-medium">{o.label}</span>
+              <span className="block text-[11px] text-muted-foreground">{o.desc}</span>
+            </span>
+            {mode === o.value && (
+              <span className="text-[11px] text-muted-foreground flex-shrink-0">
+                当前{resolved === "dark" ? "·深色生效中" : "·浅色生效中"}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        顶栏右上角也有快捷切换(单击循环)。此选择只存在于此浏览器,
+        清除浏览器数据后会回到「跟随系统」。
+      </p>
+    </Section>
+  );
+}
+
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
@@ -347,9 +396,9 @@ function NotifySection({
                 {!c.configured ? (
                   <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-muted-foreground/40 flex-shrink-0" />
                 ) : c.ok ? (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-success flex-shrink-0 mt-0.5" />
                 ) : (
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" />
                 )}
                 <span className="font-medium w-20 flex-shrink-0">{c.name}</span>
                 <span className="text-muted-foreground break-all">
@@ -358,7 +407,7 @@ function NotifySection({
               </div>
             ))}
             {channels.data && !channels.data.anyAvailable && (
-              <p className="text-[11px] text-amber-700 dark:text-amber-300 pt-1">
+              <p className="text-[11px] text-warning pt-1">
                 一条可用通道都没有 —— 监控会跑不起来，也发不出补货提醒
               </p>
             )}

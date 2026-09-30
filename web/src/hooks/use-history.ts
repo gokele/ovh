@@ -39,7 +39,12 @@ export interface PurchaseHistory {
 export function useHistory() {
   return useQuery({
     queryKey: qk.history(),
-    queryFn: async () => (await api.get<PurchaseHistory[]>("/purchase-history")).data,
+    // Array.isArray:调用方直接 items.filter,truthy 非数组(代理层改写响应等)
+    // 会整页白屏 —— 宁可当空列表走"没有历史"的空态
+    queryFn: async () => {
+      const d = (await api.get<PurchaseHistory[]>("/purchase-history")).data;
+      return Array.isArray(d) ? d : [];
+    },
   });
 }
 

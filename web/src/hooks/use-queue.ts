@@ -35,7 +35,11 @@ export interface QueueItem {
 export function useQueueList() {
   return useQuery({
     queryKey: qk.queue.list(),
-    queryFn: async () => (await api.get<QueueItem[]>("/queue")).data,
+    // Array.isArray:调用方直接 .filter/.map,truthy 非数组会整页白屏
+    queryFn: async () => {
+      const d = (await api.get<QueueItem[]>("/queue")).data;
+      return Array.isArray(d) ? d : [];
+    },
     refetchInterval: 5000,
   });
 }

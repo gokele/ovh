@@ -649,18 +649,18 @@ function AddSubscriptionDialog({
 
         <form onSubmit={submit} className="space-y-4">
           {notifyBlocked && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5">
-              <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+            <div className="flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 px-3.5 py-2.5">
+              <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
               <div className="text-xs flex-1 min-w-0">
-                <div className="font-medium text-amber-900 dark:text-amber-200">
+                <div className="font-medium text-foreground">
                   没有可用的通知通道
                 </div>
-                <div className="text-amber-800/80 dark:text-amber-200/80 mt-0.5 break-words">
+                <div className="text-muted-foreground mt-0.5 break-words">
                   {notifyReason || "请先在设置页配置 Telegram 或自定义 Webhook,至少一条"}
                 </div>
                 <Link
                   to="/settings"
-                  className="inline-block mt-1 text-amber-900 dark:text-amber-200 underline underline-offset-2"
+                  className="inline-block mt-1 text-foreground underline underline-offset-2"
                 >
                   去配置 →
                 </Link>

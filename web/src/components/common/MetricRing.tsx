@@ -31,18 +31,20 @@ export function MetricRing({
   const filled = (safePct / 100) * visibleArc;
   const dashArray = `${filled} ${c}`;
 
+  // 全部走语义 token(--warning/--success 在 .dark 下自动翻转),
+  // 不用 amber/emerald 调色板:那些是定值,深色下会和不翻转的旧代码一样发暗
   const toneStroke =
     tone === "danger"
       ? "stroke-destructive"
       : tone === "warning"
-        ? "stroke-amber-500"
-        : "stroke-emerald-500";
+        ? "stroke-warning"
+        : "stroke-success";
   const toneText =
     tone === "danger"
       ? "text-destructive"
       : tone === "warning"
-        ? "text-amber-600 dark:text-amber-400"
-        : "text-emerald-600 dark:text-emerald-400";
+        ? "text-warning"
+        : "text-success";
 
   return (
     // 手机端三个环并排,每格只有 ~118px —— 左文右环那套横排会把两边都压扁,

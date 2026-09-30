@@ -646,10 +646,10 @@ function VpsDetail({
             </div>
           )}
           {server.netbootMode === "rescue" && (
-            <div className="border border-amber-500/40 bg-amber-500/5 rounded-xl p-3 flex items-start gap-2.5">
-              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+            <div className="border border-warning/40 bg-warning/5 rounded-xl p-3 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
               <div className="text-[12px]">
-                <p className="font-semibold text-amber-700 dark:text-amber-300">救援模式</p>
+                <p className="font-semibold text-warning">救援模式</p>
                 <p className="text-muted-foreground mt-0.5">
                   下次重启会进入 OVH 救援镜像。修完故障后需要把 netboot 改回 <code>local</code> 再重启回正常系统
                 </p>

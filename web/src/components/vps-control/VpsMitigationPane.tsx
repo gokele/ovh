@@ -66,7 +66,7 @@ export function VpsMitigationPane({ serviceName }: { serviceName: string }) {
         OVH 自动缓解(auto)默认开启,检测到攻击时自动启用。下面是手动启用「永久缓解」的开关 —
         开启后 VPS 所有流量长期过 Anti-DDoS 设备(延迟略增,持续防护)。
         <br />
-        <span className="text-amber-600 dark:text-amber-400">仅支持 IPv4。IPv6 走 OVH 网络层默认免疫,无需手动配置。</span>
+        <span className="text-warning">仅支持 IPv4。IPv6 走 OVH 网络层默认免疫,无需手动配置。</span>
       </p>
       {blocks.map((blk) => {
         const isV6 = blk.ipBlock.includes(":") && !blk.ipBlock.includes(".");
@@ -119,7 +119,7 @@ export function VpsMitigationPane({ serviceName }: { serviceName: string }) {
                     )}
                     {m.auto && <span className="text-[11px] text-muted-foreground">自动</span>}
                     {m.permanent && (
-                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400">永久</span>
+                      <span className="text-[11px] text-success">永久</span>
                     )}
                     <Button
                       size="sm"

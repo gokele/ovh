@@ -30,7 +30,10 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
-      <Toaster position="top-right" richColors closeButton />
+      {/* top-center:右上角是账户 chip 和主题切换(可连点),bottom 是手机
+          标签栏和对话框操作区 —— 两头都碰不得,top-center 是唯一不遮任何
+          可点控件的位置。实测 top-right 时连点主题按钮会被自己的 toast 盖住。 */}
+      <Toaster position="top-center" richColors closeButton />
     </QueryClientProvider>
   </StrictMode>
 );

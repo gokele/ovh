@@ -66,7 +66,7 @@ export function OptionGroupSection({
                 <span
                   className={
                     "inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 " +
-                    (inStock ? "bg-emerald-500" : "bg-red-500")
+                    (inStock ? "bg-success" : "bg-destructive")
                   }
                   aria-label={inStock ? "有货" : "缺货"}
                 />

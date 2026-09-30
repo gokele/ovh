@@ -28,5 +28,7 @@ export function readPartialFailures(headers: unknown): number {
 
 /** 把「裸数组 + X-Partial-Failures 头」的响应包成 PartialList */
 export function toPartialList<T>(items: T[] | undefined, failedCount: number): PartialList<T> {
-  return { items: items || [], partial: failedCount > 0, failedCount };
+  // Array.isArray:响应被代理层改写等情况下 items 可能是 truthy 非数组,
+  // 直接传下去调用方 .map 就崩 —— 统一在这里兜成空列表,一处覆盖所有调用方
+  return { items: Array.isArray(items) ? items : [], partial: failedCount > 0, failedCount };
 }

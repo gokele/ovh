@@ -135,12 +135,12 @@ export function RenewalDialog({
         {term && (
           <div
             className={`rounded-xl p-3 flex gap-2.5 border ${
-              term.danger ? "border-destructive/40 bg-destructive/5" : "border-amber-500/40 bg-amber-500/10"
+              term.danger ? "border-destructive/40 bg-destructive/5" : "border-warning/40 bg-warning/10"
             }`}
             title={term.title}
           >
             <AlertCircle
-              className={`w-4 h-4 flex-shrink-0 mt-0.5 ${term.danger ? "text-destructive" : "text-amber-600"}`}
+              className={`w-4 h-4 flex-shrink-0 mt-0.5 ${term.danger ? "text-destructive" : "text-warning"}`}
             />
             <div className="text-[12px]">
               <p className="font-semibold mb-0.5">当前：{term.text}</p>
@@ -150,10 +150,10 @@ export function RenewalDialog({
         )}
 
         {info.renewalForced ? (
-          <div className="border border-amber-500/40 bg-amber-500/10 rounded-xl p-3 flex gap-2.5">
-            <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="border border-warning/40 bg-warning/10 rounded-xl p-3 flex gap-2.5">
+            <Lock className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
             <div className="text-[12px]">
-              <p className="font-semibold text-amber-700 dark:text-amber-300 mb-1">
+              <p className="font-semibold text-warning mb-1">
                 合同期内,无法修改
               </p>
               <p className="text-muted-foreground">

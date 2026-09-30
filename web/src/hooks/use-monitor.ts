@@ -53,7 +53,12 @@ export interface MonitorHistoryEntry {
 export function useMonitorList() {
   return useQuery({
     queryKey: qk.monitor.list(),
-    queryFn: async () => (await api.get<MonitorSubscription[]>("/monitor/subscriptions")).data,
+    // Array.isArray:调用方直接 subs.map,truthy 非数组(响应被代理层改写等)
+    // 会让整个监控页白屏 —— 宁可当空列表走"暂无订阅"空态
+    queryFn: async () => {
+      const d = (await api.get<MonitorSubscription[]>("/monitor/subscriptions")).data;
+      return Array.isArray(d) ? d : [];
+    },
   });
 }
 

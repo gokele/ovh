@@ -74,7 +74,7 @@ export function RescueDialog({
                 {status.isPending ? (
                   <span className="text-muted-foreground">读取中…</span>
                 ) : inRescue ? (
-                  <b className="text-amber-600 dark:text-amber-500">救援模式</b>
+                  <b className="text-warning">救援模式</b>
                 ) : (
                   <b>正常系统</b>
                 )}
@@ -113,8 +113,8 @@ export function RescueDialog({
                   )}
                 </div>
 
-                <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/5 px-3.5 py-3">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-500 mt-0.5 flex-shrink-0" />
+                <div className="flex items-start gap-2.5 rounded-xl border border-warning/40 bg-warning/5 px-3.5 py-3">
+                  <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
                   <div className="text-[12px] leading-relaxed">
                     点下去会<b>立刻重启服务器</b>，上面正在跑的服务会中断。
                     硬盘数据不受影响。
@@ -122,7 +122,7 @@ export function RescueDialog({
                 </div>
 
                 {confirming && (
-                  <p className="text-[12px] text-amber-600 dark:text-amber-500">
+                  <p className="text-[12px] text-warning">
                     再点一次「确认进入救援」就会重启。
                   </p>
                 )}

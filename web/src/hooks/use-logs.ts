@@ -15,7 +15,11 @@ export interface LogEntry {
 export function useLogs(autoRefresh: boolean = true) {
   return useQuery({
     queryKey: qk.logs(),
-    queryFn: async () => (await api.get<LogEntry[]>("/logs")).data,
+    // Array.isArray:调用方直接 .filter/.map,truthy 非数组会整页白屏
+    queryFn: async () => {
+      const d = (await api.get<LogEntry[]>("/logs")).data;
+      return Array.isArray(d) ? d : [];
+    },
     refetchInterval: autoRefresh ? 5000 : false,
   });
 }

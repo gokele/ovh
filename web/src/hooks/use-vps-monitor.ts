@@ -45,7 +45,11 @@ export interface VPSMonitorHistoryEntry {
 export function useVPSMonitorList() {
   return useQuery({
     queryKey: qk.vpsMonitor.list(),
-    queryFn: async () => (await api.get<VPSSubscription[]>("/vps-monitor/subscriptions")).data,
+    // Array.isArray:调用方直接 .filter/.map,truthy 非数组会整页白屏
+    queryFn: async () => {
+      const d = (await api.get<VPSSubscription[]>("/vps-monitor/subscriptions")).data;
+      return Array.isArray(d) ? d : [];
+    },
   });
 }
 

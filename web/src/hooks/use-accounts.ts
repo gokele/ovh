@@ -2,6 +2,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { toast } from "sonner";
+import { zoneStyle } from "@/lib/zone-color";
 
 export interface OVHAccount {
   id: string;
@@ -193,14 +194,14 @@ export function findAccountByID(accounts: OVHAccount[] | undefined, id: string):
   return accounts.find((a) => a.id === id);
 }
 
-/** zone 颜色映射, 用于账户 chip 区分(EU 蓝 / US 红 / CA 绿 等) */
+/** zone 颜色映射,用于账户 chip 区分。
+ *
+ * 委托给 zone-color(按 API endpoint 分组:EUs蓝 / US 琥珀 / CA 绿),
+ * 不再自己按国家另配一套 —— 之前这里按国家给 US=红、CA=绿、亚太=橙,
+ * 和顶栏切换器的 endpoint 配色是同一概念的两种颜色,
+ * 同一个账户在两处显示不一样,看着像两个东西。 */
 export function accountChipColor(zone: string): string {
-  const z = zone.toUpperCase();
-  if (z === "US") return "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300";
-  if (z === "CA" || z === "QC") return "bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-300";
-  if (z === "ASIA" || z === "SG" || z === "AU" || z === "IN") return "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300";
-  // EU 系
-  return "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300";
+  return zoneStyle(zone).badge;
 }
 
 // ─── 出站代理 / 指纹 ────────────────────────────────────────────────────────

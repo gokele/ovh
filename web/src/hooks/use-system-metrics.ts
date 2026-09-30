@@ -95,7 +95,18 @@ export interface SystemMetrics {
 export function useSystemMetrics() {
   return useQuery({
     queryKey: ["system", "metrics"],
-    queryFn: async () => (await api.get<SystemMetrics>("/system/metrics")).data,
+    queryFn: async () => {
+      const d = (await api.get<SystemMetrics>("/system/metrics")).data;
+      // 形状不对就抛错:仪表盘的守卫是 sys.data ? 渲染环 : 未知环,
+      // 一个 truthy 但缺 cpu 子对象的结构(比如代理层回了别的 JSON)
+      // 会让 `sys.data.cpu.cores` 直接白屏。
+      // 抛错而不是返回 undefined —— React Query 不允许 data 为 undefined,
+      // 且 isError 路径会让未知环带上"读取失败"的正确语义
+      if (!d || typeof d !== "object" || !d.cpu || !d.memory || !d.disk) {
+        throw new Error("metrics: 响应结构不完整");
+      }
+      return d;
+    },
     refetchInterval: 2000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,

@@ -179,9 +179,9 @@ export function EngagementDialog({
 
               {/* 进行中的变更请求 */}
               {ongoing.data && (
-                <section className="border border-amber-500/40 bg-amber-500/5 rounded-2xl p-3.5 space-y-2">
+                <section className="border border-warning/40 bg-warning/5 rounded-2xl p-3.5 space-y-2">
                   <div className="flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    <AlertCircle className="w-4 h-4 text-warning" />
                     <h3 className="text-sm font-semibold">订单已创建,等待支付</h3>
                   </div>
                   <p className="text-[11px] text-muted-foreground">

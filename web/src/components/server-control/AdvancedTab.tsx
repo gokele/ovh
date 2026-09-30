@@ -772,7 +772,7 @@ function MitigationPane({ serviceName }: { serviceName: string }) {
       <p className="text-[11px] text-muted-foreground">
         OVH 自带「自动缓解」会在检测到攻击时自动启用,无需配置。下面是手动启用「永久缓解」的开关:开启后该 IP 全程过 Anti-DDoS 设备(延迟略增,持续防护)。
         <br />
-        <span className="text-amber-600 dark:text-amber-400">仅支持 IPv4。IPv6 走 OVH 网络层默认免疫,无需手动配置。</span>
+        <span className="text-warning">仅支持 IPv4。IPv6 走 OVH 网络层默认免疫,无需手动配置。</span>
       </p>
       {blocks.map((blk) => {
         const isV6 = blk.ipBlock.includes(":") && !blk.ipBlock.includes(".");
@@ -824,7 +824,7 @@ function MitigationPane({ serviceName }: { serviceName: string }) {
                     <Chip tone={mitigationTone(m.state)}>{stateText(m.state)}</Chip>
                     )}
                     {m.auto && <span className="text-[11px] text-muted-foreground">自动</span>}
-                    {m.permanent && <span className="text-[11px] text-emerald-600 dark:text-emerald-400">永久</span>}
+                    {m.permanent && <span className="text-[11px] text-success">永久</span>}
                     <Button
                       size="sm"
                       variant="outline"

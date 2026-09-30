@@ -122,9 +122,9 @@ export function VpsSnapshotPane({ serviceName }: { serviceName: string }) {
   const s = snap.data;
   return (
     <div className="space-y-3">
-      <div className="border border-emerald-500/40 bg-emerald-500/5 rounded-2xl p-4 space-y-2.5">
+      <div className="border border-success/40 bg-success/5 rounded-2xl p-4 space-y-2.5">
         <div className="flex items-center gap-2 flex-wrap">
-          <Camera className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <Camera className="w-4 h-4 text-success" />
           <h3 className="text-sm font-semibold">当前快照</h3>
           <code className="ml-auto text-[10px] font-mono text-muted-foreground">#{s.id}</code>
         </div>

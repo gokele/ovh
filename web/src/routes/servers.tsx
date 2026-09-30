@@ -787,7 +787,7 @@ function DetailContent({
                 />
                 {orderPlan.clamped && (
                   // 光靠 max= 挡不住手打的值,得把实际会用的数字说出来
-                  <p className="text-[11px] text-amber-600 dark:text-amber-500 mt-1">
+                  <p className="text-[11px] text-warning mt-1">
                     已按 {qty} 台/机房计算（单次最多 {MAX_ORDER_FANOUT} 个任务）
                   </p>
                 )}
@@ -943,7 +943,7 @@ function CacheBadge() {
       className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border ${
         valid
           ? "border-border text-muted-foreground bg-muted/40"
-          : "border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-50/60 dark:bg-amber-950/30"
+          : "border-warning/30 text-warning bg-warning/5"
       }`}
       title={
         valid

@@ -2,6 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { MobileMenu } from "./MobileMenu";
 import { AccountSwitcher } from "@/components/layout/AccountSwitcher";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 /**
  * 顶部 56px 细 bar：只显示面包屑。⌘K 命令面板入口已移除，
@@ -43,6 +44,11 @@ export function TopBar() {
       </span>
       <div className="sm:hidden ml-auto flex-shrink-0 max-w-[52%]">
         <AccountSwitcher compact />
+      </div>
+      {/* 主题快捷键在两种布局下都靠最右:手机排在账户 chip 后,
+          桌面排在面包屑后。它是全局控制,和"当前在哪一页"无关。 */}
+      <div className="ml-auto flex-shrink-0">
+        <ThemeToggle />
       </div>
       <div className="hidden sm:flex items-center gap-2.5 min-w-0">
         <Link to="/" className="text-sm text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap">

@@ -996,7 +996,7 @@ export function ReinstallDialog({
             </div>
 
             {smartPlan.blocked ? (
-              <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 px-3.5 py-3">
+              <div className="rounded-xl border border-warning/40 bg-warning/5 px-3.5 py-3">
                 <p className="text-[12px] leading-relaxed">{smartPlan.blocked}</p>
               </div>
             ) : (

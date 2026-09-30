@@ -11,6 +11,10 @@
 
 @layer base {
   :root {
+    /* 让滚动条/原生下拉/表单控件跟随主题 —— 只切 token 不够,
+       这些原生 UI 不吃 CSS 变量,只认 color-scheme */
+    color-scheme: light;
+
     /* 基础面 */
     --background: 0 0% 100%;            /* #ffffff */
     --foreground: 0 0% 4%;              /* #0a0a0a 近黑 */
@@ -58,6 +62,8 @@
   }
 
   .dark {
+    color-scheme: dark;
+
     --background: 0 0% 6%;              /* #0f0f0f */
     --foreground: 0 0% 96%;
 
