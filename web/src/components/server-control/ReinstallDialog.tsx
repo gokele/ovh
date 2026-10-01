@@ -15,7 +15,8 @@ import {
   useServerPartitionSchemes,
   type CustomPartition,
 } from "@/hooks/use-server-control";
-import { OsIcon, detectOsKind, osBrandColor } from "@/components/server-control/OsIcon";
+import { OsIcon, detectOsKind, osBrandColor, osBrandTextColor } from "@/components/server-control/OsIcon";
+import { useTheme } from "@/hooks/use-theme";
 import { toast } from "sonner";
 import { buildSmartPlan } from "@/lib/smart-storage";
 
@@ -101,6 +102,8 @@ export function ReinstallDialog({
   const disk = useServerDiskInfo(serviceName, open);
   const raid = useServerRaidProfiles(serviceName, open);
   const mut = useReinstallServer();
+  // 品牌色当文字色在深色底上要提亮(见 osBrandTextColor 注释)
+  const brandDark = useTheme().resolved === "dark";
 
   // 基本
   const [search, setSearch] = useState("");
@@ -503,7 +506,7 @@ export function ReinstallDialog({
                         </div>
                         <span
                           className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: brandColor + "22", color: brandColor }}
+                          style={{ backgroundColor: brandColor + "22", color: osBrandTextColor(group.kind, brandDark) }}
                         >
                           {group.items.length}
                         </span>

@@ -83,6 +83,19 @@ export function osBrandColor(kind: OsKind): string {
   return BRANDS[kind]?.bg || "#6B7280";
 }
 
+/** 深色底上当**文字色**用的品牌色:向白混合 45%。
+ *  品牌色是按白底设计的,Debian #A80030 在近黑底上只有约 2:1,
+ *  计数徽章这类"品牌色当字"的场合深色下必须提亮,否则看不清。 */
+export function osBrandTextColor(kind: OsKind, dark: boolean): string {
+  const hex = BRANDS[kind]?.bg || "#6B7280";
+  if (!dark) return hex;
+  const mix = (v: number) => Math.round(v + (255 - v) * 0.45);
+  const r = mix(parseInt(hex.slice(1, 3), 16));
+  const g = mix(parseInt(hex.slice(3, 5), 16));
+  const b = mix(parseInt(hex.slice(5, 7), 16));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 const BRANDS: Record<OsKind, OsBrand> = {
   debian:   { bg: "#A80030", fallback: "D"    },
   ubuntu:   { bg: "#E95420", fallback: "U"    },

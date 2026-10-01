@@ -310,17 +310,19 @@ function AppearanceSection() {
             onClick={() => setMode(o.value)}
             className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
               mode === o.value
-                ? "border-foreground/60 bg-accent"
+                ? "border-foreground/60 bg-accent text-accent-foreground"
                 : "border-border hover:bg-accent/50"
             }`}
           >
-            <span className={mode === o.value ? "text-foreground" : "text-muted-foreground"}>{o.icon}</span>
+            {/* 选中态底色是 accent,深色下它是浅色 —— 字和图标必须跟 accent-foreground,
+                否则浅字浅底直接隐形(对比度 1.0,实测踩过) */}
+            <span className={mode === o.value ? "text-accent-foreground" : "text-muted-foreground"}>{o.icon}</span>
             <span className="flex-1 min-w-0">
               <span className="block text-[13px] font-medium">{o.label}</span>
-              <span className="block text-[11px] text-muted-foreground">{o.desc}</span>
+              <span className={`block text-[11px] ${mode === o.value ? "text-accent-foreground/70" : "text-muted-foreground"}`}>{o.desc}</span>
             </span>
             {mode === o.value && (
-              <span className="text-[11px] text-muted-foreground flex-shrink-0">
+              <span className="text-[11px] text-accent-foreground/70 flex-shrink-0">
                 当前{resolved === "dark" ? "·深色生效中" : "·浅色生效中"}
               </span>
             )}

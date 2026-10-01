@@ -32,7 +32,7 @@ export function ThemeToggle() {
           duration: 2200,
         });
       }}
-      className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex-shrink-0"
+      className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-accent-foreground hover:bg-accent transition-colors flex-shrink-0"
       title={`当前:${THEME_LABELS[mode]}。点击切换到${THEME_LABELS[next]}`}
       aria-label={`切换外观,当前${THEME_LABELS[mode]}`}
     >
