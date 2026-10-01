@@ -29,8 +29,11 @@
     --primary: 0 0% 9%;                 /* #171717 */
     --primary-foreground: 0 0% 98%;
 
-    --accent: 0 0% 9%;
-    --accent-foreground: 0 0% 98%;
+    /* accent 是 hover/选中的**表面色**,要的是"微升一档"的安静变化,
+     * 不是主按钮那种强对比 —— 之前沿用 9%(近黑),选中项渲染成整块黑 slab,
+     * 深色那头对称地是整块白,都非常刺眼。强对比归 button-primary 管。 */
+    --accent: 0 0% 94%;
+    --accent-foreground: 0 0% 9%;
 
     --secondary: 0 0% 96%;              /* #f5f5f5 */
     --secondary-foreground: 0 0% 9%;
@@ -83,8 +86,9 @@
     --primary: 0 0% 96%;
     --primary-foreground: 0 0% 9%;
 
-    --accent: 0 0% 96%;
-    --accent-foreground: 0 0% 9%;
+    --accent: 0 0% 16%;                /* 微升表面色,别用近白 —— 选中/hover
+                                           渲染成整块白光非常刺眼,实测踩过 */
+    --accent-foreground: 0 0% 96%;
 
     --secondary: 0 0% 14%;
     --secondary-foreground: 0 0% 96%;
