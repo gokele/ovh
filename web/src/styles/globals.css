@@ -50,6 +50,8 @@
        11px 的状态字直接看不清。深一档之后文字达标,同时 bg-destructive
        白字按钮的对比也跟着升。深色模式取值另调(见 .dark),那边不受影响。 */
     --destructive: 0 74% 46%;           /* ≈#be1b1b,白底 5.5:1 */
+    /* 浅色下文字红和实底红同值即可(46% 两头都够);深色那边两者必须分开,见 .dark */
+    --destructive-strong: 0 74% 46%;
     --destructive-foreground: 0 0% 98%;
     --success: 142 72% 30%;             /* ≈#157f3a,白底 5.1:1 */
     --warning: 32 92% 36%;              /* ≈#ac4705,白底 5.5:1,浅底 chip 4.6:1 */
@@ -94,7 +96,12 @@
     --input: 0 0% 18%;
     --ring: 0 0% 96%;
 
-    --destructive: 0 70% 55%;
+    --destructive: 0 72% 66%;         /* 文字优化红(≈red-400):95 处 text-destructive
+                                          在深底上要 4.5+,55% 只有 4.2 —— shadcn 深色
+                                          文字红也是这个思路。实底按钮用下面的 strong,
+                                          白字才不会跟着提亮而跌破 */
+    --destructive-strong: 0 70% 50%;  /* 实底专用:按钮/重点填充。50%(≈red-600)
+                                          白字对比 4.87;55% 只有 4.22 */
     --destructive-foreground: 0 0% 98%;
     --success: 142 65% 50%;
     --warning: 38 85% 55%;

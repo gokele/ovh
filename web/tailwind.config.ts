@@ -33,6 +33,9 @@ export default {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+          // 实底专用:深色下 --destructive 是文字优化的亮红(95 处 text-destructive
+          // 要 4.5+),按钮白字跟着亮红会跌破 —— 实底一律用 strong
+          strong: "hsl(var(--destructive-strong))",
         },
         muted: {
           DEFAULT: "hsl(var(--muted))",
