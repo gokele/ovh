@@ -93,38 +93,14 @@ func VpsGetConsoleUrl(state *app.State) gin.HandlerFunc {
 
 // VpsSetPassword POST /api/vps-control/:service_name/password
 //
-// EU + CA 有,US 没有 —— 原注释写的 "EU only" 是错的,加拿大区
-// (ca.api.ovh.com)同样注册了 POST /vps/{serviceName}/setPassword → vps.Task。
-// 只有 api.us.ovhcloud.com 的 vps 命名空间里查无此路径,美区用户得在 noVNC 控制台里用 passwd 自助改。
-// 这里提前拒,避免把 OVH 的英文 404 甩给用户。
+// /vps/{sn}/setPassword 被 OVH 标记废弃(EU/CA,删除日期 2026-10-15,无替代;
+// US 从来没有)—— 按约定废弃端点不再调用。路由保留给旧前端,响应固定为
+// "已下线 + 替代做法"。改密码任何时候都能走 noVNC 里的 passwd。
 func VpsSetPassword(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		svc := c.Param("service_name")
-		if vpsRegionFor(state, c) == vpsRegionUS {
-			vpsUnsupportedWrite(c, "美区 OVHcloud 未提供 VPS 远程重置密码接口(该端点仅欧洲区 / 加拿大区有)——"+
-				"请点「控制台」打开 noVNC,进系统后用 passwd 命令自助修改")
-			return
-		}
-		client, err := ovhClientFor(state, c)
-		if err != nil {
-			noOVHResp(c)
-			return
-		}
-		var task map[string]interface{}
-		if err := client.Post("/vps/"+svc+"/setPassword", map[string]interface{}{}, &task); err != nil {
-			// 2026-10-15 起 OVH 删除 setPassword(EU/CA 同批废弃,schema 无替代)。
-			// 死了就直说,并给出剩余出路 —— noVNC 里的 passwd 什么时候都在。
-			if ovhIsGone(err) {
-				c.JSON(http.StatusGone, gin.H{
-					"success": false,
-					"error":   "OVH 已下线 VPS 远程重置密码接口(2026-10-15 废弃,无替代)。请点「控制台」打开 noVNC,进系统后用 passwd 命令修改",
-				})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
-			return
-		}
-		state.Logger.Info("VPS "+svc+" 密码重置任务已创建,新密码将邮件发送", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "密码重置任务已创建,新密码已发送至邮箱", "task": task})
+		c.JSON(http.StatusGone, gin.H{
+			"success": false,
+			"error":   "OVH 已下线 VPS 远程重置密码接口(2026-10-15 废弃,无替代)。请点「控制台」打开 noVNC,进系统后用 passwd 命令修改",
+		})
 	}
 }

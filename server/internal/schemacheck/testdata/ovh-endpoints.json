@@ -991,44 +991,6 @@
       ]
     }
   },
-  "GET /dedicated/server/{serviceName}/mrtg": {
-    "CA": {
-      "status": "DEPRECATED",
-      "deprecated": "2017-10-23T00:00:00+01:00",
-      "deletion": "2018-04-23T00:00:00+01:00",
-      "replacement": "/dedicated/server/{serviceName}/networkInterfaceController",
-      "response": "dedicated.server.MrtgTimestampValue[]",
-      "params": [
-        "path:serviceName:string:true",
-        "query:period:dedicated.server.MrtgPeriodEnum:true",
-        "query:type:dedicated.server.MrtgTypeEnum:true"
-      ]
-    },
-    "EU": {
-      "status": "DEPRECATED",
-      "deprecated": "2017-10-23T00:00:00+01:00",
-      "deletion": "2018-04-23T00:00:00+01:00",
-      "replacement": "/dedicated/server/{serviceName}/networkInterfaceController",
-      "response": "dedicated.server.MrtgTimestampValue[]",
-      "params": [
-        "path:serviceName:string:true",
-        "query:period:dedicated.server.MrtgPeriodEnum:true",
-        "query:type:dedicated.server.MrtgTypeEnum:true"
-      ]
-    },
-    "US": {
-      "status": "DEPRECATED",
-      "deprecated": "2017-10-23T00:00:00+01:00",
-      "deletion": "2018-04-23T00:00:00+01:00",
-      "replacement": "/dedicated/server/{serviceName}/networkInterfaceController",
-      "response": "dedicated.server.MrtgTimestampValue[]",
-      "params": [
-        "path:serviceName:string:true",
-        "query:period:dedicated.server.MrtgPeriodEnum:true",
-        "query:type:dedicated.server.MrtgTypeEnum:true"
-      ]
-    }
-  },
   "GET /dedicated/server/{serviceName}/networkInterfaceController": {
     "CA": {
       "status": "BETA",
@@ -2355,26 +2317,6 @@
       ]
     }
   },
-  "GET /vps/{serviceName}/distribution": {
-    "CA": {
-      "status": "DEPRECATED",
-      "deprecated": "2026-07-15T00:00:00Z",
-      "deletion": "2026-10-15T00:00:00Z",
-      "response": "vps.Template",
-      "params": [
-        "path:serviceName:string:true"
-      ]
-    },
-    "EU": {
-      "status": "DEPRECATED",
-      "deprecated": "2026-07-15T00:00:00Z",
-      "deletion": "2026-10-15T00:00:00Z",
-      "response": "vps.Template",
-      "params": [
-        "path:serviceName:string:true"
-      ]
-    }
-  },
   "GET /vps/{serviceName}/images/available": {
     "CA": {
       "status": "BETA",
@@ -2536,26 +2478,6 @@
       ]
     }
   },
-  "GET /vps/{serviceName}/status": {
-    "CA": {
-      "status": "DEPRECATED",
-      "deprecated": "2026-07-15T00:00:00Z",
-      "deletion": "2026-10-15T00:00:00Z",
-      "response": "vps.ip.ServiceStatus",
-      "params": [
-        "path:serviceName:string:true"
-      ]
-    },
-    "EU": {
-      "status": "DEPRECATED",
-      "deprecated": "2026-07-15T00:00:00Z",
-      "deletion": "2026-10-15T00:00:00Z",
-      "response": "vps.ip.ServiceStatus",
-      "params": [
-        "path:serviceName:string:true"
-      ]
-    }
-  },
   "GET /vps/{serviceName}/tasks": {
     "CA": {
       "status": "PRODUCTION",
@@ -2607,26 +2529,6 @@
       "response": "vps.Task",
       "params": [
         "path:id:long:true",
-        "path:serviceName:string:true"
-      ]
-    }
-  },
-  "GET /vps/{serviceName}/templates": {
-    "CA": {
-      "status": "DEPRECATED",
-      "deprecated": "2026-07-15T00:00:00Z",
-      "deletion": "2026-10-15T00:00:00Z",
-      "response": "long[]",
-      "params": [
-        "path:serviceName:string:true"
-      ]
-    },
-    "EU": {
-      "status": "DEPRECATED",
-      "deprecated": "2026-07-15T00:00:00Z",
-      "deletion": "2026-10-15T00:00:00Z",
-      "response": "long[]",
-      "params": [
         "path:serviceName:string:true"
       ]
     }
@@ -3225,76 +3127,6 @@
       ]
     }
   },
-  "POST /dedicated/server/{serviceName}/virtualNetworkInterface/{uuid}/disable": {
-    "CA": {
-      "status": "DEPRECATED",
-      "deprecated": "2021-01-08T00:00:00+01:00",
-      "deletion": "2021-04-08T00:00:00+01:00",
-      "replacement": "/dedicated/server/{serviceName}/ola/aggregation",
-      "response": "dedicated.server.Task",
-      "params": [
-        "path:serviceName:string:true",
-        "path:uuid:uuid:true"
-      ]
-    },
-    "EU": {
-      "status": "DEPRECATED",
-      "deprecated": "2021-01-08T00:00:00+01:00",
-      "deletion": "2021-04-08T00:00:00+01:00",
-      "replacement": "/dedicated/server/{serviceName}/ola/aggregation",
-      "response": "dedicated.server.Task",
-      "params": [
-        "path:serviceName:string:true",
-        "path:uuid:uuid:true"
-      ]
-    },
-    "US": {
-      "status": "DEPRECATED",
-      "deprecated": "2021-01-08T00:00:00+01:00",
-      "deletion": "2021-04-08T00:00:00+01:00",
-      "replacement": "/dedicated/server/{serviceName}/ola/aggregation",
-      "response": "dedicated.server.Task",
-      "params": [
-        "path:serviceName:string:true",
-        "path:uuid:uuid:true"
-      ]
-    }
-  },
-  "POST /dedicated/server/{serviceName}/virtualNetworkInterface/{uuid}/enable": {
-    "CA": {
-      "status": "DEPRECATED",
-      "deprecated": "2021-01-08T00:00:00+01:00",
-      "deletion": "2021-04-08T00:00:00+01:00",
-      "replacement": "/dedicated/server/{serviceName}/ola/aggregation",
-      "response": "dedicated.server.Task",
-      "params": [
-        "path:serviceName:string:true",
-        "path:uuid:uuid:true"
-      ]
-    },
-    "EU": {
-      "status": "DEPRECATED",
-      "deprecated": "2021-01-08T00:00:00+01:00",
-      "deletion": "2021-04-08T00:00:00+01:00",
-      "replacement": "/dedicated/server/{serviceName}/ola/aggregation",
-      "response": "dedicated.server.Task",
-      "params": [
-        "path:serviceName:string:true",
-        "path:uuid:uuid:true"
-      ]
-    },
-    "US": {
-      "status": "DEPRECATED",
-      "deprecated": "2021-01-08T00:00:00+01:00",
-      "deletion": "2021-04-08T00:00:00+01:00",
-      "replacement": "/dedicated/server/{serviceName}/ola/aggregation",
-      "response": "dedicated.server.Task",
-      "params": [
-        "path:serviceName:string:true",
-        "path:uuid:uuid:true"
-      ]
-    }
-  },
   "POST /ip/{ip}/mitigation": {
     "CA": {
       "status": "PRODUCTION",
@@ -3769,28 +3601,6 @@
       ]
     }
   },
-  "POST /vps/{serviceName}/reinstall": {
-    "CA": {
-      "status": "DEPRECATED",
-      "deprecated": "2026-07-15T00:00:00Z",
-      "deletion": "2026-10-15T00:00:00Z",
-      "response": "vps.Task",
-      "params": [
-        "body::vps.reinstall.post:true",
-        "path:serviceName:string:true"
-      ]
-    },
-    "EU": {
-      "status": "DEPRECATED",
-      "deprecated": "2026-07-15T00:00:00Z",
-      "deletion": "2026-10-15T00:00:00Z",
-      "response": "vps.Task",
-      "params": [
-        "body::vps.reinstall.post:true",
-        "path:serviceName:string:true"
-      ]
-    }
-  },
   "POST /vps/{serviceName}/secondaryDnsDomains": {
     "CA": {
       "status": "PRODUCTION",
@@ -3813,26 +3623,6 @@
       "response": "void",
       "params": [
         "body::vps.secondaryDnsDomains.post:true",
-        "path:serviceName:string:true"
-      ]
-    }
-  },
-  "POST /vps/{serviceName}/setPassword": {
-    "CA": {
-      "status": "DEPRECATED",
-      "deprecated": "2026-07-15T00:00:00Z",
-      "deletion": "2026-10-15T00:00:00Z",
-      "response": "vps.Task",
-      "params": [
-        "path:serviceName:string:true"
-      ]
-    },
-    "EU": {
-      "status": "DEPRECATED",
-      "deprecated": "2026-07-15T00:00:00Z",
-      "deletion": "2026-10-15T00:00:00Z",
-      "response": "vps.Task",
-      "params": [
         "path:serviceName:string:true"
       ]
     }

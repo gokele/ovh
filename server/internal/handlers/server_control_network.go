@@ -63,21 +63,8 @@ func normalizeMRTGQuery(c *gin.Context) (period string, trafficType string, err 
 	return period, trafficType, nil
 }
 
-// legacyMRTGFallback 打 /dedicated/server/{svc}/mrtg。
-// ⚠️ 该端点在 EU / US / CA 三区 schema 里都存在且都标了 DEPRECATED，官方 replacement 正是
-// /dedicated/server/{svc}/networkInterfaceController(+/{mac}/mrtg)——那两条也是三区齐全。
-// 即三区在流量图这条链路上没有能力差异，不需要区域门控；仅作兜底，随时可能被 OVH 下线，
-// 所以调用方必须在响应里把 deprecated 标出来。
-func legacyMRTGFallback(client *ovhsdk.Client, svc, period, trafficType string) ([]map[string]interface{}, error) {
-	q := url.Values{}
-	q.Set("period", period)
-	q.Set("type", trafficType)
-	var data []map[string]interface{}
-	if err := client.Get("/dedicated/server/"+svc+"/mrtg?"+q.Encode(), &data); err != nil {
-		return nil, err
-	}
-	return data, nil
-}
+// (旧版 legacyMRTGFallback 已删:它打的 /dedicated/server/{svc}/mrtg 三区 DEPRECATED,
+//  按约定废弃端点不再调用 —— 新端点拿不到网卡时如实报错/报空,不静默兜底。)
 
 // perNICMRTG 按 schema 推荐路径逐张网卡取流量图：/networkInterfaceController/{mac}/mrtg。
 func perNICMRTG(client *ovhsdk.Client, svc string, macs []string, period, trafficType string) []gin.H {
@@ -211,34 +198,21 @@ func GetMRTGData(state *app.State) gin.HandlerFunc {
 
 		var macs []string
 		listErr := client.Get("/dedicated/server/"+svc+"/networkInterfaceController", &macs)
-		// networkInterfaceController 是 BETA 端点：既可能报错，也可能 200 回空数组。
-		// 两种情况都得回落到旧端点，否则用户拿到的是一张没有任何提示的空流量图，
-		// 分不清「本来就没数据」还是「接口坏了」。
-		if listErr != nil || len(macs) == 0 {
-			reason := "网卡列表为空"
-			if listErr != nil {
-				reason = listErr.Error()
-			}
-			state.Logger.Warn("[MRTG] "+reason+"，回落到已废弃(DEPRECATED)的 /dedicated/server/{svc}/mrtg", "server_control")
-			data, fbErr := legacyMRTGFallback(client, svc, period, trafficType)
-			if fbErr != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"error":   "新旧API均失败: " + reason + " / " + ovh.Explain(fbErr),
-				})
-				return
-			}
-			// 回落数据必须包成 interfaces:[{mac,data}]：前端 use-mrtg.ts 的 MrtgResponse 只读
-			// interfaces，放在顶层 data 里等于回落了个寂寞（用户看到的还是空图）。
-			// mac 留空表示「这条曲线来自旧端点，OVH 没告诉我们是哪张网卡」，
-			// 与同文件 GetTrafficStatistics 的 statistics:[{mac:"",data}] 包法保持一致。
+		// 旧端点 /dedicated/server/{svc}/mrtg 三区 DEPRECATED(deletion 2018 年就到期),
+		// 按约定不再回落。网卡列表拿不到就如实报错 —— 空流量图配一条明确错误,
+		// 比静默画一张空图或打一条废弃接口强。
+		if listErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "网卡列表读取失败,无法取流量图: " + ovh.Explain(listErr),
+			})
+			return
+		}
+		if len(macs) == 0 {
 			c.JSON(http.StatusOK, gin.H{
-				"success":    true,
-				"period":     period,
-				"type":       trafficType,
-				"interfaces": []gin.H{{"mac": "", "data": data}},
-				"deprecated": true,
-				"message":    "网卡列表接口无数据，已回落到 OVH 已废弃的旧版流量接口（该接口随时可能被 OVH 下线）",
+				"success": true, "period": period, "type": trafficType,
+				"interfaces": []gin.H{},
+				"message":    "OVH 未返回任何网卡(可能是极老机型未接入 networkInterfaceController),因此没有流量图数据",
 			})
 			return
 		}
@@ -680,28 +654,20 @@ func GetTrafficStatistics(state *app.State) gin.HandlerFunc {
 
 		var macs []string
 		listErr := client.Get("/dedicated/server/"+svc+"/networkInterfaceController", &macs)
-		if listErr != nil || len(macs) == 0 {
-			reason := "网卡列表为空"
-			if listErr != nil {
-				reason = listErr.Error()
-			}
-			state.Logger.Warn("[Stats] "+reason+"，回落到已废弃(DEPRECATED)的 /dedicated/server/{svc}/mrtg", "server_control")
-			data, fbErr := legacyMRTGFallback(client, svc, period, typeParam)
-			if fbErr != nil {
-				state.Logger.Error("[Stats] 新旧流量接口均失败: "+reason+" / "+fbErr.Error(), "server_control")
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"error":   "获取流量统计失败: " + ovh.Explain(fbErr),
-				})
-				return
-			}
+		// 同 GetMRTGData:不再回落废弃的 /mrtg,拿不到网卡就如实说
+		if listErr != nil {
+			state.Logger.Error("[Stats] 网卡列表读取失败: "+listErr.Error(), "server_control")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "网卡列表读取失败,无法取流量统计: " + ovh.Explain(listErr),
+			})
+			return
+		}
+		if len(macs) == 0 {
 			c.JSON(http.StatusOK, gin.H{
-				"success":    true,
-				"statistics": []gin.H{{"mac": "", "data": data}},
-				"period":     period,
-				"type":       typeParam,
-				"deprecated": true,
-				"message":    "网卡列表接口无数据，已回落到 OVH 已废弃的旧版流量接口（该接口随时可能被 OVH 下线）",
+				"success": true, "period": period, "type": typeParam,
+				"statistics": []gin.H{},
+				"message":    "OVH 未返回任何网卡(可能是极老机型未接入 networkInterfaceController),因此没有流量统计数据",
 			})
 			return
 		}

@@ -113,39 +113,8 @@ export function useVpsInfo(svc: string | null) {
   });
 }
 
-/** 服务端口探测结果。两种"拿不到但不是故障"的形态:
- *  - US 区没有这个 OVH 端点 → status:null + unsupported:true
- *  - 2026-10-15 起 OVH 全区下线该端点 → status:null + removed:true(无替代) */
-export interface VpsServiceStatusResult {
-  status: Record<string, any> | null;
-  /** true 表示当前账户所在区域没有该能力，组件应整块隐藏而不是显示「加载失败」 */
-  unsupported: boolean;
-  /** true 表示 OVH 已下线该功能(废弃移除,非区域差异)—— 展示后端给的说明,不是报错 */
-  removed?: boolean;
-  /** unsupported / removed 时的中文说明 */
-  message?: string;
-  /** 后端判定的大区（目前只会是 "US"）。前端优先用它写文案，而不是自己再判一次 endpoint */
-  region?: string;
-}
-
-/** VPS 网络服务存活探测(ping/dns/http/https/smtp/ssh) — 跟 info.state 不一样 */
-export function useVpsServiceStatus(svc: string | null) {
-  return useQuery({
-    queryKey: qk.vpsControl.status(svc || ""),
-    queryFn: async (): Promise<VpsServiceStatusResult> => {
-      const res = await api.get(`/vps-control/${svc}/status`);
-      return {
-        status: (res.data?.status ?? null) as Record<string, any> | null,
-        unsupported: res.data?.unsupported === true,
-        removed: res.data?.removed === true,
-        message: res.data?.message,
-        region: res.data?.region,
-      };
-    },
-    enabled: !!svc,
-    staleTime: 30_000,
-  });
-}
+/* (useVpsServiceStatus / VpsServiceStatusResult 已删:/vps/{sn}/status 被 OVH 废弃,
+   无替代端点 —— 见 vps-control.tsx 里同名面板的删除说明。) */
 
 export function useVpsServiceInfo(svc: string | null) {
   return useQuery({
@@ -247,15 +216,12 @@ export function useVpsConsoleUrl(svc: string) {
   });
 }
 
-export function useVpsSetPassword(svc: string) {
-  return useMutation({
-    mutationFn: async () => (await api.post(`/vps-control/${svc}/password`)).data,
-  });
-}
+/* (useVpsSetPassword 已删:/vps/{sn}/setPassword 被 OVH 废弃,无替代端点;
+   新做法 = 重装时让 OVH 重发密码,或预装 SSH key。) */
 
 /* ────────────── Reinstall ────────────── */
 
-/** 当前安装的系统信息(EU /distribution / US /images/current) */
+/** 当前安装的系统信息(/vps/{sn}/images/current;旧 /distribution 已废弃停用) */
 export function useVpsCurrentOS(svc: string | null) {
   return useQuery({
     queryKey: qk.vpsControl.currentOS(svc || ""),
@@ -507,27 +473,8 @@ export function useVpsOptions(svc: string | null) {
   });
 }
 
-/**
- * 取消附加选项。
- * deleteNow 是 OVH schema 里的可选 query 参数：不传 = 到期时释放（默认），
- * 传 true = 立刻释放。两种语义差别很大（后者当场失去该选项），所以必须由调用方显式选，
- * 不能替用户决定。响应里的 deprecated:true 表示 OVH 已废弃该操作。
- */
-export function useDeleteVpsOption(svc: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (vars: { option: string; deleteNow?: boolean }) => {
-      const qs = vars.deleteNow ? "?deleteNow=true" : "";
-      return (await api.delete(`/vps-control/${svc}/options/${encodeURIComponent(vars.option)}${qs}`)).data as {
-        success: boolean;
-        message?: string;
-        deleteNow?: boolean;
-        deprecated?: boolean;
-      };
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.vpsControl.options(svc) }),
-  });
-}
+/* (useDeleteVpsOption 已删:DELETE /vps/{sn}/option/{option} 已从三区 schema 消失,
+   取消选项只能到 OVH 控制台。它本来就没有 UI 调用方。) */
 
 /* ────────────── Engagement(合同期) ────────────── */
 

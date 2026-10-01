@@ -256,49 +256,10 @@ func GetVirtualNetworkInterfaces(state *app.State) gin.HandlerFunc {
 	}
 }
 
-func EnableVirtualNetworkInterface(state *app.State) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		svc := c.Param("service_name")
-		id := c.Param("uuid")
-		client, err := ovhClientFor(state, c)
-		if err != nil {
-			noOVHResp(c)
-			return
-		}
-		// schema 标了 DEPRECATED,replacement 写的是 /ola/aggregation;但那个端点是 BETA、
-		// 必填 name + virtualNetworkInterfaces[],语义是"把多个接口聚合成一个",并不等价于
-		// 单接口 enable,照搬会改变行为,所以继续用现端点,只把它返回的 task 交出去。
-		// body 保持空对象(schema 无 body 参数),不改成 nil 是为了不动现在跑得通的请求形态。
-		var task map[string]interface{}
-		if err := client.Post("/dedicated/server/"+svc+"/virtualNetworkInterface/"+id+"/enable", map[string]interface{}{}, &task); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
-			return
-		}
-		state.Logger.Info(fmt.Sprintf("启用虚拟网络接口 %s 成功, taskId=%v", id, task["taskId"]), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "虚拟网络接口已启用", "task": task, "taskId": task["taskId"]})
-	}
-}
-
-func DisableVirtualNetworkInterface(state *app.State) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		svc := c.Param("service_name")
-		id := c.Param("uuid")
-		client, err := ovhClientFor(state, c)
-		if err != nil {
-			noOVHResp(c)
-			return
-		}
-		// 同 enable:端点虽标 DEPRECATED,但 /ola/aggregation 不是等价替换(见上),
-		// 这里只补回被丢弃的 dedicated.server.Task,让前端能跟踪 OLA 任务进度
-		var task map[string]interface{}
-		if err := client.Post("/dedicated/server/"+svc+"/virtualNetworkInterface/"+id+"/disable", map[string]interface{}{}, &task); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
-			return
-		}
-		state.Logger.Info(fmt.Sprintf("禁用虚拟网络接口 %s 成功, taskId=%v", id, task["taskId"]), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "虚拟网络接口已禁用", "task": task, "taskId": task["taskId"]})
-	}
-}
+// (Enable/DisableVirtualNetworkInterface 已删:它们打的
+//  /dedicated/server/{sn}/virtualNetworkInterface/{uuid}/enable|disable 三区 DEPRECATED,
+//  按约定废弃端点不再调用。schema 给的 replacement(/ola/aggregation)语义是
+//  "把多个接口聚合成一个",不等价于单接口启停,不照搬。虚拟网卡启停请到 OVH 控制台。)
 
 // vRack
 func GetVRackList(state *app.State) gin.HandlerFunc {

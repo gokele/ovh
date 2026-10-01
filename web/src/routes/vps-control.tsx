@@ -22,12 +22,12 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   useOwnedVps, useVpsServiceInfo, useVpsIps, useVpsCurrentOS,
-  useVpsStart, useVpsStop, useVpsReboot, useVpsConsoleUrl, useVpsSetPassword,
+  useVpsStart, useVpsStop, useVpsReboot, useVpsConsoleUrl,
   useUpdateVpsRenewal, useChangeVpsContact,
   useTerminateVps, useConfirmTerminateVps,
   useVpsEngagement, useVpsEngagementAvailable, useVpsEngagementRequest,
   useCreateVpsEngagementRequest, useDeleteVpsEngagementRequest, useUpdateVpsEngagementEndRule,
-  useVpsOptions, useVpsServiceStatus,
+  useVpsOptions,
   type OwnedVps,
 } from "@/hooks/use-vps-control";
 import { isUsEndpoint, regionLabel, regionLabelOf, endpointRegion } from "@/lib/ovh-regions";
@@ -250,8 +250,9 @@ function VpsOptionsPanel({ serviceName, region }: { serviceName: string; region:
                 {!manageable && opt.unsupportedReason && (
                   <p className="text-[11px] text-muted-foreground">
                     {opt.unsupportedReason}
-                    {/* 只是"没有专属管理端点",退订接口三区都在,所以别让用户以为这项取消不掉 */}
-                    <span className="block mt-0.5">（该选项仍在计费和生效中，退订接口不受影响）</span>
+                    {/* 2026-10 起 OVH 的「取消选项」API 已整个下线(无替代),
+                        所有区域都只能到控制台退订 —— 这块说明对全区适用了 */}
+                    <span className="block mt-0.5">（该选项仍在计费和生效中；退订请到 OVH 控制台）</span>
                   </p>
                 )}
               </div>
@@ -263,48 +264,8 @@ function VpsOptionsPanel({ serviceName, region }: { serviceName: string; region:
   );
 }
 
-/**
- * VPS 网络服务探测(ping / dns / http / https / smtp / ssh)。
- * /vps/{sn}/status 只在 EU 与 CA 两站注册,US 站点整片 vps 命名空间里没有这条路径,
- * 后端返 200 + status:null + unsupported:true + region:"US"。
- * 这里直接消费后端结论(unsupported / region),不自己再判一次 endpoint。
- */
-function VpsServiceStatusPanel({ serviceName, region }: { serviceName: string; region: string }) {
-  const q = useVpsServiceStatus(serviceName);
-  const data = q.data;
-  if (q.isPending) return <Skeleton className="h-12 rounded-2xl" />;
-  if (q.isError) return null;
-
-  if (data?.unsupported || data?.removed) {
-    return (
-      <div className="border border-border rounded-2xl p-3 bg-secondary/30 text-[11px] text-muted-foreground">
-        网络服务探测:{data.message || `${regionLabelOf(data.region) || region}没有这个 OVH 端点`}
-      </div>
-    );
-  }
-  const entries = Object.entries(data?.status || {});
-  if (entries.length === 0) return null;
-  return (
-    <div className="border border-border rounded-2xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-        <Terminal className="w-4 h-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold">网络服务探测</h3>
-        <span className="text-[11px] text-muted-foreground ml-auto">OVH 侧端口存活,与 VPS 电源状态无关</span>
-      </div>
-      <div className="px-4 py-3 flex flex-wrap gap-x-4 gap-y-2 text-[12px]">
-        {entries.map(([k, v]) => (
-          <span key={k} className="flex items-center gap-1.5">
-            {typeof v === "boolean" ? (
-              <StatusDot tone={v ? "success" : "danger"} size="xs" />
-            ) : null}
-            <span className="text-muted-foreground">{k}</span>
-            {typeof v !== "boolean" && <span className="font-mono">{String(v)}</span>}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
+/* (VpsServiceStatusPanel 已删:/vps/{sn}/status 被 OVH 废弃(2026-10-15 删除),
+   全 schema 无替代端口探测端点 —— 没有可切换的新接口。后端路由保留,固定回 removed:true。) */
 
 /* ────────────── VPS 详情区 ────────────── */
 
@@ -330,12 +291,10 @@ function VpsDetail({
   const stop = useVpsStop(server.serviceName);
   const reboot = useVpsReboot(server.serviceName);
   const console_ = useVpsConsoleUrl(server.serviceName);
-  const setPwd = useVpsSetPassword(server.serviceName);
   const terminate = useTerminateVps();
   const confirmTerm = useConfirmTerminateVps();
 
   const [reinstallOpen, setReinstallOpen] = useState(false);
-  const [setPwdOpen, setSetPwdOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
   const [terminateOpen, setTerminateOpen] = useState(false);
   const [termToken, setTermToken] = useState("");
@@ -421,15 +380,6 @@ function VpsDetail({
       }
     } catch (e: any) {
       toast.error(e?.response?.data?.error || "获取失败");
-    }
-  };
-  const handleSetPwd = async () => {
-    try {
-      await setPwd.mutateAsync();
-      toast.success("新密码已发送至邮箱");
-      setSetPwdOpen(false);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.error || "重置失败");
     }
   };
   const handleTerminate = async () => {
@@ -614,12 +564,8 @@ function VpsDetail({
             <HardDrive className="w-4 h-4 mr-1" />
             重装系统
           </Button>
-          {!isUS && (
-            <Button variant="outline" onClick={() => setSetPwdOpen(true)}>
-              <KeyRound className="w-4 h-4 mr-1" />
-              重置密码
-            </Button>
-          )}
+          {/* 重置密码按钮已删:底层 /vps/{sn}/setPassword 被 OVH 废弃(2026-10-15 删除,
+              无替代)。改密码走 Web 控制台(noVNC)里的 passwd。 */}
           <Button variant="outline" onClick={() => setEngagementOpen(true)}>
             <CalendarPlus className="w-4 h-4 mr-1" />
             合同期
@@ -707,7 +653,6 @@ function VpsDetail({
           </div>
 
           {/* 网络服务探测(EU/CA 有,US 没有这条 OVH 端点) */}
-          <VpsServiceStatusPanel serviceName={server.serviceName} region={region} />
 
           {/* 一行底部:型号 + 开通日期 + 集群,放轻量 */}
           <p className="text-[11px] text-muted-foreground px-1">
@@ -835,25 +780,6 @@ function VpsDetail({
             <Button variant="outline" onClick={() => setStopOpen(false)}>取消</Button>
             <Button variant="destructive" onClick={handleStop} disabled={stop.isPending}>
               {stop.isPending ? "提交中…" : "确认关机"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 重置密码确认 */}
-      <Dialog open={setPwdOpen} onOpenChange={setSetPwdOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>重置 root/admin 密码?</DialogTitle>
-            <DialogDescription>OVH 会生成新密码并发送至账户邮箱</DialogDescription>
-          </DialogHeader>
-          <p className="text-[12px] text-muted-foreground">
-            如果你设置过 SSH key 登录,可以不动密码;新密码会立即覆盖旧密码,继续登录需要等邮件。
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSetPwdOpen(false)}>取消</Button>
-            <Button onClick={handleSetPwd} disabled={setPwd.isPending}>
-              {setPwd.isPending ? "提交中…" : "确认重置"}
             </Button>
           </DialogFooter>
         </DialogContent>

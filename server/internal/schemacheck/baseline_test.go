@@ -87,8 +87,21 @@ func baselinePath() string { return filepath.Join("testdata", "ovh-endpoints.jso
 // 而忘了在 handler 里加降级。
 var removedEndpoints = []string{
 	// DELETE /vps/{sn}/option/{option}:2026-10 复查时已从三区 schema 整个消失
-	// (此前 DEPRECATED,deletionDate 2024-06-01)。DeleteVpsOption 对 404/410 有提示。
+	// (此前 DEPRECATED,deletionDate 2024-06-01)。DeleteVpsOption 已改为固定回"已移除"。
 	"DELETE /vps/{serviceName}/option/{option}",
+
+	// 以下 8 个 2026-10 被 OVH 标记废弃(EU/CA,删除日期 2026-10-15),已按约定
+	// 停用 —— 有新端点的已切换(images/current/rebuild/networkInterfaceController/{mac}/mrtg),
+	// 没有的(vps status / setPassword / vNIC enable-disable / vps mrtg→独服已用新端点)
+	// 功能下线并在 handler 里给明确提示。登记在这里 = 代码不再调用它们。
+	"GET /dedicated/server/{serviceName}/mrtg",
+	"GET /vps/{serviceName}/distribution",
+	"GET /vps/{serviceName}/status",
+	"GET /vps/{serviceName}/templates",
+	"POST /dedicated/server/{serviceName}/virtualNetworkInterface/{uuid}/disable",
+	"POST /dedicated/server/{serviceName}/virtualNetworkInterface/{uuid}/enable",
+	"POST /vps/{serviceName}/reinstall",
+	"POST /vps/{serviceName}/setPassword",
 }
 
 var usedEndpoints = []string{
@@ -133,7 +146,6 @@ var usedEndpoints = []string{
 	"GET /dedicated/server/{serviceName}/ips",
 	"GET /dedicated/server/{serviceName}/license/compliantWindows",
 	"GET /dedicated/server/{serviceName}/license/compliantWindowsSqlServer",
-	"GET /dedicated/server/{serviceName}/mrtg",
 	"GET /dedicated/server/{serviceName}/networkInterfaceController",
 	"GET /dedicated/server/{serviceName}/networkInterfaceController/{mac}/mrtg",
 	"POST /dedicated/server/{serviceName}/ola/aggregation",
@@ -169,8 +181,6 @@ var usedEndpoints = []string{
 	"GET /dedicated/server/{serviceName}/virtualMac",
 	"POST /dedicated/server/{serviceName}/virtualMac",
 	"GET /dedicated/server/{serviceName}/virtualNetworkInterface",
-	"POST /dedicated/server/{serviceName}/virtualNetworkInterface/{uuid}/disable",
-	"POST /dedicated/server/{serviceName}/virtualNetworkInterface/{uuid}/enable",
 	"GET /dedicated/server/{serviceName}/vrack",
 	"DELETE /dedicated/server/{serviceName}/vrack/{vrack}",
 
@@ -192,7 +202,6 @@ var usedEndpoints = []string{
 	"POST /vps/{serviceName}/confirmTermination",
 	"POST /vps/{serviceName}/createSnapshot",
 	"GET /vps/{serviceName}/datacenter",
-	"GET /vps/{serviceName}/distribution",
 	"POST /vps/{serviceName}/getConsoleUrl",
 	"GET /vps/{serviceName}/images/available",
 	"GET /vps/{serviceName}/images/current",
@@ -201,23 +210,19 @@ var usedEndpoints = []string{
 	"GET /vps/{serviceName}/option",
 	"POST /vps/{serviceName}/reboot",
 	"POST /vps/{serviceName}/rebuild",
-	"POST /vps/{serviceName}/reinstall",
 	"GET /vps/{serviceName}/secondaryDnsDomains",
 	"POST /vps/{serviceName}/secondaryDnsDomains",
 	"DELETE /vps/{serviceName}/secondaryDnsDomains/{domain}",
 	"GET /vps/{serviceName}/serviceInfos",
 	"PUT /vps/{serviceName}/serviceInfos",
-	"POST /vps/{serviceName}/setPassword",
 	"DELETE /vps/{serviceName}/snapshot",
 	"GET /vps/{serviceName}/snapshot",
 	"PUT /vps/{serviceName}/snapshot",
 	"POST /vps/{serviceName}/snapshot/revert",
 	"POST /vps/{serviceName}/start",
-	"GET /vps/{serviceName}/status",
 	"POST /vps/{serviceName}/stop",
 	"GET /vps/{serviceName}/tasks",
 	"GET /vps/{serviceName}/tasks/{id}",
-	"GET /vps/{serviceName}/templates",
 	"POST /vps/{serviceName}/terminate",
 
 	// —— 下单 / 目录 ——

@@ -219,55 +219,15 @@ func GetVpsInfo(state *app.State) gin.HandlerFunc {
 
 // GetVpsServiceStatus GET /api/vps-control/:service_name/status
 //
-// OVH /vps/{name}/status 返回 vps.ip.ServiceStatus(ping/dns/http/https/smtp/ssh/tools 服务端口探测),
-// 跟 /vps/{name}.state(running/stopped/...)是两码事 —— 前者是网络服务存活,后者是 VPS 自身状态。
+// /vps/{name}/status(ping/dns/http/https/smtp/ssh 端口探测)已被 OVH 标记废弃、
+// 2026-10-15 删除、无替代 —— 按约定废弃端点不再调用。路由保留是为了旧前端
+// 不至于 404,响应固定为 removed:true,新前端已不再请求这条。
 func GetVpsServiceStatus(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		svc := c.Param("service_name")
-		// /vps/{serviceName}/status 在 EU 和 CA 两个站点都有(responseType 均为 vps.ip.ServiceStatus),
-		// 只有 US 站点整片 vps 命名空间里没有这条路径,硬打过去必然 404。
-		// 原注释写的"只在 EU 注册"是错的 —— 加拿大区同样可用,别照着它给 CA 也加门控。
-		if vpsRegionFor(state, c) == vpsRegionUS {
-			vpsUnsupportedRead(c, "status", nil,
-				"美区 OVHcloud 未提供 VPS 服务端口探测接口(该端点仅欧洲区 / 加拿大区有);想看端口存活请自行用外部监控")
-			return
-		}
-		client, err := ovhClientFor(state, c)
-		if err != nil {
-			noOVHResp(c)
-			return
-		}
-		var status map[string]interface{}
-		if err := client.Get("/vps/"+svc+"/status", &status); err != nil {
-			// 2026-10 起 OVH 把该端点标记废弃(EU/CA,删除日期 2026-10-15,无替代)。
-			// 到期后这里 404/410 —— 端口探测功能整体下线,如实说明并按"功能移除"降级,
-			// 不能让用户把它当成故障去排查。
-			if ovhIsGone(err) {
-				c.JSON(http.StatusOK, gin.H{
-					"success": true, "status": nil, "removed": true,
-					"message": "OVH 已下线 VPS 端口探测接口(2026-10-15 废弃,无替代)。想看端口存活请自行用外部监控",
-				})
-				return
-			}
-			// 废弃之前它还活着,且 OVH 对这条路单独要一个 IAM 权限:vps:apiovh:status/get。
-			// consumer key 建的时候没勾到 GET /vps/* 就会吃 403 —— 而别的 VPS 端点
-			// (/vps/{sn} 要 vps:apiovh:get、/ips 要 ips/get)权限各自独立,照样能用,
-			// 所以用户看到的是"这一页大部分正常,唯独状态这块报 500"。
-			// 直接把 OVH 的英文 403 甩成 500,用户无从知道该去补哪一项权限。
-			code, msg := featureOVHErr(err)
-			if code == http.StatusForbidden {
-				c.JSON(http.StatusOK, gin.H{
-					"success": true, "status": nil, "unauthorized": true,
-					"message": "当前 OVH 凭据没有读取端口探测状态的权限（需要 IAM 权限 vps:apiovh:status/get）。" +
-						"到 OVH 控制台重新生成 Consumer Key、给它 GET /vps/* 的权限即可；" +
-						"这一项不影响 VPS 的其它功能。",
-				})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": msg})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "status": status})
+		c.JSON(http.StatusOK, gin.H{
+			"success": true, "status": nil, "removed": true,
+			"message": "OVH 已下线 VPS 端口探测接口(2026-10-15 废弃,无替代)。想看端口存活请自行用外部监控",
+		})
 	}
 }
 
