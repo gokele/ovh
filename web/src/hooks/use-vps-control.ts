@@ -273,12 +273,13 @@ export function useVpsTemplates(svc: string | null) {
 export function useReinstallVps(svc: string) {
   const qc = useQueryClient();
   return useMutation({
+    // 全量走 /vps/{sn}/rebuild(body vps.rebuild.post):imageId + 单个 sshKey +
+    // doNotSendPassword。旧 reinstall 的 language/softwareId 字段 rebuild 不收,
+    // 别再让调用方以为选了语言会生效。
     mutationFn: async (vars: {
-      templateId: number | string;
-      language?: string;
+      templateId: number | string; // 语义是 imageId;数字是旧缓存,后端转字符串
       sshKey?: string[];
       doNotSendPassword?: boolean;
-      softwareId?: number[];
     }) => (await api.post(`/vps-control/${svc}/reinstall`, vars)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.vpsControl.tasks(svc) });

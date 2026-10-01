@@ -27,7 +27,6 @@ export function VpsReinstallDialog({
   const reinstall = useReinstallVps(serviceName);
 
   const [templateId, setTemplateId] = useState<number | string | null>(null);
-  const [language, setLanguage] = useState<string>("en");
   const [doNotSendPassword, setDoNotSendPassword] = useState(false);
   const [sshKeyNames, setSshKeyNames] = useState<string>(""); // 逗号分隔
   const [confirmName, setConfirmName] = useState("");
@@ -41,14 +40,10 @@ export function VpsReinstallDialog({
   // 切模板时同步语言到该模板默认语言。templateId 可能是 number(EU) 或 string(US imageId),
   // Select 的 value 只能是 string,这里按需 cast
   const handleTemplateChange = (v: string) => {
-    // 尝试转 number,纯数字则按 EU long 处理,否则当 US imageId 字符串
+    // 尝试转 number,纯数字是旧模板缓存,否则当 imageId 字符串 —— 后端统一转 imageId
     const asNum = Number(v);
     const id: number | string = !Number.isNaN(asNum) && String(asNum) === v ? asNum : v;
     setTemplateId(id);
-    const tpl = tplItems.find((t) => String(t.id) === v);
-    if (tpl) {
-      setLanguage(tpl.locale || tpl.availableLanguage?.[0] || "en");
-    }
   };
 
   const handleSubmit = async () => {
@@ -64,7 +59,6 @@ export function VpsReinstallDialog({
     try {
       await reinstall.mutateAsync({
         templateId,
-        language,
         sshKey: sshKey.length > 0 ? sshKey : undefined,
         doNotSendPassword,
       });
@@ -154,32 +148,22 @@ export function VpsReinstallDialog({
               what="系统模板"
               className="mt-1.5"
             />
-            {selected && (
+            {selected && (selected.locale || (selected.availableLanguage || []).length > 0) && (
               <p className="text-[11px] text-muted-foreground mt-1.5">
-                模板 ID: {selected.id} · 默认语言: {selected.locale} · 支持{" "}
-                {(selected.availableLanguage || []).length} 种语言
+                模板 ID: {selected.id}
+                {selected.locale ? ` · 默认语言: ${selected.locale}` : ""}
+                {(selected.availableLanguage || []).length > 0
+                  ? ` · 支持 ${selected.availableLanguage.length} 种语言`
+                  // images 制镜像没有 language 概念,rebuild 也不收 language 字段 ——
+                  // 全量切 rebuild 后这里恒为空,不显示误导性的"支持 0 种语言"
+                  : ""}
               </p>
             )}
           </div>
 
-          {/* 语言 */}
-          {selected && selected.availableLanguage && selected.availableLanguage.length > 0 && (
-            <div>
-              <label className="text-[12px] font-semibold block mb-1.5">语言</label>
-              <Select value={language} onValueChange={setLanguage}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {selected.availableLanguage.map((l) => (
-                    <SelectItem key={l} value={l}>
-                      {l}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          {/* 语言下拉已删:全量走 rebuild 后 OVH 不收 language 字段,
+              images 制镜像也没有语言清单 —— 留着就是"选了不生效"的假控件 */}
+
 
           {/* SSH key */}
           <div>
