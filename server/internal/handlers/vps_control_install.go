@@ -35,9 +35,13 @@ const templatesCacheTTL = 10 * time.Minute
 // GetVpsCurrentOS GET /api/vps-control/:service_name/current-os
 //
 // 当前安装的系统信息。两个端点:
-// /vps/{name}/distribution    - 仅 EU + CA(PRODUCTION),返完整 vps.Template (id, name, distribution, bitFormat, locale)
+// /vps/{name}/distribution    - 仅 EU + CA,返完整 vps.Template (id, name, distribution, bitFormat, locale)
 // /vps/{name}/images/current  - EU + CA + US 三区都有(BETA),返简化 vps.Image (id, name)
 // EU/CA 优先用前者(信息全),失败退后者;US 只能走后者,前端按 name 推 distribution。
+//
+// ⚠️ 2026-10:/distribution 已被标记废弃(EU/CA,删除日期 2026-10-15)。到期后
+// 第一支路 404,自动落到 /images/current —— 与 GetVpsTemplates 同一批的结构性退路,
+// 删除日之后无需改代码。
 //
 // 门控的原因不只是"打过去会 404":这个接口是 VPS 详情页一进来就拉的,美区账户
 // 每开一次页面就白送一次注定失败的请求给 OVH,既拖慢首屏又占限流额度。
@@ -114,6 +118,10 @@ func GetVpsCurrentOS(state *app.State) gin.HandlerFunc {
 //
 // EU/CA 上 /templates 也可能返回空数组(2020 代以后的镜像制 VPS),那时同样落到
 // /images/available —— 所以回退不是"美区专用分支",两个大区都会走到。
+//
+// ⚠️ 2026-10:/templates 已被 OVH 标记废弃(EU/CA,删除日期 2026-10-15)。到期后
+// 上面的第一支路 404,自动落到 /images/available —— 这里的结构就是按"第一支路
+// 随时会死"设计的,删除日之后无需改代码。/reinstall 的数字 id 同理,见 ReinstallVps。
 //
 // 缓存:同一账户的同一 VPS 模板列表缓存 10 分钟。详情拉取走 10 并发。
 func GetVpsTemplates(state *app.State) gin.HandlerFunc {
@@ -432,6 +440,17 @@ func ReinstallVps(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Post("/vps/"+svc+"/reinstall", params, &task); err != nil {
+			// 2026-10-15 起 OVH 删除 /reinstall(EU/CA,与 /templates 同批废弃)。
+			// 到期后这里会 404/410 —— 数字 templateId 来自 /templates,它俩同日死,
+			// 所以这条分支的存量来源只剩前端缓存。提示用户重开对话框拿新列表,
+			// 比把 OVH 的 404 原文甩出去有用得多。
+			if ovhIsGone(err) {
+				c.JSON(http.StatusGone, gin.H{
+					"success": false,
+					"error":   "OVH 已下线旧模板重装接口(2026-10-15 废弃)。请关闭对话框重新打开,从新的镜像列表里选择系统",
+				})
+				return
+			}
 			state.Logger.Error("VPS "+svc+" reinstall 失败: "+err.Error(), "vps_control")
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return

@@ -201,6 +201,12 @@ func TestDriftListCoversEveryCalledEndpoint(t *testing.T) {
 	for _, e := range usedEndpoints {
 		listed[normEndpoint(e)] = true
 	}
+	// 已从 OVH 消失但代码仍在防御性调用的(见 baseline_test.go 里 removedEndpoints
+	// 的说明)视同已登记 —— 它们没有基线可比对,登记的意义是提醒 handler 里
+	// 必须有 ovhIsGone 降级。
+	for _, e := range removedEndpoints {
+		listed[normEndpoint(e)] = true
+	}
 	missing := []string{}
 	for k, ref := range called {
 		if !listed[normEndpoint(k)] {

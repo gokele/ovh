@@ -113,12 +113,16 @@ export function useVpsInfo(svc: string | null) {
   });
 }
 
-/** 服务端口探测结果。US 区没有这个 OVH 端点，后端返 200 + status:null + unsupported:true */
+/** 服务端口探测结果。两种"拿不到但不是故障"的形态:
+ *  - US 区没有这个 OVH 端点 → status:null + unsupported:true
+ *  - 2026-10-15 起 OVH 全区下线该端点 → status:null + removed:true(无替代) */
 export interface VpsServiceStatusResult {
   status: Record<string, any> | null;
   /** true 表示当前账户所在区域没有该能力，组件应整块隐藏而不是显示「加载失败」 */
   unsupported: boolean;
-  /** unsupported 时的中文说明 */
+  /** true 表示 OVH 已下线该功能(废弃移除,非区域差异)—— 展示后端给的说明,不是报错 */
+  removed?: boolean;
+  /** unsupported / removed 时的中文说明 */
   message?: string;
   /** 后端判定的大区（目前只会是 "US"）。前端优先用它写文案，而不是自己再判一次 endpoint */
   region?: string;
@@ -133,6 +137,7 @@ export function useVpsServiceStatus(svc: string | null) {
       return {
         status: (res.data?.status ?? null) as Record<string, any> | null,
         unsupported: res.data?.unsupported === true,
+        removed: res.data?.removed === true,
         message: res.data?.message,
         region: res.data?.region,
       };

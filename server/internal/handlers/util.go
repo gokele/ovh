@@ -190,6 +190,16 @@ func ovhAPICode(err error) int {
 // ovhIsNotFound OVH 是否明确回了 404
 func ovhIsNotFound(err error) bool { return ovhAPICode(err) == http.StatusNotFound }
 
+// ovhIsGone OVH 是否表示端点已不存在(404 或 410)。
+// 2026-10 OVH 把 VPS 的一批旧端点标记废弃、删除日期 2026-10-15
+// (reinstall/setPassword/status/templates/distribution),到期后调用会得到
+// 404/410 —— 这类失败要和"这台机器没有该资源"区分开:前者是功能没了,
+// 后者是数据状态。DELETE /vps/{sn}/option/{option} 则已经直接从 schema 消失。
+func ovhIsGone(err error) bool {
+	code := ovhAPICode(err)
+	return code == http.StatusNotFound || code == http.StatusGone
+}
+
 // defaultZero 数字字段缺失时返回 0 而不是 null（OVH 偶尔不返回某些字段）
 func defaultZero(v interface{}) interface{} {
 	if v == nil {

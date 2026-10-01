@@ -188,41 +188,6 @@
       ]
     }
   },
-  "DELETE /vps/{serviceName}/option/{option}": {
-    "CA": {
-      "status": "DEPRECATED",
-      "deprecated": "2023-12-22T00:00:00Z",
-      "deletion": "2024-06-01T00:00:00Z",
-      "response": "void",
-      "params": [
-        "path:option:vps.VpsOptionEnum:true",
-        "path:serviceName:string:true",
-        "query:deleteNow:boolean:false"
-      ]
-    },
-    "EU": {
-      "status": "DEPRECATED",
-      "deprecated": "2023-12-22T00:00:00Z",
-      "deletion": "2024-06-01T00:00:00Z",
-      "response": "void",
-      "params": [
-        "path:option:vps.VpsOptionEnum:true",
-        "path:serviceName:string:true",
-        "query:deleteNow:boolean:false"
-      ]
-    },
-    "US": {
-      "status": "DEPRECATED",
-      "deprecated": "2023-12-22T00:00:00Z",
-      "deletion": "2024-06-01T00:00:00Z",
-      "response": "void",
-      "params": [
-        "path:option:vps.VpsOptionEnum:true",
-        "path:serviceName:string:true",
-        "query:deleteNow:boolean:false"
-      ]
-    }
-  },
   "DELETE /vps/{serviceName}/secondaryDnsDomains/{domain}": {
     "CA": {
       "status": "PRODUCTION",
@@ -2392,14 +2357,18 @@
   },
   "GET /vps/{serviceName}/distribution": {
     "CA": {
-      "status": "PRODUCTION",
+      "status": "DEPRECATED",
+      "deprecated": "2026-07-15T00:00:00Z",
+      "deletion": "2026-10-15T00:00:00Z",
       "response": "vps.Template",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "PRODUCTION",
+      "status": "DEPRECATED",
+      "deprecated": "2026-07-15T00:00:00Z",
+      "deletion": "2026-10-15T00:00:00Z",
       "response": "vps.Template",
       "params": [
         "path:serviceName:string:true"
@@ -2569,14 +2538,18 @@
   },
   "GET /vps/{serviceName}/status": {
     "CA": {
-      "status": "PRODUCTION",
+      "status": "DEPRECATED",
+      "deprecated": "2026-07-15T00:00:00Z",
+      "deletion": "2026-10-15T00:00:00Z",
       "response": "vps.ip.ServiceStatus",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "PRODUCTION",
+      "status": "DEPRECATED",
+      "deprecated": "2026-07-15T00:00:00Z",
+      "deletion": "2026-10-15T00:00:00Z",
       "response": "vps.ip.ServiceStatus",
       "params": [
         "path:serviceName:string:true"
@@ -2640,14 +2613,18 @@
   },
   "GET /vps/{serviceName}/templates": {
     "CA": {
-      "status": "PRODUCTION",
+      "status": "DEPRECATED",
+      "deprecated": "2026-07-15T00:00:00Z",
+      "deletion": "2026-10-15T00:00:00Z",
       "response": "long[]",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "PRODUCTION",
+      "status": "DEPRECATED",
+      "deprecated": "2026-07-15T00:00:00Z",
+      "deletion": "2026-10-15T00:00:00Z",
       "response": "long[]",
       "params": [
         "path:serviceName:string:true"
@@ -3794,7 +3771,9 @@
   },
   "POST /vps/{serviceName}/reinstall": {
     "CA": {
-      "status": "PRODUCTION",
+      "status": "DEPRECATED",
+      "deprecated": "2026-07-15T00:00:00Z",
+      "deletion": "2026-10-15T00:00:00Z",
       "response": "vps.Task",
       "params": [
         "body::vps.reinstall.post:true",
@@ -3802,7 +3781,9 @@
       ]
     },
     "EU": {
-      "status": "PRODUCTION",
+      "status": "DEPRECATED",
+      "deprecated": "2026-07-15T00:00:00Z",
+      "deletion": "2026-10-15T00:00:00Z",
       "response": "vps.Task",
       "params": [
         "body::vps.reinstall.post:true",
@@ -3838,14 +3819,18 @@
   },
   "POST /vps/{serviceName}/setPassword": {
     "CA": {
-      "status": "PRODUCTION",
+      "status": "DEPRECATED",
+      "deprecated": "2026-07-15T00:00:00Z",
+      "deletion": "2026-10-15T00:00:00Z",
       "response": "vps.Task",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "PRODUCTION",
+      "status": "DEPRECATED",
+      "deprecated": "2026-07-15T00:00:00Z",
+      "deletion": "2026-10-15T00:00:00Z",
       "response": "vps.Task",
       "params": [
         "path:serviceName:string:true"

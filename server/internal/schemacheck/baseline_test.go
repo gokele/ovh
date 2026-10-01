@@ -78,6 +78,19 @@ func baselinePath() string { return filepath.Join("testdata", "ovh-endpoints.jso
 //
 // 清单里有、AST 扫不到的是正常的:目录和 VPS 机房可用性走公开 URL(裸 HTTP,
 // 不经 OVH 客户端),它们同样需要监控。TestDriftListExtrasAreReported 会把这批列出来。
+//
+// removedEndpoints:代码仍在防御性调用、但已从三区 schema 消失的端点。
+// 调用方对 404/410 有明确的"功能已下线"提示(见 handlers 里的 ovhIsGone),
+// 它们不进基线(没有可比对的签名),覆盖测试把它们视同已登记。
+// 2026-10:OVH 把 VPS 的 status/distribution/templates/reinstall/setPassword 标记废弃
+// (删除日期 2026-10-15)—— 那批到期后也挪到这里,别直接从 usedEndpoints 删掉
+// 而忘了在 handler 里加降级。
+var removedEndpoints = []string{
+	// DELETE /vps/{sn}/option/{option}:2026-10 复查时已从三区 schema 整个消失
+	// (此前 DEPRECATED,deletionDate 2024-06-01)。DeleteVpsOption 对 404/410 有提示。
+	"DELETE /vps/{serviceName}/option/{option}",
+}
+
 var usedEndpoints = []string{
 	// —— 独服 ——
 	"GET /dedicated/server",
@@ -186,7 +199,6 @@ var usedEndpoints = []string{
 	"GET /vps/{serviceName}/ips",
 	"PUT /vps/{serviceName}/ips/{ipAddress}",
 	"GET /vps/{serviceName}/option",
-	"DELETE /vps/{serviceName}/option/{option}",
 	"POST /vps/{serviceName}/reboot",
 	"POST /vps/{serviceName}/rebuild",
 	"POST /vps/{serviceName}/reinstall",
@@ -340,7 +352,14 @@ func collect(t *testing.T) baseline {
 	// 会伪装成"一直被监控着"。实际就踩过一次:清单里写的是
 	// /dedicated/server/{serviceName}/ipmi,而三个区都只有 /features/ipmi。
 	var never []string
+	removed := map[string]bool{}
+	for _, e := range removedEndpoints {
+		removed[e] = true
+	}
 	for _, e := range usedEndpoints {
+		if removed[e] {
+			continue // 已知被删的登记在 removedEndpoints,不在这里报
+		}
 		if len(out[e]) == 0 {
 			never = append(never, e)
 		}
@@ -348,8 +367,22 @@ func collect(t *testing.T) baseline {
 	if len(never) > 0 {
 		sort.Strings(never)
 		t.Errorf("usedEndpoints 里这 %d 个端点在 EU / US / CA 三个区都找不到 —— "+
-			"要么路径拼错了,要么 OVH 已经把它们删了:\n  %s",
+			"要么路径拼错了,要么 OVH 已经把它们删了(删了的挪进 removedEndpoints,"+
+			"并确认对应 handler 有 ovhIsGone 降级):\n  %s",
 			len(never), strings.Join(never, "\n  "))
+	}
+	// 反向钉子:removedEndpoints 里登记的必须**确实不存在** ——
+	// 如果 OVH 哪天把它加回来了,这里会提醒把它挪回 usedEndpoints 恢复监控。
+	var revived []string
+	for _, e := range removedEndpoints {
+		if len(out[e]) > 0 {
+			revived = append(revived, e)
+		}
+	}
+	if len(revived) > 0 {
+		t.Errorf("removedEndpoints 里这 %d 个端点又出现在 schema 里了(OVH 恢复了?)—— "+
+			"请把它们挪回 usedEndpoints 恢复漂移监控:\n  %s",
+			len(revived), strings.Join(revived, "\n  "))
 	}
 	return out
 }

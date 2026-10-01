@@ -29,6 +29,12 @@ import (
 // serviceInfos / tasks / rebuild / images/* / getConsoleUrl / datacenter …)三区都有,
 // 只是 US 上整片 vps 命名空间标了 BETA —— BETA 不影响可调用性,不做门控。
 //
+// ⚠️ 2026-10:OVH 把上面那批"US 缺失"端点中的 5 个标记废弃(EU/CA,删除日期
+// 2026-10-15,无 replacement):/status /distribution /templates /reinstall /setPassword。
+// 其中 /templates /distribution /reinstall 在本仓库有 images/rebuild 的结构性退路,
+// 到期自动降级;/status /setPassword 无替代,各自 handler 里对 404/410 有明确提示。
+// DELETE /vps/{sn}/option/{option} 则已直接从三区 schema 消失。
+//
 // 门控一律走 ovh.EndpointRegion,不要在各 handler 里再写 `acc.Endpoint == "ovh-us"`:
 // endpoint 是用户可填的自由字符串,还有 kimsufi-* / soyoustart-* 品牌别名,
 // 散装比较早晚会漏掉一种写法。
@@ -233,8 +239,17 @@ func GetVpsServiceStatus(state *app.State) gin.HandlerFunc {
 		}
 		var status map[string]interface{}
 		if err := client.Get("/vps/"+svc+"/status", &status); err != nil {
-			// OVH 对这条路单独要一个 IAM 权限:vps:apiovh:status/get
-			// (官方 v1 schema 里它是 PRODUCTION,不是废弃,也不是三区差异)。
+			// 2026-10 起 OVH 把该端点标记废弃(EU/CA,删除日期 2026-10-15,无替代)。
+			// 到期后这里 404/410 —— 端口探测功能整体下线,如实说明并按"功能移除"降级,
+			// 不能让用户把它当成故障去排查。
+			if ovhIsGone(err) {
+				c.JSON(http.StatusOK, gin.H{
+					"success": true, "status": nil, "removed": true,
+					"message": "OVH 已下线 VPS 端口探测接口(2026-10-15 废弃,无替代)。想看端口存活请自行用外部监控",
+				})
+				return
+			}
+			// 废弃之前它还活着,且 OVH 对这条路单独要一个 IAM 权限:vps:apiovh:status/get。
 			// consumer key 建的时候没勾到 GET /vps/* 就会吃 403 —— 而别的 VPS 端点
 			// (/vps/{sn} 要 vps:apiovh:get、/ips 要 ips/get)权限各自独立,照样能用,
 			// 所以用户看到的是"这一页大部分正常,唯独状态这块报 500"。

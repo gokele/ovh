@@ -112,6 +112,15 @@ func VpsSetPassword(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Post("/vps/"+svc+"/setPassword", map[string]interface{}{}, &task); err != nil {
+			// 2026-10-15 起 OVH 删除 setPassword(EU/CA 同批废弃,schema 无替代)。
+			// 死了就直说,并给出剩余出路 —— noVNC 里的 passwd 什么时候都在。
+			if ovhIsGone(err) {
+				c.JSON(http.StatusGone, gin.H{
+					"success": false,
+					"error":   "OVH 已下线 VPS 远程重置密码接口(2026-10-15 废弃,无替代)。请点「控制台」打开 noVNC,进系统后用 passwd 命令修改",
+				})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}

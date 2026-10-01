@@ -275,7 +275,7 @@ function VpsServiceStatusPanel({ serviceName, region }: { serviceName: string; r
   if (q.isPending) return <Skeleton className="h-12 rounded-2xl" />;
   if (q.isError) return null;
 
-  if (data?.unsupported) {
+  if (data?.unsupported || data?.removed) {
     return (
       <div className="border border-border rounded-2xl p-3 bg-secondary/30 text-[11px] text-muted-foreground">
         网络服务探测:{data.message || `${regionLabelOf(data.region) || region}没有这个 OVH 端点`}

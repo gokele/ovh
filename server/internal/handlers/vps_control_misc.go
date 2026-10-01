@@ -269,9 +269,9 @@ func GetVpsOptions(state *app.State) gin.HandlerFunc {
 
 // DeleteVpsOption DELETE /api/vps-control/:service_name/options/:option[?deleteNow=true]
 //
-// 注意:该端点在 EU / US / CA 三区 schema 里都标了 DEPRECATED(deprecatedDate 2023-12-22,
-// deletionDate 2024-06-01 已过),OVH 随时可能真下线,届时会直接 404。schema 没给 replacement,
-// 所以只能继续用,同时把「已废弃」透传给前端提示用户。
+// ⚠️ 2026-10 复查:DELETE /vps/{sn}/option/{option} 已从 EU/US/CA 三区 schema 里
+// **整个消失**(此前标 DEPRECATED、deletionDate 2024-06-01,如今成真)。调用会 404,
+// 下方按"接口已被移除"给明确提示。列表/详情(GET /option、GET /option/{option})还活着。
 //
 // deleteNow 是 schema 里的可选 query 参数(Delete option now, don't wait for expiration)。
 // 不传时 OVH 的默认行为是「等计费周期结束才释放」,以前无条件回「已取消」是错的 ——
@@ -291,6 +291,16 @@ func DeleteVpsOption(state *app.State) gin.HandlerFunc {
 			path += "?deleteNow=true"
 		}
 		if err := client.Delete(path, nil); err != nil {
+			// 2026-10 复查:该端点已从三区 schema 里**整个消失**(不是标记废弃,是查无此路径),
+			// 上面的预言成真了。404/410 时如实告知并指路 OVH 控制台,别让用户对着
+			// 英文 404 猜哪里出的问题。
+			if ovhIsGone(err) {
+				c.JSON(http.StatusGone, gin.H{
+					"success": false,
+					"error":   "OVH 已移除「取消 VPS 附加选项」接口(2026-10 从 API 下线,无替代)。请到 OVH 控制台(My services → 该 VPS → 选项)取消",
+				})
+				return
+			}
 			state.Logger.Error("VPS "+svc+" 取消附加选项 "+opt+" 失败: "+err.Error(), "vps_control")
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
