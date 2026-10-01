@@ -118,7 +118,14 @@
   /* 基础元素 */
   * {
     @apply border-border;
-    box-shadow: none !important;        /* 设计规范：禁用所有阴影 */
+  }
+  /* 设计规范禁用所有装饰性阴影 —— 但不能一刀切:Tailwind 的焦点环
+     (focus-visible:ring-2)本身也是 box-shadow,被 !important 连带杀掉之后,
+     Button 组件的 outline 又是 outline-none,结果是**主按钮在键盘焦点下
+     没有任何可见指示**(WCAG 2.4.7 违规,实测 box-shadow:none + 2px 透明 outline)。
+     排除 :focus-visible:键盘焦点时放行,装饰阴影仍然全灭。 */
+  *:not(:focus-visible) {
+    box-shadow: none !important;
   }
 
   html, body, #root {
