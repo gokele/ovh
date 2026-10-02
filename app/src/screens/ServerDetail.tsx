@@ -5,6 +5,8 @@
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Zap, LifeBuoy, Monitor, Eye, ChevronLeft, Copy } from "lucide-react-native";
+import * as WebBrowser from "expo-web-browser";
+import * as Clipboard from "expo-clipboard";
 
 import type { ApiClient } from "@core/api-client";
 import type { OwnedServer } from "@core/types";
@@ -36,6 +38,18 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
     ]);
   };
 
+  /** KVM:拉会话 URL(后端要轮询 OVH 任务,约 20 秒)并用系统浏览器打开 */
+  const openKvm = async () => {
+    Alert.alert("正在申请 KVM 会话…", "OVH 侧需要约 20 秒,弹窗关闭后请稍候", [{ text: "知道了" }]);
+    try {
+      const r = await client.get<{ url?: string }>(`/server-control/${server.serviceName}/console`);
+      if (r.url) await WebBrowser.openBrowserAsync(r.url);
+      else Alert.alert("失败", "后端没有返回控制台 URL");
+    } catch (e) {
+      Alert.alert("失败", e instanceof Error ? e.message : "获取控制台失败");
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
       {/* 状态头 */}
@@ -47,7 +61,13 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
         <Text style={{ fontSize: 20, fontWeight: "700", color: t.fg }}>{server.serviceName}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Text style={{ fontFamily: "Menlo", fontSize: 11, color: t.muted }}>{server.ip}</Text>
-          <Pressable onPress={() => { /* 复制到剪贴板 */ }} hitSlop={8}>
+          <Pressable
+            onPress={() => {
+              Clipboard.setStringAsync(server.ip);
+              Alert.alert("已复制", server.ip);
+            }}
+            hitSlop={8}
+          >
             <Copy size={12} color={t.faint} />
           </Pressable>
           {rescue && <Text style={{ fontSize: 11, color: t.warning, fontWeight: "600" }}>救援模式</Text>}
@@ -78,10 +98,7 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
                 confirmAct(rescue ? "退出救援模式?" : "进入救援模式?",
                   rescue ? "改回硬盘启动并重启,回到正常系统。" : "确认后立刻重启进入救援镜像;原系统数据不动,root 密码发到救援邮箱。",
                   `/server-control/${server.serviceName}/${rescue ? "boot/harddisk" : "rescue"}`)} />
-              <ActTile t={t} Icon={Monitor} label="KVM 屏幕" onPress={() =>
-                client.get<{ url?: string }>(`/server-control/${server.serviceName}/console`)
-                  .then((r) => r.url && Alert.alert("KVM 控制台", "控制台 URL 已就绪,请在浏览器打开:\n" + r.url))
-                  .catch((e) => Alert.alert("失败", e.message))} />
+              <ActTile t={t} Icon={Monitor} label="KVM 屏幕" onPress={openKvm} />
               <ActTile t={t} Icon={Eye} label="监控探测" onPress={() => act.run(`/server-control/${server.serviceName}/monitoring`, { monitoring: !server.monitoring })} />
             </View>
             <Text style={{ fontSize: 11, color: t.faint, lineHeight: 17 }}>

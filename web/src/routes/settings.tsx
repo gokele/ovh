@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Settings as SettingsIcon, KeyRound, Globe, Send, Database, Save, AlertTriangle, CheckCircle2, Plus, Star, RotateCw, Trash2, Pencil, BellRing, RefreshCw, Radio, Network, Fingerprint, ShieldAlert, Radar, Ban, Activity, Timer, Palette, Sun, Moon, Monitor } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
+import { Section } from "@/routes/settings-sections";
+import { AppPairingSection } from "@/components/settings/AppPairingSection";
+import { Smartphone } from "lucide-react";
 import type { ThemeMode } from "@/lib/theme";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -72,6 +75,7 @@ const SECTIONS = [
   { id: "purchase", icon: Timer, label: "抢购" },
   { id: "telegram", icon: Send, label: "Telegram" },
   { id: "notify", icon: BellRing, label: "通知通道" },
+  { id: "app", icon: Smartphone, label: "App 配对" },
   { id: "cache", icon: Database, label: "缓存管理" },
 ] as const;
 
@@ -175,7 +179,7 @@ function SettingsPage() {
           <CardContent className="p-3 sm:p-6">
             {cfg.isPending ? (
               <Skeleton className="h-64 rounded-2xl" />
-            ) : cfg.isError && active !== "password" && active !== "appearance" && active !== "accounts" && active !== "cache" ? (
+            ) : cfg.isError && active !== "password" && active !== "appearance" && active !== "app" && active !== "accounts" && active !== "cache" ? (
               // 配置读失败时,Telegram / 通知通道那些输入框会全渲染成空 ——
               // 看上去就是"你还没配过",而实际上后端存着真实配置。
               // 在这里直接换成失败态,顺便挡住"照着空表单点保存"这条把配置删干净的路。
@@ -199,6 +203,8 @@ function SettingsPage() {
               </Section>
             ) : active === "appearance" ? (
               <AppearanceSection />
+            ) : active === "app" ? (
+              <AppPairingSection />
             ) : active === "accounts" ? (
               <AccountsSection />
             ) : active === "telegram" ? (
@@ -282,14 +288,7 @@ function PurchaseSection({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-5">
-      <h2 className="text-base font-semibold">{title}</h2>
-      <div className="space-y-4">{children}</div>
-    </div>
-  );
-}
+// Section 组件已抽到 settings-sections.tsx(App 配对面板也要用)
 
 /** 外观:浅色 / 深色 / 跟随系统。纯前端偏好,存浏览器 localStorage,
  *  不走后端配置 —— 换个浏览器或设备要重选,但它也不该跟着后端走。 */

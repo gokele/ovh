@@ -167,4 +167,9 @@ export const qk = {
     cacheInfo: () => ["settings", "cache-info"] as const,
     telegramPoller: () => ["settings", "telegram-poller"] as const,
   },
+
+  // App 配对(设备令牌)
+  app: {
+    devices: () => ["app", "devices"] as const,
+  },
 } as const;
