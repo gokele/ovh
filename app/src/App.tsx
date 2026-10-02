@@ -9,7 +9,10 @@ import { StatusBar } from "expo-status-bar";
 import { Server, Radar, ClipboardList, User, Menu, X } from "lucide-react-native";
 
 import { useTokens } from "./theme/tokens";
+import { useColorScheme } from "react-native";
 import { loadConnection, makeClient, setAccountId } from "./api/connection";
+import { zonePalette } from "@core/zone";
+import { usePoll } from "./api/hooks";
 import PairingScreen from "./screens/PairingScreen";
 import MachinesScreen from "./screens/MachinesScreen";
 import RadarScreen from "./screens/RadarScreen";
@@ -46,22 +49,18 @@ export default function App() {
     <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: 54 }}>
       <StatusBar style="auto" />
 
-      {/* 顶栏:标题 + 右上角菜单按钮(唯一的导航入口) */}
-      <View style={[styles.topbar, { borderBottomColor: t.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
-        <Text style={{ fontSize: 16, fontWeight: "700", color: t.fg }}>服务器控制台</Text>
-        <Pressable onPress={() => setMenuOpen(true)} hitSlop={12} accessibilityLabel="菜单">
-          <Menu size={22} color={t.fg} strokeWidth={1.9} />
-        </Pressable>
-      </View>
+      {/* 顶栏:当前账户徽章 + 标题 + 菜单。账户跟 web 同语义:全站唯一,切一次所有数据跟着走 */}
+      <TopBar t={t} client={client} accountId={conn.accountId} onMenu={() => setMenuOpen(true)} />
 
       {/* 主体:机器列表(或机器详情,由 MachinesScreen 内部管理) */}
-      {overlay === null && <MachinesScreen client={client} hideHeader />}
+      {overlay === null && <MachinesScreen key={conn.accountId} client={client} hideHeader />}
       {overlay === "radar" && <RadarScreen client={client} onClose={() => setOverlay(null)} />}
       {overlay === "queue" && <QueueScreen client={client} onClose={() => setOverlay(null)} />}
       {overlay === "profile" && (
         <ProfileScreen
           client={client}
           serverUrl={conn.serverUrl}
+          activeAccountId={conn.accountId}
           onClose={() => setOverlay(null)}
           onAccountChange={async (id: string) => {
             await setAccountId(id);
@@ -107,6 +106,34 @@ export default function App() {
           </View>
         </Pressable>
       </Modal>
+    </View>
+  );
+}
+
+
+
+/** 顶栏:当前账户名 + 区域徽章(eu/us/ca 三色,与 web 同编码)+ 菜单按钮 */
+function TopBar({ t, client, accountId, onMenu }: { t: ReturnType<typeof useTokens>; client: ReturnType<typeof makeClient>; accountId: string; onMenu: () => void }) {
+  const q = usePoll<{ accounts: Array<{ id: string; name: string; zone: string; isDefault: boolean }> }>(client, "/accounts", 60_000);
+  const list = q.data?.accounts ?? [];
+  const acc = list.find((a) => a.id === accountId) ?? list.find((a) => a.isDefault) ?? list[0];
+  const scheme = useColorScheme() === "dark" ? "dark" : "light"; // 徽章配色跟随系统,两套都已分别校准
+  return (
+    <View style={[styles.topbar, { borderBottomColor: t.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 7, flexShrink: 1 }}>
+        {acc && (() => {
+          const p = zonePalette(acc.zone, scheme);
+          return (
+            <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: p.bg }}>
+              <Text style={{ fontSize: 9.5, fontWeight: "700", color: p.fg }}>{acc.zone}</Text>
+            </View>
+          );
+        })()}
+        {acc && <Text style={{ fontSize: 13, fontWeight: "600", color: t.fg }} numberOfLines={1}>{acc.name}</Text>}
+      </View>
+      <Pressable onPress={onMenu} hitSlop={12} accessibilityLabel="菜单">
+        <Menu size={22} color={t.fg} strokeWidth={1.9} />
+      </Pressable>
     </View>
   );
 }

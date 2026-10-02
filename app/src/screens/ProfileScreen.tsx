@@ -14,17 +14,20 @@ import { forgetConnection } from "../api/connection";
 interface Props {
   client: ApiClient;
   serverUrl: string;
+  /** 当前生效的账户 id(全站唯一,与 web 同语义) */
+  activeAccountId: string;
   onClose: () => void;
   onAccountChange: (id: string) => Promise<void>;
   onDisconnected: () => void;
 }
 
-export default function ProfileScreen({ client, serverUrl, onClose, onAccountChange, onDisconnected }: Props) {
+export default function ProfileScreen({ client, serverUrl, activeAccountId, onClose, onAccountChange, onDisconnected }: Props) {
   const t = useTokens();
   const q = usePoll<{ accounts: OvhAccount[] }>(client, "/accounts", 60_000);
   const proxy = usePoll<{ channels?: unknown }>(client, "/accounts/proxy-status", 30_000);
   const accounts = q.data?.accounts ?? [];
-  const active = accounts.find((a) => a.isDefault) ?? accounts[0];
+  // active = 用户当前选中的账户;从未选过才退回默认。三区目录互不相通,选错区=列表全错
+  const active = accounts.find((a) => a.id === activeAccountId) ?? accounts.find((a) => a.isDefault) ?? accounts[0];
 
   const disconnect = () => {
     Alert2();
@@ -53,7 +56,7 @@ export default function ProfileScreen({ client, serverUrl, onClose, onAccountCha
             <Pressable
               key={a.id}
               onPress={() => onAccountChange(a.id)}
-              style={[styles.card, { backgroundColor: t.surface, borderColor: isOn ? t.fg : t.border }]}
+              style={[styles.card, { backgroundColor: t.surface, borderColor: isOn ? t.fg : t.border, borderWidth: isOn ? 1.5 : 1 }]}
             >
               <View style={styles.row}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -63,7 +66,11 @@ export default function ProfileScreen({ client, serverUrl, onClose, onAccountCha
                     <Text style={{ fontSize: 9, fontWeight: "700", color: p.fg }}>{a.zone}</Text>
                   </View>
                 </View>
-                {a.isDefault && <Text style={{ fontSize: 10, color: t.muted }}>默认</Text>}
+                {isOn ? (
+                  <Text style={{ fontSize: 10, color: t.fg, fontWeight: "600" }}>当前</Text>
+                ) : (
+                  a.isDefault && <Text style={{ fontSize: 10, color: t.muted }}>默认</Text>
+                )}
               </View>
               <Text style={{ fontSize: 11, color: t.muted, marginTop: 8 }}>
                 {a.endpoint} · {proxy.error ? "代理状态读取失败" : "代理状态见网页端链路检测"}
