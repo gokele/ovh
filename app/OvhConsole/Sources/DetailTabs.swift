@@ -13,6 +13,8 @@ struct MaintenanceTab: View {
     @State private var hwErr: String?
     @State private var retr: [String: Any]?
     @State private var contactCount: Int?
+    @State private var showRetraction = false
+    @State private var showHardware = false
 
     var t: Tokens { theme.t }
 
@@ -21,9 +23,25 @@ struct MaintenanceTab: View {
             hwGroup
             retractionGroup
             contactGroup
-            guideGroup
+            // 写操作入口:硬件更换工单(撤单入口在 retractionGroup,可撤时才显示)
+            Button { showHardware = true } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "wrench.and.screwdriver").font(.system(size: 16)).foregroundColor(t.color(t.fg))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("硬件更换(工单)").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.fg))
+                        Text("硬盘 / 内存 / 散热 · Face ID 确认 · 提交 OVH 工单").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(t.color(t.faint))
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 13).stroke(t.color(t.border), lineWidth: 1)))
+            }
+            .buttonStyle(.plain)
         }
         .task { await load() }
+        .sheet(isPresented: $showHardware) { HardwareReplaceSheet(serviceName: serviceName) }
+        .sheet(isPresented: $showRetraction) { RetractionSheet(serviceName: serviceName) }
     }
 
     // MARK: 硬件规格
@@ -67,8 +85,15 @@ struct MaintenanceTab: View {
                     if let rd = r["retractionDate"] as? String {
                         kv("截止", String(rd.prefix(16)).replacingOccurrences(of: "T", with: " "))
                     }
-                    Text("撤单 = 退款 + 服务器注销,不可逆;提交在网页端做")
+                    Text("撤单 = 退款 + 服务器注销,不可逆。")
                         .font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
+                    Button { showRetraction = true } label: {
+                        Text("提交撤单申请")
+                            .font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.danger))
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                            .background(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.danger), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
                 } else {
                     Text(r["message"] as? String ?? "不在撤回期内")
                         .font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
