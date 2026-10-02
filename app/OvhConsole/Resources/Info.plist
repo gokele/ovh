@@ -27,13 +27,13 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	<!-- 配对要连 http://局域网IP:19998 的自建后端,ATS 默认拦明文;
-	     NSAllowsLocalNetworking 专门放行私有网段,公网明文仍被拦(正确) -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
 	</dict>
 	<!-- Face ID -->

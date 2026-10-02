@@ -42,6 +42,7 @@
 		00000000000000000000000E /* VpsDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VpsDetailView.swift; sourceTree = "<group>"; };
 		00000000000000000000000F /* WriteOpSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WriteOpSheets.swift; sourceTree = "<group>"; };
 		AA000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA000000000000000000ENT /* OvhConsole.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OvhConsole.entitlements; sourceTree = "<group>"; };
 		AA000000000000000000000A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA00000000000000000000PR /* OvhConsole.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OvhConsole.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -92,6 +93,7 @@
 			children = (
 				AA000000000000000000000A /* Assets.xcassets */,
 				AA000000000000000000000F /* Info.plist */,
+				AA000000000000000000ENT /* OvhConsole.entitlements */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -221,6 +223,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = Resources/OvhConsole.entitlements;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.gokele.ovhconsole;
@@ -229,6 +232,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 1;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 			};
 			name = Debug;
 		};
@@ -240,6 +244,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = Resources/OvhConsole.entitlements;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.gokele.ovhconsole;
@@ -248,6 +253,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 1;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 			};
 			name = Release;
 		};

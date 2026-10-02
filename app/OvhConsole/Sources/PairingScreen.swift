@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 /**
  * 配对首屏(SwiftUI):地址 + 8 位码 → Keychain。
@@ -52,12 +53,21 @@ struct PairingScreen: View {
         }
         .background(t.color(t.bg))
         .onOpenURL { url in
-            // ovhconsole://pair?host=http://x:19997&code=ABCDEFGH
+            // ovhconsole://pair?host=http://x:19997&code=ABCDEFGH&auto=1
             guard url.host == "pair" else { return }
             let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
             let items = comps?.queryItems ?? []
+            var autoSubmit = false
             if let h = items.first(where: { $0.name == "host" })?.value { self.url = h }
             if let c = items.first(where: { $0.name == "code" })?.value { code = c }
+            if let a = items.first(where: { $0.name == "auto" })?.value { autoSubmit = a == "1" }
+            if autoSubmit {
+                // 给 SwiftUI 一帧时间把 state 写入 TextField,再提交
+                Task {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    await pair()
+                }
+            }
         }
     }
 
@@ -88,6 +98,8 @@ struct PairingScreen: View {
             let r = try await ApiClient.pair(serverUrl: clean, code: c, deviceName: UIDevice.current.name)
             conn.save(server: clean, token: r.token)
         } catch {
+            // os_log 让错误在系统日志可见(模拟器/真机都可查)
+            Logger.shared.log("配对失败: \(error)")
             err = explainPairError(error, address: clean)
         }
     }
@@ -113,4 +125,13 @@ private func explainPairError(_ error: Error, address: String) -> String {
     }
     // ApiClient 已经把后端 4xx 的中文 error 解出来了,直接显示
     return error.localizedDescription
+}
+
+
+/// 轻量日志(系统 Console 可见)
+private struct Logger {
+    static let shared = os.Logger(subsystem: "com.gokele.ovhconsole", category: "pairing")
+    func log(_ msg: String) {
+        Logger.shared.info("\(msg, privacy: .public)")
+    }
 }
