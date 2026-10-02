@@ -43,15 +43,17 @@ export function usePoll<T>(client: ApiClient | null, path: string, intervalMs = 
   return { ...state, refresh: run };
 }
 
-/** 一次性 POST 包装(动作按钮用):pending / run */
+/** 动作包装(按钮用):run = POST,del = DELETE,统一 pending 与人话错误 */
 export function useAction(client: ApiClient | null) {
   const [pending, setPending] = useState(false);
-  const run = useCallback(
-    async (path: string, body?: unknown): Promise<{ ok: boolean; message?: string }> => {
+  const exec = useCallback(
+    async (verb: "post" | "del", path: string, body?: unknown): Promise<{ ok: boolean; message?: string }> => {
       if (!client) return { ok: false, message: "未连接" };
       setPending(true);
       try {
-        const res = await client.post<{ message?: string }>(path, body);
+        const res = verb === "del"
+          ? await client.del<{ message?: string }>(path)
+          : await client.post<{ message?: string }>(path, body);
         return { ok: true, message: res?.message };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : "操作失败" };
@@ -61,5 +63,7 @@ export function useAction(client: ApiClient | null) {
     },
     [client],
   );
-  return { pending, run };
+  const run = useCallback((path: string, body?: unknown) => exec("post", path, body), [exec]);
+  const del = useCallback((path: string) => exec("del", path), [exec]);
+  return { pending, run, del };
 }

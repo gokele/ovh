@@ -12,6 +12,8 @@ import type { ApiClient } from "@core/api-client";
 import type { OwnedServer } from "@core/types";
 import { useTokens } from "../theme/tokens";
 import { useAction, usePoll } from "../api/hooks";
+import ServerDetailMaintenance from "./ServerDetailMaintenance";
+import ServerDetailAdvanced from "./ServerDetailAdvanced";
 
 type Section = "overview" | "power" | "maintenance" | "advanced";
 
@@ -106,12 +108,8 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
             </Text>
           </>
         )}
-        {section === "maintenance" && (
-          <Placeholder t={t} text="维护:硬件更换 / 变更联系人 / 合同期 / 撤单 —— 下一批接入(数据接口后端已就绪)" />
-        )}
-        {section === "advanced" && (
-          <Placeholder t={t} text="高级:Backup FTP / DDoS 缓解 / vRack / 虚拟 MAC —— 下一批接入" />
-        )}
+        {section === "maintenance" && <ServerDetailMaintenance client={client} serviceName={server.serviceName} />}
+        {section === "advanced" && <ServerDetailAdvanced client={client} serviceName={server.serviceName} />}
       </ScrollView>
     </View>
   );
@@ -146,14 +144,6 @@ function ActTile({ t, Icon, label, onPress }: { t: ReturnType<typeof useTokens>;
       <Icon size={20} color={t.fg} strokeWidth={1.8} />
       <Text style={{ fontSize: 10.5, color: t.fg }}>{label}</Text>
     </Pressable>
-  );
-}
-
-function Placeholder({ t, text }: { t: ReturnType<typeof useTokens>; text: string }) {
-  return (
-    <View style={[styles.card, { backgroundColor: t.surfaceMuted, borderColor: t.border }]}>
-      <Text style={{ fontSize: 11.5, color: t.muted, lineHeight: 18 }}>{text}</Text>
-    </View>
   );
 }
 
