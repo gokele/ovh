@@ -1304,7 +1304,12 @@ function proxyInputError(raw: string): string {
     return `不支持的协议 ${scheme}:只支持 http / https / socks5 / socks5h`;
   }
   if (!u.hostname) return "缺少主机名";
-  if (!u.port) return "缺少端口 —— 必须显式写出来,例如 :1080";
+  const authorityMatch = v.match(/^[^:]+:\/\/([^/?#]+)/);
+  const authorityPart = authorityMatch ? authorityMatch[1] : "";
+  const hasExplicitPort = Boolean(u.port) || /:\d+$/.test(authorityPart);
+  if (!hasExplicitPort) {
+    return "缺少端口 —— 必须显式写出来,例如 :1080";
+  }
   return "";
 }
 
