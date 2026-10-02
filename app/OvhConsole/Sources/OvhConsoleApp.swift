@@ -56,6 +56,21 @@ struct MainScreen: View {
             }
 
             if nav.menuOpen { menu }
+
+            // 覆盖层:菜单三页(雷达/队列/设置),「完成」返回
+            switch nav.overlay {
+            case "radar":
+                RadarOverlay(onClose: { nav.overlay = nil })
+                    .transition(.move(edge: .trailing))
+            case "queue":
+                QueueOverlay(onClose: { nav.overlay = nil })
+                    .transition(.move(edge: .trailing))
+            case "profile":
+                ProfileOverlay(onClose: { nav.overlay = nil }, onDisconnected: { nav.overlay = nil })
+                    .transition(.move(edge: .trailing))
+            default:
+                EmptyView()
+            }
         }
     }
 

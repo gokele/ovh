@@ -72,6 +72,15 @@ struct ApiClient {
         return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 
+    /// DELETE 动作辅助
+    func actionDelete(_ path: String) async -> (Bool, String) {
+        do {
+            let data = try await request("DELETE", path)
+            let r = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+            return (true, r["message"] as? String ?? "")
+        } catch { return (false, error.localizedDescription) }
+    }
+
     /// 动作辅助(供 View 调):接收已序列化的 Data(Sendable),View 侧不跨域传 [String:Any]
     func actionPostData(_ path: String, bodyData: Data?) async -> (Bool, String) {
         do {
