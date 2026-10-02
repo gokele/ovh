@@ -16,6 +16,9 @@ type Config struct {
 	Enabled bool
 	// WhitelistPaths 跳过验证的路径
 	WhitelistPaths map[string]struct{}
+	// DeviceTokenValid App 设备令牌校验(配对体系,见 internal/db/appdevices.go)。
+	// 依赖注入而不是直接 import db:这个包要保持无状态可测。
+	DeviceTokenValid func(token string) (int64, bool)
 }
 
 // DefaultWhitelist 不需要 X-API-Key 即可访问的路径
@@ -26,6 +29,7 @@ func DefaultWhitelist() map[string]struct{} {
 		"/api/version":                {}, // 前端启动时拉版本号,登录前可见
 		"/api/version/check-update":   {}, // 更新检查也免鉴权,登录前可提示
 		"/api/internal/monitor/price": {},
+		"/api/app/pair":               {}, // App 配对兑换:凭 2 分钟一次性码,不需要密钥
 	}
 }
 
@@ -74,7 +78,30 @@ func Middleware(cfg Config) gin.HandlerFunc {
 		}
 
 		key := c.GetHeader("X-API-Key")
+
+		// App 设备令牌:Authorization: Bearer <token>。
+		// 与 X-API-Key 同权(整个 /api 面都可用),但可单独吊销 ——
+		// 手机丢了在网页端点一下 Revoke,不用换主密钥、其他设备不掉线。
+		// 令牌校验失败同样计入失败限流:两个入口共用同一把爆破闸。
 		if key == "" {
+			if h := c.GetHeader("Authorization"); strings.HasPrefix(h, "Bearer ") {
+				token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+				if token != "" && cfg.DeviceTokenValid != nil {
+					if id, ok := cfg.DeviceTokenValid(token); ok {
+						c.Set("app_device_id", id)
+						clearAuthFailures(c.ClientIP())
+						c.Next()
+						return
+					}
+				}
+				recordAuthFailure(c.ClientIP(), time.Now())
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"error":   "Invalid device token",
+					"message": "设备令牌无效或已被吊销。请到网页控制台重新配对(设置 → App 管理)",
+					"code":    "INVALID_DEVICE_TOKEN",
+				})
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error":   "Missing API key",
 				"message": "缺少API密钥，请通过官方前端访问",

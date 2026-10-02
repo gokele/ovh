@@ -220,6 +220,8 @@ func main() {
 		APIKey:         state.APIKey,
 		Enabled:        enableAuth,
 		WhitelistPaths: auth.DefaultWhitelist(),
+		// App 设备令牌校验(Bearer)。nil 安全:配对表不存在时走不到这条分支
+		DeviceTokenValid: state.DB.DeviceTokenValid,
 	}))
 
 	// 健康检查
@@ -294,6 +296,12 @@ func main() {
 		api.GET("/catalog", handlers.GetCatalog(state))
 		api.GET("/system/metrics", handlers.GetSystemMetrics(state))
 		api.GET("/version", handlers.GetVersion(state))
+
+		// App 配对体系:兑换在鉴权白名单(凭 2 分钟一次性码),管理端需要密钥
+		api.POST("/app/pair", handlers.RedeemPairingCode(state))
+		api.POST("/app/pairing-codes", handlers.CreatePairingCode(state))
+		api.GET("/app/devices", handlers.ListAppDevices(state))
+		api.DELETE("/app/devices/:id", handlers.RevokeAppDevice(state))
 		api.GET("/version/check-update", handlers.CheckUpdate(state))
 		// 在线更新:下载 → 校验 → 替换自己 → 自动重启。gracefulRestart 在下面赋值,
 		// 这里用闭包间接引用,避免"路由要在 server 之前注册、server 又要在路由之后创建"的鸡生蛋
@@ -633,6 +641,13 @@ func main() {
 	console.Info("Listening", "addr", addr, "auth", enableAuth, "ui", hasUI(), "dataDir", paths.DataDir)
 	state.Logger.Info("已监听 "+addr+",开始对外服务", "system")
 	updater.MarkHealthy(state)
+
+	// 后台:每小时清一次过期的 App 配对码(2 分钟有效,留 1 小时缓冲给排查)
+	go func() {
+		for range time.Tick(time.Hour) {
+			state.DB.CleanupPairingCodes()
+		}
+	}()
 
 	// 自更新完成后走这里:先停止接受新请求并等在途请求收尾,再关数据库,最后换进程映像。
 	// 顺序不能反 —— 先 exec 的话,新进程会发现端口还被自己占着。

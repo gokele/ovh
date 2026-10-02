@@ -184,3 +184,28 @@ CREATE TABLE IF NOT EXISTS telegram_updates (
   processed_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tg_updates_processed ON telegram_updates(processed_at);
+
+-- ===========================================
+-- app_devices: App 配对设备(令牌只存 SHA-256 摘要)
+-- 手机丢了在网页端单独吊销,不用换主密钥、其他设备不掉线。
+-- ===========================================
+CREATE TABLE IF NOT EXISTS app_devices (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  token_hash  TEXT NOT NULL UNIQUE,
+  created_at  TEXT NOT NULL,
+  last_used   TEXT,
+  revoked_at  TEXT                            -- 非空 = 已吊销
+);
+
+-- ===========================================
+-- app_pairing_codes: 一次性配对码(2 分钟有效)
+-- 兑换走单条 UPDATE 原子认领(used_at IS NULL AND expires_at > now),
+-- 并发重放只有一个连接能成功 —— 与 telegram_order_buttons 同一模式。
+-- ===========================================
+CREATE TABLE IF NOT EXISTS app_pairing_codes (
+  code       TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at    TEXT
+);

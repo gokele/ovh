@@ -103,3 +103,8 @@ Thumbs.db
 *.orig
 *.tmp
 backup-*/
+
+# Expo App(构建产物;packages/core 源码要提交)
+app/node_modules/
+app/.expo/
+app/package-lock.json
