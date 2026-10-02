@@ -13,37 +13,49 @@ import type { OwnedServer } from "@core/types";
 import { useTokens } from "../theme/tokens";
 import { usePoll } from "../api/hooks";
 import ServerDetail from "./ServerDetail";
+import VpsDetail from "./VpsDetail";
+import type { OwnedVps } from "@core/types";
 
 interface ListResp { servers: OwnedServer[] }
+interface VpsListResp { vps?: OwnedVps[] }
 
 export default function MachinesScreen({ client, hideHeader }: { client: ApiClient; hideHeader?: boolean }) {
   const t = useTokens();
   const q = usePoll<ListResp>(client, "/server-control/list", 15_000);
   const [open, setOpen] = useState<OwnedServer | null>(null);
+  const [openVps, setOpenVps] = useState<OwnedVps | null>(null);
+  const vpsQ = usePoll<VpsListResp>(client, "/vps-control/list", 15_000);
 
   // 单机控制台全屏覆盖,返回时列表原地保留(轮询不停,回来数据是新的)
   if (open) return <ServerDetail client={client} server={open} onBack={() => setOpen(null)} />;
+  if (openVps) return <VpsDetail client={client} vps={openVps} onBack={() => setOpenVps(null)} />;
 
   const servers = q.data?.servers ?? [];
+  const vpsList = vpsQ.data?.vps ?? [];
   const rescueCount = servers.filter((s) => s.netbootMode === "rescue").length;
+  // 合并列表:{ kind, item } — 独服和 VPS 同列表渲染,图标区分
+  const items: Array<{ kind: "srv" | "vps"; item: OwnedServer | OwnedVps }> = [
+    ...servers.map((s) => ({ kind: "srv" as const, item: s })),
+    ...vpsList.map((v) => ({ kind: "vps" as const, item: v })),
+  ];
 
   return (
     <FlatList
       style={{ flex: 1 }}
       contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 24 }}
-      data={servers}
-      keyExtractor={(s) => s.serviceName}
+      data={items}
+      keyExtractor={(x) => (x.kind === "srv" ? (x.item as OwnedServer).serviceName : (x.item as OwnedVps).name)}
       refreshControl={<RefreshControl refreshing={q.loading} tintColor={t.muted} onRefresh={q.refresh} />}
       ListHeaderComponent={
         hideHeader ? (
           <Text style={{ fontSize: 11, color: t.muted, marginBottom: 10 }}>
-            {servers.length} 台{rescueCount > 0 ? ` · ${rescueCount} 台在救援模式` : ""} · 上次同步 {syncText(q.loading)}
+            {servers.length + vpsList.length} 台(独服 {servers.length} · VPS {vpsList.length}){rescueCount > 0 ? ` · ${rescueCount} 救援` : ""} · 上次同步 {syncText(q.loading)}
           </Text>
         ) : (
           <View style={{ marginBottom: 4 }}>
             <Text style={{ fontSize: 24, fontWeight: "700", color: t.fg, letterSpacing: 0.3 }}>机器</Text>
             <Text style={{ fontSize: 11, color: t.muted, marginTop: 3 }}>
-              {servers.length} 台{rescueCount > 0 ? ` · ${rescueCount} 台在救援模式` : ""} · 上次同步 {syncText(q.loading)}
+              {servers.length + vpsList.length} 台(独服 {servers.length} · VPS {vpsList.length}){rescueCount > 0 ? ` · ${rescueCount} 救援` : ""} · 上次同步 {syncText(q.loading)}
             </Text>
           </View>
         )
@@ -65,7 +77,13 @@ export default function MachinesScreen({ client, hideHeader }: { client: ApiClie
           </View>
         )
       }
-      renderItem={({ item }) => <MachineCard t={t} item={item} onPress={() => setOpen(item)} />}
+      renderItem={({ item }) =>
+        item.kind === "srv" ? (
+          <MachineCard t={t} item={item.item as OwnedServer} onPress={() => setOpen(item.item as OwnedServer)} />
+        ) : (
+          <VpsCard t={t} item={item.item as OwnedVps} onPress={() => setOpenVps(item.item as OwnedVps)} />
+        )
+      }
     />
   );
 }
@@ -153,6 +171,36 @@ function expiryText(s: OwnedServer): string {
 
 function syncText(loading: boolean): string {
   return loading ? "同步中…" : "5 秒内";
+}
+
+/** VPS 卡:与独服卡同构(图标/别名/状态胶囊/IP),点进 VpsDetail */
+function VpsCard({ t, item, onPress }: { t: ReturnType<typeof useTokens>; item: OwnedVps; onPress: () => void }) {
+  const running = item.state === "running" || item.state === "active";
+  return (
+    <Pressable style={({ pressed }) => [styles.card, { backgroundColor: t.surface, borderColor: t.border }, pressed && { opacity: 0.7 }]} onPress={onPress}>
+      <View style={styles.row}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 9, flexShrink: 1 }}>
+          <View style={[styles.icon, { backgroundColor: running ? t.success : t.danger }]}>
+            <Box size={13} color="#FFFFFF" strokeWidth={2} />
+          </View>
+          <View style={{ flexShrink: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: "700", color: t.fg }} numberOfLines={1}>{item.displayName || item.name.split(".")[0]}</Text>
+            <Text style={{ fontFamily: "Menlo", fontSize: 10, color: t.faint }} numberOfLines={1}>{item.name}</Text>
+          </View>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, borderWidth: 1, borderColor: running ? t.success : t.danger, backgroundColor: (running ? t.success : t.danger) + "12" }}>
+            <Text style={{ fontSize: 9.5, fontWeight: "700", color: running ? t.success : t.danger }}>{(item.state || "—").toUpperCase()}</Text>
+          </View>
+          <ChevronRight size={15} color={t.faint} />
+        </View>
+      </View>
+      <View style={[styles.row, { marginTop: 10 }]}>
+        <Text style={{ fontFamily: "Menlo", fontSize: 11.5, color: t.fg }}>{item.ips?.[0] ?? "—"}</Text>
+        <Text style={{ fontSize: 11, color: t.muted }}>{item.model || "VPS"}{item.zone ? ` · ${item.zone.toUpperCase()}` : ""}</Text>
+      </View>
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create({
