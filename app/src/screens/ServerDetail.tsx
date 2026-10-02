@@ -28,7 +28,7 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
   const rescue = server.netbootMode === "rescue";
 
   /** 危险动作三闸:确认对话(人话后果)→ Face ID → 执行。与 web 同文案,加一层生物识别 */
-  const confirmAct = (title: string, msg: string, path: string) => {
+  const confirmAct = (title: string, msg: string, path: string, body?: unknown) => {
     Alert.alert(title, msg, [
       { text: "取消", style: "cancel" },
       {
@@ -40,7 +40,7 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
             Alert.alert("未执行", bio.reason || "验证未通过");
             return;
           }
-          const r = await act.run(path);
+          const r = await act.run(path, body);
           if (!r.ok) Alert.alert("失败", r.message || "请重试");
         },
       },
@@ -109,11 +109,16 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
               <ActTile t={t} Icon={Zap} label="硬重启" onPress={() =>
                 confirmAct("硬重启?", "相当于按电源键强制重启,未落盘的数据会丢失;硬盘数据不受影响。", `/server-control/${server.serviceName}/reboot`)} />
               <ActTile t={t} Icon={LifeBuoy} label={rescue ? "退出救援" : "一键救援"} onPress={() =>
-                confirmAct(rescue ? "退出救援模式?" : "进入救援模式?",
-                  rescue ? "改回硬盘启动并重启,回到正常系统。" : "确认后立刻重启进入救援镜像;原系统数据不动,root 密码发到救援邮箱。",
-                  `/server-control/${server.serviceName}/${rescue ? "boot/harddisk" : "rescue"}`)} />
+                rescue
+                  ? confirmAct("退出救援模式?", "改回硬盘启动并重启,回到正常系统。", `/server-control/${server.serviceName}/rescue/exit`, { confirm: true })
+                  : confirmAct(
+                      "进入救援模式?",
+                      "确认后立刻重启进入救援镜像;原系统数据不动,root 密码发到救援邮箱(下面填,留空用 OVH 账户邮箱)。",
+                      `/server-control/${server.serviceName}/rescue`,
+                      { confirm: true },
+                    )} />
               <ActTile t={t} Icon={Monitor} label="KVM 屏幕" onPress={openKvm} />
-              <ActTile t={t} Icon={Eye} label="监控探测" onPress={() => act.run(`/server-control/${server.serviceName}/monitoring`, { monitoring: !server.monitoring })} />
+              <ActTile t={t} Icon={Eye} label="监控探测" onPress={() => act.put(`/server-control/${server.serviceName}/monitoring`, { enabled: !server.monitoring, monitoring: !server.monitoring })} />
             </View>
             <Text style={{ fontSize: 11, color: t.faint, lineHeight: 17 }}>
               重装系统 / 硬件更换等深水区操作在网页端完成更稳(App 的完整版按阶段排期中);本屏电源动作与 web 同接口、同确认文案。

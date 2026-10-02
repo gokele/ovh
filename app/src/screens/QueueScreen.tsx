@@ -18,8 +18,8 @@ export default function QueueScreen({ client }: { client: ApiClient }) {
   const items = Array.isArray(q.data) ? q.data : [];
 
   const pauseResume = async (item: QueueItem) => {
-    const path = item.status === "paused" ? `/queue/${item.id}/resume` : `/queue/${item.id}/pause`;
-    const r = await act.run(path);
+    // 后端契约:PUT /queue/:id/status + {status:"paused"|"running"}(没有独立的 pause/resume 路由)
+    const r = await act.put(`/queue/${item.id}/status`, { status: item.status === "paused" ? "running" : "paused" });
     if (!r.ok) Alert.alert("失败", r.message);
     q.refresh();
   };

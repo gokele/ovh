@@ -47,13 +47,14 @@ export function usePoll<T>(client: ApiClient | null, path: string, intervalMs = 
 export function useAction(client: ApiClient | null) {
   const [pending, setPending] = useState(false);
   const exec = useCallback(
-    async (verb: "post" | "del", path: string, body?: unknown): Promise<{ ok: boolean; message?: string }> => {
+    async (verb: "post" | "put" | "del", path: string, body?: unknown): Promise<{ ok: boolean; message?: string }> => {
       if (!client) return { ok: false, message: "未连接" };
       setPending(true);
       try {
-        const res = verb === "del"
-          ? await client.del<{ message?: string }>(path)
-          : await client.post<{ message?: string }>(path, body);
+        let res: { message?: string } | undefined;
+        if (verb === "del") res = await client.del<{ message?: string }>(path);
+        else if (verb === "put") res = await client.put<{ message?: string }>(path, body);
+        else res = await client.post<{ message?: string }>(path, body);
         return { ok: true, message: res?.message };
       } catch (e) {
         return { ok: false, message: e instanceof Error ? e.message : "操作失败" };
@@ -64,6 +65,7 @@ export function useAction(client: ApiClient | null) {
     [client],
   );
   const run = useCallback((path: string, body?: unknown) => exec("post", path, body), [exec]);
+  const put = useCallback((path: string, body?: unknown) => exec("put", path, body), [exec]);
   const del = useCallback((path: string) => exec("del", path), [exec]);
-  return { pending, run, del };
+  return { pending, run, put, del };
 }
