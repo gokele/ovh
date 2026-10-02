@@ -65,6 +65,12 @@ struct MainScreen: View {
             case "queue":
                 QueueOverlay(onClose: { nav.overlay = nil })
                     .transition(.move(edge: .trailing))
+            case "history":
+                HistoryOverlay(onClose: { nav.overlay = nil })
+                    .transition(.move(edge: .trailing))
+            case "logs":
+                LogsOverlay(onClose: { nav.overlay = nil })
+                    .transition(.move(edge: .trailing))
             case "profile":
                 ProfileOverlay(onClose: { nav.overlay = nil }, onDisconnected: { nav.overlay = nil })
                     .transition(.move(edge: .trailing))
@@ -124,6 +130,8 @@ struct MainScreen: View {
 
                 menuItem("radar", icon: "dot.radiowaves.left.and.right", title: "补货雷达", desc: "机型 × 机房可用性")
                 menuItem("queue", icon: "list.bullet.rectangle", title: "抢购队列", desc: "任务状态与耗时")
+                menuItem("history", icon: "clock.arrow.circlepath", title: "抢购历史", desc: "订单状态与付款倒计时")
+                menuItem("logs", icon: "doc.text.magnifyingglass", title: "运行日志", desc: "最近 200 条,自动刷新")
                 menuItem("profile", icon: "person.crop.circle", title: "设置与账户", desc: "配对 / 账户 / 外观")
             }
             .frame(width: 250)
