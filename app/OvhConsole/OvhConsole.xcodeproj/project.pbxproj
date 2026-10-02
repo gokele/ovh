@@ -1,0 +1,278 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	objectVersion = 56;
+	classes = {};
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0000000000000000000003E8 /* ApiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000000 /* ApiClient.swift */; };
+		0000000000000000000003E9 /* Biometric.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000001 /* Biometric.swift */; };
+		0000000000000000000003EA /* BootModeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000002 /* BootModeSheet.swift */; };
+		0000000000000000000003EB /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000003 /* Connection.swift */; };
+		0000000000000000000003EC /* DetailTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000004 /* DetailTabs.swift */; };
+		0000000000000000000003ED /* HistoryLogsOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000005 /* HistoryLogsOverlays.swift */; };
+		0000000000000000000003EE /* MachinesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000006 /* MachinesScreen.swift */; };
+		0000000000000000000003EF /* OrderWriteOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000007 /* OrderWriteOverlays.swift */; };
+		0000000000000000000003F0 /* Overlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000008 /* Overlays.swift */; };
+		0000000000000000000003F1 /* OvhConsoleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000009 /* OvhConsoleApp.swift */; };
+		0000000000000000000003F2 /* PairingScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000A /* PairingScreen.swift */; };
+		0000000000000000000003F3 /* ReinstallSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000B /* ReinstallSheets.swift */; };
+		0000000000000000000003F4 /* ServerDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000C /* ServerDetailView.swift */; };
+		0000000000000000000003F5 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000D /* Theme.swift */; };
+		0000000000000000000003F6 /* VpsDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000E /* VpsDetailView.swift */; };
+		0000000000000000000003F7 /* WriteOpSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000F /* WriteOpSheets.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		000000000000000000000000 /* ApiClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiClient.swift; sourceTree = "<group>"; };
+		000000000000000000000001 /* Biometric.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Biometric.swift; sourceTree = "<group>"; };
+		000000000000000000000002 /* BootModeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootModeSheet.swift; sourceTree = "<group>"; };
+		000000000000000000000003 /* Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connection.swift; sourceTree = "<group>"; };
+		000000000000000000000004 /* DetailTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailTabs.swift; sourceTree = "<group>"; };
+		000000000000000000000005 /* HistoryLogsOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryLogsOverlays.swift; sourceTree = "<group>"; };
+		000000000000000000000006 /* MachinesScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinesScreen.swift; sourceTree = "<group>"; };
+		000000000000000000000007 /* OrderWriteOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderWriteOverlays.swift; sourceTree = "<group>"; };
+		000000000000000000000008 /* Overlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Overlays.swift; sourceTree = "<group>"; };
+		000000000000000000000009 /* OvhConsoleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OvhConsoleApp.swift; sourceTree = "<group>"; };
+		00000000000000000000000A /* PairingScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingScreen.swift; sourceTree = "<group>"; };
+		00000000000000000000000B /* ReinstallSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReinstallSheets.swift; sourceTree = "<group>"; };
+		00000000000000000000000C /* ServerDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerDetailView.swift; sourceTree = "<group>"; };
+		00000000000000000000000D /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		00000000000000000000000E /* VpsDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VpsDetailView.swift; sourceTree = "<group>"; };
+		00000000000000000000000F /* WriteOpSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WriteOpSheets.swift; sourceTree = "<group>"; };
+		AA000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA000000000000000000000A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA00000000000000000000PR /* OvhConsole.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OvhConsole.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		AA00000000000000000000RO /* Root */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000000000000000000SO /* Sources */,
+				AA00000000000000000000RE /* Resources */,
+				AA00000000000000000000PX /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000PX /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000000000000000000PR /* OvhConsole.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000SO /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000000 /* ApiClient.swift */,
+				000000000000000000000001 /* Biometric.swift */,
+				000000000000000000000002 /* BootModeSheet.swift */,
+				000000000000000000000003 /* Connection.swift */,
+				000000000000000000000004 /* DetailTabs.swift */,
+				000000000000000000000005 /* HistoryLogsOverlays.swift */,
+				000000000000000000000006 /* MachinesScreen.swift */,
+				000000000000000000000007 /* OrderWriteOverlays.swift */,
+				000000000000000000000008 /* Overlays.swift */,
+				000000000000000000000009 /* OvhConsoleApp.swift */,
+				00000000000000000000000A /* PairingScreen.swift */,
+				00000000000000000000000B /* ReinstallSheets.swift */,
+				00000000000000000000000C /* ServerDetailView.swift */,
+				00000000000000000000000D /* Theme.swift */,
+				00000000000000000000000E /* VpsDetailView.swift */,
+				00000000000000000000000F /* WriteOpSheets.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000RE /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AA000000000000000000000A /* Assets.xcassets */,
+				AA000000000000000000000F /* Info.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA00000000000000000000R1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA00000000000000000000RA /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AA00000000000000000000S1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000003E8 /* ApiClient.swift in Sources */,
+				0000000000000000000003E9 /* Biometric.swift in Sources */,
+				0000000000000000000003EA /* BootModeSheet.swift in Sources */,
+				0000000000000000000003EB /* Connection.swift in Sources */,
+				0000000000000000000003EC /* DetailTabs.swift in Sources */,
+				0000000000000000000003ED /* HistoryLogsOverlays.swift in Sources */,
+				0000000000000000000003EE /* MachinesScreen.swift in Sources */,
+				0000000000000000000003EF /* OrderWriteOverlays.swift in Sources */,
+				0000000000000000000003F0 /* Overlays.swift in Sources */,
+				0000000000000000000003F1 /* OvhConsoleApp.swift in Sources */,
+				0000000000000000000003F2 /* PairingScreen.swift in Sources */,
+				0000000000000000000003F3 /* ReinstallSheets.swift in Sources */,
+				0000000000000000000003F4 /* ServerDetailView.swift in Sources */,
+				0000000000000000000003F5 /* Theme.swift in Sources */,
+				0000000000000000000003F6 /* VpsDetailView.swift in Sources */,
+				0000000000000000000003F7 /* WriteOpSheets.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA00000000000000000000FW /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+		AA00000000000000000000RA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000000A /* Assets.xcassets */; };
+
+/* Begin PBXNativeTarget section */
+		AA00000000000000000000TG /* OvhConsole */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA00000000000000000000CL /* Build configuration list for PBXNativeTarget "OvhConsole" */;
+			buildPhases = (
+				AA00000000000000000000S1 /* Sources */,
+				AA00000000000000000000FW /* Frameworks */,
+				AA00000000000000000000R1 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = OvhConsole;
+			productName = OvhConsole;
+			productReference = AA00000000000000000000PR /* OvhConsole.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA00000000000000000000PJ /* Project object */ = {
+			isa = PBXProject;
+			attributes = { BuildIndependentTargetsInParallel = 1; };
+			buildConfigurationList = AA0000000000000000000PCL /* Build configuration list for PBXProject "OvhConsole" */;
+			developmentRegion = zh_CN;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base, zh_CN);
+			mainGroup = AA00000000000000000000RO;
+			productRefGroup = AA00000000000000000000PX /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (AA00000000000000000000TG /* OvhConsole */);
+		};
+/* End PBXProject section */
+
+/* Begin XCBuildConfiguration section */
+		AA0000000000000000000D01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AA0000000000000000000R01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		AA0000000000000000000D02 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gokele.ovhconsole;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		AA0000000000000000000R02 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gokele.ovhconsole;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AA0000000000000000000PCL /* Build configuration list for PBXProject "OvhConsole" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0000000000000000000D01 /* Debug */,
+				AA0000000000000000000R01 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA00000000000000000000CL /* Build configuration list for PBXNativeTarget "OvhConsole" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0000000000000000000D02 /* Debug */,
+				AA0000000000000000000R02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AA00000000000000000000PJ /* Project object */;
+}

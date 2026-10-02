@@ -112,3 +112,7 @@ app/package-lock.json
 # Swift iOS app(SPM 构建产物)
 app/OvhConsole/.build/
 app/OvhConsole/.swiftpm/
+
+# Xcode
+app/OvhConsole/DerivedData/
+app/OvhConsole/**/xcuserdata/
