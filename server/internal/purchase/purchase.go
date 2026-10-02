@@ -558,14 +558,13 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	state.Logger.Info(fmt.Sprintf("成功购买 %s 在 %s (订单ID: %s, URL: %s)",
 		item.PlanCode, item.Datacenter, orderID, orderURL), "purchase")
 
-	// 发送 Telegram 成功通知。TG token / chat id 仍然走全局 state.Config(Telegram 是平台级配置,跨账户共享)
-	tgCfg := state.Config.Get()
-	if tgCfg.TgToken != "" && tgCfg.TgChatID != "" {
-		msg := BuildOrderSuccessMessage(item, orderID, ovh.ManagerOrderURL(acc.Endpoint, orderID))
-		notify.Broadcast(state, msg, nil)
-		state.Logger.Info("已为订单 "+orderID+" 发送 Telegram 成功通知。", "purchase")
+	// 成功通知走统一通知层(Telegram + Webhook 至少一条可达就发)。
+	// 以前被 TG 配置判断包住:Webhook-only 用户收不到"抢到了但没付款",
+	// 订单逾期作废 —— 这是整条链路里最不能丢的一条消息(issue #2)。
+	if notify.Broadcast(state, BuildOrderSuccessMessage(item, orderID, ovh.ManagerOrderURL(acc.Endpoint, orderID)), nil) > 0 {
+		state.Logger.Info("已为订单 "+orderID+" 发送订单成功通知。", "purchase")
 	} else {
-		state.Logger.Info("未配置 Telegram Token 或 Chat ID，跳过成功通知发送。", "purchase")
+		state.Logger.Warn("订单 "+orderID+" 已创建,但成功通知未送达任何通道。", "purchase")
 	}
 	return Outcome{Success: true}
 }

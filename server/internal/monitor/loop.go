@@ -32,7 +32,7 @@ func (m *Monitor) checkNotifyOrStop() bool {
 	if !due {
 		return true
 	}
-	ok, reason := notify.AnyAvailable(m.state, true)
+	ok, reason := notify.AnyAvailable(m.state, false) // 周期性只查配置:真 POST 对 Server酱/Bark 就是发通知(issue #2)
 	m.tgCheckMu.Lock()
 	m.lastTGCheck = time.Now()
 	m.tgCheckMu.Unlock()

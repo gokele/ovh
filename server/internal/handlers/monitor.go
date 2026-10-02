@@ -48,6 +48,16 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 			Options []string `json:"options"`
 		}
 		_ = c.ShouldBindJSON(&body)
+		body.PlanCode = strings.TrimSpace(body.PlanCode)
+		// 一条订阅一个型号(issue #2):整串"plan-a,plan-b"会被当成一个型号存进库,
+		// 永远匹配不到库存,界面上却显示创建成功。半/全角逗号、顿号、空白、换行都拒。
+		if strings.ContainsAny(body.PlanCode, ",，、 \t\r\n") {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  "error",
+				"message": "每条订阅只能填写一个 planCode,多个型号请分别添加",
+			})
+			return
+		}
 		if body.PlanCode == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少planCode参数"})
 			return

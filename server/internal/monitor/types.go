@@ -170,8 +170,17 @@ func (s *Subscription) beginCheck(at, accountID, region, subsidiary string) (pre
 	s.LastCheckAccountID = accountID
 	s.LastCheckRegion = region
 	s.LastCheckSubsidiary = subsidiary
-	s.LastCheckError = ""
+	// 不在这里清 LastCheckError(issue #2):清了之后,"已恢复"的判定会在
+	// 真正查到库存之前发生 —— 持续失败的型号每轮都先报恢复再报同样的错,
+	// 日志刷屏且状态自相矛盾。恢复只在成功拿到库存后由 clearCheckError 记录。
 	return prevErr
+}
+
+// clearCheckError 本轮真正成功获取库存后调用,并记一条恢复日志。
+func (s *Subscription) clearCheckError() {
+	s.mu.Lock()
+	s.LastCheckError = ""
+	s.mu.Unlock()
 }
 
 func (s *Subscription) setCheckError(msg string) {

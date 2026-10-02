@@ -78,7 +78,7 @@ func checkNotifyOrStop(state *app.State) bool {
 		return true
 	}
 	// 与服务器监控同一口径:所有通道都不可用才停,只挂一条不影响
-	ok, reason := notify.AnyAvailable(state, true)
+	ok, reason := notify.AnyAvailable(state, false) // 周期性只查配置,不发真消息(issue #2)
 	tgCheckMu.Lock()
 	lastTGCheck = time.Now()
 	tgCheckMu.Unlock()

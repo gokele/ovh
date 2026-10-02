@@ -381,11 +381,6 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 		// 不是静默跳过;而且这个结论 10 分钟后会自动重探,机型上架后能自愈。
 		return
 	}
-	if prevErr != "" && choice.degradeReason == "" {
-		m.state.Logger.Info(fmt.Sprintf("[monitor/region] 订阅 %s 的区域问题已恢复,改用 %s 站点(子公司 %s)查询",
-			planCode, choice.region, choice.subsidiary), "monitor")
-	}
-
 	// 监控用选中账户的 subsidiary 拉 catalog,这样跨子公司 multi-account
 	// 触发 auto-order 时,options 匹配能命中目标账户独有的项。
 	currentAvailability := catalog.CheckServerAvailabilityWithConfigs(m.state, planCode, choice.accountID)
@@ -401,6 +396,14 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			m.state.Logger.Warn(fmt.Sprintf("无法获取 %s 的可用性信息: %s", planCode, reason), "monitor")
 		}
 		return
+	}
+
+	// 走到这里说明本轮真正拿到了库存 —— 现在才允许说"已恢复"(issue #2:
+	// 以前在查询前就报恢复,持续失败的型号每轮"恢复→又失败"刷屏)。
+	if prevErr != "" {
+		sub.clearCheckError()
+		m.state.Logger.Info(fmt.Sprintf("[monitor/region] 订阅 %s 的区域问题已恢复,改用 %s 站点(子公司 %s)查询",
+			planCode, choice.region, choice.subsidiary), "monitor")
 	}
 
 	// 状态先在副本上推进,循环结束一次性写回:HTTP 侧读到的要么是上轮的完整状态、
