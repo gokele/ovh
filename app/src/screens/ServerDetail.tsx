@@ -61,25 +61,39 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
-      {/* 状态头 */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 4 }}>
+      {/* 状态头:返回 → 别名大字+状态点 → serviceName 小字 → IP 行(可复制)→ 胶囊条(设计稿 v3) */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 6, gap: 5 }}>
         <Pressable onPress={onBack} style={{ flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start" }}>
           <ChevronLeft size={16} color={t.muted} />
           <Text style={{ fontSize: 12, color: t.muted }}>机器</Text>
         </Pressable>
-        <Text style={{ fontSize: 20, fontWeight: "700", color: t.fg }}>{server.serviceName}</Text>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text style={{ fontFamily: "Menlo", fontSize: 11, color: t.muted }}>{server.ip}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 9 }}>
+          <View style={{ width: 9, height: 9, borderRadius: 99, backgroundColor: rescue ? t.warning : t.success }} />
+          <Text style={{ fontSize: 21, fontWeight: "700", color: t.fg, flexShrink: 1 }} numberOfLines={1}>
+            {server.name && server.name !== server.serviceName ? server.name.split(" | ")[0] : server.serviceName}
+          </Text>
+        </View>
+        <Text style={{ fontFamily: "Menlo", fontSize: 10.5, color: t.faint }}>{server.serviceName}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 7, marginTop: 2 }}>
+          <Text style={{ fontFamily: "Menlo", fontSize: 12, color: t.muted }}>{server.ip}</Text>
           <Pressable
             onPress={() => {
               Clipboard.setStringAsync(server.ip);
               Alert.alert("已复制", server.ip);
             }}
             hitSlop={8}
+            style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
           >
-            <Copy size={12} color={t.faint} />
+            <Copy size={11} color={t.faint} />
+            <Text style={{ fontSize: 10, color: t.faint }}>复制</Text>
           </Pressable>
-          {rescue && <Text style={{ fontSize: 11, color: t.warning, fontWeight: "600" }}>救援模式</Text>}
+        </View>
+        {/* 胶囊条:状态/机房/续费 —— web 端服务信息条的移动版 */}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+          {rescue && <InfoPill t={t} text="救援模式" tone="warn" />}
+          <InfoPill t={t} text={(server.state || "—").toUpperCase()} tone={rescue ? "warn" : "ok"} />
+          <InfoPill t={t} text={(server.datacenter || "—").toUpperCase() + " 机房"} tone="mut" />
+          <InfoPill t={t} text={server.renewalType === true ? "续费 自动" : server.renewalType === false ? "续费 手动" : "续费 未知"} tone="mut" />
         </View>
       </View>
 
@@ -151,6 +165,16 @@ function Overview({ t, server, info }: { t: ReturnType<typeof useTokens>; server
           <Text style={{ fontFamily: "Menlo", fontSize: 11.5, color: t.fg, textAlign: "right", flexShrink: 1 }}>{v}</Text>
         </View>
       ))}
+    </View>
+  );
+}
+
+/** 信息胶囊:状态/机房/续费的轻量展示(描边式,非彩色大块) */
+function InfoPill({ t, text, tone }: { t: ReturnType<typeof useTokens>; text: string; tone: "ok" | "warn" | "mut" }) {
+  const c = tone === "ok" ? t.success : tone === "warn" ? t.warning : t.muted;
+  return (
+    <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, borderWidth: 1, borderColor: tone === "mut" ? t.border : c, backgroundColor: tone === "mut" ? t.surfaceMuted : c + "12" }}>
+      <Text style={{ fontSize: 9.5, fontWeight: "600", color: tone === "mut" ? t.muted : c }}>{text}</Text>
     </View>
   );
 }
