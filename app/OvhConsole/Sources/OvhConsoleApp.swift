@@ -2,7 +2,8 @@ import SwiftUI
 
 /**
  * App 入口:机器控制台为主体,配对闸在前。
- * 菜单(雷达/队列/设置)收在右上角 —— 次要入口。
+ * 底部菜单栏四 Tab:机器 / 雷达 / 队列 / 更多 —— 机器仍是首 Tab(核心),
+ * 其余入口不再藏在右上角弹出菜单里。
  */
 @main
 struct OvhConsoleApp: App {
@@ -33,11 +34,13 @@ struct OvhConsoleApp: App {
     }
 }
 
-/// 页面导航(overlay 模型:主屏之上覆盖次要页)
+/// 页面导航:底部四 Tab + 「更多」内的二级入口(覆盖页)
 @MainActor
 final class AppNav: ObservableObject {
-    @Published var overlay: String? = nil   // "radar" / "queue" / "profile"
-    @Published var menuOpen = false
+    /// 底部 Tab: machines / radar / queue / more
+    @Published var tab: String = "machines"
+    /// 二级覆盖页(more 里的项): monitor / history / logs / profile
+    @Published var overlay: String? = nil
 }
 
 struct MainScreen: View {
@@ -49,41 +52,45 @@ struct MainScreen: View {
     var t: Tokens { theme.t }
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                topBar
+        VStack(spacing: 0) {
+            topBar
+
+            // Tab 内容
+            switch nav.tab {
+            case "radar":
+                RadarOverlay(onClose: { nav.tab = "machines" })
+            case "queue":
+                QueueOverlay(onClose: { nav.tab = "machines" })
+            case "more":
+                MorePage()
+            default:
                 MachinesScreen()
             }
 
-            if nav.menuOpen { menu }
-
-            // 覆盖层:菜单三页(雷达/队列/设置),「完成」返回
-            switch nav.overlay {
-            case "radar":
-                RadarOverlay(onClose: { nav.overlay = nil })
-                    .transition(.move(edge: .trailing))
-            case "monitor":
-                MonitorOverlay(onClose: { nav.overlay = nil })
-                    .transition(.move(edge: .trailing))
-            case "queue":
-                QueueOverlay(onClose: { nav.overlay = nil })
-                    .transition(.move(edge: .trailing))
-            case "history":
-                HistoryOverlay(onClose: { nav.overlay = nil })
-                    .transition(.move(edge: .trailing))
-            case "logs":
-                LogsOverlay(onClose: { nav.overlay = nil })
-                    .transition(.move(edge: .trailing))
-            case "profile":
-                ProfileOverlay(onClose: { nav.overlay = nil }, onDisconnected: { nav.overlay = nil })
-                    .transition(.move(edge: .trailing))
-            default:
-                EmptyView()
-            }
+            tabBar
         }
+        .overlay(
+            // 二级覆盖页(更多里的项):「完成」回到更多
+            Group {
+                switch nav.overlay {
+                case "monitor":
+                    MonitorOverlay(onClose: { nav.overlay = nil }).transition(.move(edge: .trailing))
+                case "history":
+                    HistoryOverlay(onClose: { nav.overlay = nil }).transition(.move(edge: .trailing))
+                case "logs":
+                    LogsOverlay(onClose: { nav.overlay = nil }).transition(.move(edge: .trailing))
+                case "profile":
+                    ProfileOverlay(onClose: { nav.overlay = nil }, onDisconnected: { nav.overlay = nil })
+                        .transition(.move(edge: .trailing))
+                default:
+                    EmptyView()
+                }
+            }
+        )
     }
 
-    /// 顶栏:当前账户徽章 + 菜单按钮
+    // MARK: 顶栏(账户徽章;菜单按钮移除 —— 导航在底部)
+
     private var topBar: some View {
         HStack(spacing: 8) {
             if let acc = activeAccount {
@@ -98,9 +105,6 @@ struct MainScreen: View {
                 Text("服务器控制台").font(.system(size: 16, weight: .bold)).foregroundColor(t.color(t.fg))
             }
             Spacer()
-            Button { nav.menuOpen = true } label: {
-                Image(systemName: "line.3.horizontal").font(.system(size: 20)).foregroundColor(t.color(t.fg))
-            }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .overlay(Rectangle().frame(height: 0.5).foregroundColor(t.color(t.border)), alignment: .bottom)
@@ -118,38 +122,72 @@ struct MainScreen: View {
         }
     }
 
-    /// 弹出菜单:三个次要入口
-    private var menu: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.opacity(0.35).ignoresSafeArea().onTapGesture { nav.menuOpen = false }
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("更多").font(.system(size: 14, weight: .bold)).foregroundColor(t.color(t.fg))
-                    Spacer()
-                    Button { nav.menuOpen = false } label: { Image(systemName: "xmark").font(.system(size: 15)).foregroundColor(t.color(t.muted)) }
-                }
-                .padding(14)
-                .overlay(Rectangle().frame(height: 0.5).foregroundColor(t.color(t.border)), alignment: .bottom)
+    // MARK: 底部菜单栏
 
-                menuItem("radar", icon: "dot.radiowaves.left.and.right", title: "补货雷达", desc: "机型 × 机房可用性")
-                menuItem("monitor", icon: "eye", title: "服务器监控", desc: "补货订阅与自动下单")
-                menuItem("queue", icon: "list.bullet.rectangle", title: "抢购队列", desc: "任务状态与耗时")
-                menuItem("history", icon: "clock.arrow.circlepath", title: "抢购历史", desc: "订单状态与付款倒计时")
-                menuItem("logs", icon: "doc.text.magnifyingglass", title: "运行日志", desc: "最近 200 条,自动刷新")
-                menuItem("profile", icon: "person.crop.circle", title: "设置与账户", desc: "配对 / 账户 / 外观")
-            }
-            .frame(width: 250)
-            .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
-            .padding(.trailing, 14)
-            .padding(.top, 56)
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            tabItem("machines", icon: "server.rack", label: "机器")
+            tabItem("radar", icon: "dot.radiowaves.left.and.right", label: "雷达")
+            tabItem("queue", icon: "list.bullet.rectangle", label: "队列")
+            tabItem("more", icon: "ellipsis.circle", label: "更多")
         }
+        .padding(.top, 8)
+        .padding(.bottom, 24)   // iPhone home 指示条安全区
+        .background(t.color(t.surface).overlay(Rectangle().frame(height: 0.5).foregroundColor(t.color(t.border)), alignment: .top))
     }
 
-    private func menuItem(_ id: String, icon: String, title: String, desc: String) -> some View {
-        Button {
-            nav.menuOpen = false
-            nav.overlay = id
+    private func tabItem(_ id: String, icon: String, label: String) -> some View {
+        let on = nav.tab == id
+        return Button {
+            nav.tab = id
+            nav.overlay = nil   // 切 Tab 时关掉二级页
         } label: {
+            VStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 21, weight: on ? .semibold : .regular))
+                    .foregroundColor(t.color(on ? t.fg : t.faint))
+                Text(label)
+                    .font(.system(size: 10, weight: on ? .semibold : .regular))
+                    .foregroundColor(t.color(on ? t.fg : t.faint))
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())   // 整格可点,不只图标文字
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 「更多」页:监控 / 历史 / 日志 / 设置(列表入口 → 二级覆盖页)
+struct MorePage: View {
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var nav: AppNav
+    @EnvironmentObject var conn: Connection
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                Text("更多")
+                    .font(.system(size: 24, weight: .bold)).foregroundColor(t.color(t.fg))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                row("monitor", icon: "eye", title: "服务器监控", desc: "补货订阅与自动下单")
+                row("history", icon: "clock.arrow.circlepath", title: "抢购历史", desc: "订单状态与付款倒计时")
+                row("logs", icon: "doc.text.magnifyingglass", title: "运行日志", desc: "最近 200 条,自动刷新")
+                row("profile", icon: "person.crop.circle", title: "设置与账户", desc: "配对 / 账户 / 外观")
+
+                Text("后端:\(conn.serverUrl)")
+                    .font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 6)
+            }
+            .padding(16)
+        }
+        .background(t.color(t.bg))
+    }
+
+    private func row(_ id: String, icon: String, title: String, desc: String) -> some View {
+        Button { nav.overlay = id } label: {
             HStack(spacing: 11) {
                 Image(systemName: icon).font(.system(size: 17)).foregroundColor(t.color(t.fg))
                 VStack(alignment: .leading, spacing: 1) {
@@ -157,8 +195,10 @@ struct MainScreen: View {
                     Text(desc).font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
                 }
                 Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(t.color(t.faint))
             }
-            .padding(.horizontal, 14).padding(.vertical, 12)
+            .padding(13)
+            .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
         }
         .buttonStyle(.plain)
     }

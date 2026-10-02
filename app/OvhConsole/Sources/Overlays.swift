@@ -22,7 +22,14 @@ struct RadarOverlay: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            OverlayHeaderView(title: "雷达", subtitle: "机型 × 机房可用性", onClose: onClose, t: t)
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("雷达").font(.system(size: 24, weight: .bold)).foregroundColor(t.color(t.fg))
+                    Text("机型 × 机房可用性").font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
             ScrollView {
                 LazyVStack(spacing: 10) {
                     if let e = err {
