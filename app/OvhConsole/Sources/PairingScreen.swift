@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /**
  * 配对首屏(SwiftUI):地址 + 8 位码 → Keychain。
@@ -50,6 +51,14 @@ struct PairingScreen: View {
             .padding(.horizontal, 28)
         }
         .background(t.color(t.bg))
+        .onOpenURL { url in
+            // ovhconsole://pair?host=http://x:19997&code=ABCDEFGH
+            guard url.host == "pair" else { return }
+            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let items = comps?.queryItems ?? []
+            if let h = items.first(where: { $0.name == "host" })?.value { self.url = h }
+            if let c = items.first(where: { $0.name == "code" })?.value { code = c }
+        }
     }
 
     private func field(_ ph: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {

@@ -41,5 +41,16 @@
 	<string>用于确认重启、重装、撤单等高风险操作</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.gokele.ovhconsole</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ovhconsole</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
