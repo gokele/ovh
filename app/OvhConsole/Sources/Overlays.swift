@@ -133,12 +133,33 @@ struct QueueOverlay: View {
     @State private var items: [[String: Any]] = []
     @State private var err: String?
     @State private var loading = true
+    @State private var showCreate = false
 
     var t: Tokens { theme.t }
 
     var body: some View {
         VStack(spacing: 0) {
-            OverlayHeaderView(title: "队列", subtitle: "任务状态与耗时", onClose: onClose, t: t)
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("队列").font(.system(size: 24, weight: .bold)).foregroundColor(t.color(t.fg))
+                    Text("任务状态与耗时").font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                }
+                Spacer()
+                Button { showCreate = true } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "plus.circle.fill").font(.system(size: 13))
+                        Text("新建").font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(t.color(t.fg))
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Capsule().stroke(t.color(t.border), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                Button(action: onClose) {
+                    Text("完成").font(.system(size: 13)).foregroundColor(t.color(t.muted))
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
             ScrollView {
                 LazyVStack(spacing: 10) {
                     if let e = err {
@@ -159,6 +180,12 @@ struct QueueOverlay: View {
         .background(t.color(t.bg))
         .task { await load() }
         .refreshable { await load() }
+        .sheet(isPresented: $showCreate) {
+            CreateOrderSheet(onClose: {
+                showCreate = false
+                Task { await load() }
+            })
+        }
     }
 
     private func queueCard(_ item: [String: Any]) -> some View {

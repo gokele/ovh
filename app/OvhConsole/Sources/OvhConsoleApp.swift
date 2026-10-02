@@ -62,6 +62,9 @@ struct MainScreen: View {
             case "radar":
                 RadarOverlay(onClose: { nav.overlay = nil })
                     .transition(.move(edge: .trailing))
+            case "monitor":
+                MonitorOverlay(onClose: { nav.overlay = nil })
+                    .transition(.move(edge: .trailing))
             case "queue":
                 QueueOverlay(onClose: { nav.overlay = nil })
                     .transition(.move(edge: .trailing))
@@ -129,6 +132,7 @@ struct MainScreen: View {
                 .overlay(Rectangle().frame(height: 0.5).foregroundColor(t.color(t.border)), alignment: .bottom)
 
                 menuItem("radar", icon: "dot.radiowaves.left.and.right", title: "补货雷达", desc: "机型 × 机房可用性")
+                menuItem("monitor", icon: "eye", title: "服务器监控", desc: "补货订阅与自动下单")
                 menuItem("queue", icon: "list.bullet.rectangle", title: "抢购队列", desc: "任务状态与耗时")
                 menuItem("history", icon: "clock.arrow.circlepath", title: "抢购历史", desc: "订单状态与付款倒计时")
                 menuItem("logs", icon: "doc.text.magnifyingglass", title: "运行日志", desc: "最近 200 条,自动刷新")
