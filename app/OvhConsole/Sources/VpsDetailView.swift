@@ -10,6 +10,7 @@ struct VpsDetailView: View {
     let onBack: () -> Void
 
     @State private var section = "overview"
+    @State private var alias = ""
     @State private var info: [String: Any]?
     @State private var snapshot: [String: Any]?
     @State private var showReinstall = false
@@ -23,7 +24,8 @@ struct VpsDetailView: View {
         VStack(spacing: 0) {
             header
             HStack(spacing: 2) {
-                forTap("overview", "概览"); forTap("power", "电源"); forTap("snapshot", "快照")
+                forTap("overview", "概览"); forTap("snapshot", "快照")
+                forTap("ddos", "DDoS"); forTap("maintenance", "维护")
             }
             .padding(3)
             .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surfaceMuted)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.border), lineWidth: 1)))
@@ -33,8 +35,9 @@ struct VpsDetailView: View {
             ScrollView {
                 VStack(spacing: 10) {
                     switch section {
-                    case "power": powerTab
                     case "snapshot": SnapshotPane(vpsName: name)
+                    case "ddos": VpsMitigationPane(vpsName: name)
+                    case "maintenance": vpsMaintenanceTab
                     default: overviewTab
                     }
                 }
@@ -88,14 +91,77 @@ struct VpsDetailView: View {
     }
 
     private var overviewTab: some View {
-        VStack(spacing: 4) {
-            kv("型号", (info?["model"] as? [String: Any])?["name"] as? String ?? vps["model"] as? String ?? "—")
-            kv("状态", state)
-            kv("IP", ((vps["ips"] as? [String]) ?? []).joined(separator: ", "))
-            kv("OS", (info?["os"] as? String) ?? vps["os"] as? String ?? "—")
+        VStack(spacing: 10) {
+            VStack(spacing: 4) {
+                kv("型号", (info?["model"] as? [String: Any])?["name"] as? String ?? vps["model"] as? String ?? "—")
+                kv("状态", state)
+                kv("IP", ((vps["ips"] as? [String]) ?? []).joined(separator: ", "))
+                kv("OS", (info?["os"] as? String) ?? vps["os"] as? String ?? "—")
+            }
+            .padding(13)
+            .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
+
+            // 电源动作(原电源 Tab 并回概览,与 web 四 Tab 对齐)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                if !running {
+                    ActTile(icon: "power", label: "启动", t: t) { Task { await act("start") } }
+                }
+                if running {
+                    ActTile(icon: "power.dotted", label: "关机", t: t) { Task { await act("stop") } }
+                }
+                ActTile(icon: "arrow.clockwise", label: "重启", t: t) { Task { await act("reboot") } }
+                ActTile(icon: "display", label: "控制台", t: t) { Task { await openConsole() } }
+            }
         }
-        .padding(13)
-        .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
+    }
+
+    // MARK: VPS 维护 Tab(别名 / 终止)
+    private var vpsMaintenanceTab: some View {
+        VStack(spacing: 10) {
+            // 别名(本地显示名,不下发 OVH)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("服务器别名").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                TextField(vps["displayName"] as? String ?? name, text: $alias)
+                    .font(.system(size: 13))
+                    .foregroundColor(t.color(t.fg))
+                    .padding(.horizontal, 13)
+                    .frame(height: 42)
+                    .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surfaceMuted)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.border), lineWidth: 1)))
+                Text("只在本控制台显示,不下发给 OVH").font(.system(size: 10)).foregroundColor(t.color(t.faint))
+            }
+            .padding(13)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
+
+            // 终止(红区:立即销毁,与 web 同警告)
+            Button {
+                confirmTerminate()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.octagon.fill").font(.system(size: 17)).foregroundColor(t.color(t.danger))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("终止 VPS").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.danger))
+                        Text("确认后立即销毁,数据不可恢复 —— 建议用「到期终止」代替").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                    }
+                    Spacer()
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.danger).opacity(0.05)).overlay(RoundedRectangle(cornerRadius: 13).stroke(Color(red: 0.9, green: 0.65, blue: 0.65), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func confirmTerminate() {
+        let alert = UIAlertController(title: "终止 VPS?", message: "确认后立即销毁,数据不可恢复。这是不可逆操作。", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "终止", style: .destructive) { _ in
+            Task {
+                guard await Biometric.require("终止 VPS") else { return }
+                _ = await conn.client.actionPostData("/vps-control/\(name)/terminate", bodyData: Data("{}".utf8))
+            }
+        })
+        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first?.present(alert, animated: true)
     }
 
     private var powerTab: some View {
@@ -231,5 +297,82 @@ struct SnapBtn: View {
             .background(Capsule().stroke(t.color(color), lineWidth: 1))
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - VPS DDoS 缓解面板(按 IP 开关,契约同独服)
+
+struct VpsMitigationPane: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    let vpsName: String
+
+    @State private var blocks: [[String: Any]] = []
+    @State private var err: String?
+
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("DDoS 永久缓解").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+            if let e = err {
+                Text(e).font(.system(size: 11.5)).foregroundColor(t.color(t.danger))
+            } else if blocks.isEmpty {
+                Text("无 IP 信息").font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
+            } else {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    Button { toggle(row) } label: {
+                        HStack {
+                            Text(row.ip).font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                            Spacer()
+                            Text(row.permanent ? "开 · 点关" : "关 · 点开")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(t.color(row.permanent ? t.success : t.faint))
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
+        .task { await load() }
+    }
+
+    private struct Row { let ip: String; let block: String; let permanent: Bool }
+    private var rows: [Row] {
+        blocks.flatMap { b -> [Row] in
+            let block = b["ipBlock"] as? String ?? ""
+            return ((b["mitigations"] as? [[String: Any]]) ?? []).map {
+                Row(ip: $0["ipOnMitigation"] as? String ?? "", block: block, permanent: $0["permanent"] as? Bool ?? false)
+            }
+        }
+    }
+
+    private func toggle(_ row: Row) {
+        let a = UIAlertController(title: row.permanent ? "关闭永久缓解?" : "开启永久缓解?",
+                                  message: row.permanent ? "关闭后不再常驻缓解(自动缓解仍在)。" : "开启后常驻 DDoS 缓解,攻击流量在 OVH 边缘清洗。",
+                                  preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: "取消", style: .cancel))
+        a.addAction(UIAlertAction(title: "确认", style: .destructive) { _ in
+            Task {
+                let base = "/vps-control/\(vpsName)/mitigation/\(row.ip)"
+                let q = "?block=\(row.block.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? row.block)"
+                if row.permanent { _ = await conn.client.actionDelete(base + q) }
+                else { _ = await conn.client.actionPostData(base + q, bodyData: Data("{}".utf8)) }
+                await load()
+            }
+        })
+        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first?.present(a, animated: true)
+    }
+
+    private func load() async {
+        do {
+            let r = try await conn.client.getDict("/vps-control/\(vpsName)/mitigation")
+            blocks = (r["ips"] as? [[String: Any]]) ?? []
+            err = nil
+        } catch { err = error.localizedDescription }
     }
 }

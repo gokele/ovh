@@ -79,6 +79,8 @@ struct ServerDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.top, 6)
+        .padding(.bottom, 8)
+        .overlay(Rectangle().frame(height: 0.5).foregroundColor(t.color(t.border)).opacity(0.6), alignment: .bottom)
     }
 
     private var segTabs: some View {

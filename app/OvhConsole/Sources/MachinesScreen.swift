@@ -97,7 +97,7 @@ struct ServerCard: View {
                     RoundedRectangle(cornerRadius: 9)
                         .fill(t.color(rescue ? t.warning : ok ? t.success : t.danger))
                         .frame(width: 28, height: 28)
-                        .overlay(Image(systemName: "servericon").font(.system(size: 12, weight: .bold)).foregroundColor(.white))
+                        .overlay(Image(systemName: "server.rack").font(.system(size: 12, weight: .bold)).foregroundColor(.white))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(displayName).font(.system(size: 15, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
                         Text(item["serviceName"] as? String ?? "").font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint)).lineLimit(1)
@@ -115,6 +115,8 @@ struct ServerCard: View {
                     Text("\((item["datacenter"] as? String ?? "—").uppercased()) · \(renewalText)")
                         .font(.system(size: 11)).foregroundColor(t.color(t.muted))
                 }
+                .padding(.top, 10)
+                .overlay(Rectangle().frame(height: 0.5).foregroundColor(t.color(t.border)).opacity(0.6), alignment: .top)
                 if rescue {
                     HStack(spacing: 7) {
                         Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12)).foregroundColor(t.color(t.warning))
