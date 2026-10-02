@@ -14,6 +14,8 @@ import { useTokens } from "../theme/tokens";
 import { useAction, usePoll } from "../api/hooks";
 import ServerDetailMaintenance from "./ServerDetailMaintenance";
 import ServerDetailAdvanced from "./ServerDetailAdvanced";
+import MrtgSpark from "../components/MrtgSpark";
+import { requireBiometric } from "../api/biometric";
 
 type Section = "overview" | "power" | "maintenance" | "advanced";
 
@@ -25,7 +27,7 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
 
   const rescue = server.netbootMode === "rescue";
 
-  /** 电源动作统一走确认对话(后果写人话,与 web 同文案) */
+  /** 危险动作三闸:确认对话(人话后果)→ Face ID → 执行。与 web 同文案,加一层生物识别 */
   const confirmAct = (title: string, msg: string, path: string) => {
     Alert.alert(title, msg, [
       { text: "取消", style: "cancel" },
@@ -33,6 +35,11 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
         text: "确认",
         style: "destructive",
         onPress: async () => {
+          const bio = await requireBiometric(title);
+          if (!bio.ok) {
+            Alert.alert("未执行", bio.reason || "验证未通过");
+            return;
+          }
           const r = await act.run(path);
           if (!r.ok) Alert.alert("失败", r.message || "请重试");
         },
@@ -90,7 +97,12 @@ export default function ServerDetail({ client, server, onBack }: { client: ApiCl
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 30 }}>
-        {section === "overview" && <Overview t={t} server={server} info={info.data?.serviceInfo} />}
+        {section === "overview" && (
+          <>
+            <Overview t={t} server={server} info={info.data?.serviceInfo} />
+            <MrtgSpark client={client} serviceName={server.serviceName} />
+          </>
+        )}
         {section === "power" && (
           <>
             <View style={styles.actions}>
