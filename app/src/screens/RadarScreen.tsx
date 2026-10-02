@@ -2,7 +2,7 @@
  * 雷达(补货):订阅机型优先,机房格显示原始可用性枚举(1H-low 这类)。
  * 红绿只认 \d+H 白名单 —— 与后端 IsAvailableForOrder 同规则(core/availability)。
  */
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Star } from "lucide-react-native";
 
 import type { ApiClient } from "@core/api-client";
@@ -13,7 +13,7 @@ import { usePoll } from "../api/hooks";
 
 interface AvailResp { availability?: Record<string, Record<string, string>> }
 
-export default function RadarScreen({ client }: { client: ApiClient }) {
+export default function RadarScreen({ client, onClose }: { client: ApiClient; onClose: () => void }) {
   const t = useTokens();
   const plans = usePoll<{ servers: ServerPlan[] }>(client, "/servers", 60_000);
   const avail = usePoll<AvailResp>(client, "/availability", 10_000);
@@ -33,7 +33,7 @@ export default function RadarScreen({ client }: { client: ApiClient }) {
       data={sorted}
       keyExtractor={(p) => p.planCode}
       refreshControl={<RefreshControl refreshing={plans.loading} tintColor={t.muted} onRefresh={plans.refresh} />}
-      ListHeaderComponent={<Text style={{ fontSize: 24, fontWeight: "700", color: t.fg, marginBottom: 4 }}>雷达</Text>}
+      ListHeaderComponent={<View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4, paddingRight: 4 }}><Text style={{ fontSize: 24, fontWeight: "700", color: t.fg }}>雷达</Text><Pressable onPress={onClose} hitSlop={12}><Text style={{ fontSize: 13, color: t.muted }}>完成</Text></Pressable></View>}
       ListEmptyComponent={
         plans.error ? (
           <Text style={{ color: t.danger, fontSize: 12, textAlign: "center", marginTop: 40 }}>{plans.error}</Text>

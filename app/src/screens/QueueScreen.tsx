@@ -10,7 +10,7 @@ import type { QueueItem } from "@core/types";
 import { useTokens } from "../theme/tokens";
 import { useAction, usePoll } from "../api/hooks";
 
-export default function QueueScreen({ client }: { client: ApiClient }) {
+export default function QueueScreen({ client, onClose }: { client: ApiClient; onClose: () => void }) {
   const t = useTokens();
   const q = usePoll<QueueItem[]>(client, "/queue", 5_000);
   const act = useAction(client);
@@ -42,7 +42,7 @@ export default function QueueScreen({ client }: { client: ApiClient }) {
       data={items}
       keyExtractor={(i) => i.id}
       refreshControl={<RefreshControl refreshing={q.loading} tintColor={t.muted} onRefresh={q.refresh} />}
-      ListHeaderComponent={<Text style={{ fontSize: 24, fontWeight: "700", color: t.fg, marginBottom: 4 }}>队列</Text>}
+      ListHeaderComponent={<View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4, paddingRight: 4 }}><Text style={{ fontSize: 24, fontWeight: "700", color: t.fg }}>队列</Text><Pressable onPress={onClose} hitSlop={12}><Text style={{ fontSize: 13, color: t.muted }}>完成</Text></Pressable></View>}
       ListEmptyComponent={
         q.error ? (
           <Text style={{ color: t.danger, fontSize: 12, textAlign: "center", marginTop: 40 }}>{q.error}</Text>

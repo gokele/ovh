@@ -16,7 +16,7 @@ import ServerDetail from "./ServerDetail";
 
 interface ListResp { servers: OwnedServer[] }
 
-export default function MachinesScreen({ client }: { client: ApiClient }) {
+export default function MachinesScreen({ client, hideHeader }: { client: ApiClient; hideHeader?: boolean }) {
   const t = useTokens();
   const q = usePoll<ListResp>(client, "/server-control/list", 15_000);
   const [open, setOpen] = useState<OwnedServer | null>(null);
@@ -35,12 +35,18 @@ export default function MachinesScreen({ client }: { client: ApiClient }) {
       keyExtractor={(s) => s.serviceName}
       refreshControl={<RefreshControl refreshing={q.loading} tintColor={t.muted} onRefresh={q.refresh} />}
       ListHeaderComponent={
-        <View style={{ marginBottom: 4 }}>
-          <Text style={{ fontSize: 24, fontWeight: "700", color: t.fg, letterSpacing: 0.3 }}>机器</Text>
-          <Text style={{ fontSize: 11, color: t.muted, marginTop: 3 }}>
+        hideHeader ? (
+          <Text style={{ fontSize: 11, color: t.muted, marginBottom: 10 }}>
             {servers.length} 台{rescueCount > 0 ? ` · ${rescueCount} 台在救援模式` : ""} · 上次同步 {syncText(q.loading)}
           </Text>
-        </View>
+        ) : (
+          <View style={{ marginBottom: 4 }}>
+            <Text style={{ fontSize: 24, fontWeight: "700", color: t.fg, letterSpacing: 0.3 }}>机器</Text>
+            <Text style={{ fontSize: 11, color: t.muted, marginTop: 3 }}>
+              {servers.length} 台{rescueCount > 0 ? ` · ${rescueCount} 台在救援模式` : ""} · 上次同步 {syncText(q.loading)}
+            </Text>
+          </View>
+        )
       }
       ListEmptyComponent={
         q.error ? (

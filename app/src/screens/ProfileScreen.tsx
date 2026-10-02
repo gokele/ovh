@@ -14,11 +14,12 @@ import { forgetConnection } from "../api/connection";
 interface Props {
   client: ApiClient;
   serverUrl: string;
+  onClose: () => void;
   onAccountChange: (id: string) => Promise<void>;
   onDisconnected: () => void;
 }
 
-export default function ProfileScreen({ client, serverUrl, onAccountChange, onDisconnected }: Props) {
+export default function ProfileScreen({ client, serverUrl, onClose, onAccountChange, onDisconnected }: Props) {
   const t = useTokens();
   const q = usePoll<{ accounts: OvhAccount[] }>(client, "/accounts", 60_000);
   const proxy = usePoll<{ channels?: unknown }>(client, "/accounts/proxy-status", 30_000);
@@ -35,7 +36,12 @@ export default function ProfileScreen({ client, serverUrl, onAccountChange, onDi
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 30 }}>
-      <Text style={{ fontSize: 24, fontWeight: "700", color: t.fg, marginBottom: 4 }}>我的</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4, paddingRight: 4 }}>
+        <Text style={{ fontSize: 24, fontWeight: "700", color: t.fg }}>设置与账户</Text>
+        <Pressable onPress={onClose} hitSlop={12}>
+          <Text style={{ fontSize: 13, color: t.muted }}>完成</Text>
+        </Pressable>
+      </View>
 
       {q.error ? (
         <Text style={{ color: t.danger, fontSize: 12 }}>{q.error}</Text>
