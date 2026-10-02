@@ -35,7 +35,7 @@ struct ApiClient {
 
     /// POSIX socket HTTP(完全绕过 ATS/URLSession/CFNetwork)
     /// ATS 只检查 CFNetwork 层;直接用 BSD socket 没有 ATS
-    static func posixHTTP(_ method: String, url: String, body: Data? = nil, timeoutSec: Int = 15) throws -> (Int, Data) {
+    static func posixHTTP(_ method: String, url: String, body: Data? = nil, extraHeaders: String = "", timeoutSec: Int = 15) throws -> (Int, Data) {
         guard let u = URL(string: url), let host = u.host, let port = u.port else {
             throw ApiError(status: 0, message: "地址不合法")
         }
@@ -85,7 +85,7 @@ struct ApiClient {
         // 发请求
         var path = u.path
         if let q = u.query { path += "?" + q }
-        var req = "\(method) \(path) HTTP/1.1\r\nHost: \(host):\(port)\r\nConnection: close\r\n"
+        var req = "\(method) \(path) HTTP/1.1\r\nHost: \(host):\(port)\r\nConnection: close\r\n" + extraHeaders
         if let b = body {
             req += "Content-Type: application/json\r\nContent-Length: \(b.count)\r\n\r\n"
             var full = Data(req.utf8)
@@ -136,21 +136,18 @@ struct ApiClient {
 
     private func request(_ method: String, _ path: String, bodyData: Data? = nil) async throws -> Data {
         guard let u = url(path) else { throw ApiError(status: 0, message: "后端地址不合法") }
-        var req = URLRequest(url: u, timeoutInterval: 20)
-        req.httpMethod = method
+        // POSIX socket 直发:绕过 ATS(ATS 只在 CFNetwork 层,底层 socket 没有)
+        var headers = ""
         if let tok = deviceToken, !tok.isEmpty {
-            req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
+            headers += "Authorization: Bearer \(tok)\r\n"
         } else if let k = apiKey, !k.isEmpty {
-            req.setValue(k, forHTTPHeaderField: "X-API-Key")
+            headers += "X-API-Key: \(k)\r\n"
         }
-        if let bodyData {
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = bodyData
+        if bodyData != nil {
+            headers += "Content-Type: application/json\r\n"
         }
-        let (data, resp) = try await Self.allowHTTPSession.data(for: req)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        let (status, data) = try Self.posixHTTP(method, url: u.absoluteString, body: bodyData, extraHeaders: headers)
         guard (200..<300).contains(status) else {
-            // 后端错误体:{error} 或 {message},取人话
             if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 for key in ["message", "error", "msg"] {
                     if let s = obj[key] as? String, !s.isEmpty {

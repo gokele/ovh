@@ -96,7 +96,8 @@ struct PairingScreen: View {
         defer { busy = false }
         do {
             let r = try await ApiClient.pair(serverUrl: clean, code: c, deviceName: UIDevice.current.name)
-            conn.save(server: clean, token: r.token)
+            // conn 是 @MainActor;从 async 上下文调它必须 await(否则静默失败/挂起)
+            await conn.save(server: clean, token: r.token)
         } catch {
             // os_log 让错误在系统日志可见(模拟器/真机都可查)
             Logger.shared.log("配对失败: \(error)")
