@@ -108,3 +108,7 @@ backup-*/
 app/node_modules/
 app/.expo/
 app/package-lock.json
+
+# Swift iOS app(SPM 构建产物)
+app/OvhConsole/.build/
+app/OvhConsole/.swiftpm/
