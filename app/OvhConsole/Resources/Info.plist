@@ -31,6 +31,8 @@
 	     NSAllowsLocalNetworking 专门放行私有网段,公网明文仍被拦(正确) -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>

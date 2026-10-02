@@ -79,7 +79,29 @@ struct PairingScreen: View {
             let r = try await ApiClient.pair(serverUrl: clean, code: c, deviceName: UIDevice.current.name)
             conn.save(server: clean, token: r.token)
         } catch {
-            err = error.localizedDescription
+            err = explainPairError(error, address: clean)
         }
     }
+}
+
+
+/// 配对失败的错误翻译:把底层 URLError 变成能照做的排查指引
+private func explainPairError(_ error: Error, address: String) -> String {
+    let ns = error as NSError
+    if ns.domain == NSURLErrorDomain {
+        switch ns.code {
+        case NSURLErrorTimedOut:
+            return "连接超时:\(address) 没有响应。检查地址和端口(默认 19998),确认手机能访问到这台服务器"
+        case NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost:
+            return "连不上 \(address):地址不对或服务没在跑。注意手机要能访问到服务器(同一网络,或公网可达)"
+        case -1022:
+            return "iOS 安全策略拦了 http 连接(已知配置,请重装本构建)"
+        case NSURLErrorNotConnectedToInternet:
+            return "手机没有网络连接"
+        default:
+            break
+        }
+    }
+    // ApiClient 已经把后端 4xx 的中文 error 解出来了,直接显示
+    return error.localizedDescription
 }
