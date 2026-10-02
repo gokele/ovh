@@ -28,8 +28,8 @@ struct ServerDetailView: View {
                 VStack(spacing: 10) {
                     switch section {
                     case "power": powerTab
-                    case "maintenance": MaintenancePlaceholder(t: t)
-                    case "advanced": AdvancedPlaceholder(t: t)
+                    case "maintenance": MaintenanceTab(serviceName: serviceName)
+                    case "advanced": AdvancedTab(serviceName: serviceName)
                     default: overviewTab
                     }
                 }
@@ -262,25 +262,3 @@ struct ActTile: View {
     }
 }
 
-struct MaintenancePlaceholder: View {
-    let t: Tokens
-    var body: some View {
-        PlaceholderCard(t: t, text: "维护:硬件规格 / 撤单 / 联系人 —— 下一批接入")
-    }
-}
-struct AdvancedPlaceholder: View {
-    let t: Tokens
-    var body: some View {
-        PlaceholderCard(t: t, text: "高级:Backup FTP / 缓解 / vRack —— 下一批接入")
-    }
-}
-struct PlaceholderCard: View {
-    let t: Tokens
-    let text: String
-    var body: some View {
-        Text(text).font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(13)
-            .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surfaceMuted)))
-    }
-}
