@@ -176,7 +176,7 @@ struct ServerDetailView: View {
                 await post(path, body)
             }
         })
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first?.present(alert, animated: true)
+        AlertHost.present(alert)
     }
 
     private func post(_ path: String, _ body: [String: Any]? = nil) async {
@@ -210,7 +210,7 @@ struct ServerDetailView: View {
     private func showError(_ msg: String) {
         let alert = UIAlertController(title: "失败", message: msg, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "好", style: .default))
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first?.present(alert, animated: true)
+        AlertHost.present(alert)
     }
 
     // MARK: 取值 helpers

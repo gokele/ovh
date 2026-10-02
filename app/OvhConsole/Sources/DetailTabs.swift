@@ -272,7 +272,7 @@ struct AdvancedTab: View {
                 await load()
             }
         })
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first?.present(alert, animated: true)
+        AlertHost.present(alert)
     }
 
     // MARK: 计数(虚拟 MAC / vRack)

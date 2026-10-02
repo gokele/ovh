@@ -198,7 +198,7 @@ struct CreateOrderSheet: View {
             message: firstErr ?? "可在「抢购队列」页查看与暂停",
             preferredStyle: .alert)
         a.addAction(UIAlertAction(title: "好", style: .default))
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first?.present(a, animated: true)
+        AlertHost.present(a)
     }
 
     private func load() async {
@@ -333,7 +333,7 @@ struct MonitorOverlay: View {
                 await load()
             }
         })
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first?.present(a, animated: true)
+        AlertHost.present(a)
     }
 
     private func load() async {

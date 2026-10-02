@@ -59,7 +59,7 @@ struct VpsDetailView: View {
             }
             HStack(spacing: 9) {
                 Circle().fill(t.color(running ? t.success : t.danger)).frame(width: 9, height: 9)
-                Text((vps["displayName"] as? String) ?? name.components(separatedBy: ".").first!)
+                Text((vps["displayName"] as? String) ?? name.components(separatedBy: ".").first ?? name)
                     .font(.system(size: 21, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
             }
             Text(name).font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.faint))
@@ -161,7 +161,7 @@ struct VpsDetailView: View {
                 _ = await conn.client.actionPostData("/vps-control/\(name)/terminate", bodyData: Data("{}".utf8))
             }
         })
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first?.present(alert, animated: true)
+        AlertHost.present(alert)
     }
 
     private var powerTab: some View {
@@ -365,7 +365,7 @@ struct VpsMitigationPane: View {
                 await load()
             }
         })
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first?.present(a, animated: true)
+        AlertHost.present(a)
     }
 
     private func load() async {

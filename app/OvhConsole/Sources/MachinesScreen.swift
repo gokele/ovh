@@ -166,7 +166,7 @@ struct VpsCard: View {
                         .frame(width: 28, height: 28)
                         .overlay(Image(systemName: "cube.fill").font(.system(size: 12, weight: .bold)).foregroundColor(.white))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text((item["displayName"] as? String) ?? name.components(separatedBy: ".").first!)
+                        Text((item["displayName"] as? String) ?? name.components(separatedBy: ".").first ?? name)
                             .font(.system(size: 15, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
                         Text(name).font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint)).lineLimit(1)
                     }

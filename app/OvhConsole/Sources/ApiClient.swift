@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /**
  * API 客户端(Swift 版,对齐 packages/core 的 api-client 契约):
@@ -156,5 +157,25 @@ extension ApiClient {
             throw ApiError(status: status, message: "配对失败(HTTP \(status))")
         }
         return try JSONDecoder().decode(PairResult.self, from: data)
+    }
+}
+
+
+/// 全局唯一的弹窗宿主查找:SPM 可执行目标在真机上 keyWindow 时机不稳,
+/// 逐级回退(前台 scene 的窗口 → 任意窗口 → 放弃),绝不强制解包。
+@MainActor
+enum AlertHost {
+    static func present(_ alert: UIAlertController) {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap { $0.windows }.filter { $0.isKeyWindow } 
+            .isEmpty ? scenes.flatMap { $0.windows } : scenes.flatMap { $0.windows }.filter { $0.isKeyWindow }
+        guard let root = (windows.first { $0.rootViewController != nil })?.rootViewController else {
+            // 没有可用的窗口就不弹 —— 比 EXC_BREAKPOINT 崩溃好
+            return
+        }
+        // 找最顶层的 presented VC,否则被已存在的 sheet 挡住
+        var top = root
+        while let p = top.presentedViewController { top = p }
+        top.present(alert, animated: true)
     }
 }

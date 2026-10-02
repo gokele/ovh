@@ -133,7 +133,7 @@ struct ReinstallSheet: View {
     private func alert(_ title: String, _ msg: String) {
         let a = UIAlertController(title: title, message: msg, preferredStyle: .alert)
         a.addAction(UIAlertAction(title: "好", style: .default))
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first?.present(a, animated: true)
+        AlertHost.present(a)
     }
 }
 
