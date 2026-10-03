@@ -35,6 +35,32 @@ struct ApiClient {
 
     /// POSIX socket HTTP(完全绕过 ATS/URLSession/CFNetwork)
     /// ATS 只检查 CFNetwork 层;直接用 BSD socket 没有 ATS。
+    /// HTTP chunked 解码:"size(十六进制)\r\n <size 字节> \r\n" 循环,读到 size=0。
+    /// Go 后端对大响应(MRTG 31KB+)自动走分块编码,不剥长度行 JSON 开头就是坏的。
+    static func decodeChunked(_ input: Data) -> Data {
+        var out = Data()
+        var idx = input.startIndex
+        let crlf = Data("\r\n".utf8)
+        while idx < input.endIndex {
+            guard let lineEnd = input.range(of: crlf, in: idx..<input.endIndex) else { break }
+            let sizeStr = String(decoding: input[idx..<lineEnd.lowerBound], as: UTF8.self)
+                .trimmingCharacters(in: .whitespaces)
+                .components(separatedBy: ";").first ?? ""
+            guard let size = Int(sizeStr, radix: 16), size > 0 else { break }
+            let chunkStart = lineEnd.upperBound
+            guard let chunkEnd = input.index(chunkStart, offsetBy: size, limitedBy: input.endIndex) else { break }
+            out.append(input[chunkStart..<chunkEnd])
+            idx = chunkEnd
+            if idx < input.endIndex, let cap = input.index(idx, offsetBy: 2, limitedBy: input.endIndex),
+               let tail = input.range(of: crlf, in: idx..<cap) {
+                idx = tail.upperBound
+            } else {
+                break
+            }
+        }
+        return out
+    }
+
     /// 仅支持明文 http(自建后端);域名走 getaddrinfo,读写有超时,循环写完整请求。
     static func posixHTTP(_ method: String, url: String, body: Data? = nil, extraHeaders: String = "", timeoutSec: Int = 15) throws -> (Int, Data) {
         guard let u = URL(string: url), let host = u.host else {
@@ -157,7 +183,13 @@ struct ApiClient {
             throw ApiError(status: 0, message: "响应格式异常")
         }
         let headerStr = String(decoding: response[0..<headerEnd.lowerBound], as: UTF8.self)
-        let bodyData = response[headerEnd.upperBound...]
+        var bodyData = response[headerEnd.upperBound...]
+
+        // Transfer-Encoding: chunked —— 大响应(如 MRTG 31KB)Go 后端会走分块编码,
+        // 每块前有十六进制长度行("7b5b\r\n"),不剥掉的话 JSON 开头就坏了(实测踩坑)
+        if headerStr.lowercased().contains("transfer-encoding: chunked") {
+            bodyData = Self.decodeChunked(bodyData)
+        }
         
         let statusLine = headerStr.components(separatedBy: "\r\n").first ?? ""
         let parts = statusLine.components(separatedBy: " ")
@@ -217,7 +249,11 @@ struct ApiClient {
     /// GET → 原始字典(后端大量接口字段动态,先以字典落地,逐步固化模型)
     func getDict(_ path: String, timeoutSec: Int = 15) async throws -> [String: Any] {
         let data = try await request("GET", path, timeoutSec: timeoutSec)
-        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return obj
+        }
+        MrtgLog.log("getDict 解析失败 path=\(path) bytes=\(data.count) head=\(String(decoding: data.prefix(200), as: UTF8.self))")
+        return [:]
     }
 
     /// DELETE 动作辅助

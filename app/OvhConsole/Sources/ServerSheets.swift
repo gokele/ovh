@@ -194,6 +194,7 @@ struct MrtgChartView: View {
             let dIf = (dr["interfaces"] as? [[String: Any]]) ?? []
             let uIf = (ur["interfaces"] as? [[String: Any]]) ?? []
             lastRawInterfacesCount = dIf.count
+            MrtgLog.log("dl keys=\(dr.keys.sorted()) ifaces=\(dIf.count) success=\(dr["success"] ?? "nil") error=\(dr["error"] ?? "nil") msg=\(dr["message"] ?? "nil")")
             var out: [(String, [(Date, Double, Double)])] = []
             for d in dIf {
                 let mac = d["mac"] as? String ?? ""
@@ -213,9 +214,18 @@ struct MrtgChartView: View {
             }
             ifaces = out
             if out.isEmpty, let msg = dr["message"] as? String { err = msg }
-        } catch { err = error.localizedDescription }
+        } catch {
+            MrtgLog.log("FAILED: \(error.localizedDescription)")
+            err = error.localizedDescription
+        }
         loading = false
     }
+}
+
+import os
+enum MrtgLog {
+    static let l = os.Logger(subsystem: "com.gokele.ovhconsole", category: "mrtg")
+    static func log(_ m: String) { l.info("\(m, privacy: .public)") }
 }
 
 private func numToDouble(_ v: Any?) -> Double? {
