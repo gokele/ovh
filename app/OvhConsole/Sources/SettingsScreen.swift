@@ -51,34 +51,60 @@ struct SettingsScreen: View {
         .task { await conn.loadAccounts() }
     }
 
-    // MARK: 账户区
+    // MARK: 账户区(只读摘要;切换在任意页面顶栏的账户胶囊)
 
     private var accountSection: some View {
-        VStack(spacing: 10) {
-            SectionTitle(text: "OVH 账户(\(conn.accounts.count) 个)· 点选切换全局账户")
-            if conn.accounts.isEmpty {
-                Card { EmptyHint(icon: "person.crop.circle.badge.exclamationmark", text: "没有账户 —— 在网页端设置里添加") }
-            }
-            ForEach(conn.accounts.indices, id: \.self) { i in
-                AccountRow(acc: conn.accounts[i])
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(text: "当前账户")
+                if let acc = conn.activeAccount {
+                    HStack(spacing: 9) {
+                        Dot(color: (acc["valid"] as? Bool ?? false) ? t.success : t.danger)
+                        Text(acc["name"] as? String ?? "").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        Chip(text: acc["zone"] as? String ?? "—", color: zoneTint(acc))
+                        Spacer()
+                    }
+                    Text(acc["endpoint"] as? String ?? "").font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.muted))
+                    Text("切换账户:点任意页面顶栏的账户胶囊。共 \(conn.accounts.count) 个账户,增删与凭据验证在网页端。")
+                        .font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
+                } else {
+                    Text("没有 OVH 账户 —— 在网页端「设置 → OVH 账户」添加")
+                        .font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
+                }
             }
         }
     }
 
-    // MARK: 外观
+    // MARK: 外观(自绘三选,不依赖系统分段控件)
 
     private var appearanceCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle(text: "外观")
-                Picker("", selection: $theme.mode) {
-                    Text("跟随系统").tag(Theme.Mode.system)
-                    Text("深色").tag(Theme.Mode.dark)
-                    Text("浅色").tag(Theme.Mode.light)
+                HStack(spacing: 8) {
+                    appearanceBtn("跟随系统", mode: .system, icon: "circle.lefthalf.filled")
+                    appearanceBtn("深色", mode: .dark, icon: "moon.fill")
+                    appearanceBtn("浅色", mode: .light, icon: "sun.max.fill")
                 }
-                .pickerStyle(.segmented)
             }
         }
+    }
+
+    private func appearanceBtn(_ label: String, mode: Theme.Mode, icon: String) -> some View {
+        let on = theme.mode == mode
+        return Button {
+            theme.mode = mode
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+                Text(label).font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundColor(t.color(on ? t.accent : t.muted))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 11).fill(on ? t.color(t.accent).opacity(0.12) : t.color(t.surfaceMuted)))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: 危险区
@@ -95,46 +121,6 @@ struct SettingsScreen: View {
                     .font(.system(size: 10)).foregroundColor(t.color(t.muted))
             }
         }
-    }
-}
-
-/// 单个账户行
-struct AccountRow: View {
-    @EnvironmentObject var conn: Connection
-    @EnvironmentObject var theme: Theme
-    @EnvironmentObject var toast: Toast
-    let acc: [String: Any]
-    var t: Tokens { theme.t }
-
-    @State private var checking = false
-    @State private var verifying = false
-
-    private var id: String { acc["id"] as? String ?? "" }
-    private var isActive: Bool {
-        id == conn.accountId || (conn.accountId.isEmpty && (acc["isDefault"] as? Bool == true))
-    }
-
-    var body: some View {
-        let valid = acc["valid"] as? Bool ?? false
-        Button { conn.setAccount(isActive ? "" : id); Task { await conn.loadAccounts() } } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Dot(color: valid ? t.success : t.danger)
-                    Text(acc["name"] as? String ?? "").font(.system(size: 13.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-                    Chip(text: acc["zone"] as? String ?? "—")
-                    Spacer()
-                    if isActive {
-                        Chip(text: "当前", color: t.accent)
-                    } else if acc["isDefault"] as? Bool == true {
-                        Text("默认").font(.system(size: 10)).foregroundColor(t.color(t.muted))
-                    }
-                }
-                Text(acc["endpoint"] as? String ?? "").font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.muted))
-            }
-            .padding(13)
-            .background(RoundedRectangle(cornerRadius: 14).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 14).stroke(t.color(isActive ? t.accent : t.border), lineWidth: isActive ? 1.5 : 1)))
-        }
-        .buttonStyle(.plain)
     }
 }
 

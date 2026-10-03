@@ -70,10 +70,15 @@ final class Theme: ObservableObject {
     @Published var mode: Mode {
         didSet { UserDefaults.standard.set(mode.rawValue, forKey: Self.KEY) }
     }
+    /// 系统当前是否深色 —— 由根视图从 SwiftUI 环境同步(onAppear/onChange)。
+    /// 不能用 UITraitCollection.current:它在 body 计算的部分时机
+    /// (启动、sheet 弹出等)拿到 unspecified,导致深色下随机渲染出浅色块。
+    @Published var systemDark: Bool = false
+
     var dark: Bool {
         if mode == .dark { return true }
         if mode == .light { return false }
-        return UITraitCollection.current.userInterfaceStyle == .dark
+        return systemDark
     }
     var t: Tokens { Tokens(dark: dark) }
 

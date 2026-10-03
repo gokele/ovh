@@ -14,17 +14,19 @@ struct OvhConsoleApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if !conn.isPaired {
-                    PairingScreen(deepLink: pendingPairURL, onPaired: { pendingPairURL = nil })
-                } else {
-                    MainScreen()
+            ThemeSync {
+                Group {
+                    if !conn.isPaired {
+                        PairingScreen(deepLink: pendingPairURL, onPaired: { pendingPairURL = nil })
+                    } else {
+                        MainScreen()
+                    }
                 }
+                .environmentObject(conn)
+                .environmentObject(theme)
+                .environmentObject(toast)
+                .environmentObject(nav)
             }
-            .environmentObject(conn)
-            .environmentObject(theme)
-            .environmentObject(toast)
-            .environmentObject(nav)
             .preferredColorScheme(theme.mode == .system ? nil : (theme.dark ? .dark : .light))
             .onOpenURL { url in
                 // 深链:ovhconsole://pair?host=..&code=..&auto=1
@@ -33,6 +35,20 @@ struct OvhConsoleApp: App {
                 }
             }
         }
+    }
+}
+
+/// 把 SwiftUI 环境里的系统深浅同步进 Theme。
+/// UITraitCollection.current 在 body 计算的部分时机不可靠(设置页白条 bug 的根因)。
+private struct ThemeSync<Content: View>: View {
+    @Environment(\.colorScheme) private var scheme
+    @EnvironmentObject var theme: Theme
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .onAppear { theme.systemDark = scheme == .dark }
+            .onChange(of: scheme) { theme.systemDark = ($0 == .dark) }
     }
 }
 
