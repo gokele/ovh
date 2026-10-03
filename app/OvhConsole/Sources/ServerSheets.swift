@@ -93,7 +93,17 @@ struct MrtgChartView: View {
             } else if let e = err {
                 LoadFailed(message: e) { Task { await load() } }
             } else if ifaces.isEmpty {
-                EmptyHint(icon: "chart.dots.scatter", text: "该服务器尚未上报 MRTG 数据,或周期内没有流量")
+                VStack(spacing: 8) {
+                    EmptyHint(icon: "chart.dots.scatter", text: emptyText)
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.clockwise").font(.system(size: 11))
+                            Text("重新加载").font(.system(size: 12, weight: .semibold))
+                        }.foregroundColor(t.color(t.accent))
+                    }.buttonStyle(.plain)
+                }
             } else {
                 ForEach(ifaces.indices, id: \.self) { i in
                     ifaceCard(ifaces[i])
@@ -102,6 +112,16 @@ struct MrtgChartView: View {
         }
         .task { await load() }
     }
+
+    /// 空态文案:请求成功但 interfaces 为空 → 多半是机器确实没数据;
+    /// 请求本身失败会走 err 分支(现在超时是常见原因,已放宽到 45s)
+    private var emptyText: String {
+        let raw = lastRawInterfacesCount
+        return raw >= 0
+            ? "OVH 返回了 \(raw) 张网卡的数据,当前周期没有流量点(web 端正常的话试试切换周期)"
+            : "该服务器尚未上报 MRTG 数据,或周期内没有流量"
+    }
+    @State private var lastRawInterfacesCount = -1
 
     private func ifaceCard(_ it: (mac: String, points: [(ts: Date, dl: Double, ul: Double)])) -> some View {
         let dl = it.points.map(\.dl)
@@ -168,11 +188,12 @@ struct MrtgChartView: View {
         loading = true
         err = nil
         do {
-            async let dl = conn.client.getDict("/server-control/\(sn)/mrtg?period=\(period)&type=traffic:download")
-            async let ul = conn.client.getDict("/server-control/\(sn)/mrtg?period=\(period)&type=traffic:upload")
+            async let dl = conn.client.getDict("/server-control/\(sn)/mrtg?period=\(period)&type=traffic:download", timeoutSec: 45)
+            async let ul = conn.client.getDict("/server-control/\(sn)/mrtg?period=\(period)&type=traffic:upload", timeoutSec: 45)
             let (dr, ur) = try await (dl, ul)
             let dIf = (dr["interfaces"] as? [[String: Any]]) ?? []
             let uIf = (ur["interfaces"] as? [[String: Any]]) ?? []
+            lastRawInterfacesCount = dIf.count
             var out: [(String, [(Date, Double, Double)])] = []
             for d in dIf {
                 let mac = d["mac"] as? String ?? ""

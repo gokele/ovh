@@ -176,7 +176,7 @@ struct ApiClient {
         return URLSession(configuration: cfg)
     }()
 
-    private func request(_ method: String, _ path: String, bodyData: Data? = nil) async throws -> Data {
+    private func request(_ method: String, _ path: String, bodyData: Data? = nil, timeoutSec: Int = 15) async throws -> Data {
         guard let u = url(path) else { throw ApiError(status: 0, message: "后端地址不合法") }
         // POSIX socket 直发:绕过 ATS(ATS 只在 CFNetwork 层,底层 socket 没有)
         var headers = ""
@@ -188,7 +188,7 @@ struct ApiClient {
         if bodyData != nil {
             headers += "Content-Type: application/json\r\n"
         }
-        let (status, data) = try Self.posixHTTP(method, url: u.absoluteString, body: bodyData, extraHeaders: headers)
+        let (status, data) = try Self.posixHTTP(method, url: u.absoluteString, body: bodyData, extraHeaders: headers, timeoutSec: timeoutSec)
         guard (200..<300).contains(status) else {
             if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 for key in ["message", "error", "msg"] {
@@ -209,8 +209,8 @@ struct ApiClient {
     }
 
     /// GET → 原始字典(后端大量接口字段动态,先以字典落地,逐步固化模型)
-    func getDict(_ path: String) async throws -> [String: Any] {
-        let data = try await request("GET", path)
+    func getDict(_ path: String, timeoutSec: Int = 15) async throws -> [String: Any] {
+        let data = try await request("GET", path, timeoutSec: timeoutSec)
         return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 
@@ -240,8 +240,8 @@ struct ApiClient {
     }
 
     /// GET → 数组
-    func getArray(_ path: String) async throws -> [[String: Any]] {
-        let data = try await request("GET", path)
+    func getArray(_ path: String, timeoutSec: Int = 15) async throws -> [[String: Any]] {
+        let data = try await request("GET", path, timeoutSec: timeoutSec)
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
