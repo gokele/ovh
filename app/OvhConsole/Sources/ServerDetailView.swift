@@ -85,14 +85,11 @@ struct ServerDetailView: View {
                         if let exp = si["expiration"] as? String, !exp.isEmpty {
                             Chip(text: "到期 \(fmtDate(exp))", color: daysLeft(exp) < 7 ? t.danger : t.muted)
                         }
-                        if si["renewalDeleteAtExpiration"] as? Bool == true {
+                        if (si["terminationScheduled"] as? Bool ?? false) || (si["renewalDeleteAtExpiration"] as? Bool ?? false) {
                             Chip(text: "到期将终止", color: t.danger)
                         }
                         if si["renewalForced"] as? Bool == true {
                             Chip(text: "OVH 强制续费", color: t.warning)
-                        }
-                        if si["retractionEligible"] as? Bool == true {
-                            Chip(text: "可撤单", color: t.info)
                         }
                     }
                 }
@@ -102,7 +99,7 @@ struct ServerDetailView: View {
 
     private var renewalText: String {
         if let si = serviceinfo {
-            if si["renewalDeleteAtExpiration"] as? Bool == true { return "到期终止" }
+            if (si["terminationScheduled"] as? Bool ?? false) || (si["renewalDeleteAtExpiration"] as? Bool ?? true) { return "到期终止" }
             if si["renewalType"] as? Bool == true {
                 let p = si["renewalPeriod"] as? Int ?? 1
                 return "自动续费 · \(p) 月"
@@ -115,15 +112,20 @@ struct ServerDetailView: View {
     private func daysLeft(_ iso: String) -> Int {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
-        guard let d = f.date(from: iso.hasSuffix("Z") ? String(iso.dropLast()) + "+0000" : iso) else { return 999 }
-        return Calendar.current.dateComponents([.day], from: Date(), to: d).day ?? 999
+        var d = f.date(from: iso.hasSuffix("Z") ? String(iso.dropLast()) + "+0000" : iso)
+        if d == nil {
+            let f2 = DateFormatter()
+            f2.dateFormat = "yyyy-MM-dd"   // 到期日常是纯日期
+            d = f2.date(from: iso)
+        }
+        guard let date = d else { return 999 }
+        return Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 999
     }
 
     private func load() async {
-        if serviceinfo == nil {
-            if let r = try? await conn.client.getDict("/server-control/\(sn)/serviceinfo") {
-                serviceinfo = (r["serviceInfo"] as? [String: Any]) ?? r
-            }
+        // 不缓存:refreshable / 保存续费后回来都要拿到最新状态
+        if let r = try? await conn.client.getDict("/server-control/\(sn)/serviceinfo") {
+            serviceinfo = (r["serviceInfo"] as? [String: Any]) ?? r
         }
     }
 
@@ -255,8 +257,8 @@ struct OverviewSection: View {
                     }
                     ForEach(nics.indices, id: \.self) { i in
                         let nic = nics[i]
-                        KV(k: mask ? maskIP(nic["macAddress"] as? String ?? "") : (nic["macAddress"] as? String ?? "—"),
-                           v: "\(nic["linkType"] as? String ?? "—") · \(nic["status"] as? String ?? "")", mono: true)
+                        KV(k: mask ? maskIP(nic["mac"] as? String ?? "") : (nic["mac"] as? String ?? "—"),
+                           v: nic["virtualNetworkInterface"] as? String ?? (nic["linkType"] as? String ?? "public"), mono: true)
                     }
                 }
             }
@@ -298,7 +300,10 @@ struct OverviewSection: View {
         var capText = ""
         if let ds = g["diskSize"] as? [String: Any],
            let v = numToDoubleAny(ds["value"]) {
-            capText = v >= 1024 ? String(format: "%.0f GB", v / 1024) : "\(Int(v)) \(ds["unit"] as? String ?? "GB")"
+            let unit = (ds["unit"] as? String ?? "GB").uppercased()
+            if unit == "MB" && v >= 1024 { capText = String(format: "%.0f GB", v / 1024) }
+            else if unit == "GB" && v >= 1024 { capText = String(format: "%.1f TB", v / 1024) }
+            else { capText = "\(Int(v)) \(unit)" }
         }
         let t2 = g["diskType"] as? String ?? (g["type"] as? String ?? "")
         let parts = [n > 0 ? "\(n) ×" : nil, capText.isEmpty ? nil : capText, !t2.isEmpty ? t2 : nil].compactMap { $0 }
@@ -330,22 +335,6 @@ struct PowerSection: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            if serviceinfo?["retractionEligible"] as? Bool == true {
-                Card(border: t.info) {
-                    HStack(spacing: 9) {
-                        Image(systemName: "clock.badge.exclamationmark").font(.system(size: 15)).foregroundColor(t.color(t.info))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("14 天无理由撤单期").font(.system(size: 13, weight: .semibold)).foregroundColor(t.color(t.fg))
-                            Text("交付后 14 天内可撤单退款").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
-                        }
-                        Spacer()
-                        Button { sheet = .init(kind: .retraction) } label: {
-                            Text("撤单").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.info))
-                        }.buttonStyle(.plain)
-                    }
-                }
-            }
-
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 opCard(.reboot, icon: "power", title: "硬重启", desc: "断电级重启", tint: t.danger)
                 opCard(.rescue, icon: "lifepreserver", title: "救援系统", desc: "进入/退出救援", tint: t.warning)
@@ -414,15 +403,12 @@ struct MaintenanceSection: View {
                             let it = interventions[i]
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack {
-                                    Text(fmtDate(it["startDate"] as? String ?? it["plannedDate"] as? String))
+                                    Text(fmtDate(it["date"] as? String ?? it["startDate"] as? String))
                                         .font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.fg))
                                     Spacer()
-                                    if let st = it["status"] as? String, !st.isEmpty {
-                                        Chip(text: st == "done" ? "已完成" : st, color: st == "done" ? t.success : t.warning)
-                                    }
                                 }
-                                if let todo = it["comment"] as? String ?? it["todo"] as? String, !todo.isEmpty {
-                                    Text(todo).font(.system(size: 10.5)).foregroundColor(t.color(t.muted)).lineLimit(3)
+                                if let ty = it["type"] as? String, !ty.isEmpty {
+                                    Text(ty).font(.system(size: 10.5, weight: .medium)).foregroundColor(t.color(t.muted)).lineLimit(2)
                                 }
                             }
                             .padding(.vertical, 4)

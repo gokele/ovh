@@ -94,13 +94,13 @@ struct VpsDetailView: View {
     }
 
     private var firstIP: String {
-        let raw = ips.first?["ip"] as? String ?? (ips.first?["address"] as? String ?? "")
+        let raw = ips.first?["ipAddress"] as? String ?? (ips.first?["ip"] as? String ?? "")
         return raw.isEmpty ? "—" : raw
     }
 
     private var renewalText: String {
         if let si = serviceinfo {
-            if si["renewalDeleteAtExpiration"] as? Bool == true { return "到期终止" }
+            if (si["terminationScheduled"] as? Bool ?? false) || (si["renewalDeleteAtExpiration"] as? Bool ?? false) { return "到期终止" }
             if si["renewalType"] as? Bool == true { return "自动续费" }
             return "手动续费"
         }
@@ -115,12 +115,17 @@ struct VpsDetailView: View {
                 VStack(spacing: 9) {
                     SectionTitle(text: "配置")
                     KV(k: "型号", v: item["model"] as? String ?? "—")
-                    if let i = info {
-                        KV(k: "vCore", v: "\((i["vcores"] as? Int) ?? (i["vCores"] as? Int) ?? 0) 核")
-                        KV(k: "内存", v: fmtBytes((i["ramBytes"] as? Double) ?? 0))
-                        KV(k: "磁盘", v: fmtBytes((i["diskBytes"] as? Double) ?? 0))
-                        KV(k: "区域", v: (i["zone"] as? String ?? "—"))
-                        KV(k: "集群", v: (i["cluster"] as? String ?? "—"))
+                    if let v = numToDoubleAny(item["vcore"]) {
+                        KV(k: "vCore", v: "\(Int(v)) 核")
+                    }
+                    if let m = numToDoubleAny(item["memoryMB"]) {
+                        KV(k: "内存", v: m >= 1024 ? String(format: "%.0f GB", m / 1024) : "\(Int(m)) MB")
+                    }
+                    if let d = numToDoubleAny(item["diskGB"]) {
+                        KV(k: "磁盘", v: "\(Int(d)) GB")
+                    }
+                    if let z = item["zone"] as? String, !z.isEmpty {
+                        KV(k: "区域", v: zoneCn(z))
                     }
                 }
             }
@@ -294,8 +299,6 @@ struct VpsSnapshotSection: View {
                 SectionTitle(text: "当前快照")
                 KV(k: "创建于", v: fmtDate(s["creationDate"] as? String ?? s["createdAt"] as? String))
                 KV(k: "描述", v: (s["description"] as? String) ?? "—")
-                KV(k: "大小", v: fmtBytes(numToDoubleAny(s["size"]) ?? (numToDoubleAny(s["sizeBytes"]) ?? 0)))
-                KV(k: "状态", v: (s["status"] as? String) ?? "—")
 
                 HStack(spacing: 8) {
                     ActBtn(kind: .danger, icon: "arrow.uturn.backward", label: "回滚") { revertConfirm = true }
@@ -772,4 +775,11 @@ struct VpsAliasSheet: View {
         toast.show(ok ? "已保存" : (msg.isEmpty ? "失败" : msg), error: !ok)
         if ok { dismiss() }
     }
+}
+
+/// OpenStack zone → 中文
+func zoneCn(_ z: String) -> String {
+    ["DE1": "德国", "GRA1": "法国 GRA1", "GRA3": "法国 GRA3", "GRA5": "法国 GRA5", "GRA7": "法国 GRA7",
+     "BHS1": "加拿大", "SBG1": "斯特拉斯堡", "SBG3": "斯特拉斯堡", "UK1": "伦敦", "SG1": "新加坡",
+     "SYD1": "悉尼", "WAW1": "华沙", "MUM1": "孟买", "US1": "美国", "VIN1": "弗吉尼亚"][z] ?? z
 }

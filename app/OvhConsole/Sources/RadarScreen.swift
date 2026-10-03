@@ -194,7 +194,8 @@ struct ServerMonitorPane: View {
         let dcs = sub["datacenters"] as? [String] ?? []
         let options = sub["options"] as? [String] ?? []
         let autoOrder = sub["autoOrder"] as? Bool ?? false
-        let hasStock = (sub["lastStatus"] as? [String: String] ?? [:]).values.contains { isOrderable($0) }
+        // lastStatus 落库值只有 available / unavailable / price_check_failed(后端 monitor/check.go 约定)
+        let hasStock = (sub["lastStatus"] as? [String: String] ?? [:]).values.contains { $0 == "available" }
         return Card(border: hasStock ? t.success : nil) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 7) {
@@ -334,6 +335,7 @@ struct MonitorSubSheet: View {
                 VStack(alignment: .leading, spacing: 13) {
                     Text("机型 planCode").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                     SheetField(placeholder: "如 25sk-adv-01", text: $planCode, mono: true)
+                        .disabled(editing != nil)   // PUT 按主键定位,改了就 404
                     if editing != nil {
                         SheetNote(text: "编辑时 planCode 只读(它是订阅主键)。", tint: t.muted)
                     }
@@ -456,8 +458,8 @@ struct MonitorHistorySheet: View {
                     } else if entries.isEmpty {
                         EmptyHint(icon: "clock.arrow.circlepath", text: "还没有状态变化记录")
                     } else {
-                        ForEach(entries.suffix(50).reversed().indices, id: \.self) { i in
-                            let it = entries.suffix(50).reversed()[i]
+                        ForEach(entries.prefix(50).indices, id: \.self) { i in
+                            let it = entries.prefix(50)[i]
                             historyRow(it)
                         }
                     }
@@ -608,7 +610,7 @@ struct VpsMonitorPane: View {
         let dcs = sub["datacenters"] as? [String] ?? []
         let retired = sub["retired"] as? Bool ?? false
         let autoOrder = sub["autoOrder"] as? Bool ?? false
-        let available = (sub["lastStatus"] as? [String: String] ?? [:]).values.contains { isOrderable($0) }
+        let available = (sub["lastStatus"] as? [String: String] ?? [:]).values.contains { $0 == "available" }
         return Card(border: available ? t.success : (retired ? t.warning : nil)) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 7) {
@@ -824,8 +826,9 @@ struct VpsSubSheet: View {
 
     private func modelLabel(_ m: [String: Any]) -> String {
         let n = m["name"] as? String ?? (m["planCode"] as? String ?? "?")
-        if let p = m["price"] as? Double, p > 0 {
-            return "\(n)(\(String(format: "%.2f", p)))"
+        // 后端 price 是已格式化字符串(如 "€ 4.49")
+        if let p = m["price"] as? String, !p.isEmpty {
+            return "\(n)(\(p))"
         }
         return n
     }

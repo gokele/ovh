@@ -148,9 +148,8 @@ struct ServerCard: View {
 
     var body: some View {
         let state = item["state"] as? String ?? ""
-        let rescue = (item["netbootMode"] as? String) == "rescue"
         let ok = ["ok", "active"].contains(state.lowercased())
-        let tint = rescue ? t.warning : (ok ? t.success : t.danger)
+        let tint = ok ? t.success : t.danger
 
         Button(action: onTap) {
             VStack(spacing: 10) {
@@ -168,7 +167,7 @@ struct ServerCard: View {
                         }
                     }
                     Spacer()
-                    Chip(text: rescue ? "救援模式" : state.uppercased(), color: tint)
+                    Chip(text: state.uppercased(), color: tint)
                     Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.faint))
                 }
                 HStack {
@@ -183,16 +182,6 @@ struct ServerCard: View {
                 }
                 .padding(.top, 10)
                 .overlay(Rectangle().frame(height: 0.5).foregroundColor(t.color(t.border)).opacity(0.6), alignment: .top)
-                if rescue {
-                    HStack(spacing: 7) {
-                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundColor(t.color(t.warning))
-                        Text("下次重启进入救援镜像 · 修完在「电源」里退出救援")
-                            .font(.system(size: 10.5)).foregroundColor(t.color(t.fg))
-                    }
-                    .padding(9)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.warning).opacity(0.08)))
-                }
             }
             .padding(14)
             .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(tint), lineWidth: 1)))

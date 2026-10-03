@@ -359,23 +359,32 @@ struct PairingDevicesScreen: View {
 
     private func deviceRow(_ d: [String: Any]) -> some View {
         let id = String(describing: d["id"] ?? d["deviceId"] ?? "")
+        let revoked = d["revoked"] as? Bool ?? false
         return VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Image(systemName: "iphone").font(.system(size: 14)).foregroundColor(t.color(t.muted))
-                Text(d["name"] as? String ?? "设备").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                Image(systemName: "iphone").font(.system(size: 14)).foregroundColor(t.color(revoked ? t.faint : t.muted))
+                Text(d["name"] as? String ?? "设备")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(t.color(revoked ? t.faint : t.fg))
+                    .strikethrough(revoked)
+                if revoked { Chip(text: "已吊销") }
                 Spacer()
-                Button { revokeId = id } label: {
-                    Text("吊销").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.danger))
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(Capsule().stroke(t.color(t.danger), lineWidth: 1))
-                }.buttonStyle(.plain)
+                if !revoked {
+                    Button { revokeId = id } label: {
+                        Text("吊销").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.danger))
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Capsule().stroke(t.color(t.danger), lineWidth: 1))
+                    }.buttonStyle(.plain)
+                }
             }
-            HStack(spacing: 10) {
-                if let t2 = d["createdAt"] as? String ?? d["pairedAt"] as? String { Text("配对于 \(fmtDate(t2))") }
-                if let t3 = d["lastUsedAt"] as? String, !t3.isEmpty { Text("最近使用 \(fmtDate(t3))") }
-                Spacer()
+            if !revoked {
+                HStack(spacing: 10) {
+                    if let t2 = d["createdAt"] as? String ?? d["pairedAt"] as? String { Text("配对于 \(fmtDate(t2))") }
+                    if let t3 = d["lastUsedAt"] as? String, !t3.isEmpty { Text("最近使用 \(fmtDate(t3))") }
+                    Spacer()
+                }
+                .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
             }
-            .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
         }
         .padding(9)
         .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.surfaceMuted)))
@@ -547,13 +556,17 @@ struct OvhAccountScreen: View {
                                     KV(k: "KYC 验证", v: kyc ? "已验证" : "未验证")
                                 }
                                 KV(k: "邮箱", v: i["email"] as? String ?? "—", mono: true)
+                                let holder = [(i["firstname"] as? String ?? ""), (i["name"] as? String ?? "")].filter { !$0.isEmpty }.joined(separator: " ")
+                                if !holder.isEmpty {
+                                    KV(k: "持有人", v: holder)
+                                }
                                 if let city = i["city"] as? String {
-                                    KV(k: "持有人", v: "\(city) \(i["country"] as? String ?? "")")
+                                    KV(k: "地址", v: "\(city) \(i["country"] as? String ?? "")")
                                 }
                                 if let sub = i["ovhSubsidiary"] as? String, !sub.isEmpty {
                                     KV(k: "OVH 子公司", v: sub)
                                 }
-                                if let cur = i["currency"] as? String, !cur.isEmpty {
+                                if let cur = (i["currency"] as? [String: Any])?["code"] as? String, !cur.isEmpty {
                                     KV(k: "结算币种", v: cur)
                                 }
                             }
@@ -650,12 +663,12 @@ struct OvhAccountScreen: View {
     private func load() async {
         do {
             async let i = conn.client.getDict("/ovh/account/info")
-            async let e = conn.client.getDict("/ovh/account/email-history")
-            async let r = conn.client.getDict("/ovh/account/refunds")
+            async let e = conn.client.getArray("/ovh/account/email-history", timeoutSec: 30)
+            async let r = conn.client.getArray("/ovh/account/refunds")
             let (ir, er, rr) = try await (i, e, r)
             info = ir["info"] as? [String: Any] ?? ir
-            emails = (try? await conn.client.getArray("/ovh/account/email-history")) ?? []   // 裸数组
-            refunds = (try? await conn.client.getArray("/ovh/account/refunds")) ?? []        // 裸数组
+            emails = er
+            refunds = rr
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
@@ -913,7 +926,8 @@ struct AccountPickerSheet: View {
         let isActive = id == conn.accountId || (conn.accountId.isEmpty && (acc["isDefault"] as? Bool == true))
         let tint = zoneTint(acc)
         return Button {
-            conn.setAccount(isActive ? "" : id)
+            if isActive { dismiss(); return }
+            conn.setAccount(id)
             toast.show("已切换到 \(acc["name"] as? String ?? "")")
             dismiss()
         } label: {

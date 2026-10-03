@@ -33,6 +33,8 @@ struct RetractionSheet: View {
                         ProgressView().padding(30)
                     } else if let e = err {
                         LoadFailed(message: e) { Task { await load() } }
+                    } else if let msg = ineligibleMsg {
+                        EmptyHint(icon: "clock.slash", text: msg)
                     } else {
                         if let deadline = info?["retractionDate"] as? String ?? info?["deadline"] as? String, !deadline.isEmpty {
                             SheetNote(text: "可撤单截止:\(fmtDate(deadline))。撤单后服务器将被回收并退款。", tint: t.warning)
@@ -79,12 +81,18 @@ struct RetractionSheet: View {
         }
     }
 
+    @State private var ineligibleMsg: String? = nil
+
     private func load() async {
         do {
             let r = try await conn.client.getDict("/server-control/\(sn)/retraction")
             info = r
             reasons = (r["reasons"] as? [[String: Any]]) ?? []
-            pickedReason = reasons.first?["code"] as? String ?? reasons.first?["reason"] as? String
+            pickedReason = reasons.first?["value"] as? String
+            // 不可撤单的机器后端给 eligible:false + 原因 —— 显示原因并收起表单
+            if (r["eligible"] as? Bool) == false {
+                ineligibleMsg = (r["message"] as? String) ?? "该服务器不在可撤单期内(交付满 14 天后不可无理由撤回)"
+            }
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
@@ -153,7 +161,7 @@ struct RenewalSheet: View {
                         }
                     }
 
-                    ActBtn(kind: mode == 2 ? .danger : .primary, icon: nil, label: busy ? "保存中…" : "保存策略") {
+                    ActBtn(kind: mode == 2 ? .danger : .primary, icon: nil, label: info.isEmpty ? "读取服务信息中…" : (busy ? "保存中…" : "保存策略")) {
                         await submit()
                     }
                     .disabled(forced || busy)
@@ -197,11 +205,21 @@ struct RenewalSheet: View {
         busy = true
         defer { busy = false }
         do {
-            // handler 契约:{mode: auto/manual/delete, period}(period 0 = 不改)
-            let modeStr = ["auto", "manual", "delete"][mode]
-            _ = try await conn.client.put("\(base)/\(sn)/serviceinfo/renewal",
-                                          body: ["mode": modeStr, "period": mode == 0 ? period : 0])
-            toast.show(mode == 0 ? "已设为自动续费(\(period) 月)" : (mode == 1 ? "已设为手动续费" : "已设为到期终止"))
+            // 契约:自动/手动走 renewal{mode,period};到期终止走 termination-policy
+            // (renewal handler 会 400 拒绝 delete);从终止切回必须先撤销终止标记
+            if mode == 2 {
+                _ = try await conn.client.put("\(base)/\(sn)/termination-policy", body: ["policy": "terminateAtExpirationDate"])
+                toast.show("已设为到期终止")
+            } else {
+                let wasTerminating = (info["terminationScheduled"] as? Bool ?? false) || (info["renewalDeleteAtExpiration"] as? Bool ?? false)
+                if wasTerminating {
+                    _ = try await conn.client.put("\(base)/\(sn)/termination-policy", body: ["policy": "empty"])
+                }
+                let modeStr = mode == 0 ? "auto" : "manual"
+                _ = try await conn.client.put("\(base)/\(sn)/serviceinfo/renewal",
+                                              body: ["mode": modeStr, "period": mode == 0 ? period : 0])
+                toast.show(mode == 0 ? "已设为自动续费(\(period) 月)" : "已设为手动续费")
+            }
             dismiss()
         } catch { toast.show(error.localizedDescription, error: true) }
     }
@@ -387,7 +405,7 @@ struct HardwareReplaceSheet: View {
                     }
                     .pickerStyle(.segmented)
 
-                    if component == "disk" {
+                    if component == "hardDiskDrive" {
                         Text("硬盘序列号列表").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                         SheetField(placeholder: "序列号 [槽位],逗号分隔,如 WS0A123 [d0]", text: $serials, mono: true)
                     }
@@ -473,7 +491,7 @@ struct ChangeContactSheet: View {
     @State private var tech = ""
     @State private var billing = ""
     @State private var requests: [[String: Any]] = []
-    @State private var tokenInput = ""
+    @State private var tokenInput: [String: String] = [:]
     @State private var busy = false
 
     var body: some View {
@@ -524,7 +542,10 @@ struct ChangeContactSheet: View {
                 Spacer()
             }
             HStack(spacing: 8) {
-                TextField("邮件里的 token", text: $tokenInput)
+                TextField("邮件里的 token", text: Binding(
+                    get: { tokenInput[id] ?? "" },
+                    set: { tokenInput[id] = $0 }
+                ))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(t.color(t.fg))
                     .padding(.horizontal, 9).frame(height: 34)
@@ -574,7 +595,7 @@ struct ChangeContactSheet: View {
     }
 
     private func respond(_ id: String, accept: Bool) async {
-        let tok = tokenInput.trimmingCharacters(in: .whitespaces)
+        let tok = (tokenInput[id] ?? "").trimmingCharacters(in: .whitespaces)
         guard !tok.isEmpty else { return toast.show("先填邮件里的 token", error: true) }
         let body = try? JSONSerialization.data(withJSONObject: ["token": tok])
         let (ok, msg) = await conn.client.actionPostData("/ovh/contact-change-requests/\(id)/\(accept ? "accept" : "refuse")", bodyData: body)
@@ -653,10 +674,9 @@ struct ToggleSheet: View {
     private func load() async {
         do {
             let r = try await conn.client.getDict(getPath)
+            notAvailable = (r["notAvailable"] as? Bool ?? false)
             // handler 把状态包在 burst / firewall 对象里
             notAvailable = (r["notAvailable"] as? Bool ?? false)
-                || (r["unknownService"] as? Bool ?? false)
-                || ((r["success"] as? Bool ?? true) == false && r["error"] != nil && (r["burst"] == nil && r["firewall"] == nil))
             let inner = (r["burst"] as? [String: Any]) ?? (r["firewall"] as? [String: Any]) ?? r
             if let st = inner["status"] as? String {
                 enabled = (st == "active" || st == "enabled" || st == "enabledForVrack")
@@ -665,7 +685,14 @@ struct ToggleSheet: View {
             }
             detail = inner
             err = nil
-        } catch { err = error.localizedDescription }
+        } catch {
+            // 后端对不支持的机型直接 404(KS 系 Burst/防火墙)—— 这不是错误,是"没有此功能"
+            if let ae = error as? ApiClient.ApiError, ae.status == 404 {
+                notAvailable = true
+            } else {
+                err = error.localizedDescription
+            }
+        }
         loading = false
     }
 
@@ -715,8 +742,13 @@ struct BackupFtpSheet: View {
                         ProgressView().padding(30)
                     } else if let e = err {
                         LoadFailed(message: e) { Task { await load() } }
+                    } else if notActivated || info == nil {
+                        SheetNote(text: "该服务器的备份存储未激活。激活后可把备份传到独立 FTP 空间。", tint: t.muted)
+                        ActBtn(kind: .primary, icon: "checkmark.circle", label: busy ? "激活中…" : "激活备份存储") {
+                            await activate()
+                        }
                     } else if let i = info {
-                        if (i["activated"] as? Bool ?? (i["enabled"] as? Bool ?? false)) == false {
+                        if (i["activated"] as? Bool ?? (i["status"] as? String == "active")) == false {
                             SheetNote(text: "该服务器的备份存储未激活。激活后可把备份传到独立 FTP 空间。", tint: t.muted)
                             ActBtn(kind: .primary, icon: "checkmark.circle", label: busy ? "激活中…" : "激活备份存储") {
                                 await activate()
@@ -795,6 +827,8 @@ struct BackupFtpSheet: View {
         }
     }
 
+    @State private var notActivated = false
+
     private func load() async {
         do {
             async let i = conn.client.getDict("/server-control/\(sn)/backup-ftp")
@@ -814,7 +848,14 @@ struct BackupFtpSheet: View {
                 }
             }
             err = nil
-        } catch { err = error.localizedDescription }
+        } catch {
+            // 后端对未激活的备份 FTP 返回 404 + notActivated —— 这正是"未激活"分支
+            if let ae = error as? ApiClient.ApiError, ae.status == 404 {
+                notActivated = true
+            } else {
+                err = error.localizedDescription
+            }
+        }
         loading = false
     }
 

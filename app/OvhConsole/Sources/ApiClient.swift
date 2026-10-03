@@ -114,6 +114,7 @@ struct ApiClient {
 
         // select 等 connect 完成。fd_set 在 Darwin 上是 int32 元组,
         // 按 fd/32 选字、fd%32 选位设置(手写 1<<fd 在 fd≥32 时溢出崩溃)
+        guard Int(fd) < 1024 else { throw ApiError(status: 0, message: "系统句柄耗尽(fd \(fd))") }
         var writeSet = fd_set()
         withUnsafeMutableBytes(of: &writeSet) { raw in
             let ints = raw.bindMemory(to: Int32.self)
@@ -157,16 +158,18 @@ struct ApiClient {
             }
         }
 
-        // 读响应(按 Content-Length 优先收齐,Connection: close 兜底)
+        // 读响应(按 Content-Length 优先收齐 —— 判断要用"已收 body 字节数",含头会提前 ~200B 截断)
         var response = Data()
         var buf = [UInt8](repeating: 0, count: 32768)
         var contentLength = -1
+        var bodyOffset = -1
         while true {
             let n = recv(fd, &buf, buf.count, 0)
             if n <= 0 { break }
             response.append(Data(buf[0..<n]))
             if contentLength < 0,
                let headerEnd = response.range(of: Data("\r\n\r\n".utf8)) {
+                bodyOffset = response.distance(from: response.startIndex, to: headerEnd.upperBound)
                 let headerStr = String(decoding: response[0..<headerEnd.lowerBound], as: UTF8.self).lowercased()
                 if let cl = headerStr.components(separatedBy: "\r\n").first(where: { $0.hasPrefix("content-length:") })?
                     .dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces),
@@ -174,7 +177,7 @@ struct ApiClient {
                     contentLength = v
                 }
             }
-            if contentLength >= 0, response.count >= contentLength { break }
+            if contentLength >= 0, bodyOffset >= 0, response.count - bodyOffset >= contentLength { break }
             if response.count > 33_554_432 { break } // 32MB 上限(ASIA 目录实测 12.4MB)
         }
         
@@ -200,14 +203,18 @@ struct ApiClient {
 
     /// URLSession 直连 https 公开接口(OVH 公开目录)。
     /// https 不在 ATS 拦截范围,走系统栈反而能吃到连接复用与 CDN 优势。
+    private static let httpsSession: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 20
+        cfg.timeoutIntervalForResource = 60   // 12MB 大目录给足资源时间
+        return URLSession(configuration: cfg)
+    }()
+
     static func httpsJSON(_ url: String, timeoutSec: Double = 15) -> [String: Any]? {
         guard let u = URL(string: url) else { return nil }
-        let cfg = URLSessionConfiguration.ephemeral
-        cfg.timeoutIntervalForRequest = timeoutSec
-        cfg.timeoutIntervalForResource = timeoutSec + 30   // 12MB 大目录给足资源时间
         let sem = DispatchSemaphore(value: 0)
         var out: [String: Any]? = nil
-        let task = URLSession(configuration: cfg).dataTask(with: u) { data, resp, _ in
+        let task = Self.httpsSession.dataTask(with: u) { data, resp, _ in
             defer { sem.signal() }
             guard let http = resp as? HTTPURLResponse, http.statusCode == 200,
                   let d = data,
@@ -218,16 +225,6 @@ struct ApiClient {
         sem.wait()
         return out
     }
-
-    /// 不走 ATS 的 URLSession:某些 iOS 版本对 Info.plist 的
-    /// NSAllowsArbitraryLoads 处理有差异,代码层再兜一道底
-    /// (URLSessionConfiguration 默认继承 ATS,这里显式允许不安全连接)
-    static let allowHTTPSession: URLSession = {
-        let cfg = URLSessionConfiguration.ephemeral
-        cfg.timeoutIntervalForRequest = 20
-        cfg.timeoutIntervalForResource = 25
-        return URLSession(configuration: cfg)
-    }()
 
     private func request(_ method: String, _ path: String, bodyData: Data? = nil, timeoutSec: Int = 15) async throws -> Data {
         guard let u = url(path) else { throw ApiError(status: 0, message: "后端地址不合法") }

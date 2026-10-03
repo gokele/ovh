@@ -90,6 +90,8 @@ final class Theme: ObservableObject {
         }
         let raw = UserDefaults.standard.string(forKey: Self.KEY) ?? Mode.dark.rawValue
         mode = Mode(rawValue: raw) ?? .dark
+        // 预置系统深浅,避免 .system 模式首帧(ThemeSync.onAppear 之前)按浅色渲染闪屏
+        systemDark = UIScreen.main.traitCollection.userInterfaceStyle == .dark
     }
 }
 
@@ -511,10 +513,12 @@ func fmtDate(_ raw: String?) -> String {
     guard let s = raw, !s.isEmpty else { return "—" }
     let iso = s.hasSuffix("Z") ? String(s.dropLast()) + "+0000" : s
     let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")   // 佛历等区域日历会把年份解析错
     for fmt in ["yyyy-MM-dd'T'HH:mm:ssZZZZZ", "yyyy-MM-dd'T'HH:mm:ss.SSSZZZZZ", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"] {
         f.dateFormat = fmt
         if let d = f.date(from: iso) {
             let out = DateFormatter()
+            out.locale = Locale(identifier: "en_US_POSIX")
             out.dateFormat = fmt == "yyyy-MM-dd" ? "yyyy-MM-dd" : "yyyy-MM-dd HH:mm"
             return out.string(from: d)
         }
@@ -527,7 +531,7 @@ func isOrderable(_ s: String) -> Bool {
     s.range(of: #"^\d+H(-high|-low)?$"#, options: .regularExpression) != nil
 }
 
-/// bps → Mbps/Gbps 文本
+/// bps → Mbps/Gbps 文本(门槛 1e9,旧版差 1000 倍:1Mbps 会显示成 1.0 Gbps)
 func fmtMbps(_ bps: Double) -> String {
-    bps >= 1_000_000 ? String(format: "%.1f Gbps", bps / 1_000_000) : String(format: "%.0f Mbps", bps / 1_000)
+    bps >= 1_000_000_000 ? String(format: "%.1f Gbps", bps / 1_000_000_000) : String(format: "%.1f Mbps", bps / 1_000_000)
 }

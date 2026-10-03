@@ -59,14 +59,14 @@ func catalogHost(_ sub: String) -> String {
 }
 
 /// OVH 直连失败(被墙/超时)后的冷却:10 分钟内不再白等,直接走后端
-private var directCatalogFailedAt: Date? = nil
+private var directCatalogFailedAt: [String: Date] = [:]
 
 /// 抢购页的机型配置/价格:直连 OVH 公开 eco 目录(与后端拉的是同一 URL,
 /// 响应结构完全一致,解析零改动)。公开接口不带凭据,不占账户配额;
 /// 直连失败(典型:国内网络被墙)自动回落自建后端 /catalog。
 func fetchCatalogSmart(conn: Connection, sub: String) async -> [String: Any]? {
     let s = sub.uppercased()
-    if let failedAt = directCatalogFailedAt, Date().timeIntervalSince(failedAt) < 600 {
+    if let failedAt = directCatalogFailedAt[s], Date().timeIntervalSince(failedAt) < 600 {
         // 冷却期内:直接后端
         let path = s.isEmpty ? "/catalog" : "/catalog?subsidiary=\(urlEncode(s))"
         return try? await conn.client.getDict(path, timeoutSec: 45)
@@ -80,7 +80,7 @@ func fetchCatalogSmart(conn: Connection, sub: String) async -> [String: Any]? {
         if let d = direct, !(d["plans"] as? [[String: Any]] ?? []).isEmpty {
             return d
         }
-        directCatalogFailedAt = Date()
+        directCatalogFailedAt[s] = Date()
     }
     let path = s.isEmpty ? "/catalog" : "/catalog?subsidiary=\(urlEncode(s))"
     return try? await conn.client.getDict(path, timeoutSec: 45)
@@ -106,6 +106,7 @@ struct CatalogPane: View {
     /// App 端目录缓存:与 web 的 React Query 同思路 —— 5 分钟内切回来直接用旧数据,
     /// 后台静默刷新(否则每次进抢购页都等 OVH 目录+价格,体感就是"加载好久")。
     private static let cacheTTL: TimeInterval = 300
+    @State private var loadGeneration = 0
     static var memCache: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], addons: [String: Double], currency: String, age: Int?, expired: Bool)? = nil
     @State private var loading = true
     @State private var search = ""
@@ -145,7 +146,7 @@ struct CatalogPane: View {
                         Task {
                             // 对齐 web 的强刷三件套:先清后端内存缓存,逼它去 OVH 拿新数据;
                             // 只清 App 缓存的话,拉回来的还是后端那份旧缓存,看起来"点了没用"
-                            let body = try? JSONSerialization.data(withJSONObject: ["type": "memory"])
+                            let body = try? JSONSerialization.data(withJSONObject: ["type": "all"])
                             _ = await conn.client.actionPostData("/cache/clear", bodyData: body)
                             Self.memCache = nil
                             await load(force: true)
@@ -300,8 +301,11 @@ struct CatalogPane: View {
     }
 
     private func load(force: Bool = false) async {
-        // 命中缓存且未过期:立即上屏,后台再刷新
-        if !force, let c = Self.memCache, Date().timeIntervalSince(c.at) < Self.cacheTTL, !plans.isEmpty {
+        loadGeneration += 1
+        let gen = loadGeneration   // 代际令牌:快速切账户时丢弃过期响应
+        priceMap = [:]
+        if !force, let c = Self.memCache, Date().timeIntervalSince(c.at) < Self.cacheTTL {
+            applyCache(c)
             return
         }
         if let c = Self.memCache, !c.plans.isEmpty, plans.isEmpty {
@@ -345,8 +349,9 @@ struct CatalogPane: View {
             // 缓存龄(后端 /servers 自带 cacheInfo)
             if let ci = sr["cacheInfo"] as? [String: Any] {
                 cacheAgeMin = numToDoubleAny(ci["cacheAgeMinutes"]).map(Int.init)
-                cacheExpired = (ci["usingExpiredCache"] as? Bool ?? false) || (ci["cached"] as? Bool == false)
+                cacheExpired = (ci["usingExpiredCache"] as? Bool ?? false)
             }
+            guard gen == loadGeneration else { return }
             Self.memCache = (Date(), plans, availability, priceMap, addonMap, priceCurrency, cacheAgeMin, cacheExpired)
         } catch { err = error.localizedDescription }
         loading = false
@@ -544,7 +549,7 @@ struct SnipeOrderSheet: View {
             let suffix = r.contains("-high") ? "充足" : (r.contains("-low") ? "紧张" : "")
             if h < 24 { return h == 0 ? "现货" : "\(h)小时 交付 \(suffix)".trimmingCharacters(in: .whitespaces) }
             if h < 168 { return "\(h / 24)天 交付 \(suffix)".trimmingCharacters(in: .whitespaces) }
-            return "\(h / 24)天 \(suffix)".trimmingCharacters(in: .whitespaces)
+            return "\(h / 24)天 交付 \(suffix)".trimmingCharacters(in: .whitespaces)
         }
         return raw
     }
@@ -677,9 +682,9 @@ struct SnipeOrderSheet: View {
     /// 选项 code → 人类可读短名(去机型尾缀与冗余前缀)
     static func prettyOption(_ raw: String) -> String {
         var s = raw
-        if let r = s.range(of: #"-\d{2}[a-z]{2,6}-v\d+$"#, options: .regularExpression) { s = String(s[..<r.lowerBound]) }
-        if let r = s.range(of: #"\d{3,}[a-z]+-v\d+$"#, options: .regularExpression) { s = String(s[..<r.lowerBound]) }
-        for (from, to) in [("ram-", ""), ("on-die-ecc-", "ECC "), ("softraid-", "软RAID "), ("hybridsoftraid-", "混合RAID "), ("bandwidth-", ""), ("vrack-bandwidth-", "vRack ")] {
+        // 机型尾缀形态:24adv01-v3 / 26risegpu01-v1(数字字母混合,旧正则 0% 命中)
+        if let r = s.range(of: #"-[0-9a-z]{2,14}-v[0-9]+$"#, options: .regularExpression) { s = String(s[..<r.lowerBound]) }
+        for (from, to) in [("ram-", ""), ("softraid-", "软RAID "), ("hybridsoftraid-", "混合RAID "), ("bandwidth-", ""), ("vrack-bandwidth-", "vRack ")] {
             if s.hasPrefix(from) { s = to + String(s.dropFirst(from.count)); break }
         }
         return s.isEmpty ? raw : s
@@ -713,20 +718,21 @@ struct SnipeOrderSheet: View {
         }
         var sub = ""
         if let acc = conn.activeAccount, let z = acc["zone"] as? String, !z.isEmpty { sub = z }
-        guard let resp = await fetchCatalogSmart(conn: conn, sub: sub) else { return }
-        r = resp
+        guard let resp = await fetchCatalogSmart(conn: conn, sub: sub) else {
+            buildGroups(from: plan)   // 目录拉不到:配置组还能从 /servers 数据出,只是没价格
+            return
+        }
         currency = (resp["locale"] as? [String: Any])?["currencyCode"] as? String ?? ""
-        let cplans = (resp["plans"] as? [[String: Any]]) ?? []
-        let caddons = (resp["addons"] as? [[String: Any]]) ?? []
-        for a in caddons {
+        for a in (resp["addons"] as? [[String: Any]]) ?? [] {
             if let c = a["planCode"] as? String {
                 addonPrices[c] = monthlyPrice(a["pricings"] as? [[String: Any]])
             }
         }
-        if let p = cplans.first(where: { ($0["planCode"] as? String) == planCode }) {
+        if let p = ((resp["plans"] as? [[String: Any]]) ?? []).first(where: { ($0["planCode"] as? String) == planCode }) {
             basePrice = monthlyPrice(p["pricings"] as? [[String: Any]])
-            buildGroups(from: p)
         }
+        // 配置组永远用 ServerPlan(options 只在 /servers 数据里,catalog 原始 plan 没有)
+        buildGroups(from: plan)
     }
 
     /// defaultOptions + availableOptions 合并 → family 中文分组 → 默认项预选
@@ -798,7 +804,14 @@ struct SnipeOrderSheet: View {
                 }
             }
         }
-        toast.show(okCount > 0 ? "已创建 \(okCount) 个任务" : (failMsg.isEmpty ? "创建失败" : failMsg), error: okCount == 0)
+        let totalCreated = pickedDCs.count * qty
+        if okCount == totalCreated {
+            toast.show("已创建 \(okCount) 个任务")
+        } else if okCount > 0 {
+            toast.show("创建 \(okCount)/\(totalCreated) 个,失败 \(totalCreated - okCount):\(failMsg)", error: true)
+        } else {
+            toast.show(failMsg.isEmpty ? "创建失败" : failMsg, error: true)
+        }
         if okCount > 0 { dismiss() }
     }
 
@@ -1210,6 +1223,7 @@ struct HistoryPane: View {
                     let left = d.timeIntervalSince(Date())
                     if left < 0 { return ("付款已过期", t.muted, "clock.slash") }
                     let h = Int(left) / 3600
+                    if h == 0 { return ("付款剩 \(Int(left) / 60) 分钟", t.danger, "hourglass") }
                     let text = h < 24 ? "付款倒计时 \(h) 小时" : "付款剩 \(h / 24) 天"
                     return (text, h < 24 ? t.danger : t.warning, "hourglass")
                 }

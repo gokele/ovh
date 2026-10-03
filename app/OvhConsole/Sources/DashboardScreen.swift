@@ -198,17 +198,16 @@ struct DashboardScreen: View {
         // 15 秒内非强刷直接跳过(节流:避免 task+onChange 双触发打 4 个接口)
         guard force || Date().timeIntervalSince(refreshAt) > 15 else { return }
         refreshAt = Date()
-        do {
-            async let s = conn.client.getDict("/stats")
-            async let q = conn.client.getArray("/queue")
-            async let m = conn.client.getDict("/system/metrics")
-            async let v = conn.client.getDict("/version")
-            let (sr, qr, mr, vr) = try await (s, q, m, v)
-            stats = sr; queue = qr; metrics = mr; version = vr
-            statsErr = nil
-        } catch {
-            statsErr = error.localizedDescription
-        }
+        // 每块独立失败:任何一个接口挂不拖垮整页(/version 偶发 500 时仪表盘不该全黑)
+        async let s = try? await conn.client.getDict("/stats")
+        async let q = try? await conn.client.getArray("/queue")
+        async let m = try? await conn.client.getDict("/system/metrics")
+        async let v = try? await conn.client.getDict("/version")
+        let (sr, qr, mr, vr) = await (s, q, m, v)
+        if let sr { stats = sr; statsErr = nil } else if stats == nil { statsErr = "读取失败" }
+        if let qr { queue = qr }
+        if let mr { metrics = mr }
+        if let vr { version = vr }
         if conn.accounts.isEmpty { await conn.loadAccounts() }
     }
 }

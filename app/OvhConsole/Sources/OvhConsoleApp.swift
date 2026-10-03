@@ -32,7 +32,11 @@ struct OvhConsoleApp: App {
             .onOpenURL { url in
                 // 深链:ovhconsole://pair?host=..&code=..&auto=1
                 if url.scheme == "ovhconsole", url.host == "pair" {
-                    pendingPairURL = url
+                    if conn.isPaired {
+                        toast.show("已配对过;要换后端请先在 设置 里断开连接", error: true)
+                    } else {
+                        pendingPairURL = url
+                    }
                 }
             }
         }
