@@ -28,6 +28,7 @@ struct SettingsScreen: View {
                         NavRow(icon: "person.text.rectangle.fill", title: "OVH 账户信息", desc: "客户资料 / 邮件历史 / 退款", tint: t.muted) { subpath.append(.accountInfo) }
                         NavRow(icon: "doc.text.magnifyingglass", title: "运行日志", desc: "最近 200 条,自动刷新", tint: t.muted) { subpath.append(.logs) }
                         appearanceCard
+                        aboutCard
                         dangerCard
                     }
                 }
@@ -107,6 +108,30 @@ struct SettingsScreen: View {
             .background(RoundedRectangle(cornerRadius: 11).fill(on ? t.color(t.accent).opacity(0.12) : t.color(t.surfaceMuted)))
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: 关于(版本 + 构建时间;一眼判断跑的是不是最新构建)
+
+    private var aboutCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 9) {
+                SectionTitle(text: "关于")
+                KV(k: "版本", v: "v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
+                KV(k: "构建时间", v: buildTime)
+                Text("构建时间 = 本次安装的二进制生成时刻。重新运行后如果这里没变,说明跑的还是旧构建。")
+                    .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+            }
+        }
+    }
+
+    /// 可执行文件的修改时刻 ≈ 构建时刻
+    private var buildTime: String {
+        guard let exec = Bundle.main.executableURL,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: exec.path),
+              let date = attrs[.modificationDate] as? Date else { return "—" }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f.string(from: date)
     }
 
     // MARK: 危险区
