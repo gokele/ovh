@@ -61,7 +61,9 @@ struct SettingsScreen: View {
                     HStack(spacing: 9) {
                         Dot(color: (acc["valid"] as? Bool ?? false) ? t.success : t.danger)
                         Text(acc["name"] as? String ?? "").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(t.fg))
-                        Chip(text: acc["zone"] as? String ?? "—", color: zoneTint(acc))
+                        if zoneBadgeVisible(name: acc["name"] as? String ?? "", zone: acc["zone"] as? String ?? "") {
+                            Chip(text: acc["zone"] as? String ?? "—", color: zoneTint(acc))
+                        }
                         Spacer()
                     }
                     Text(acc["endpoint"] as? String ?? "").font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.muted))
@@ -711,6 +713,11 @@ struct LogsScreen: View {
 // 对齐 web 顶栏 AccountSwitcher:三区目录互不相通,切账户是高频操作,
 // 不该埋在设置页里 —— 主要页面顶栏随时可切。
 
+/// 账户名与 zone 同名(如账户就叫 "IE")时,区域徽章不重复显示
+func zoneBadgeVisible(name: String, zone: String) -> Bool {
+    !zone.isEmpty && name.trimmingCharacters(in: .whitespaces).uppercased() != zone.uppercased()
+}
+
 /// endpoint → 区色:美区蓝 / 加区橙 / 欧区绿
 func zoneTint(_ acc: [String: Any]) -> String {
     switch acc["endpoint"] as? String ?? "" {
@@ -733,7 +740,9 @@ struct AccountButton: View {
                 if let acc = conn.activeAccount {
                     Circle().fill(t.color(zoneTint(acc))).frame(width: 7, height: 7)
                     Text(acc["name"] as? String ?? "账户").font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                    Chip(text: acc["zone"] as? String ?? "", color: zoneTint(acc))
+                    if zoneBadgeVisible(name: acc["name"] as? String ?? "", zone: acc["zone"] as? String ?? "") {
+                        Chip(text: acc["zone"] as? String ?? "", color: zoneTint(acc))
+                    }
                 } else {
                     Image(systemName: "person.crop.circle.badge.plus").font(.system(size: 12, weight: .semibold))
                     Text("添加账户").font(.system(size: 12.5, weight: .semibold))
@@ -805,7 +814,9 @@ struct AccountPickerSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(acc["name"] as? String ?? "").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(t.fg))
-                        Chip(text: acc["zone"] as? String ?? "—", color: tint)
+                        if zoneBadgeVisible(name: acc["name"] as? String ?? "", zone: acc["zone"] as? String ?? "") {
+                            Chip(text: acc["zone"] as? String ?? "—", color: tint)
+                        }
                     }
                     Text(acc["endpoint"] as? String ?? "").font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.muted))
                 }

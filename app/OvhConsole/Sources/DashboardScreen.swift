@@ -57,7 +57,9 @@ struct DashboardScreen: View {
             if let acc = conn.activeAccount {
                 Dot(color: (acc["valid"] as? Bool ?? false) ? t.success : t.danger)
                 Text(acc["name"] as? String ?? "").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-                Chip(text: acc["zone"] as? String ?? "")
+                if zoneBadgeVisible(name: acc["name"] as? String ?? "", zone: acc["zone"] as? String ?? "") {
+                    Chip(text: acc["zone"] as? String ?? "")
+                }
                 if let ver = version?["version"] as? String {
                     Chip(text: "v\(ver)", color: t.info, mono: true)
                 }
