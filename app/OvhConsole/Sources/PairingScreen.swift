@@ -1,13 +1,16 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import os
 
 /**
- * 配对首屏(SwiftUI):地址 + 8 位码 → Keychain。
+ * 配对首屏(新设计):地址 + 8 位码 → 设备令牌进 Keychain。
+ * 深链 ovhconsole://pair?host=..&code=..&auto=1 支持(从设置页二维码扫码进入)。
  */
 struct PairingScreen: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
+    var deepLink: URL?
+    var onPaired: () -> Void
+
     @State private var url = ""
     @State private var code = ""
     @State private var busy = false
@@ -17,70 +20,83 @@ struct PairingScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(t.color(t.fg), lineWidth: 1.6)
-                    .frame(width: 74, height: 74)
-                    .overlay(Image(systemName: "server.rack").font(.system(size: 32)).foregroundColor(t.color(t.fg)))
-                    .padding(.top, 60)
-
-                Text("连接你的控制台").font(.system(size: 17, weight: .bold)).foregroundColor(t.color(t.fg))
-
-                Text("在电脑端打开网页控制台 → 设置 →「App 配对」,\n把地址和配对码填到下面。\n2 分钟内有效 · 每台设备独立令牌,可在网页端单独吊销")
-                    .font(.system(size: 12)).foregroundColor(t.color(t.muted))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-
-                field("控制台地址,如 http://192.168.1.10:19998", text: $url, keyboard: .URL)
-                field("配对码(8 位)", text: $code, keyboard: .asciiCapable)
-
-                if !err.isEmpty {
-                    Text(err).font(.system(size: 12)).foregroundColor(t.color(t.danger))
-                }
-
-                Button { Task { await pair() } } label: {
-                    HStack(spacing: 8) {
-                        if busy { ProgressView().tint(.white) }
-                        Text(busy ? "配对中…" : "配对").font(.system(size: 15, weight: .semibold)).foregroundColor(.white)
+            VStack(spacing: 16) {
+                // 品牌区
+                VStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(LinearGradient(colors: [t.color(t.accent).opacity(0.22), t.color(t.accent).opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 84, height: 84)
+                        Image(systemName: "server.rack")
+                            .font(.system(size: 34, weight: .medium))
+                            .foregroundStyle(LinearGradient(colors: [t.color(t.accent), t.color(t.info)], startPoint: .top, endPoint: .bottom))
                     }
-                    .frame(maxWidth: .infinity, minHeight: 47)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0.07, green: 0.07, blue: 0.07)))
+                    .padding(.top, 56)
+                    VStack(spacing: 5) {
+                        Text("OVH 控制台").font(.system(size: 22, weight: .bold)).foregroundColor(t.color(t.fg))
+                        Text("连接你的自建后端").font(.system(size: 12)).foregroundColor(t.color(t.muted))
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(busy)
+
+                Card {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("配对").font(.system(size: 14, weight: .bold)).foregroundColor(t.color(t.fg))
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("控制台地址").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.muted))
+                            SheetField(placeholder: "http://192.168.1.10:19998", text: $url, mono: true, keyboard: .URL)
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("配对码(8 位)").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.muted))
+                            SheetField(placeholder: "在网页端 设置 → App 配对 生成", text: $code, mono: true)
+                        }
+
+                        if !err.isEmpty {
+                            HStack(alignment: .top, spacing: 7) {
+                                Image(systemName: "exclamationmark.octagon.fill").font(.system(size: 12)).foregroundColor(t.color(t.danger))
+                                Text(err).font(.system(size: 11)).foregroundColor(t.color(t.danger))
+                            }
+                            .padding(9)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.danger).opacity(0.08)))
+                        }
+
+                        ActBtn(kind: .primary, icon: "link", label: busy ? "配对中…" : "开始配对", busy: busy) {
+                            Task { await pair() }
+                        }
+                    }
+                }
+
+                VStack(spacing: 4) {
+                    Text("2 分钟内有效 · 每台设备独立令牌")
+                    Text("手机丢了在网页端「设置 → App 配对」吊销")
+                }
+                .font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
+                .multilineTextAlignment(.center)
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 22)
         }
         .background(t.color(t.bg))
-        .onOpenURL { url in
-            // ovhconsole://pair?host=http://x:19997&code=ABCDEFGH&auto=1
-            guard url.host == "pair" else { return }
-            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            let items = comps?.queryItems ?? []
-            var autoSubmit = false
-            if let h = items.first(where: { $0.name == "host" })?.value { self.url = h }
-            if let c = items.first(where: { $0.name == "code" })?.value { code = c }
-            if let a = items.first(where: { $0.name == "auto" })?.value { autoSubmit = a == "1" }
-            if autoSubmit {
-                // 给 SwiftUI 一帧时间把 state 写入 TextField,再提交
-                Task {
-                    try? await Task.sleep(for: .milliseconds(200))
-                    await pair()
-                }
-            }
+        .onChange(of: deepLink) { nl in
+            if let nl { consume(nl) }
+        }
+        .onAppear {
+            if let dl = deepLink { consume(dl) }
         }
     }
 
-    private func field(_ ph: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {
-        TextField(ph, text: text)
-            .font(.system(size: 14))
-            .keyboardType(keyboard)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .foregroundColor(t.color(t.fg))
-            .padding(.horizontal, 13)
-            .frame(height: 46)
-            .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surfaceMuted)).overlay(RoundedRectangle(cornerRadius: 12).stroke(t.color(t.border), lineWidth: 1)))
+    private func consume(_ url: URL) {
+        guard url.scheme == "ovhconsole", url.host == "pair" else { return }
+        let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let items = comps?.queryItems ?? []
+        if let h = items.first(where: { $0.name == "host" })?.value { self.url = h }
+        if let c = items.first(where: { $0.name == "code" })?.value { code = c }
+        if let a = items.first(where: { $0.name == "auto" })?.value, a == "1" {
+            Task {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                await pair()
+            }
+        }
     }
 
     private func pair() async {
@@ -98,24 +114,23 @@ struct PairingScreen: View {
             let r = try await ApiClient.pair(serverUrl: clean, code: c, deviceName: UIDevice.current.name)
             // conn 是 @MainActor;从 async 上下文调它必须 await(否则静默失败/挂起)
             await conn.save(server: clean, token: r.token)
+            onPaired()
         } catch {
-            // os_log 让错误在系统日志可见(模拟器/真机都可查)
-            Logger.shared.log("配对失败: \(error)")
+            PairLog.log("配对失败: \(error)")
             err = explainPairError(error, address: clean)
         }
     }
 }
 
-
-/// 配对失败的错误翻译:把底层 URLError 变成能照做的排查指引
+/// 配对失败的错误翻译:底层错误变排查指引
 private func explainPairError(_ error: Error, address: String) -> String {
     let ns = error as NSError
     if ns.domain == NSURLErrorDomain {
         switch ns.code {
         case NSURLErrorTimedOut:
-            return "连接超时:\(address) 没有响应。检查地址和端口(默认 19998),确认手机能访问到这台服务器"
+            return "连接超时:\(address) 没有响应。检查地址和端口,确认手机能访问到这台服务器"
         case NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost:
-            return "连不上 \(address):地址不对或服务没在跑。注意手机要能访问到服务器(同一网络,或公网可达)"
+            return "连不上 \(address):地址不对或服务没在跑。手机要能访问到服务器(同一网络或公网可达)"
         case -1022:
             return "iOS 安全策略拦了 http 连接(已知配置,请重装本构建)"
         case NSURLErrorNotConnectedToInternet:
@@ -128,11 +143,10 @@ private func explainPairError(_ error: Error, address: String) -> String {
     return error.localizedDescription
 }
 
-
 /// 轻量日志(系统 Console 可见)
-private struct Logger {
+private struct PairLog {
     static let shared = os.Logger(subsystem: "com.gokele.ovhconsole", category: "pairing")
-    func log(_ msg: String) {
-        Logger.shared.info("\(msg, privacy: .public)")
+    static func log(_ msg: String) {
+        shared.info("\(msg, privacy: .public)")
     }
 }

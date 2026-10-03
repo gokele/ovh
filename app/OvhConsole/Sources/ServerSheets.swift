@@ -1,0 +1,1123 @@
+import SwiftUI
+import Charts
+
+/**
+ * 独服弹窗 · 电源篇:流量图 / 救援 / 重装 / IPMI / 启动模式 / SPLA / 任务预约 / BIOS / 安装进度 / OVH 监控
+ */
+
+// MARK: - 共用件
+
+struct SheetHeader: View {
+    @EnvironmentObject var theme: Theme
+    let icon: String
+    let tint: String
+    let title: String
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon).font(.system(size: 15)).foregroundColor(t.color(tint))
+            Text(title).font(.system(size: 15.5, weight: .bold)).foregroundColor(t.color(t.fg))
+            Spacer()
+        }
+        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 6)
+    }
+}
+
+struct SheetField: View {
+    @EnvironmentObject var theme: Theme
+    let placeholder: String
+    @Binding var text: String
+    var mono: Bool = false
+    var keyboard: UIKeyboardType = .default
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .font(.system(size: 13, design: mono ? .monospaced : .default))
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .keyboardType(keyboard)
+            .foregroundColor(t.color(t.fg))
+            .padding(.horizontal, 13)
+            .frame(height: 44)
+            .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surfaceMuted)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.border), lineWidth: 1)))
+    }
+}
+
+struct SheetNote: View {
+    @EnvironmentObject var theme: Theme
+    let text: String
+    var tint: String
+    var t: Tokens { theme.t }
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "info.circle.fill").font(.system(size: 12)).foregroundColor(t.color(tint))
+            Text(text).font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(t.color(tint).opacity(0.07)))
+    }
+}
+
+// MARK: - MRTG 流量图
+
+struct MrtgSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    let sn: String
+    var t: Tokens { theme.t }
+
+    @State private var period = "daily"
+    @State private var points: [(ts: Date, inB: Double, outB: Double)] = []
+    @State private var err: String?
+    @State private var loading = true
+
+    private let periods: [(String, String)] = [("hourly", "时"), ("daily", "日"), ("weekly", "周"), ("monthly", "月"), ("yearly", "年")]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "chart.xyaxis.line", tint: t.info, title: "MRTG 流量图")
+            Picker("", selection: $period) {
+                ForEach(periods, id: \.0) { p in Text(p.1).tag(p.0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16).padding(.bottom, 8)
+            .onChange(of: period) { _ in Task { await load() } }
+
+            ScrollView {
+                VStack(spacing: 12) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else if points.isEmpty {
+                        EmptyHint(icon: "chart.dots.scatter", text: "OVH 未返回流量数据")
+                    } else {
+                        Chart {
+                            ForEach(points, id: \.ts) { p in
+                                LineMark(x: .value("时间", p.ts), y: .value("入", p.inB / 1_000))
+                                    .foregroundStyle(t.color(t.info))
+                                    .interpolationMethod(.monotone)
+                                AreaMark(x: .value("时间", p.ts), y: .value("入", p.inB / 1_000))
+                                    .foregroundStyle(LinearGradient(colors: [t.color(t.info).opacity(0.22), .clear], startPoint: .top, endPoint: .bottom))
+                                    .interpolationMethod(.monotone)
+                                LineMark(x: .value("时间", p.ts), y: .value("出", p.outB / 1_000))
+                                    .foregroundStyle(t.color(t.accent))
+                                    .interpolationMethod(.monotone)
+                            }
+                        }
+                        .chartYAxis {
+                            AxisMarks(position: .trailing) { v in
+                                AxisGridLine().foregroundStyle(t.color(t.border).opacity(0.4))
+                                AxisValueLabel().font(.system(size: 9)).foregroundStyle(t.color(t.muted))
+                            }
+                        }
+                        .frame(height: 200)
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surfaceMuted)))
+
+                        HStack(spacing: 14) {
+                            HStack(spacing: 5) {
+                                Circle().fill(t.color(t.info)).frame(width: 7, height: 7)
+                                Text("下行(入)").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                            }
+                            HStack(spacing: 5) {
+                                Circle().fill(t.color(t.accent)).frame(width: 7, height: 7)
+                                Text("上行(出)").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                            }
+                            Spacer()
+                            Text("峰值入 \(fmtMbps(maxIn)) · 出 \(fmtMbps(maxOut))")
+                                .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium, .large])
+        .task { await load() }
+    }
+
+    private var maxIn: Double { points.map(\.inB).max() ?? 0 }
+    private var maxOut: Double { points.map(\.outB).max() ?? 0 }
+
+    private func load() async {
+        loading = true
+        err = nil
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/mrtg?period=\(period)&type=traffic:download")
+            var pts: [(Date, Double, Double)] = []
+            if let ifaces = r["interfaces"] as? [[String: Any]] {
+                for nic in ifaces {
+                    guard let data = nic["data"] as? [[Any]] else { continue }
+                    for row in data {
+                        guard row.count >= 3,
+                              let ts = numToDouble(row[0]),
+                              let i = numToDouble(row[1]),
+                              let o = numToDouble(row[2]) else { continue }
+                        pts.append((Date(timeIntervalSince1970: ts / 1000), i, o))
+                    }
+                }
+            }
+            pts.sort { $0.0 < $1.0 }
+            points = pts.map { (ts: $0.0, inB: $0.1, outB: $0.2) }
+            if let msg = r["message"] as? String, points.isEmpty { err = msg }
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+}
+
+private func numToDouble(_ v: Any) -> Double? {
+    if let d = v as? Double { return d }
+    if let i = v as? Int { return Double(i) }
+    if let n = v as? NSNumber { return n.doubleValue }
+    if let s = v as? String { return Double(s) }
+    return nil
+}
+
+// MARK: - 救援系统
+
+struct RescueSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    let sn: String
+    var t: Tokens { theme.t }
+
+    @State private var inRescue = false
+    @State private var rescueMail = ""
+    @State private var mail = ""
+    @State private var loading = true
+    @State private var err: String?
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "lifepreserver", tint: t.warning, title: "救援系统")
+            ScrollView {
+                VStack(spacing: 12) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else {
+                        Card(border: inRescue ? t.warning : t.border) {
+                            VStack(spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: inRescue ? "exclamationmark.triangle.fill" : "checkmark.shield.fill")
+                                        .font(.system(size: 14)).foregroundColor(t.color(inRescue ? t.warning : t.success))
+                                    Text(inRescue ? "当前处于救援模式" : "运行在正常系统")
+                                        .font(.system(size: 13, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                    Spacer()
+                                }
+                                if !rescueMail.isEmpty {
+                                    KV(k: "救援通知邮箱", v: rescueMail, mono: true)
+                                }
+                            }
+                        }
+
+                        if inRescue {
+                            SheetNote(text: "退出救援会重启机器并从硬盘正常引导,救援环境里改过的数据保留在盘上。", tint: t.info)
+                            ActBtn(kind: .primary, icon: "arrow.uturn.backward", label: busy ? "退出中…" : "退出救援模式") {
+                                await exitRescue()
+                            }
+                        } else {
+                            SheetNote(text: "进入救援模式相当于用救援镜像重启:原系统数据不动,重启后生效。凭据会发送到邮箱。", tint: t.warning)
+                            SheetField(placeholder: rescueMail.isEmpty ? "通知邮箱(留空用账户默认)" : rescueMail, text: $mail, keyboard: .emailAddress)
+                            ActBtn(kind: .primary, icon: "lifepreserver.fill", label: busy ? "提交中…" : "进入救援模式(重启)") {
+                                await enter()
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium, .large])
+        .task { await load() }
+    }
+
+    private func load() async {
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/rescue")
+            inRescue = r["inRescue"] as? Bool ?? false
+            rescueMail = r["rescueMail"] as? String ?? ""
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+
+    private func enter() async {
+        busy = true
+        defer { busy = false }
+        var body: [String: Any] = ["confirm": true]
+        let m = mail.trimmingCharacters(in: .whitespaces)
+        if !m.isEmpty { body["email"] = m }
+        do {
+            _ = try await conn.client.post("/server-control/\(sn)/rescue", body: body)
+            toast.show("已进入救援模式(重启后生效)")
+            dismiss()
+        } catch { toast.show(error.localizedDescription, error: true) }
+    }
+
+    private func exitRescue() async {
+        busy = true
+        defer { busy = false }
+        let (ok, msg) = await conn.client.actionPostData("/server-control/\(sn)/rescue/exit", bodyData: nil)
+        toast.show(ok ? "已退出救援模式" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        if ok { dismiss() }
+    }
+}
+
+// MARK: - 重装系统(全功能)
+
+struct ServerReinstallSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    let sn: String
+    var t: Tokens { theme.t }
+
+    @State private var templates: [[String: Any]] = []
+    @State private var search = ""
+    @State private var picked: String?
+    @State private var hostname = ""
+    @State private var useZFS = true
+    @State private var zfsRaid = 1
+    @State private var vzGB = 100.0
+    @State private var schemes: [String] = []
+    @State private var pickedScheme: String?
+    @State private var confirmName = ""
+    @State private var loading = true
+    @State private var err: String?
+    @State private var busy = false
+
+    private var isProxmox9: Bool {
+        (picked ?? "").lowercased().contains("proxmox") && (picked ?? "").contains("9")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "opticaldiscdrive.fill", tint: t.danger, title: "重装系统")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 13) {
+                    SheetNote(text: "清空系统盘所有数据,不可逆。执行需要 Face ID / 密码确认。", tint: t.danger)
+
+                    SheetField(placeholder: "搜索模板(debian / ubuntu / proxmox…)", text: $search)
+
+                    if loading {
+                        ProgressView().padding(20).frame(maxWidth: .infinity)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else {
+                        VStack(spacing: 6) {
+                            ForEach(filtered.indices, id: \.self) { i in tplRow(filtered[i]) }
+                            if filtered.isEmpty {
+                                Text("没有匹配的模板").font(.system(size: 11)).foregroundColor(t.color(t.faint)).padding(8)
+                            }
+                        }
+                    }
+
+                    if picked != nil {
+                        Text("自定义主机名(可选)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        SheetField(placeholder: sn, text: $hostname, mono: true)
+
+                        if isProxmox9 {
+                            Toggle(isOn: $useZFS) {
+                                Text("Proxmox 9 + ZFS 预设").font(.system(size: 12.5)).foregroundColor(t.color(t.fg))
+                            }.tint(t.color(t.accent))
+                            if useZFS {
+                                Picker("ZFS RAID", selection: $zfsRaid) {
+                                    ForEach([0, 1, 5, 6, 7, 10], id: \.self) { r in Text("RAID \(r)").tag(r) }
+                                }
+                                .pickerStyle(.segmented)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("/var/lib/vz 容量:\(Int(vzGB)) GB").font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
+                                    Slider(value: $vzGB, in: 10...500, step: 10).tint(t.color(t.accent))
+                                }
+                            }
+                        } else if !schemes.isEmpty {
+                            Text("分区方案").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                            FlowLayout(spacing: 7) {
+                                ForEach(schemes, id: \.self) { s in
+                                    Button { pickedScheme = pickedScheme == s ? nil : s } label: {
+                                        Text(s).font(.system(size: 11)).foregroundColor(t.color(pickedScheme == s ? t.fg : t.muted))
+                                            .padding(.horizontal, 10).padding(.vertical, 6)
+                                            .background(RoundedRectangle(cornerRadius: 9).fill(pickedScheme == s ? t.color(t.accent).opacity(0.2) : t.color(t.surfaceMuted)))
+                                    }.buttonStyle(.plain)
+                                }
+                            }
+                        }
+
+                        Text("输入机器名确认").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        SheetField(placeholder: sn, text: $confirmName, mono: true)
+
+                        ActBtn(kind: .danger, icon: "faceid", label: busy ? "提交中…" : "面容确认并重装") {
+                            await submit()
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.large])
+        .task { await load() }
+        .onChange(of: picked) { _ in Task { await loadSchemes() } }
+    }
+
+    private var filtered: [[String: Any]] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return templates }
+        return templates.filter {
+            (($0["templateName"] as? String ?? "") + ($0["distribution"] as? String ?? "")).lowercased().contains(q)
+        }
+    }
+
+    private func tplRow(_ tpl: [String: Any]) -> some View {
+        let name = tpl["templateName"] as? String ?? ""
+        let on = picked == name
+        return Button { picked = name } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(tpl["distribution"] as? String ?? name).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                    Text("\(name) · \(tpl["bitFormat"] ?? 64) 位")
+                        .font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.muted)).lineLimit(1)
+                }
+                Spacer()
+                if on {
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 16)).foregroundColor(t.color(t.accent))
+                }
+            }
+            .padding(11)
+            .background(RoundedRectangle(cornerRadius: 12).fill(t.color(on ? t.accent : t.surface).opacity(0.08)).overlay(RoundedRectangle(cornerRadius: 12).stroke(t.color(on ? t.accent : t.border), lineWidth: 1)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func load() async {
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/templates")
+            templates = (r["templates"] as? [[String: Any]]) ?? []
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+
+    private func loadSchemes() async {
+        guard let tpl = picked, !isProxmox9 else { schemes = []; pickedScheme = nil; return }
+        if let r = try? await conn.client.getDict("/server-control/\(sn)/partition-schemes?templateName=\(urlEncode(tpl))"),
+           let list = r["schemes"] as? [[String: Any]] {
+            schemes = list.compactMap { ($0["name"] as? String) ?? ($0["schemeName"] as? String) }
+        }
+    }
+
+    private func submit() async {
+        guard let tpl = picked else { return }
+        guard confirmName.trimmingCharacters(in: .whitespaces) == sn else {
+            return toast.show("机器名不匹配,请输入完整机器名", error: true)
+        }
+        guard await Biometric.require("重装系统") else { return }
+        busy = true
+        defer { busy = false }
+        var body: [String: Any] = ["templateName": tpl]
+        let h = hostname.trimmingCharacters(in: .whitespaces)
+        if !h.isEmpty { body["customHostname"] = h }
+        if isProxmox9 && useZFS {
+            body["useProxmox9Zfs"] = true
+            body["zfsRaidLevel"] = zfsRaid
+            body["zfsVzSize"] = Int(vzGB) * 1024
+        } else if let s = pickedScheme, !s.isEmpty {
+            body["partitionSchemeName"] = s
+        }
+        do {
+            _ = try await conn.client.post("/server-control/\(sn)/install", body: body)
+            toast.show("重装任务已提交(通常 5-10 分钟)")
+            dismiss()
+        } catch { toast.show(error.localizedDescription, error: true) }
+    }
+}
+
+func urlEncode(_ s: String) -> String {
+    s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+}
+
+// MARK: - IPMI / KVM
+
+struct IpmiSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    let sn: String
+    var t: Tokens { theme.t }
+
+    @State private var types: [[String: Any]] = []
+    @State private var pickedType: String?
+    @State private var loading = true
+    @State private var err: String?
+    @State private var requesting = false
+    @State private var result: [String: Any]?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "keyboard.onehanded.left", tint: t.info, title: "IPMI / KVM 控制台")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 13) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else {
+                        SheetNote(text: "申请远程 KVM 会独占 IPMI 会话。Java KVM(.jnlp)需要 Java 运行时,SoL 走 SSH。", tint: t.info)
+
+                        Text("接入方式").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        VStack(spacing: 6) {
+                            ForEach(types.indices, id: \.self) { i in typeRow(types[i]) }
+                            if types.isEmpty { Text("OVH 未返回接入方式").font(.system(size: 11)).foregroundColor(t.color(t.faint)) }
+                        }
+
+                        if let r = result {
+                            Card(border: t.success) {
+                                VStack(alignment: .leading, spacing: 7) {
+                                    Text("申请成功").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.success))
+                                    if let u = r["url"] as? String ?? r["jnlpUrl"] as? String {
+                                        Text(u).font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.fg)).lineLimit(3)
+                                            .textSelection(.enabled)
+                                    }
+                                    if let m = r["message"] as? String ?? r["note"] as? String {
+                                        Text(m).font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                                    }
+                                }
+                            }
+                        }
+
+                        ActBtn(kind: .primary, icon: "arrow.down.circle", label: requesting ? "申请中(最长 20 秒)…" : "申请远程控制台") {
+                            await request()
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium, .large])
+        .task { await load() }
+    }
+
+    private func typeRow(_ ty: [String: Any]) -> some View {
+        let name = ty["type"] as? String ?? (ty["name"] as? String ?? "—")
+        let on = pickedType == name
+        return Button { pickedType = name } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                    if let d = ty["description"] as? String, !d.isEmpty {
+                        Text(d).font(.system(size: 10)).foregroundColor(t.color(t.muted)).lineLimit(1)
+                    }
+                }
+                Spacer()
+                if on { Image(systemName: "checkmark.circle.fill").font(.system(size: 15)).foregroundColor(t.color(t.accent)) }
+            }
+            .padding(11)
+            .background(RoundedRectangle(cornerRadius: 11).fill(t.color(on ? t.accent : t.surface).opacity(0.08)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(on ? t.accent : t.border), lineWidth: 1)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func load() async {
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/ipmi-types")
+            types = (r["types"] as? [[String: Any]]) ?? []
+            pickedType = types.first?["type"] as? String ?? types.first?["name"] as? String
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+
+    private func request() async {
+        guard let ty = pickedType else { return }
+        requesting = true
+        defer { requesting = false }
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/console?type=\(urlEncode(ty))")
+            result = r
+        } catch {
+            toast.show(error.localizedDescription, error: true)
+        }
+    }
+}
+
+// MARK: - 启动模式
+
+struct BootModeSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    let sn: String
+    var t: Tokens { theme.t }
+
+    @State private var boots: [[String: Any]] = []
+    @State private var picked: Int?
+    @State private var loading = true
+    @State private var err: String?
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "memorychip", tint: t.muted, title: "启动模式")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 13) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else {
+                        SheetNote(text: "切换启动模式后 OVH 会自动重启服务器。硬盘 = 正常引导;救援 = 救援镜像;网络 =网络启动(iPXE)。", tint: t.info)
+                        VStack(spacing: 6) {
+                            ForEach(boots.indices, id: \.self) { i in bootRow(boots[i]) }
+                        }
+                        if picked != nil {
+                            ActBtn(kind: .primary, icon: "arrow.triangle.2.circlepath", label: busy ? "切换中…" : "切换并重启") {
+                                await apply()
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium, .large])
+        .task { await load() }
+    }
+
+    private func bootRow(_ b: [String: Any]) -> some View {
+        let id = (b["id"] as? Int) ?? -1
+        let type = (b["bootType"] as? String ?? "unknown").lowercased()
+        let isCurrent = b["isCurrent"] as? Bool ?? false
+        let on = picked == id
+        let iconName: String = type == "rescue" ? "lifepreserver" : type.contains("network") || type == "ipxe" ? "wifi" : "internaldrive"
+        return Button { if id >= 0 { picked = id } } label: {
+            HStack(spacing: 10) {
+                Image(systemName: iconName).font(.system(size: 14)).foregroundColor(t.color(t.muted))
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(b["description"] as? String ?? type).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg)).lineLimit(1)
+                        if isCurrent { Chip(text: "当前", color: t.success) }
+                    }
+                    Text("\(type) · bootId \(id)").font(.system(size: 9.5, design: .monospaced)).foregroundColor(t.color(t.muted))
+                    if let e = b["error"] as? String, !e.isEmpty {
+                        Text(e).font(.system(size: 9.5)).foregroundColor(t.color(t.danger))
+                    }
+                }
+                Spacer()
+                if on { Image(systemName: "checkmark.circle.fill").font(.system(size: 15)).foregroundColor(t.color(t.accent)) }
+            }
+            .padding(11)
+            .background(RoundedRectangle(cornerRadius: 11).fill(t.color(on ? t.accent : t.surface).opacity(0.08)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(on && !isCurrent ? t.accent : t.border), lineWidth: 1)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func load() async {
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/boot-mode")
+            boots = (r["boots"] as? [[String: Any]]) ?? []
+            if let cur = boots.first(where: { ($0["isCurrent"] as? Bool) == true }) {
+                picked = (cur["id"] as? Int) ?? nil
+            }
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+
+    private func apply() async {
+        guard let id = picked else { return }
+        busy = true
+        defer { busy = false }
+        let body = try? JSONSerialization.data(withJSONObject: ["bootId": id])
+        let (ok, msg) = await conn.client.actionPutData("/server-control/\(sn)/boot-mode", bodyData: body)
+        toast.show(ok ? "启动模式已切换" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        if ok { dismiss() }
+    }
+}
+
+// MARK: - Windows SPLA
+
+struct SplaSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    let sn: String
+    var t: Tokens { theme.t }
+
+    @State private var list: [[String: Any]] = []
+    @State private var loading = true
+    @State private var err: String?
+    @State private var serial = ""
+    @State private var type = "os"
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "pc", tint: t.info, title: "Windows 授权 (SPLA)")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 13) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else {
+                        SheetNote(text: "重装 Windows 需要先登记 SPLA 授权。没有自己的序列号可一键解锁(自动登记公开 GVLK,仅操作系统类)。", tint: t.info)
+
+                        Text("已登记授权").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        if list.isEmpty {
+                            Text("尚未登记任何授权").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                        } else {
+                            ForEach(list.indices, id: \.self) { i in
+                                let it = list[i]
+                                KV(k: splaTypeName(it["type"] as? String ?? ""), v: (it["serialNumber"] as? String ?? "—"), mono: true)
+                            }
+                        }
+
+                        Divider().overlay(t.color(t.border))
+
+                        Text("手动登记自己的 SPLA").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        Picker("类型", selection: $type) {
+                            Text("操作系统").tag("os")
+                            Text("SQL Standard").tag("sqlstd")
+                            Text("SQL Web").tag("sqlweb")
+                        }
+                        .pickerStyle(.segmented)
+                        SheetField(placeholder: "SPLA 序列号", text: $serial, mono: true)
+                        ActBtn(kind: .ghost, icon: "square.and.arrow.down", label: busy ? "登记中…" : "登记序列号") {
+                            await register()
+                        }
+
+                        Divider().overlay(t.color(t.border))
+                        ActBtn(kind: .primary, icon: "unlock.fill", label: busy ? "处理中…" : "一键解锁(登记 GVLK)") {
+                            await quickUnlock()
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium, .large])
+        .task { await load() }
+    }
+
+    private func splaTypeName(_ s: String) -> String {
+        ["os": "操作系统", "sqlstd": "SQL Standard", "sqlweb": "SQL Web"][s] ?? s
+    }
+
+    private func load() async {
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/spla")
+            list = (r["splaList"] as? [[String: Any]]) ?? []
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+
+    private func register() async {
+        let s = serial.trimmingCharacters(in: .whitespaces)
+        guard !s.isEmpty else { return toast.show("先填序列号", error: true) }
+        busy = true
+        defer { busy = false }
+        do {
+            _ = try await conn.client.post("/server-control/\(sn)/spla", body: ["type": type, "serialNumber": s])
+            toast.show("授权已登记")
+            await load()
+        } catch { toast.show(error.localizedDescription, error: true) }
+    }
+
+    private func quickUnlock() async {
+        busy = true
+        defer { busy = false }
+        do {
+            let r = try await conn.client.post("/server-control/\(sn)/spla", body: ["type": "os"])
+            toast.show(r["message"] as? String ?? "一键解锁完成")
+            await load()
+        } catch { toast.show(error.localizedDescription, error: true) }
+    }
+}
+
+// MARK: - 运维任务 + 预约
+
+struct TasksSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    let sn: String
+    var t: Tokens { theme.t }
+
+    @State private var tasks: [[String: Any]] = []
+    @State private var loading = true
+    @State private var err: String?
+    @State private var slotsTaskId: String?
+    @State private var slots: [[String: Any]] = []
+    @State private var slotsMsg: String?
+    @State private var backedUp = false
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "checklist", tint: t.muted, title: "运维任务")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else {
+                        if slotsTaskId == nil {
+                            if tasks.isEmpty {
+                                EmptyHint(icon: "checkmark.circle", text: "没有进行中的运维任务")
+                            } else {
+                                ForEach(tasks.indices, id: \.self) { i in taskRow(tasks[i]) }
+                            }
+                        } else {
+                            slotPicker
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.large])
+        .task { await load() }
+    }
+
+    private func taskRow(_ task: [String: Any]) -> some View {
+        let id = String(describing: task["taskId"] ?? "")
+        let status = task["status"] as? String ?? "unknown"
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Dot(color: statusColor(status))
+                Text(task["function"] as? String ?? "—").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                Spacer()
+                Chip(text: statusCn(status), color: statusColor(status))
+            }
+            if let c = task["comment"] as? String, !c.isEmpty {
+                Text(c).font(.system(size: 10.5)).foregroundColor(t.color(t.muted)).lineLimit(2)
+            }
+            HStack {
+                Text("\(fmtDate(task["startDate"] as? String)) → \(fmtDate(task["doneDate"] as? String))")
+                    .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                Spacer()
+                if status == "todo" || status == "doing" {
+                    Button { Task { await loadSlots(id) } } label: {
+                        Text("预约时段").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.info))
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(11)
+        .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 12).stroke(t.color(t.border), lineWidth: 1)))
+    }
+
+    private var slotPicker: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Button { slotsTaskId = nil; slots = [] } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
+                        Text("返回任务列表").font(.system(size: 11.5, weight: .semibold))
+                    }.foregroundColor(t.color(t.accent))
+                }.buttonStyle(.plain)
+                Spacer()
+            }
+            if let m = slotsMsg {
+                SheetNote(text: m, tint: t.info)
+            }
+            if slots.isEmpty && slotsMsg == nil {
+                Text("加载可用时段…").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+            }
+            ForEach(slots.indices, id: \.self) { i in
+                let s = slots[i]
+                Button { Task { await schedule(s) } } label: {
+                    HStack {
+                        Text(slotText(s)).font(.system(size: 11.5)).foregroundColor(t.color(t.fg))
+                        Spacer()
+                        if busy { ProgressView().scaleEffect(0.7) }
+                    }
+                    .padding(11)
+                    .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.border), lineWidth: 1)))
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
+            }
+            Toggle(isOn: $backedUp) {
+                Text("我已完成数据备份").font(.system(size: 12)).foregroundColor(t.color(t.fg))
+            }.tint(t.color(t.accent))
+            SheetNote(text: "预约的是机房物理干预(换硬件等)。未备份就预约可能丢数据。", tint: t.warning)
+        }
+    }
+
+    private func slotText(_ s: [String: Any]) -> String {
+        let begin = s["beginAt"] as? String ?? (s["startDate"] as? String ?? "")
+        let end = s["endAt"] as? String ?? (s["endDate"] as? String ?? "")
+        return "\(fmtDate(begin)) ~ \(fmtDate(end).components(separatedBy: " ").last ?? "")"
+    }
+
+    private func statusColor(_ s: String) -> String {
+        switch s.lowercased() {
+        case "done": return t.success
+        case "todo", "doing": return t.warning
+        case "error", "cancelled": return t.danger
+        default: return t.muted
+        }
+    }
+    private func statusCn(_ s: String) -> String {
+        ["done": "已完成", "todo": "待执行", "doing": "执行中", "error": "出错", "cancelled": "已取消"][s.lowercased()] ?? s
+    }
+
+    private func load() async {
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/tasks")
+            tasks = (r["tasks"] as? [[String: Any]]) ?? []
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+
+    private func loadSlots(_ taskId: String) async {
+        slotsTaskId = taskId
+        slotsMsg = nil
+        do {
+            let end = ISO8601DateFormatter().string(from: Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date())
+            let now = ISO8601DateFormatter().string(from: Date())
+            let r = try await conn.client.getDict("/server-control/\(sn)/tasks/\(taskId)/available-timeslots?periodStart=\(urlEncode(now))&periodEnd=\(urlEncode(end))")
+            slots = (r["timeslots"] as? [[String: Any]]) ?? []
+            if r["scheduleNotRequired"] as? Bool == true || slots.isEmpty {
+                slotsMsg = r["message"] as? String ?? "未来 14 天没有可选时段"
+            }
+        } catch {
+            slotsMsg = error.localizedDescription
+        }
+    }
+
+    private func schedule(_ slot: [String: Any]) async {
+        guard let taskId = slotsTaskId,
+              let begin = slot["beginAt"] as? String ?? slot["startDate"] as? String else { return }
+        busy = true
+        defer { busy = false }
+        let body = try? JSONSerialization.data(withJSONObject: ["wantedBeginingDate": begin, "hasPerformedBackup": backedUp])
+        let (ok, msg) = await conn.client.actionPostData("/server-control/\(sn)/tasks/\(taskId)/schedule", bodyData: body)
+        toast.show(ok ? "已预约" : (msg.isEmpty ? "预约失败" : msg), error: !ok)
+        if ok { slotsTaskId = nil; await load() }
+    }
+}
+
+// MARK: - BIOS
+
+struct BiosSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    let sn: String
+    var t: Tokens { theme.t }
+
+    @State private var bios: [String: Any]?
+    @State private var sgx: [String: Any]?
+    @State private var err: String?
+    @State private var loading = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "cpu", tint: t.muted, title: "BIOS 设置(只读)")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else {
+                        if let b = bios {
+                            Card { VStack(spacing: 8) { SectionTitle(text: "BIOS"); kvRows(b) } }
+                        } else {
+                            EmptyHint(icon: "cpu", text: "OVH 未返回 BIOS 信息")
+                        }
+                        if let s = sgx {
+                            Card { VStack(spacing: 8) { SectionTitle(text: "SGX(Intel 软件防护扩展)"); kvRows(s) } }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium, .large])
+        .task { await load() }
+    }
+
+    @ViewBuilder private func kvRows(_ dict: [String: Any]) -> some View {
+        let keys = dict.keys.filter { !($0 == "success") }.sorted()
+        if keys.isEmpty {
+            Text("无数据").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+        }
+        ForEach(keys, id: \.self) { k in
+            KV(k: k, v: "\(dict[k] ?? "—")", mono: true)
+        }
+    }
+
+    private func load() async {
+        do {
+            async let b = conn.client.getDict("/server-control/\(sn)/bios-settings")
+            async let s = conn.client.getDict("/server-control/\(sn)/bios-settings/sgx")
+            let (br, sr) = try await (b, s)
+            bios = br["biosSettings"] as? [String: Any] ?? br
+            sgx = sr["sgx"] as? [String: Any] ?? sr
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+}
+
+// MARK: - 安装进度
+
+struct InstallStatusSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    let sn: String
+    var t: Tokens { theme.t }
+
+    @State private var status: [String: Any]?
+    @State private var err: String?
+    @State private var loading = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "progress.indicator", tint: t.info, title: "安装进度")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else if let s = status {
+                        if s["hasInstallation"] as? Bool == false {
+                            EmptyHint(icon: "checkmark.circle", text: s["message"] as? String ?? "当前没有正在进行的安装")
+                        } else {
+                            let pct = s["progress"] as? Int ?? ((s["progressPercent"] as? Double) != nil ? Int(s["progressPercent"] as! Double) : -1)
+                            VStack(spacing: 10) {
+                                if pct >= 0 {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        ProgressView(value: Double(pct) / 100).tint(t.color(t.accent))
+                                        Text("总进度 \(pct)%").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                    }
+                                }
+                                if let step = s["currentStep"] as? String, !step.isEmpty {
+                                    KV(k: "当前步骤", v: step)
+                                }
+                                if let todo = s["todo"] as? String, !todo.isEmpty {
+                                    KV(k: "任务", v: todo)
+                                }
+                                if let start = s["startDate"] as? String {
+                                    KV(k: "开始于", v: fmtDate(start))
+                                }
+                                if let eta = s["eta"] as? String ?? s["estimatedEnd"] as? String {
+                                    KV(k: "预计完成", v: fmtDate(eta))
+                                }
+                            }
+                            .padding(14)
+                            .background(RoundedRectangle(cornerRadius: 14).fill(t.color(t.surface)))
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium])
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        do {
+            status = try await conn.client.getDict("/server-control/\(sn)/install/status")
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+}
+
+// MARK: - OVH 监控开关
+
+struct MonitoringSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    let sn: String
+    var t: Tokens { theme.t }
+
+    @State private var enabled: Bool?
+    @State private var loading = true
+    @State private var err: String?
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "bell.badge", tint: t.muted, title: "OVH 监控通知")
+            ScrollView {
+                VStack(spacing: 13) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else {
+                        SheetNote(text: "OVH 官方异常监控:机器硬件/网络异常时向账户邮箱发告警。与补货雷达无关。", tint: t.info)
+                        if let on = enabled {
+                            HStack {
+                                Text(on ? "已开启" : "已关闭").font(.system(size: 14, weight: .bold)).foregroundColor(t.color(on ? t.success : t.faint))
+                                Spacer()
+                                Toggle("", isOn: Binding(
+                                    get: { on },
+                                    set: { newValue in Task { await setMonitor(newValue) } }
+                                )).labelsHidden().tint(t.color(t.accent)).disabled(busy)
+                            }
+                            .padding(14)
+                            .background(RoundedRectangle(cornerRadius: 14).fill(t.color(t.surface)))
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium])
+        .task { await load() }
+    }
+
+    private func load() async {
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/monitoring")
+            enabled = r["monitoring"] as? Bool
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+
+    private func setMonitor(_ on: Bool) async {
+        busy = true
+        defer { busy = false }
+        let body = try? JSONSerialization.data(withJSONObject: ["monitoring": on])
+        let (ok, msg) = await conn.client.actionPutData("/server-control/\(sn)/monitoring", bodyData: body)
+        if ok { enabled = on; toast.show(on ? "监控已开启" : "监控已关闭") }
+        else { toast.show(msg.isEmpty ? "设置失败" : msg, error: true) }
+    }
+}

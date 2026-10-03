@@ -1,115 +1,175 @@
 import SwiftUI
 
 /**
- * 机器列表(App 主体):独服 + VPS 合并卡片流。
- * 打开即此页 —— 服务器控制是 App 的核心,抢购等入口在菜单里。
+ * 机器(App 主体):独服 / VPS 两段列表 → 详情全功能控制。
+ * 右上角"眼睛"开关:IP 打码(与 web 隐私模式同语义,全局持久化)。
  */
 struct MachinesScreen: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
-    @State private var servers: [[String: Any]] = []
-    @State private var vpsList: [[String: Any]] = []
-    @State private var error: String?
-    @State private var loading = true
-    @State private var openServer: [String: Any]?
-    @State private var openVps: [String: Any]?
-
+    @AppStorage("ovh_mask_ip") private var mask = false
     var t: Tokens { theme.t }
 
+    @State private var servers: [[String: Any]] = []
+    @State private var vpsList: [[String: Any]] = []
+    @State private var err: String?
+    @State private var loading = true
+    @State private var seg = 0
+    @State private var path: [MachineRef] = []
+
     var body: some View {
-        Group {
-            if let srv = openServer {
-                ServerDetailView(server: srv, onBack: { openServer = nil; Task { await load() } })
-            } else if let v = openVps {
-                VpsDetailView(vps: v, onBack: { openVps = nil; Task { await load() } })
-            } else {
-                list
-            }
-        }
-        .task { await load() }
-        .refreshable { await load() }
-    }
-
-    private var list: some View {
-        ScrollView {
-            LazyVStack(spacing: 12) {
-                // 统计行
-                Text("\(servers.count + vpsList.count) 台(独服 \(servers.count) · VPS \(vpsList.count))\(!loading ? " · 上次同步 5 秒内" : " · 同步中…")")
-                    .font(.caption)
-                    .foregroundColor(t.color(t.muted))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let error {
-                    ErrorCard(message: error, t: t)
-                } else if loading && servers.isEmpty && vpsList.isEmpty {
-                    ProgressView().padding(.top, 40)
-                } else if servers.isEmpty && vpsList.isEmpty {
-                    EmptyCard(t: t, text: "没有已购服务器\n在设置与账户页确认账户,或去网页端查看")
-                } else {
-                    ForEach(servers.indices, id: \.self) { i in
-                        ServerCard(item: servers[i], t: t) { openServer = servers[i] }
+        NavigationStack(path: $path) {
+            ScrollView {
+                VStack(spacing: 12) {
+                    Picker("", selection: $seg) {
+                        Text("独立服务器 · \(servers.count)").tag(0)
+                        Text("VPS · \(vpsList.count)").tag(1)
                     }
-                    ForEach(vpsList.indices, id: \.self) { i in
-                        VpsCard(item: vpsList[i], t: t) { openVps = vpsList[i] }
+                    .pickerStyle(.segmented)
+
+                    if let e = err {
+                        Card { LoadFailed(message: e) { Task { await load() } } }
+                    } else if loading && servers.isEmpty && vpsList.isEmpty {
+                        ProgressView().padding(.top, 60)
+                    } else {
+                        if accountsInvalid {
+                            Card(border: t.warning) {
+                                HStack(spacing: 9) {
+                                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 13)).foregroundColor(t.color(t.warning))
+                                    Text("OVH 账户凭据已失效,列表可能为空 —— 去网页端「设置 → OVH 账户 → 重新验证凭据」")
+                                        .font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                                }
+                            }
+                        }
+                        if seg == 0 {
+                            if servers.isEmpty {
+                                Card { EmptyHint(icon: "server.rack", text: "账户下没有独立服务器") }
+                            } else {
+                                ForEach(servers.indices, id: \.self) { i in
+                                    ServerCard(item: servers[i], mask: mask) { push(servers[i]) }
+                                }
+                            }
+                        } else {
+                            if vpsList.isEmpty {
+                                Card { EmptyHint(icon: "cube.box", text: "账户下没有 VPS") }
+                            } else {
+                                ForEach(vpsList.indices, id: \.self) { i in
+                                    VpsCard(item: vpsList[i], mask: mask) { push(vpsList[i]) }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .background(t.color(t.bg))
+            .navigationTitle("机器")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(theme.dark ? .dark : .light, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        mask.toggle()
+                    } label: {
+                        Image(systemName: mask ? "eye.slash.fill" : "eye")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(t.color(mask ? t.accent : t.muted))
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(t.muted))
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 24)
+            .navigationDestination(for: MachineRef.self) { ref in
+                if ref.isVps, let item = vpsList.first(where: { ($0["name"] as? String) == ref.id }) {
+                    VpsDetailView(item: item)
+                } else if let item = servers.first(where: { ($0["serviceName"] as? String) == ref.id }) {
+                    ServerDetailView(item: item)
+                }
+            }
+            .refreshable { await load() }
         }
-        .background(t.color(t.bg))
+        .task {
+            await conn.loadAccounts()
+            await load()
+        }
+    }
+
+    private func push(_ item: [String: Any]) {
+        if seg == 1, let name = item["name"] as? String {
+            path.append(MachineRef(id: name, isVps: true))
+        } else if let sn = item["serviceName"] as? String {
+            path.append(MachineRef(id: sn, isVps: false))
+        }
+    }
+
+    /// 账户凭据是否全部失效(此时 OVH 列表为空不是"没机器")
+    private var accountsInvalid: Bool {
+        !conn.accounts.isEmpty && conn.accounts.allSatisfy { ($0["valid"] as? Bool ?? false) == false }
     }
 
     private func load() async {
-        error = nil
+        err = nil
         do {
             let c = conn.client
-            // 双列表并发拉
             async let s = c.getDict("/server-control/list")
             async let v = c.getDict("/vps-control/list")
             let (sr, vr) = try await (s, v)
             servers = (sr["servers"] as? [[String: Any]]) ?? []
             vpsList = (vr["vps"] as? [[String: Any]]) ?? []
         } catch {
-            self.error = error.localizedDescription
+            err = error.localizedDescription
         }
         loading = false
     }
 }
 
+/// 详情推入引用(NavigationStack 值类型)
+struct MachineRef: Hashable {
+    let id: String
+    let isVps: Bool
+}
+
 // MARK: - 独服卡
 
 struct ServerCard: View {
+    @EnvironmentObject var theme: Theme
     let item: [String: Any]
-    let t: Tokens
+    let mask: Bool
     let onTap: () -> Void
+    var t: Tokens { theme.t }
 
     var body: some View {
         let state = item["state"] as? String ?? ""
         let rescue = (item["netbootMode"] as? String) == "rescue"
         let ok = ["ok", "active"].contains(state.lowercased())
-        let dot = rescue ? t.warning : (ok ? t.success : t.danger)
+        let tint = rescue ? t.warning : (ok ? t.success : t.danger)
 
         Button(action: onTap) {
             VStack(spacing: 10) {
-                HStack(spacing: 9) {
-                    // 状态色图标块
+                HStack(spacing: 10) {
                     RoundedRectangle(cornerRadius: 9)
-                        .fill(t.color(rescue ? t.warning : ok ? t.success : t.danger))
-                        .frame(width: 28, height: 28)
-                        .overlay(Image(systemName: "server.rack").font(.system(size: 12, weight: .bold)).foregroundColor(.white))
+                        .fill(t.color(tint).opacity(0.18))
+                        .frame(width: 34, height: 34)
+                        .overlay(Image(systemName: "server.rack").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(tint)))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(displayName).font(.system(size: 15, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
-                        Text(item["serviceName"] as? String ?? "").font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint)).lineLimit(1)
+                        Text(item["serviceName"] as? String ?? "")
+                            .font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint)).lineLimit(1)
                     }
                     Spacer()
-                    Pill(text: rescue ? "救援模式" : state.uppercased(), color: rescue ? t.warning : (ok ? t.success : t.danger), t: t)
-                    Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(t.color(t.faint))
+                    Chip(text: rescue ? "救援模式" : state.uppercased(), color: tint)
+                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.faint))
                 }
                 HStack {
                     HStack(spacing: 6) {
-                        Circle().fill(t.color(dot)).frame(width: 6, height: 6)
-                        Text(item["ip"] as? String ?? "").font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                        Dot(color: tint)
+                        Text(mask ? maskIP(item["ip"] as? String ?? "") : (item["ip"] as? String ?? ""))
+                            .font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
                     }
                     Spacer()
                     Text("\((item["datacenter"] as? String ?? "—").uppercased()) · \(renewalText)")
@@ -119,16 +179,17 @@ struct ServerCard: View {
                 .overlay(Rectangle().frame(height: 0.5).foregroundColor(t.color(t.border)).opacity(0.6), alignment: .top)
                 if rescue {
                     HStack(spacing: 7) {
-                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 12)).foregroundColor(t.color(t.warning))
-                        Text("下次重启进入救援镜像 · 原系统数据未动 · 修完点「退出救援」")
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundColor(t.color(t.warning))
+                        Text("下次重启进入救援镜像 · 修完在「电源」里退出救援")
                             .font(.system(size: 10.5)).foregroundColor(t.color(t.fg))
                     }
-                    .padding(8)
+                    .padding(9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.warning).opacity(0.08)))
                 }
             }
             .padding(14)
-            .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(rescue ? t.warning : t.border), lineWidth: 1)))
+            .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(tint), lineWidth: 1)))
         }
         .buttonStyle(.plain)
     }
@@ -147,10 +208,18 @@ struct ServerCard: View {
 
 // MARK: - VPS 卡
 
+let VPS_STATE_CN: [String: String] = [
+    "running": "运行中", "active": "运行中", "stopped": "已关机", "suspended": "已暂停",
+    "error": "错误", "reinstalling": "重装中", "installing": "安装中",
+    "deleted": "已删除", "to_delete": "待删除", "todelete": "待删除", "unknown": "未知",
+]
+
 struct VpsCard: View {
+    @EnvironmentObject var theme: Theme
     let item: [String: Any]
-    let t: Tokens
+    let mask: Bool
     let onTap: () -> Void
+    var t: Tokens { theme.t }
 
     var body: some View {
         let state = item["state"] as? String ?? ""
@@ -160,22 +229,23 @@ struct VpsCard: View {
 
         Button(action: onTap) {
             VStack(spacing: 10) {
-                HStack(spacing: 9) {
+                HStack(spacing: 10) {
                     RoundedRectangle(cornerRadius: 9)
-                        .fill(t.color(running ? t.success : t.danger))
-                        .frame(width: 28, height: 28)
-                        .overlay(Image(systemName: "cube.fill").font(.system(size: 12, weight: .bold)).foregroundColor(.white))
+                        .fill(t.color(running ? t.success : t.danger).opacity(0.18))
+                        .frame(width: 34, height: 34)
+                        .overlay(Image(systemName: "cube.fill").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(running ? t.success : t.danger)))
                     VStack(alignment: .leading, spacing: 2) {
                         Text((item["displayName"] as? String) ?? name.components(separatedBy: ".").first ?? name)
                             .font(.system(size: 15, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
                         Text(name).font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint)).lineLimit(1)
                     }
                     Spacer()
-                    Pill(text: state.uppercased(), color: running ? t.success : t.danger, t: t)
-                    Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(t.color(t.faint))
+                    Chip(text: VPS_STATE_CN[state.lowercased()] ?? state.uppercased(), color: running ? t.success : t.danger)
+                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.faint))
                 }
                 HStack {
-                    Text(ips.first ?? "—").font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                    Text(mask ? maskIP(ips.first ?? "—") : (ips.first ?? "—"))
+                        .font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
                     Spacer()
                     Text([(item["model"] as? String ?? "VPS"), ((item["zone"] as? String ?? "").uppercased())].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.system(size: 11)).foregroundColor(t.color(t.muted))
@@ -185,49 +255,5 @@ struct VpsCard: View {
             .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
         }
         .buttonStyle(.plain)
-    }
-}
-
-// MARK: - 小组件
-
-struct Pill: View {
-    let text: String
-    let color: String
-    let t: Tokens
-    var body: some View {
-        Text(text)
-            .font(.system(size: 9.5, weight: .bold))
-            .foregroundColor(t.color(color))
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(Capsule().stroke(t.color(color), lineWidth: 1))
-            .background(Capsule().fill(t.color(color).opacity(0.08)))
-    }
-}
-
-struct EmptyCard: View {
-    let t: Tokens
-    let text: String
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "server.rack").font(.system(size: 18)).foregroundColor(t.color(t.faint))
-            Text(text).font(.system(size: 12)).foregroundColor(t.color(t.muted)).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(20)
-        .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surfaceMuted)))
-    }
-}
-
-struct ErrorCard: View {
-    let message: String
-    let t: Tokens
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 18)).foregroundColor(t.color(t.danger))
-            Text(message).font(.system(size: 12)).foregroundColor(t.color(t.danger)).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(20)
-        .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surfaceMuted)))
     }
 }

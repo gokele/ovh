@@ -1,378 +1,760 @@
 import SwiftUI
 
 /**
- * VPS 控制台(SwiftUI 版):状态头 + 三段 Tab(概览/电源/快照)。
+ * VPS 详情(全功能):概览 / 快照 / 防护 / 维护 四段。
+ * 对齐 web vps-control:电源三键 + noVNC + 快照全生命周期 + DDoS + 终止两步。
  */
 struct VpsDetailView: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
-    let vps: [String: Any]
-    let onBack: () -> Void
-
-    @State private var section = "overview"
-    @State private var alias = ""
-    @State private var info: [String: Any]?
-    @State private var snapshot: [String: Any]?
-    @State private var showReinstall = false
-
+    @EnvironmentObject var toast: Toast
+    @AppStorage("ovh_mask_ip") private var mask = false
+    let item: [String: Any]
     var t: Tokens { theme.t }
-    var name: String { vps["name"] as? String ?? "" }
-    var state: String { (info?["state"] as? String) ?? (vps["state"] as? String ?? "—") }
-    var running: Bool { ["running", "active"].contains(state.lowercased()) }
+
+    var name: String { item["name"] as? String ?? "" }
+    @State private var seg = 0
+    @State private var serviceinfo: [String: Any]?
+    @State private var info: [String: Any]?
+    @State private var currentOS: String?
+    @State private var sheet: VpsSheet?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                headerCard
+                Picker("", selection: $seg) {
+                    Text("概览").tag(0)
+                    Text("快照").tag(1)
+                    Text("防护").tag(2)
+                    Text("维护").tag(3)
+                }
+                .pickerStyle(.segmented)
+
+                switch seg {
+                case 1: VpsSnapshotSection(name: name)
+                case 2: VpsMitigationSection(name: name)
+                case 3: VpsMaintenanceSection(name: name, sheet: $sheet)
+                default: overview
+                }
+            }
+            .padding(16)
+        }
+        .background(t.color(t.bg))
+        .navigationTitle(displayName)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(theme.dark ? .dark : .light, for: .navigationBar)
+        .task { await load() }
+        .refreshable { await load() }
+        .sheet(item: $sheet) { s in vpsSheet(s) }
+    }
+
+    private var displayName: String {
+        (item["displayName"] as? String) ?? name.components(separatedBy: ".").first ?? name
+    }
+
+    // MARK: 顶卡
+
+    private var headerCard: some View {
+        let state = item["state"] as? String ?? ""
+        let running = ["running", "active"].contains(state.lowercased())
+        let ips = item["ips"] as? [String] ?? []
+        return Card {
+            VStack(spacing: 11) {
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(t.color(running ? t.success : t.danger).opacity(0.16))
+                        .frame(width: 42, height: 42)
+                        .overlay(Image(systemName: "cube.fill").font(.system(size: 18, weight: .semibold)).foregroundColor(t.color(running ? t.success : t.danger)))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(displayName).font(.system(size: 16, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
+                        Text(name).font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.muted)).lineLimit(1)
+                    }
+                    Spacer()
+                    Chip(text: VPS_STATE_CN[state.lowercased()] ?? state.uppercased(), color: running ? t.success : t.danger)
+                }
+                HStack(spacing: 6) {
+                    Dot(color: running ? t.success : t.danger)
+                    Text(mask ? maskIP(ips.first ?? "—") : (ips.first ?? "—"))
+                        .font(.system(size: 12.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                    Spacer()
+                    Text(renewalText).font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                }
+                if let os = currentOS, !os.isEmpty {
+                    KV(k: "当前系统", v: os)
+                }
+                if let si = serviceinfo, let exp = si["expiration"] as? String, !exp.isEmpty {
+                    FlowLayout(spacing: 6) {
+                        Chip(text: "到期 \(fmtDate(exp))", color: t.muted)
+                        if si["renewalDeleteAtExpiration"] as? Bool == true { Chip(text: "到期将终止", color: t.danger) }
+                    }
+                }
+            }
+        }
+    }
+
+    private var renewalText: String {
+        if let si = serviceinfo {
+            if si["renewalDeleteAtExpiration"] as? Bool == true { return "到期终止" }
+            if si["renewalType"] as? Bool == true { return "自动续费" }
+            return "手动续费"
+        }
+        return ""
+    }
+
+    // MARK: 概览(硬件 + 电源 + 控制台 + 重装)
+
+    private var overview: some View {
+        VStack(spacing: 12) {
+            Card {
+                VStack(spacing: 9) {
+                    SectionTitle(text: "配置")
+                    KV(k: "型号", v: item["model"] as? String ?? "—")
+                    if let i = info {
+                        KV(k: "vCore", v: "\((i["vcores"] as? Int) ?? (i["vCores"] as? Int) ?? 0) 核")
+                        KV(k: "内存", v: fmtBytes((i["ramBytes"] as? Double) ?? 0))
+                        KV(k: "磁盘", v: fmtBytes((i["diskBytes"] as? Double) ?? 0))
+                        KV(k: "区域", v: (i["zone"] as? String ?? "—"))
+                        KV(k: "集群", v: (i["cluster"] as? String ?? "—"))
+                    }
+                }
+            }
+
+            Card {
+                VStack(spacing: 9) {
+                    SectionTitle(text: "电源操作")
+                    let state = (item["state"] as? String ?? "").lowercased()
+                    let stopped = ["stopped", "suspended", "error"].contains(state)
+                    HStack(spacing: 8) {
+                        if stopped {
+                            ActBtn(kind: .primary, icon: "play.fill", label: "启动") {
+                                Task { await power("start") }
+                            }
+                        } else {
+                            ActBtn(kind: .ghost, icon: "pause.fill", label: "关机") { sheet = .init(kind: .stop) }
+                            ActBtn(kind: .danger, icon: "arrow.triangle.2.circlepath", label: "重启") { sheet = .init(kind: .reboot) }
+                        }
+                    }
+                    SheetNote(text: "关机不停止计费。VPS 面板的电源是 ACPI 级别的,系统内 shutdown 更稳。", tint: t.muted)
+                }
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                vOp(.console, icon: "rectangle.and.pencil.and.selection", title: "Web 控制台", desc: "noVNC(5 分钟有效)", tint: t.info)
+                vOp(.reinstall, icon: "opticaldiscdrive.fill", title: "重装系统", desc: "模板 + SSH key", tint: t.danger)
+            }
+        }
+    }
+
+    private func vOp(_ kind: VpsSheet.Kind, icon: String, title: String, desc: String, tint: String) -> some View {
+        Button { sheet = .init(kind: kind) } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(t.color(tint).opacity(0.14))
+                    .frame(width: 34, height: 34)
+                    .overlay(Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(tint)))
+                Text(title).font(.system(size: 13, weight: .semibold)).foregroundColor(t.color(t.fg))
+                Text(desc).font(.system(size: 10)).foregroundColor(t.color(t.muted)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 14).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 14).stroke(t.color(t.border), lineWidth: 1)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func load() async {
+        do {
+            async let si = conn.client.getDict("/vps-control/\(name)/serviceinfo")
+            async let i = conn.client.getDict("/vps-control/\(name)/info")
+            async let os = conn.client.getDict("/vps-control/\(name)/current-os")
+            let (s, inr, o) = try await (si, i, os)
+            serviceinfo = s
+            info = inr["info"] as? [String: Any] ?? inr
+            currentOS = o["os"] as? String ?? (o["currentOS"] as? String) ?? (o["name"] as? String)
+        } catch { _ = error.localizedDescription }
+    }
+
+    private func power(_ verb: String) async {
+        let (ok, msg) = await conn.client.actionPostData("/vps-control/\(name)/\(verb)", bodyData: nil)
+        toast.show(ok ? "指令已下发" : (msg.isEmpty ? "失败" : msg), error: !ok)
+    }
+
+    // MARK: sheet 调度
+
+    @ViewBuilder
+    private func vpsSheet(_ s: VpsSheet) -> some View {
+        switch s.kind {
+        case .console: VpsConsoleSheet(name: name)
+        case .reinstall: VpsReinstallSheet(vpsName: name)
+        case .stop: ConfirmSheet(title: "关闭 VPS", message: "关机后所有服务停止(计费继续)。确定关闭?", confirmText: "确认关机") {
+            await power("stop")
+        }
+        case .reboot: ConfirmSheet(title: "重启 VPS", message: "强制重启,未保存数据会丢失。", confirmText: "确认重启") {
+            await power("reboot")
+        }
+        case .tasks: VpsTasksSheet(name: name)
+        case .engagement: EngagementSheet(sn: name, isVps: true)
+        case .renewal: RenewalSheet(sn: name, isVps: true, info: serviceinfo ?? [:])
+        case .terminate: VpsTerminateSheet(name: name)
+        case .options: JsonSheet(title: "附加选项", icon: "shippingbox", path: "/vps-control/\(name)/options")
+        case .changeContact: ChangeContactSheet(sn: name, isVps: true)
+        case .alias: VpsAliasSheet(name: name, current: displayName)
+        }
+    }
+}
+
+struct VpsSheet: Identifiable {
+    enum Kind { case console, reinstall, stop, reboot, tasks, engagement, renewal, terminate, options, changeContact, alias }
+    let kind: Kind
+    var id: Kind { kind }
+}
+
+// MARK: - 快照段
+
+struct VpsSnapshotSection: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    let name: String
+    var t: Tokens { theme.t }
+
+    @State private var snap: [String: Any]?
+    @State private var err: String?
+    @State private var loading = true
+    @State private var desc = ""
+    @State private var busy = false
+    @State private var revertConfirm = false
+    @State private var revertName = ""
+    @State private var createSheet = false
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if loading {
+                Card { ProgressView().padding(20).frame(maxWidth: .infinity) }
+            } else if let e = err {
+                Card { LoadFailed(message: e) { Task { await load() } } }
+            } else if let s = snap, (s["exists"] as? Bool ?? s["hasSnapshot"] as? Bool ?? (s["createdAt"] != nil)) {
+                existsCard(s)
+            } else {
+                Card {
+                    VStack(spacing: 12) {
+                        EmptyHint(icon: "camera", text: "还没有快照(免费档单快照)")
+                        ActBtn(kind: .primary, icon: "plus.circle", label: "创建快照") { createSheet = true }
+                    }
+                }
+            }
+        }
+        .task { await load() }
+        .refreshable { await load() }
+        .sheet(isPresented: $createSheet) {
+            VpsSnapshotCreateSheet(name: name) {
+                await load()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
+        .sheet(isPresented: $revertConfirm) {
+            VStack(spacing: 14) {
+                Capsule().fill(t.color(t.border)).frame(width: 36, height: 4).padding(.top, 10)
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 28)).foregroundColor(t.color(t.warning))
+                Text("回滚快照").font(.system(size: 16, weight: .bold)).foregroundColor(t.color(t.fg))
+                Text("当前磁盘数据将被快照内容覆盖,不可逆。输入 VPS 名 \(name) 确认。")
+                    .font(.system(size: 11.5)).foregroundColor(t.color(t.muted)).multilineTextAlignment(.center)
+                SheetField(placeholder: name, text: $revertName, mono: true).padding(.horizontal, 16)
+                HStack(spacing: 10) {
+                    ActBtn(kind: .ghost, icon: nil, label: "取消") { revertConfirm = false }
+                    ActBtn(kind: .danger, icon: "arrow.uturn.backward", label: busy ? "回滚中…" : "确认回滚", busy: busy) {
+                        guard revertName.trimmingCharacters(in: .whitespaces) == name else {
+                            toast.show("名称不匹配", error: true); return
+                        }
+                        await revert()
+                    }
+                }.padding(.horizontal, 16)
+                Spacer(minLength: 12)
+            }
+            .background(t.color(t.bg))
+        }
+    }
+
+    private func existsCard(_ s: [String: Any]) -> some View {
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(text: "当前快照")
+                KV(k: "创建于", v: fmtDate(s["creationDate"] as? String ?? s["createdAt"] as? String))
+                KV(k: "描述", v: (s["description"] as? String) ?? "—")
+                KV(k: "大小", v: fmtBytes((s["sizeBytes"] as? Double) ?? 0))
+                KV(k: "状态", v: (s["status"] as? String) ?? "—")
+
+                HStack(spacing: 8) {
+                    ActBtn(kind: .danger, icon: "arrow.uturn.backward", label: "回滚") { revertConfirm = true }
+                    ActBtn(kind: .ghost, icon: "trash", label: "删除快照") {
+                        Task {
+                            let (ok, msg) = await conn.client.actionDelete("/vps-control/\(name)/snapshot")
+                            toast.show(ok ? "已删除" : (msg.isEmpty ? "失败" : msg), error: !ok)
+                            if ok { await load() }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func revert() async {
+        busy = true
+        defer { busy = false }
+        let (ok, msg) = await conn.client.actionPostData("/vps-control/\(name)/snapshot/revert", bodyData: nil)
+        toast.show(ok ? "回滚已开始" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        revertConfirm = false
+        if ok { await load() }
+    }
+
+    private func load() async {
+        do {
+            snap = try await conn.client.getDict("/vps-control/\(name)/snapshot")
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
+    }
+}
+
+struct VpsSnapshotCreateSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    let name: String
+    let onDone: () async -> Void
+    var t: Tokens { theme.t }
+
+    @State private var desc = ""
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            SheetHeader(icon: "camera", tint: t.accent, title: "创建快照")
+            VStack(alignment: .leading, spacing: 12) {
+                SheetNote(text: "创建过程会暂停 VPS 约 30 秒到 3 分钟。", tint: t.warning)
+                SheetField(placeholder: "描述(可选)", text: $desc)
+                ActBtn(kind: .primary, icon: "camera.fill", label: busy ? "创建中…" : "开始创建", busy: busy) {
+                    await create()
+                }
+            }.padding(.horizontal, 16)
+            Spacer()
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium])
+    }
+
+    private func create() async {
+        busy = true
+        defer { busy = false }
+        var body: [String: Any] = [:]
+        let d = desc.trimmingCharacters(in: .whitespaces)
+        if !d.isEmpty { body["description"] = d }
+        let data = try? JSONSerialization.data(withJSONObject: body)
+        let (ok, msg) = await conn.client.actionPostData("/vps-control/\(name)/snapshot", bodyData: data)
+        toast.show(ok ? "快照创建已开始" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        dismiss()
+        if ok { await onDone() }
+    }
+}
+
+// MARK: - 防护段(DDoS)
+
+struct VpsMitigationSection: View {
+    let name: String
+    var body: some View {
+        MitigationSheet(sn: name, isVps: true)
+    }
+}
+
+// MARK: - 维护段
+
+struct VpsMaintenanceSection: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    let name: String
+    @Binding var sheet: VpsSheet?
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                m(.renewal, icon: "arrow.triangle.2.circlepath", title: "续费策略", desc: "自动/手动/终止")
+                m(.engagement, icon: "doc.plaintext", title: "合同期", desc: "承诺期管理")
+                m(.tasks, icon: "checklist", title: "任务历史", desc: "VPS 操作任务")
+                m(.alias, icon: "tag", title: "别名", desc: "本地显示名")
+                m(.options, icon: "shippingbox", title: "附加选项", desc: "已订阅选项")
+                m(.changeContact, icon: "person.2", title: "变更联系人", desc: "admin/tech/billing")
+            }
+            Card {
+                VStack(spacing: 10) {
+                    SectionTitle(text: "危险操作")
+                    ActBtn(kind: .danger, icon: "xmark.octagon", label: "终止这台 VPS") {
+                        sheet = .init(kind: .terminate)
+                    }
+                    Text("终止分两步:先申请(OVH 发邮件给 token),再回来输入 token 确认。")
+                        .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                }
+            }
+        }
+    }
+
+    private func m(_ kind: VpsSheet.Kind, icon: String, title: String, desc: String) -> some View {
+        Button { sheet = .init(kind: kind) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 15)).foregroundColor(t.color(t.info))
+                    .frame(width: 30, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(t.color(t.info).opacity(0.12)))
+                VStack(alignment: .leading, spacing: 1.5) {
+                    Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                    Text(desc).font(.system(size: 9.5)).foregroundColor(t.color(t.muted))
+                }
+                Spacer()
+            }
+            .padding(11)
+            .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 13).stroke(t.color(t.border), lineWidth: 1)))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - noVNC 控制台
+
+struct VpsConsoleSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    let name: String
+    var t: Tokens { theme.t }
+
+    @State private var url: String?
+    @State private var err: String?
+    @State private var busy = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            HStack(spacing: 2) {
-                forTap("overview", "概览"); forTap("snapshot", "快照")
-                forTap("ddos", "DDoS"); forTap("maintenance", "维护")
-            }
-            .padding(3)
-            .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surfaceMuted)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.border), lineWidth: 1)))
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-
+            SheetHeader(icon: "rectangle.and.pencil.and.selection", tint: t.info, title: "Web 控制台")
             ScrollView {
-                VStack(spacing: 10) {
-                    switch section {
-                    case "snapshot": SnapshotPane(vpsName: name)
-                    case "ddos": VpsMitigationPane(vpsName: name)
-                    case "maintenance": vpsMaintenanceTab
-                    default: overviewTab
+                VStack(alignment: .leading, spacing: 13) {
+                    SheetNote(text: "生成 noVNC 地址(5 分钟有效)。复制到浏览器打开即可看到 VPS 屏幕。", tint: t.info)
+                    if let u = url {
+                        Card(border: t.success) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("已生成").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.success))
+                                Text(u).font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                                    .textSelection(.enabled).lineLimit(4)
+                                Button {
+                                    UIPasteboard.general.string = u
+                                    toast.show("已复制")
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "doc.on.doc").font(.system(size: 11))
+                                        Text("复制地址").font(.system(size: 11.5, weight: .semibold))
+                                    }.foregroundColor(t.color(t.accent))
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await gen() } }
+                    }
+                    ActBtn(kind: .primary, icon: "arrow.down.circle", label: busy ? "生成中…" : "生成控制台地址", busy: busy) {
+                        await gen()
                     }
                 }
                 .padding(16)
             }
         }
         .background(t.color(t.bg))
-        .task { await load() }
-        .sheet(isPresented: $showReinstall) { VpsReinstallSheet(vpsName: name) }
+        .presentationDetents([.medium])
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Button(action: onBack) {
-                HStack(spacing: 5) {
-                    Image(systemName: "chevron.left").font(.system(size: 14))
-                    Text("机器").font(.system(size: 12))
-                }.foregroundColor(t.color(t.muted))
-            }
-            HStack(spacing: 9) {
-                Circle().fill(t.color(running ? t.success : t.danger)).frame(width: 9, height: 9)
-                Text((vps["displayName"] as? String) ?? name.components(separatedBy: ".").first ?? name)
-                    .font(.system(size: 21, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
-            }
-            Text(name).font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.faint))
-            if let ip = (vps["ips"] as? [String])?.first {
-                Text(ip).font(.system(size: 12, design: .monospaced)).foregroundColor(t.color(t.muted))
-            }
-            HStack(spacing: 6) {
-                Pill(text: state.uppercased(), color: running ? t.success : t.danger, t: t)
-                Pill(text: vps["model"] as? String ?? "VPS", color: t.muted, t: t)
-                if let z = vps["zone"] as? String, !z.isEmpty {
-                    Pill(text: z.uppercased(), color: t.muted, t: t)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-    }
-
-    private func forTap(_ id: String, _ label: String) -> some View {
-        Button { section = id } label: {
-            Text(label)
-                .font(.system(size: 11, weight: section == id ? .semibold : .regular))
-                .foregroundColor(t.color(section == id ? t.fg : t.muted))
-                .frame(maxWidth: .infinity).padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 8).fill(section == id ? t.color(t.surface) : Color.clear))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var overviewTab: some View {
-        VStack(spacing: 10) {
-            VStack(spacing: 4) {
-                kv("型号", (info?["model"] as? [String: Any])?["name"] as? String ?? vps["model"] as? String ?? "—")
-                kv("状态", state)
-                kv("IP", ((vps["ips"] as? [String]) ?? []).joined(separator: ", "))
-                kv("OS", (info?["os"] as? String) ?? vps["os"] as? String ?? "—")
-            }
-            .padding(13)
-            .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
-
-            // 电源动作(原电源 Tab 并回概览,与 web 四 Tab 对齐)
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                if !running {
-                    ActTile(icon: "power", label: "启动", t: t) { Task { await act("start") } }
-                }
-                if running {
-                    ActTile(icon: "power.dotted", label: "关机", t: t) { Task { await act("stop") } }
-                }
-                ActTile(icon: "arrow.clockwise", label: "重启", t: t) { Task { await act("reboot") } }
-                ActTile(icon: "display", label: "控制台", t: t) { Task { await openConsole() } }
-            }
-        }
-    }
-
-    // MARK: VPS 维护 Tab(别名 / 终止)
-    private var vpsMaintenanceTab: some View {
-        VStack(spacing: 10) {
-            // 别名(本地显示名,不下发 OVH)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("服务器别名").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-                TextField(vps["displayName"] as? String ?? name, text: $alias)
-                    .font(.system(size: 13))
-                    .foregroundColor(t.color(t.fg))
-                    .padding(.horizontal, 13)
-                    .frame(height: 42)
-                    .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surfaceMuted)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.border), lineWidth: 1)))
-                Text("只在本控制台显示,不下发给 OVH").font(.system(size: 10)).foregroundColor(t.color(t.faint))
-            }
-            .padding(13)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
-
-            // 终止(红区:立即销毁,与 web 同警告)
-            Button {
-                confirmTerminate()
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "exclamationmark.octagon.fill").font(.system(size: 17)).foregroundColor(t.color(t.danger))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("终止 VPS").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.danger))
-                        Text("确认后立即销毁,数据不可恢复 —— 建议用「到期终止」代替").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
-                    }
-                    Spacer()
-                }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.danger).opacity(0.05)).overlay(RoundedRectangle(cornerRadius: 13).stroke(Color(red: 0.9, green: 0.65, blue: 0.65), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))))
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private func confirmTerminate() {
-        let alert = UIAlertController(title: "终止 VPS?", message: "确认后立即销毁,数据不可恢复。这是不可逆操作。", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        alert.addAction(UIAlertAction(title: "终止", style: .destructive) { _ in
-            Task {
-                guard await Biometric.require("终止 VPS") else { return }
-                _ = await conn.client.actionPostData("/vps-control/\(name)/terminate", bodyData: Data("{}".utf8))
-            }
-        })
-        AlertHost.present(alert)
-    }
-
-    private var powerTab: some View {
-        VStack(spacing: 10) {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                if !running {
-                    ActTile(icon: "power", label: "启动", t: t) { Task { await act("start") } }
-                }
-                if running {
-                    ActTile(icon: "power.dotted", label: "关机", t: t) { Task { await act("stop") } }
-                }
-                ActTile(icon: "arrow.clockwise", label: "重启", t: t) { Task { await act("reboot") } }
-                ActTile(icon: "display", label: "控制台", t: t) { Task { await openConsole() } }
-            }
-            Button { showReinstall = true } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "opticaldiscdrive.fill").font(.system(size: 17)).foregroundColor(t.color(t.danger))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("重装系统").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.danger))
-                        Text("Face ID + 输入名称确认 · 清空全部数据").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
-                    }
-                    Spacer()
-                }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.danger).opacity(0.05)).overlay(RoundedRectangle(cornerRadius: 13).stroke(Color(red: 0.9, green: 0.65, blue: 0.65), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))))
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private func act(_ verb: String) async {
-        guard await Biometric.require(verb) else { return }
-        _ = try? await conn.client.post("/vps-control/\(name)/\(verb)", body: [:])
-        await load()
-    }
-
-    private func openConsole() async {
-        if let r = try? await conn.client.post("/vps-control/\(name)/console", body: [:]),
-           let url = r["url"] as? String, let u = URL(string: url) {
-            _ = await UIApplication.shared.open(u)
-        }
-    }
-
-    private func load() async {
-        info = try? await conn.client.getDict("/vps-control/\(name)/info")
-    }
-
-    private func kv(_ k: String, _ v: String) -> some View {
-        HStack(alignment: .top) {
-            Text(k).font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
-            Spacer()
-            Text(v).font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg)).multilineTextAlignment(.trailing)
-        }
+    private func gen() async {
+        busy = true
+        defer { busy = false }
+        do {
+            let r = try await conn.client.post("/vps-control/\(name)/console")
+            url = r["url"] as? String ?? (r["consoleUrl"] as? String)
+            if url == nil, let m = r["message"] as? String { err = m } else if url == nil { err = "后端未返回地址" }
+        } catch { err = error.localizedDescription }
     }
 }
 
-// MARK: - 快照面板
+// MARK: - VPS 重装
 
-struct SnapshotPane: View {
+struct VpsReinstallSheet: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
     let vpsName: String
-    @State private var snap: [String: Any]?
-    @State private var err: String?
-
-    var t: Tokens { theme.t }
-    private var has: Bool { snap?["snapshot"] != nil }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("快照").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-            if let e = err {
-                Text(e).font(.system(size: 11.5)).foregroundColor(t.color(t.danger))
-            } else if has {
-                kv("创建于", ((snap?["snapshot"] as? [String: Any])?["creationDate"] as? String ?? "—").prefix(16).replacingOccurrences(of: "T", with: " "))
-                kv("描述", (snap?["snapshot"] as? [String: Any])?["description"] as? String ?? "—")
-                HStack(spacing: 8) {
-                    SnapBtn(icon: "arrow.uturn.backward", label: "回滚", color: t.danger, t: t, action: { await revert() })
-                    SnapBtn(icon: "trash", label: "删除", color: t.danger, t: t, action: { await remove() })
-                }.padding(.top, 4)
-            } else {
-                Text("没有快照(每台 VPS 只能有一份)").font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
-                SnapBtn(icon: "camera", label: "创建快照", color: t.muted, t: t, action: { await create() })
-            }
-        }
-        .padding(13)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
-        .task { await load() }
-    }
-
-    private func load() async {
-        do { snap = try await conn.client.getDict("/vps-control/\(vpsName)/snapshot") }
-        catch { err = error.localizedDescription }
-    }
-
-    private func create() async {
-        _ = try? await conn.client.post("/vps-control/\(vpsName)/snapshot", body: ["description": "App 创建"])
-        await load()
-    }
-    private func revert() async {
-        guard await Biometric.require("回滚快照") else { return }
-        _ = try? await conn.client.post("/vps-control/\(vpsName)/snapshot/revert", body: [:])
-        await load()
-    }
-    private func remove() async {
-        _ = try? await conn.client.delete("/vps-control/\(vpsName)/snapshot")
-        await load()
-    }
-    private func kv(_ k: String, _ v: String) -> some View {
-        HStack {
-            Text(k).font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
-            Spacer()
-            Text(v).font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
-        }
-    }
-}
-
-struct SnapBtn: View {
-    let icon: String
-    let label: String
-    let color: String
-    let t: Tokens
-    let action: () async -> Void
-    var body: some View {
-        Button { Task { await action() } } label: {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 12))
-                Text(label).font(.system(size: 11.5))
-            }
-            .foregroundColor(t.color(color))
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(Capsule().stroke(t.color(color), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - VPS DDoS 缓解面板(按 IP 开关,契约同独服)
-
-struct VpsMitigationPane: View {
-    @EnvironmentObject var conn: Connection
-    @EnvironmentObject var theme: Theme
-    let vpsName: String
-
-    @State private var blocks: [[String: Any]] = []
-    @State private var err: String?
-
     var t: Tokens { theme.t }
 
+    @State private var templates: [[String: Any]] = []
+    @State private var search = ""
+    @State private var pickedId: String?
+    @State private var sshKey = ""
+    @State private var noMail = false
+    @State private var confirmName = ""
+    @State private var loading = true
+    @State private var busy = false
+
+    private var filtered: [[String: Any]] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return templates }
+        return templates.filter {
+            (($0["name"] as? String ?? "") + String(describing: $0["id"] ?? "")).lowercased().contains(q)
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("DDoS 永久缓解").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-            if let e = err {
-                Text(e).font(.system(size: 11.5)).foregroundColor(t.color(t.danger))
-            } else if blocks.isEmpty {
-                Text("无 IP 信息").font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
-            } else {
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    Button { toggle(row) } label: {
-                        HStack {
-                            Text(row.ip).font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
-                            Spacer()
-                            Text(row.permanent ? "开 · 点关" : "关 · 点开")
-                                .font(.system(size: 11.5, weight: .semibold))
-                                .foregroundColor(t.color(row.permanent ? t.success : t.faint))
+        VStack(spacing: 0) {
+            SheetHeader(icon: "opticaldiscdrive.fill", tint: t.danger, title: "重装 VPS")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 13) {
+                    SheetNote(text: "重装清空整块盘,不可逆。需要 Face ID 确认。", tint: t.danger)
+                    SheetField(placeholder: "搜索镜像", text: $search)
+                    if loading {
+                        ProgressView().padding(20).frame(maxWidth: .infinity)
+                    } else {
+                        VStack(spacing: 6) {
+                            ForEach(Array(filtered.enumerated()), id: \.offset) { _, tpl in
+                                let id = String(describing: tpl["id"] ?? "")
+                                let on = pickedId == id
+                                Button { pickedId = id } label: {
+                                    HStack {
+                                        Text(tpl["name"] as? String ?? id).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                        Spacer()
+                                        if on { Image(systemName: "checkmark.circle.fill").font(.system(size: 15)).foregroundColor(t.color(t.accent)) }
+                                    }
+                                    .padding(11)
+                                    .background(RoundedRectangle(cornerRadius: 11).fill(t.color(on ? t.accent : t.surface).opacity(0.08)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(on ? t.accent : t.border), lineWidth: 1)))
+                                }.buttonStyle(.plain)
+                            }
+                            if filtered.isEmpty {
+                                Text("没有匹配镜像").font(.system(size: 11)).foregroundColor(t.color(t.faint)).padding(8)
+                            }
                         }
-                        .padding(.vertical, 4)
                     }
-                    .buttonStyle(.plain)
+
+                    if pickedId != nil {
+                        Text("SSH key 名称(可选,逗号分隔)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        SheetField(placeholder: "my-key", text: $sshKey, mono: true)
+                        Toggle(isOn: $noMail) {
+                            Text("不发送密码邮件(配了 SSH key 用)").font(.system(size: 12)).foregroundColor(t.color(t.fg))
+                        }.tint(t.color(t.accent))
+                        Text("输入 VPS 名确认").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        SheetField(placeholder: vpsName, text: $confirmName, mono: true)
+                        ActBtn(kind: .danger, icon: "faceid", label: busy ? "提交中…" : "面容确认并重装", busy: busy) {
+                            await submit()
+                        }
+                    }
                 }
+                .padding(16)
             }
         }
-        .padding(13)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
+        .background(t.color(t.bg))
+        .presentationDetents([.large])
         .task { await load() }
     }
 
-    private struct Row { let ip: String; let block: String; let permanent: Bool }
-    private var rows: [Row] {
-        blocks.flatMap { b -> [Row] in
-            let block = b["ipBlock"] as? String ?? ""
-            return ((b["mitigations"] as? [[String: Any]]) ?? []).map {
-                Row(ip: $0["ipOnMitigation"] as? String ?? "", block: block, permanent: $0["permanent"] as? Bool ?? false)
-            }
+    private func load() async {
+        if let r = try? await conn.client.getDict("/vps-control/\(vpsName)/templates") {
+            templates = (r["templates"] as? [[String: Any]]) ?? []
         }
+        loading = false
     }
 
-    private func toggle(_ row: Row) {
-        let a = UIAlertController(title: row.permanent ? "关闭永久缓解?" : "开启永久缓解?",
-                                  message: row.permanent ? "关闭后不再常驻缓解(自动缓解仍在)。" : "开启后常驻 DDoS 缓解,攻击流量在 OVH 边缘清洗。",
-                                  preferredStyle: .alert)
-        a.addAction(UIAlertAction(title: "取消", style: .cancel))
-        a.addAction(UIAlertAction(title: "确认", style: .destructive) { _ in
-            Task {
-                let base = "/vps-control/\(vpsName)/mitigation/\(row.ip)"
-                let q = "?block=\(row.block.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? row.block)"
-                if row.permanent { _ = await conn.client.actionDelete(base + q) }
-                else { _ = await conn.client.actionPostData(base + q, bodyData: Data("{}".utf8)) }
-                await load()
+    private func submit() async {
+        guard let id = pickedId else { return }
+        guard confirmName.trimmingCharacters(in: .whitespaces) == vpsName else {
+            return toast.show("VPS 名不匹配", error: true)
+        }
+        guard await Biometric.require("重装 VPS") else { return }
+        busy = true
+        defer { busy = false }
+        var body: [String: Any] = ["templateId": id, "doNotSendPassword": noMail]
+        let k = sshKey.trimmingCharacters(in: .whitespaces)
+        if !k.isEmpty { body["sshKey"] = k.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+        do {
+            _ = try await conn.client.post("/vps-control/\(vpsName)/reinstall", body: body)
+            toast.show("重装已开始")
+            dismiss()
+        } catch { toast.show(error.localizedDescription, error: true) }
+    }
+}
+
+// MARK: - VPS 任务历史
+
+struct VpsTasksSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    let name: String
+    var t: Tokens { theme.t }
+
+    @State private var tasks: [[String: Any]] = []
+    @State private var err: String?
+    @State private var loading = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "checklist", tint: t.muted, title: "VPS 任务历史")
+            ScrollView {
+                VStack(spacing: 10) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else if tasks.isEmpty {
+                        EmptyHint(icon: "checkmark.circle", text: "没有任务记录")
+                    } else {
+                        ForEach(tasks.indices, id: \.self) { i in
+                            let it = tasks[i]
+                            Card {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text(it["action"] as? String ?? (it["type"] as? String ?? "—"))
+                                            .font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                        Spacer()
+                                        Chip(text: it["state"] as? String ?? it["status"] as? String ?? "—")
+                                    }
+                                    KV(k: "更新", v: fmtDate(it["updateDate"] as? String ?? it["date"] as? String))
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(16)
             }
-        })
-        AlertHost.present(a)
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.large])
+        .task { await load() }
+        .refreshable { await load() }
     }
 
     private func load() async {
         do {
-            let r = try await conn.client.getDict("/vps-control/\(vpsName)/mitigation")
-            blocks = (r["ips"] as? [[String: Any]]) ?? []
+            let r = try await conn.client.getDict("/vps-control/\(name)/tasks")
+            tasks = (r["tasks"] as? [[String: Any]]) ?? []
             err = nil
         } catch { err = error.localizedDescription }
+        loading = false
+    }
+}
+
+// MARK: - 终止两步
+
+struct VpsTerminateSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    let name: String
+    var t: Tokens { theme.t }
+
+    @State private var token = ""
+    @State private var requested = false
+    @State private var busy = false
+    @State private var confirming = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "xmark.octagon", tint: t.danger, title: "终止 VPS")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 13) {
+                    SheetNote(text: "终止不可恢复。OVH 会发确认邮件,把邮件里的 token 填回来才算完成。", tint: t.danger)
+
+                    if !requested {
+                        ActBtn(kind: .danger, icon: "paperplane", label: busy ? "申请中…" : "第一步:申请终止(发确认邮件)") {
+                            confirming = true
+                        }
+                    } else {
+                        SheetNote(text: "已申请。请到邮箱查收 OVH 的终止确认邮件,把 token 填在下面。", tint: t.info)
+                        SheetField(placeholder: "邮件里的 token", text: $token, mono: true)
+                        ActBtn(kind: .danger, icon: "checkmark.seal", label: busy ? "确认中…" : "第二步:输入 token 确认终止", busy: busy) {
+                            await confirm()
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium, .large])
+        .sheet(isPresented: $confirming) {
+            ConfirmSheet(title: "申请终止 VPS", message: "OVH 将向账户邮箱发送终止确认邮件。此 VPS 的所有数据最终会被删除。", confirmText: "申请终止") {
+                busy = true
+                let (ok, msg) = await conn.client.actionPostData("/vps-control/\(name)/terminate", bodyData: nil)
+                busy = false
+                toast.show(ok ? "已申请,查收邮件" : (msg.isEmpty ? "失败" : msg), error: !ok)
+                if ok { requested = true }
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
+    }
+
+    private func confirm() async {
+        let tok = token.trimmingCharacters(in: .whitespaces)
+        guard !tok.isEmpty else { return toast.show("先填 token", error: true) }
+        guard await Biometric.require("确认终止 VPS") else { return }
+        busy = true
+        defer { busy = false }
+        let body = try? JSONSerialization.data(withJSONObject: ["token": tok])
+        let (ok, msg) = await conn.client.actionPostData("/vps-control/\(name)/confirm-termination", bodyData: body)
+        toast.show(ok ? "终止已确认" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        if ok { dismiss() }
+    }
+}
+
+// MARK: - 别名
+
+struct VpsAliasSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    let name: String
+    let current: String
+    var t: Tokens { theme.t }
+
+    @State private var alias = ""
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            SheetHeader(icon: "tag", tint: t.info, title: "别名")
+            VStack(alignment: .leading, spacing: 12) {
+                SheetNote(text: "别名只存在后端,用于列表和下拉里好认。留空保存 = 删除别名。", tint: t.muted)
+                SheetField(placeholder: "我的小机器", text: $alias)
+                HStack(spacing: 10) {
+                    ActBtn(kind: .primary, icon: "checkmark", label: busy ? "保存中…" : "保存", busy: busy) {
+                        await save()
+                    }
+                    ActBtn(kind: .ghost, icon: "trash", label: "删除别名") {
+                        Task {
+                            let (ok, msg) = await conn.client.actionDelete("/server-control/\(name)/alias")
+                            toast.show(ok ? "已删除" : (msg.isEmpty ? "失败" : msg), error: !ok)
+                            if ok { dismiss() }
+                        }
+                    }
+                }
+            }.padding(.horizontal, 16)
+            Spacer()
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium])
+        .onAppear { alias = current }
+    }
+
+    private func save() async {
+        busy = true
+        defer { busy = false }
+        let a = alias.trimmingCharacters(in: .whitespaces)
+        let body = try? JSONSerialization.data(withJSONObject: ["alias": a])
+        let (ok, msg) = await conn.client.actionPutData("/server-control/\(name)/alias", bodyData: body)
+        toast.show(ok ? "已保存" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        if ok { dismiss() }
     }
 }

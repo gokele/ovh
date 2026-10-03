@@ -8,39 +8,37 @@
 /* Begin PBXBuildFile section */
 		0000000000000000000003E8 /* ApiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000000 /* ApiClient.swift */; };
 		0000000000000000000003E9 /* Biometric.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000001 /* Biometric.swift */; };
-		0000000000000000000003EA /* BootModeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000002 /* BootModeSheet.swift */; };
 		0000000000000000000003EB /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000003 /* Connection.swift */; };
-		0000000000000000000003EC /* DetailTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000004 /* DetailTabs.swift */; };
-		0000000000000000000003ED /* HistoryLogsOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000005 /* HistoryLogsOverlays.swift */; };
 		0000000000000000000003EE /* MachinesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000006 /* MachinesScreen.swift */; };
-		0000000000000000000003EF /* OrderWriteOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000007 /* OrderWriteOverlays.swift */; };
-		0000000000000000000003F0 /* Overlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000008 /* Overlays.swift */; };
 		0000000000000000000003F1 /* OvhConsoleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000009 /* OvhConsoleApp.swift */; };
 		0000000000000000000003F2 /* PairingScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000A /* PairingScreen.swift */; };
-		0000000000000000000003F3 /* ReinstallSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000B /* ReinstallSheets.swift */; };
 		0000000000000000000003F4 /* ServerDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000C /* ServerDetailView.swift */; };
 		0000000000000000000003F5 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000D /* Theme.swift */; };
 		0000000000000000000003F6 /* VpsDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000E /* VpsDetailView.swift */; };
-		0000000000000000000003F7 /* WriteOpSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000F /* WriteOpSheets.swift */; };
+		0000000000000000000003F8 /* DashboardScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000010 /* DashboardScreen.swift */; };
+		0000000000000000000003F9 /* ServerSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000011 /* ServerSheets.swift */; };
+		0000000000000000000003FA /* ServerSheets2.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000012 /* ServerSheets2.swift */; };
+		0000000000000000000003FB /* SnipeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000013 /* SnipeScreen.swift */; };
+		0000000000000000000003FC /* RadarScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000014 /* RadarScreen.swift */; };
+		0000000000000000000003FD /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000015 /* SettingsScreen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		000000000000000000000000 /* ApiClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiClient.swift; sourceTree = "<group>"; };
 		000000000000000000000001 /* Biometric.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Biometric.swift; sourceTree = "<group>"; };
-		000000000000000000000002 /* BootModeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BootModeSheet.swift; sourceTree = "<group>"; };
 		000000000000000000000003 /* Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connection.swift; sourceTree = "<group>"; };
-		000000000000000000000004 /* DetailTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailTabs.swift; sourceTree = "<group>"; };
-		000000000000000000000005 /* HistoryLogsOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryLogsOverlays.swift; sourceTree = "<group>"; };
 		000000000000000000000006 /* MachinesScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinesScreen.swift; sourceTree = "<group>"; };
-		000000000000000000000007 /* OrderWriteOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderWriteOverlays.swift; sourceTree = "<group>"; };
-		000000000000000000000008 /* Overlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Overlays.swift; sourceTree = "<group>"; };
 		000000000000000000000009 /* OvhConsoleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OvhConsoleApp.swift; sourceTree = "<group>"; };
 		00000000000000000000000A /* PairingScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingScreen.swift; sourceTree = "<group>"; };
-		00000000000000000000000B /* ReinstallSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReinstallSheets.swift; sourceTree = "<group>"; };
 		00000000000000000000000C /* ServerDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerDetailView.swift; sourceTree = "<group>"; };
 		00000000000000000000000D /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		00000000000000000000000E /* VpsDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VpsDetailView.swift; sourceTree = "<group>"; };
-		00000000000000000000000F /* WriteOpSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WriteOpSheets.swift; sourceTree = "<group>"; };
+		000000000000000000000010 /* DashboardScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardScreen.swift; sourceTree = "<group>"; };
+		000000000000000000000011 /* ServerSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerSheets.swift; sourceTree = "<group>"; };
+		000000000000000000000012 /* ServerSheets2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerSheets2.swift; sourceTree = "<group>"; };
+		000000000000000000000013 /* SnipeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnipeScreen.swift; sourceTree = "<group>"; };
+		000000000000000000000014 /* RadarScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadarScreen.swift; sourceTree = "<group>"; };
+		000000000000000000000015 /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
 		AA000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA000000000000000000ENT /* OvhConsole.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OvhConsole.entitlements; sourceTree = "<group>"; };
 		AA000000000000000000000A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -70,20 +68,19 @@
 			children = (
 				000000000000000000000000 /* ApiClient.swift */,
 				000000000000000000000001 /* Biometric.swift */,
-				000000000000000000000002 /* BootModeSheet.swift */,
 				000000000000000000000003 /* Connection.swift */,
-				000000000000000000000004 /* DetailTabs.swift */,
-				000000000000000000000005 /* HistoryLogsOverlays.swift */,
+				000000000000000000000010 /* DashboardScreen.swift */,
 				000000000000000000000006 /* MachinesScreen.swift */,
-				000000000000000000000007 /* OrderWriteOverlays.swift */,
-				000000000000000000000008 /* Overlays.swift */,
 				000000000000000000000009 /* OvhConsoleApp.swift */,
 				00000000000000000000000A /* PairingScreen.swift */,
-				00000000000000000000000B /* ReinstallSheets.swift */,
+				000000000000000000000014 /* RadarScreen.swift */,
+				000000000000000000000011 /* ServerSheets.swift */,
+				000000000000000000000012 /* ServerSheets2.swift */,
 				00000000000000000000000C /* ServerDetailView.swift */,
+				000000000000000000000013 /* SnipeScreen.swift */,
 				00000000000000000000000D /* Theme.swift */,
 				00000000000000000000000E /* VpsDetailView.swift */,
-				00000000000000000000000F /* WriteOpSheets.swift */,
+				000000000000000000000015 /* SettingsScreen.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -118,20 +115,19 @@
 			files = (
 				0000000000000000000003E8 /* ApiClient.swift in Sources */,
 				0000000000000000000003E9 /* Biometric.swift in Sources */,
-				0000000000000000000003EA /* BootModeSheet.swift in Sources */,
 				0000000000000000000003EB /* Connection.swift in Sources */,
-				0000000000000000000003EC /* DetailTabs.swift in Sources */,
-				0000000000000000000003ED /* HistoryLogsOverlays.swift in Sources */,
 				0000000000000000000003EE /* MachinesScreen.swift in Sources */,
-				0000000000000000000003EF /* OrderWriteOverlays.swift in Sources */,
-				0000000000000000000003F0 /* Overlays.swift in Sources */,
 				0000000000000000000003F1 /* OvhConsoleApp.swift in Sources */,
 				0000000000000000000003F2 /* PairingScreen.swift in Sources */,
-				0000000000000000000003F3 /* ReinstallSheets.swift in Sources */,
 				0000000000000000000003F4 /* ServerDetailView.swift in Sources */,
 				0000000000000000000003F5 /* Theme.swift in Sources */,
 				0000000000000000000003F6 /* VpsDetailView.swift in Sources */,
-				0000000000000000000003F7 /* WriteOpSheets.swift in Sources */,
+				0000000000000000000003F8 /* DashboardScreen.swift in Sources */,
+				0000000000000000000003F9 /* ServerSheets.swift in Sources */,
+				0000000000000000000003FA /* ServerSheets2.swift in Sources */,
+				0000000000000000000003FB /* SnipeScreen.swift in Sources */,
+				0000000000000000000003FC /* RadarScreen.swift in Sources */,
+				0000000000000000000003FD /* SettingsScreen.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

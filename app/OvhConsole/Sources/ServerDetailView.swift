@@ -1,266 +1,491 @@
 import SwiftUI
 
 /**
- * 单机控制台(SwiftUI 版):状态头 + 四段 Tab(概览/电源/维护/高级)。
- * 电源动作带确认;危险动作走 Face ID(LocalAuthentication)。
+ * 独服详情(全功能):概览 / 电源 / 维护 / 高级 四段。
+ * 顶部服务胶囊条(到期 · 续费策略),对齐 web 独服控制台。
  */
 struct ServerDetailView: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
-    let server: [String: Any]
-    let onBack: () -> Void
-
-    @State private var section = "overview"
-    @State private var serviceInfo: [String: Any]?
-    @State private var showReinstall = false
-    @State private var showBootMode = false
-    @State private var busy = false
-
+    @EnvironmentObject var toast: Toast
+    @AppStorage("ovh_mask_ip") private var mask = false
+    let item: [String: Any]
     var t: Tokens { theme.t }
-    var serviceName: String { server["serviceName"] as? String ?? "" }
-    var rescue: Bool { (server["netbootMode"] as? String) == "rescue" }
+
+    var sn: String { item["serviceName"] as? String ?? "" }
+    @State private var seg = 0
+    @State private var serviceinfo: [String: Any]?
+    @State private var sheet: ServerSheet?
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            segTabs
-            ScrollView {
-                VStack(spacing: 10) {
-                    switch section {
-                    case "power": powerTab
-                    case "maintenance": MaintenanceTab(serviceName: serviceName)
-                    case "advanced": AdvancedTab(serviceName: serviceName)
-                    default: overviewTab
-                    }
+        ScrollView {
+            VStack(spacing: 12) {
+                headerCard
+                Picker("", selection: $seg) {
+                    Text("概览").tag(0)
+                    Text("电源").tag(1)
+                    Text("维护").tag(2)
+                    Text("高级").tag(3)
                 }
-                .padding(16)
-                .padding(.bottom, 20)
+                .pickerStyle(.segmented)
+
+                switch seg {
+                case 1: PowerSection(sn: sn, serviceinfo: serviceinfo, sheet: $sheet)
+                case 2: MaintenanceSection(sn: sn, sheet: $sheet)
+                case 3: AdvancedSection(sn: sn, sheet: $sheet)
+                default: OverviewSection(sn: sn, item: item, mask: mask, serviceinfo: serviceinfo, sheet: $sheet)
+                }
             }
+            .padding(16)
         }
         .background(t.color(t.bg))
-        .task { await loadInfo() }
-        .sheet(isPresented: $showBootMode) { BootModeSheet(serviceName: serviceName) }
-        .sheet(isPresented: $showReinstall) { ReinstallSheet(serviceName: serviceName, serverName: serviceName) }
+        .navigationTitle(displayName)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(theme.dark ? .dark : .light, for: .navigationBar)
+        .task { await load() }
+        .refreshable { await load() }
+        .sheet(item: $sheet) { s in serverSheet(s) }
     }
-
-    // MARK: 状态头(别名大字 + serviceName 小字 + IP + 胶囊条)
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Button(action: onBack) {
-                HStack(spacing: 5) {
-                    Image(systemName: "chevron.left").font(.system(size: 14))
-                    Text("机器").font(.system(size: 12))
-                }.foregroundColor(t.color(t.muted))
-            }
-            HStack(spacing: 9) {
-                Circle().fill(t.color(rescue ? t.warning : t.success)).frame(width: 9, height: 9)
-                Text(displayName).font(.system(size: 21, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
-            }
-            Text(serviceName).font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.faint))
-            HStack(spacing: 7) {
-                Text(server["ip"] as? String ?? "").font(.system(size: 12, design: .monospaced)).foregroundColor(t.color(t.muted))
-                Button {
-                    UIPasteboard.general.string = server["ip"] as? String ?? ""
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "doc.on.doc").font(.system(size: 10))
-                        Text("复制").font(.system(size: 10))
-                    }.foregroundColor(t.color(t.faint))
-                }
-            }
-            HStack(spacing: 6) {
-                if rescue { Pill(text: "救援模式", color: t.warning, t: t) }
-                Pill(text: (server["state"] as? String ?? "—").uppercased(), color: rescue ? t.warning : t.success, t: t)
-                Pill(text: "\((server["datacenter"] as? String ?? "—").uppercased()) 机房", color: t.muted, t: t)
-                Pill(text: renewalPill, color: t.muted, t: t)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
-        .overlay(Rectangle().frame(height: 0.5).foregroundColor(t.color(t.border)).opacity(0.6), alignment: .bottom)
-    }
-
-    private var segTabs: some View {
-        HStack(spacing: 2) {
-            forTap("overview", "概览"); forTap("power", "电源"); forTap("maintenance", "维护"); forTap("advanced", "高级")
-        }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surfaceMuted)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.border), lineWidth: 1)))
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
-    }
-
-    private func forTap(_ id: String, _ label: String) -> some View {
-        Button { section = id } label: {
-            Text(label)
-                .font(.system(size: 11, weight: section == id ? .semibold : .regular))
-                .foregroundColor(t.color(section == id ? t.fg : t.muted))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(section == id ? t.color(t.surface) : Color.clear)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(section == id ? t.color(t.border) : Color.clear, lineWidth: 1))
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: 概览
-
-    private var overviewTab: some View {
-        VStack(spacing: 10) {
-            VStack(spacing: 4) {
-                kv("处理器", processor)
-                kv("机房", (server["datacenter"] as? String ?? "—").uppercased())
-                kv("IP", server["ip"] as? String ?? "—")
-                kv("OS", server["os"] as? String ?? "—")
-                kv("到期", expiration)
-                kv("续费", renewalText)
-            }
-            .padding(13)
-            .background(RoundedRectangle(cornerRadius: 16).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 16).stroke(t.color(t.border), lineWidth: 1)))
-        }
-    }
-
-    // MARK: 电源
-
-    private var powerTab: some View {
-        VStack(spacing: 10) {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ActTile(icon: "bolt.fill", label: "硬重启", t: t) {
-                    confirm("硬重启?", "相当于按电源键强制重启,未落盘的数据会丢失;硬盘数据不受影响。", path: "/server-control/\(serviceName)/reboot")
-                }
-                ActTile(icon: "power", label: "启动模式", t: t) { showBootMode = true }
-                ActTile(icon: "lifepreserver", label: rescue ? "退出救援" : "一键救援", t: t) {
-                    if rescue {
-                        confirm("退出救援模式?", "改回硬盘启动并重启,回到正常系统。", path: "/server-control/\(serviceName)/rescue/exit", body: ["confirm": true])
-                    } else {
-                        confirm("进入救援模式?", "确认后立刻重启进入救援镜像;原系统数据不动,root 密码发到救援邮箱。", path: "/server-control/\(serviceName)/rescue", body: ["confirm": true])
-                    }
-                }
-                ActTile(icon: "display", label: "KVM 屏幕", t: t) { Task { await openKvm() } }
-                ActTile(icon: "eye", label: "监控探测", t: t) {
-                    Task { await put("/server-control/\(serviceName)/monitoring", ["enabled": !(server["monitoring"] as? Bool ?? false), "monitoring": !(server["monitoring"] as? Bool ?? false)]) }
-                }
-            }
-            // 重装红区
-            Button { showReinstall = true } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "opticaldiscdrive.fill").font(.system(size: 17)).foregroundColor(t.color(t.danger))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("重装系统").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.danger))
-                        Text("智能分区方案 · Face ID + 输入机器名确认").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(t.color(t.danger))
-                }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.danger).opacity(0.05)).overlay(RoundedRectangle(cornerRadius: 13).stroke(Color(red: 0.9, green: 0.65, blue: 0.65), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))))
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    // MARK: 动作
-
-    private func confirm(_ title: String, _ msg: String, path: String, body: [String: Any]? = nil) {
-        let alert = UIAlertController(title: title, message: msg, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        alert.addAction(UIAlertAction(title: "确认", style: .destructive) { _ in
-            Task {
-                guard await Biometric.require(title) else { return }
-                await post(path, body)
-            }
-        })
-        AlertHost.present(alert)
-    }
-
-    private func post(_ path: String, _ body: [String: Any]? = nil) async {
-        // Swift 6:[String:Any] 非 Sendable,先序列化成 Data 再跨并发域
-        let data = body.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
-        let (ok, msg) = await conn.client.actionPostData(path, bodyData: data)
-        if !ok { showError(msg) }
-    }
-
-    private func put(_ path: String, _ body: [String: Any]? = nil) async {
-        let data = body.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
-        let (ok, msg) = await conn.client.actionPutData(path, bodyData: data)
-        if !ok { showError(msg) }
-    }
-
-    private func openKvm() async {
-        do {
-            let r = try await conn.client.post("/server-control/\(serviceName)/console")
-            if let url = r["url"] as? String, let u = URL(string: url) {
-                _ = await UIApplication.shared.open(u)
-            }
-        } catch { showError(error.localizedDescription) }
-    }
-
-    private func loadInfo() async {
-        if let r = try? await conn.client.getDict("/server-control/\(serviceName)/serviceinfo") {
-            serviceInfo = r["serviceInfo"] as? [String: Any]
-        }
-    }
-
-    private func showError(_ msg: String) {
-        let alert = UIAlertController(title: "失败", message: msg, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "好", style: .default))
-        AlertHost.present(alert)
-    }
-
-    // MARK: 取值 helpers
 
     private var displayName: String {
-        let n = server["name"] as? String ?? ""
-        let sn = server["serviceName"] as? String ?? ""
+        let n = item["name"] as? String ?? ""
         if n != sn, !n.isEmpty { return n.components(separatedBy: " | ").first ?? n }
         return sn
     }
-    private var processor: String {
-        let n = server["name"] as? String ?? ""
-        if n.contains(" | ") { return String(n.split(separator: " | ").dropFirst().joined(separator: " | ")) }
-        return "—"
+
+    // MARK: 顶部卡
+
+    private var headerCard: some View {
+        let state = item["state"] as? String ?? ""
+        let rescue = (item["netbootMode"] as? String) == "rescue"
+        let ok = ["ok", "active"].contains(state.lowercased())
+        return Card {
+            VStack(spacing: 11) {
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(t.color(rescue ? t.warning : ok ? t.success : t.danger).opacity(0.16))
+                        .frame(width: 42, height: 42)
+                        .overlay(Image(systemName: "server.rack").font(.system(size: 18, weight: .semibold)).foregroundColor(t.color(rescue ? t.warning : ok ? t.success : t.danger)))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(displayName).font(.system(size: 16, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
+                        Text("\(sn) · \((item["datacenter"] as? String ?? "—").uppercased())")
+                            .font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.muted)).lineLimit(1)
+                    }
+                    Spacer()
+                    Chip(text: rescue ? "救援模式" : state.uppercased(), color: rescue ? t.warning : ok ? t.success : t.danger)
+                }
+                HStack(spacing: 6) {
+                    Dot(color: ok ? t.success : t.danger)
+                    Text(mask ? maskIP(item["ip"] as? String ?? "") : (item["ip"] as? String ?? "—"))
+                        .font(.system(size: 12.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                    Spacer()
+                    Text(renewalText).font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                }
+                if let si = serviceinfo {
+                    FlowLayout(spacing: 6) {
+                        if let exp = si["expiration"] as? String, !exp.isEmpty {
+                            Chip(text: "到期 \(fmtDate(exp))", color: daysLeft(exp) < 7 ? t.danger : t.muted)
+                        }
+                        if si["renewalDeleteAtExpiration"] as? Bool == true {
+                            Chip(text: "到期将终止", color: t.danger)
+                        }
+                        if si["renewalForced"] as? Bool == true {
+                            Chip(text: "OVH 强制续费", color: t.warning)
+                        }
+                        if si["retractionEligible"] as? Bool == true {
+                            Chip(text: "可撤单", color: t.info)
+                        }
+                    }
+                }
+            }
+        }
     }
-    private var expiration: String {
-        if let e = serviceInfo?["expiration"] as? String { return String(e.prefix(10)) }
-        return "—"
-    }
+
     private var renewalText: String {
-        if let rt = server["renewalType"] as? Bool { return rt ? "自动续费" : "手动续费" }
-        return "未知"
+        if let si = serviceinfo {
+            if si["renewalDeleteAtExpiration"] as? Bool == true { return "到期终止" }
+            if si["renewalType"] as? Bool == true {
+                let p = si["renewalPeriod"] as? Int ?? 1
+                return "自动续费 · \(p) 月"
+            }
+            return "手动续费"
+        }
+        return ""
     }
-    private var renewalPill: String { "续费 \(server["renewalType"] as? Bool == true ? "自动" : "手动")" }
-    private func kv(_ k: String, _ v: String) -> some View {
-        HStack(alignment: .top) {
-            Text(k).font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
-            Spacer()
-            Text(v).font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg)).multilineTextAlignment(.trailing)
+
+    private func daysLeft(_ iso: String) -> Int {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
+        guard let d = f.date(from: iso.hasSuffix("Z") ? String(iso.dropLast()) + "+0000" : iso) else { return 999 }
+        return Calendar.current.dateComponents([.day], from: Date(), to: d).day ?? 999
+    }
+
+    private func load() async {
+        if serviceinfo == nil {
+            serviceinfo = try? await conn.client.getDict("/server-control/\(sn)/serviceinfo")
+        }
+    }
+
+    // MARK: sheet 调度
+
+    @ViewBuilder
+    private func serverSheet(_ s: ServerSheet) -> some View {
+        switch s.kind {
+        case .mrtg: MrtgSheet(sn: sn)
+        case .reboot: ConfirmSheet(title: "硬重启服务器", message: "相当于直接断电再通电:未保存数据会丢失,磁盘检查可能耗时数分钟。", confirmText: "确认重启") {
+            let (ok, msg) = await conn.client.actionPostData("/server-control/\(sn)/reboot", bodyData: nil)
+            toast.show(ok ? "重启指令已下发" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        }
+        case .rescue: RescueSheet(sn: sn)
+        case .reinstall: ServerReinstallSheet(sn: sn)
+        case .ipmi: IpmiSheet(sn: sn)
+        case .bootMode: BootModeSheet(sn: sn)
+        case .spla: SplaSheet(sn: sn)
+        case .tasks: TasksSheet(sn: sn)
+        case .bios: BiosSheet(sn: sn)
+        case .installStatus: InstallStatusSheet(sn: sn)
+        case .retraction: RetractionSheet(sn: sn)
+        case .renewal: RenewalSheet(sn: sn, isVps: false, info: serviceinfo ?? [:])
+        case .networkSpecs: JsonSheet(title: "网络规格", icon: "network", path: "/server-control/\(sn)/network-specs")
+        case .engagement: EngagementSheet(sn: sn, isVps: false)
+        case .hwReplace: HardwareReplaceSheet(sn: sn)
+        case .changeContact: ChangeContactSheet(sn: sn, isVps: false)
+        case .monitoring: MonitoringSheet(sn: sn)
+        case .burst: ToggleSheet(title: "Burst 流量", icon: "bolt.horizontal", getPath: "/server-control/\(sn)/burst", putPath: "/server-control/\(sn)/burst")
+        case .firewall: ToggleSheet(title: "网络防火墙", icon: "flame", getPath: "/server-control/\(sn)/firewall", putPath: "/server-control/\(sn)/firewall")
+        case .backupFtp: BackupFtpSheet(sn: sn)
+        case .secondaryDns: JsonSheet(title: "二级 DNS", icon: "globe", path: "/server-control/\(sn)/secondary-dns")
+        case .virtualMac: JsonSheet(title: "虚拟 MAC", icon: "macpro.gen3", path: "/server-control/\(sn)/virtual-mac")
+        case .vrack: JsonSheet(title: "vRack 成员", icon: "link", path: "/server-control/\(sn)/vrack")
+        case .orderableBandwidth: JsonSheet(title: "可购带宽", icon: "speedometer", path: "/server-control/\(sn)/orderable/bandwidth")
+        case .orderableTraffic: JsonSheet(title: "可购流量", icon: "arrow.up.arrow.down", path: "/server-control/\(sn)/orderable/traffic")
+        case .orderableIp: JsonSheet(title: "可购 IP 块", icon: "number.square", path: "/server-control/\(sn)/orderable/ip")
+        case .options: JsonSheet(title: "附加选项", icon: "shippingbox", path: "/server-control/\(sn)/options")
+        case .ipSpecs: JsonSheet(title: "IP 规格", icon: "number", path: "/server-control/\(sn)/ip-specs")
+        case .mitigation: MitigationSheet(sn: sn, isVps: false)
         }
     }
 }
 
-// MARK: - 复用件
+/// 独服弹窗枚举
+struct ServerSheet: Identifiable {
+    enum Kind {
+        case mrtg, reboot, rescue, reinstall, ipmi, bootMode, spla, tasks, bios, installStatus
+        case retraction, renewal, networkSpecs, engagement, hwReplace, changeContact, monitoring
+        case burst, firewall, backupFtp, secondaryDns, virtualMac, vrack
+        case orderableBandwidth, orderableTraffic, orderableIp, options, ipSpecs, mitigation
+    }
+    let kind: Kind
+    var id: Kind { kind }
+}
 
-struct ActTile: View {
-    let icon: String
-    let label: String
-    let t: Tokens
-    let onTap: () -> Void
+// MARK: - 概览段
+
+struct OverviewSection: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    let sn: String
+    let item: [String: Any]
+    let mask: Bool
+    let serviceinfo: [String: Any]?
+    @Binding var sheet: ServerSheet?
+    var t: Tokens { theme.t }
+
+    @State private var hardware: [String: Any]?
+    @State private var ips: [[String: Any]] = []
+    @State private var nics: [[String: Any]] = []
+    @State private var err: String?
+
     var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 19)).foregroundColor(t.color(t.fg))
-                Text(label).font(.system(size: 10.5)).foregroundColor(t.color(t.fg))
+        VStack(spacing: 12) {
+            if let e = err { Card { LoadFailed(message: e) { Task { await load() } } } }
+
+            Card {
+                VStack(spacing: 9) {
+                    HStack {
+                        SectionTitle(text: "硬件")
+                        Spacer()
+                        Button { sheet = .init(kind: .mrtg) } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "chart.xyaxis.line").font(.system(size: 11))
+                                Text("流量图").font(.system(size: 11.5, weight: .semibold))
+                            }.foregroundColor(t.color(t.info))
+                        }.buttonStyle(.plain)
+                    }
+                    if let hw = hardware {
+                        KV(k: "处理器", v: "\(hw["processorName"] ?? "—")")
+                        KV(k: "核心", v: "\(hw["numberOfProcessors"] ?? 0) 颗 × \(hw["coresPerProcessor"] ?? 0) 核")
+                        KV(k: "内存", v: memText(hw["memorySize"]))
+                        KV(k: "主板", v: "\(hw["motherboard"] ?? "—")")
+                        if let groups = hw["diskGroups"] as? [[String: Any]] {
+                            ForEach(groups.indices, id: \.self) { i in
+                                KV(k: "磁盘组 \(i+1)", v: diskText(groups[i]))
+                            }
+                        }
+                    } else {
+                        ProgressView().padding(6)
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: 86)
-            .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surfaceMuted)).overlay(RoundedRectangle(cornerRadius: 13).stroke(t.color(t.border), lineWidth: 1)))
+
+            Card {
+                VStack(spacing: 8) {
+                    SectionTitle(text: "IP 地址")
+                    if ips.isEmpty {
+                        Text(err == nil ? "没有 IP 数据" : "—").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                    }
+                    ForEach(ips.indices, id: \.self) { i in ipRow(ips[i]) }
+                }
+            }
+
+            Card {
+                VStack(spacing: 8) {
+                    SectionTitle(text: "网络接口")
+                    if nics.isEmpty {
+                        Text("无网卡数据").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                    }
+                    ForEach(nics.indices, id: \.self) { i in
+                        let nic = nics[i]
+                        KV(k: mask ? maskIP(nic["macAddress"] as? String ?? "") : (nic["macAddress"] as? String ?? "—"),
+                           v: "\(nic["linkType"] as? String ?? "—") · \(nic["status"] as? String ?? "")", mono: true)
+                    }
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private func ipRow(_ ip: [String: Any]) -> some View {
+        let raw = ip["ip"] as? String ?? (ip["address"] as? String ?? "—")
+        return VStack(spacing: 4) {
+            HStack {
+                Text(mask ? maskIP(raw) : raw).font(.system(size: 12, design: .monospaced)).foregroundColor(t.color(t.fg))
+                Spacer()
+                if let v = ip["version"] as? Int { Chip(text: "IPv\(v)") }
+                if let t2 = ip["type"] as? String, !t2.isEmpty { Chip(text: t2) }
+            }
+            if let rev = ip["reverse"] as? String, !rev.isEmpty {
+                Text("↳ " + (mask ? maskIP(rev) : rev)).font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+            }
+        }
+    }
+
+    private func memText(_ mem: Any?) -> String {
+        if let m = mem as? [String: Any] {
+            if let unit = m["unit"] as? String, let val = m["value"] as? Double {
+                return unit.lowercased() == "gi" ? "\(Int(val)) GiB" : "\(val) \(unit)"
+            }
+            return m.values.first.flatMap { "\($0)" } ?? "—"
+        }
+        return mem.flatMap { "\($0)" } ?? "—"
+    }
+
+    private func diskText(_ g: [String: Any]) -> String {
+        let n = (g["diskCount"] as? Int) ?? (g["count"] as? Int) ?? 0
+        let cap = g["capacity"] as? Int ?? 0
+        let unit = g["capacityUnit"] as? String ?? "GB"
+        let t2 = g["diskType"] as? String ?? (g["type"] as? String ?? "")
+        let parts = [n > 0 ? "\(n) ×" : nil, cap > 0 ? "\(cap) \(unit)" : nil, !t2.isEmpty ? t2 : nil].compactMap { $0 }
+        return parts.isEmpty ? "—" : parts.joined(separator: " ")
+    }
+
+    private func load() async {
+        do {
+            async let h = conn.client.getDict("/server-control/\(sn)/hardware")
+            async let i = conn.client.getDict("/server-control/\(sn)/ips")
+            async let n = conn.client.getDict("/server-control/\(sn)/network-interfaces")
+            let (hr, ir, nr) = try await (h, i, n)
+            hardware = hr["hardware"] as? [String: Any]
+            ips = (ir["ips"] as? [[String: Any]]) ?? []
+            nics = (nr["interfaces"] as? [[String: Any]]) ?? (nr["networkInterfaces"] as? [[String: Any]]) ?? []
+            err = nil
+        } catch { err = error.localizedDescription }
+    }
+}
+
+// MARK: - 电源段(操作卡网格)
+
+struct PowerSection: View {
+    @EnvironmentObject var theme: Theme
+    let sn: String
+    let serviceinfo: [String: Any]?
+    @Binding var sheet: ServerSheet?
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            if serviceinfo?["retractionEligible"] as? Bool == true {
+                Card(border: t.info) {
+                    HStack(spacing: 9) {
+                        Image(systemName: "clock.badge.exclamationmark").font(.system(size: 15)).foregroundColor(t.color(t.info))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("14 天无理由撤单期").font(.system(size: 13, weight: .semibold)).foregroundColor(t.color(t.fg))
+                            Text("交付后 14 天内可撤单退款").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                        }
+                        Spacer()
+                        Button { sheet = .init(kind: .retraction) } label: {
+                            Text("撤单").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.info))
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                opCard(.reboot, icon: "power", title: "硬重启", desc: "断电级重启", tint: t.danger)
+                opCard(.rescue, icon: "lifepreserver", title: "救援系统", desc: "进入/退出救援", tint: t.warning)
+                opCard(.reinstall, icon: "opticaldiscdrive.fill", title: "重装系统", desc: "全功能安装器", tint: t.danger)
+                opCard(.ipmi, icon: "keyboard.onehanded.left", title: "IPMI/KVM", desc: "远程控制台", tint: t.info)
+                opCard(.bootMode, icon: "memorychip", title: "启动模式", desc: "硬盘/救援/网络", tint: t.muted)
+                opCard(.spla, icon: "pc", title: "Windows 授权", desc: "SPLA / GVLK", tint: t.info)
+                opCard(.tasks, icon: "checklist", title: "运维任务", desc: "列表与预约", tint: t.muted)
+                opCard(.bios, icon: "cpu", title: "BIOS 设置", desc: "含 SGX", tint: t.muted)
+                opCard(.installStatus, icon: "progress.indicator", title: "安装进度", desc: "重装实时进度", tint: t.info)
+                opCard(.monitoring, icon: "bell.badge", title: "OVH 监控", desc: "异常邮件通知", tint: t.muted)
+            }
+        }
+    }
+
+    private func opCard(_ kind: ServerSheet.Kind, icon: String, title: String, desc: String, tint: String) -> some View {
+        Button { sheet = .init(kind: kind) } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(t.color(tint).opacity(0.14))
+                    .frame(width: 34, height: 34)
+                    .overlay(Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(tint)))
+                Text(title).font(.system(size: 13, weight: .semibold)).foregroundColor(t.color(t.fg))
+                Text(desc).font(.system(size: 10)).foregroundColor(t.color(t.muted)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 14).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 14).stroke(t.color(t.border), lineWidth: 1)))
         }
         .buttonStyle(.plain)
     }
 }
 
+// MARK: - 维护段
+
+struct MaintenanceSection: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    let sn: String
+    @Binding var sheet: ServerSheet?
+    var t: Tokens { theme.t }
+
+    @State private var interventions: [[String: Any]] = []
+    @State private var err: String?
+
+    var body: some View {
+        VStack(spacing: 10) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                mRow(.networkSpecs, icon: "network", title: "网络规格", desc: "带宽与 IP 路由")
+                mRow(.renewal, icon: "arrow.triangle.2.circlepath", title: "续费策略", desc: "自动/手动/终止")
+                mRow(.engagement, icon: "doc.plaintext", title: "合同期", desc: "承诺期管理")
+                mRow(.hwReplace, icon: "wrench.and.screwdriver", title: "硬件更换", desc: "硬盘/内存/散热")
+                mRow(.changeContact, icon: "person.2", title: "变更联系人", desc: "admin/tech/billing")
+                mRow(.retraction, icon: "arrow.uturn.left.circle", title: "撤单", desc: "14 天无理由")
+            }
+
+            Card {
+                VStack(spacing: 9) {
+                    SectionTitle(text: "维护记录(近 20 条)")
+                    if let e = err {
+                        LoadFailed(message: e) { Task { await load() } }
+                    } else if interventions.isEmpty {
+                        Text("没有维护记录").font(.system(size: 11)).foregroundColor(t.color(t.faint)).padding(.vertical, 8)
+                    } else {
+                        ForEach(interventions.prefix(20).indices, id: \.self) { i in
+                            let it = interventions[i]
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(fmtDate(it["plannedDate"] as? String ?? it["date"] as? String))
+                                        .font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                    Spacer()
+                                    if let done = it["done"] as? Bool {
+                                        Chip(text: done ? "已完成" : "进行中", color: done ? t.success : t.warning)
+                                    }
+                                }
+                                if let todo = it["todo"] as? String, !todo.isEmpty {
+                                    Text(todo).font(.system(size: 10.5)).foregroundColor(t.color(t.muted)).lineLimit(3)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private func mRow(_ kind: ServerSheet.Kind, icon: String, title: String, desc: String) -> some View {
+        Button { sheet = .init(kind: kind) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 15)).foregroundColor(t.color(t.info))
+                    .frame(width: 30, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(t.color(t.info).opacity(0.12)))
+                VStack(alignment: .leading, spacing: 1.5) {
+                    Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                    Text(desc).font(.system(size: 9.5)).foregroundColor(t.color(t.muted))
+                }
+                Spacer()
+            }
+            .padding(11)
+            .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 13).stroke(t.color(t.border), lineWidth: 1)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func load() async {
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/interventions")
+            interventions = (r["interventions"] as? [[String: Any]]) ?? []
+            err = nil
+        } catch { err = error.localizedDescription }
+    }
+}
+
+// MARK: - 高级段
+
+struct AdvancedSection: View {
+    @EnvironmentObject var theme: Theme
+    let sn: String
+    @Binding var sheet: ServerSheet?
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                aRow(.burst, icon: "bolt.horizontal", title: "Burst 流量", desc: "突发带宽")
+                aRow(.firewall, icon: "flame", title: "防火墙", desc: "网络层开关")
+                aRow(.backupFtp, icon: "externaldrive.badge.icloud", title: "Backup FTP", desc: "备份与 ACL")
+                aRow(.secondaryDns, icon: "globe", title: "二级 DNS", desc: "从 DNS 列表")
+                aRow(.virtualMac, icon: "macpro.gen3", title: "虚拟 MAC", desc: "IP ↔ MAC 表")
+                aRow(.vrack, icon: "link", title: "vRack", desc: "私网成员")
+                aRow(.mitigation, icon: "shield.lefthalf.filled", title: "DDoS 缓解", desc: "按 IP 块开关")
+                aRow(.ipSpecs, icon: "number.square", title: "IP 规格", desc: "v4/v6 块详情")
+                aRow(.orderableBandwidth, icon: "speedometer", title: "可购带宽", desc: "套餐查询")
+                aRow(.orderableTraffic, icon: "arrow.up.arrow.down", title: "可购流量", desc: "流量包")
+                aRow(.orderableIp, icon: "number", title: "可购 IP 块", desc: "v4/v6")
+                aRow(.options, icon: "shippingbox", title: "附加选项", desc: "已订阅清单")
+            }
+        }
+    }
+
+    private func aRow(_ kind: ServerSheet.Kind, icon: String, title: String, desc: String) -> some View {
+        Button { sheet = .init(kind: kind) } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(t.color(t.muted).opacity(0.12))
+                    .frame(width: 34, height: 34)
+                    .overlay(Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(t.muted)))
+                Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                Text(desc).font(.system(size: 9.5)).foregroundColor(t.color(t.muted)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 13).stroke(t.color(t.border), lineWidth: 1)))
+        }
+        .buttonStyle(.plain)
+    }
+}
