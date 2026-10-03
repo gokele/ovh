@@ -59,7 +59,14 @@ struct CatalogPane: View {
     @State private var availability: [String: [String: String]] = [:]
     @State private var priceMap: [String: Double] = [:]
     @State private var priceCurrency = ""
+    @State private var cacheAgeMin: Int? = nil
+    @State private var cacheExpired = false
     @State private var err: String?
+
+    /// App 端目录缓存:与 web 的 React Query 同思路 —— 5 分钟内切回来直接用旧数据,
+    /// 后台静默刷新(否则每次进抢购页都等 OVH 目录+价格,体感就是"加载好久")。
+    private static let cacheTTL: TimeInterval = 300
+    private static var memCache: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], currency: String, age: Int?, expired: Bool)? = nil
     @State private var loading = true
     @State private var search = ""
     @State private var onlyAvailable = false
@@ -86,9 +93,29 @@ struct CatalogPane: View {
                 .padding(.vertical, 8)
                 .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surface)))
 
+                HStack(spacing: 8) {
+                    if let age = cacheAgeMin {
+                        Chip(text: cacheExpired ? "目录缓存已过期(\(age)分前)" : "缓存 \(age) 分钟前",
+                             color: cacheExpired ? t.warning : nil)
+                    }
+                    Spacer()
+                    Button {
+                        Self.memCache = nil
+                        loading = true
+                        Task { await load(force: true) }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 10.5, weight: .semibold))
+                            Text("强刷目录").font(.system(size: 11.5, weight: .semibold))
+                        }.foregroundColor(t.color(t.info))
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Capsule().stroke(t.color(t.info), lineWidth: 1))
+                    }.buttonStyle(.plain)
+                }
+
                 if let e = err {
-                    Card { LoadFailed(message: e) { Task { await load() } } }
-                } else if loading {
+                    Card { LoadFailed(message: e) { Task { await load(force: true) } } }
+                } else if loading && plans.isEmpty {
                     ProgressView().padding(.top, 50)
                 } else if filtered.isEmpty {
                     Card { EmptyHint(icon: "shippingbox", text: "目录为空 —— 检查账户或刷新缓存") }
@@ -102,11 +129,12 @@ struct CatalogPane: View {
                 }
             }
             .padding(16)
+            .padding(.bottom, 60)   // 给底部 Tab 栏让位,避免最后一张卡的操作按钮被挡
         }
         .background(t.color(t.bg))
-        .refreshable { await load() }
+        .refreshable { await load(force: true) }
         .task { await load() }
-        .onChange(of: conn.accountId) { _ in loading = true; Task { await load() } }
+        .onChange(of: conn.accountId) { _ in Self.memCache = nil; loading = true; Task { await load(force: true) } }
         .sheet(item: Binding(
             get: { orderPlan.map { PlanWrap(plan: $0) } },
             set: { orderPlan = $0?.plan }
@@ -194,7 +222,7 @@ struct CatalogPane: View {
                         HStack(spacing: 4) {
                             Image(systemName: "bolt.fill").font(.system(size: 10))
                             Text("抢购").font(.system(size: 11, weight: .bold))
-                        }.foregroundColor(theme.t.dark ? .white : t.color(t.accent))
+                        }.foregroundColor(.white)
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(Capsule().fill(t.color(t.accent)))
                     }.buttonStyle(.plain)
@@ -219,10 +247,23 @@ struct CatalogPane: View {
         } catch { toast.show(error.localizedDescription, error: true) }
     }
 
-    private func load() async {
+    private func load(force: Bool = false) async {
+        // 命中缓存且未过期:立即上屏,后台再刷新
+        if !force, let c = Self.memCache, Date().timeIntervalSince(c.at) < Self.cacheTTL, !plans.isEmpty {
+            return
+        }
+        if let c = Self.memCache, !c.plans.isEmpty, plans.isEmpty {
+            applyCache(c)   // 先显示旧数据,不等网络
+        }
         err = nil
         do {
+            // servers(后端内存缓存,快)与 catalog(SQLite 缓存 2h)并行拉
+            let sub = sub2
+            async let catalogTask: [String: Any]? = sub.isEmpty
+                ? conn.client.getDict("/catalog")
+                : conn.client.getDict("/catalog?subsidiary=\(urlEncode(sub))")
             let sr = try await conn.client.getDict("/servers")
+            let cr = try await catalogTask
             plans = (sr["servers"] as? [[String: Any]]) ?? []
             // 可用性内嵌在每个 plan 的 datacenters:[{datacenter, availability}]
             var avail: [String: [String: String]] = [:]
@@ -237,10 +278,7 @@ struct CatalogPane: View {
                 avail[code] = dcMap
             }
             availability = avail
-            // 目录价(catalog 缓存 2 小时,后端秒回)
-            if sub2.isEmpty { return }
-            if let cr = try? await conn.client.getDict("/catalog?subsidiary=\(urlEncode(sub2))"),
-               let cplans = cr["plans"] as? [[String: Any]] {
+            if let cr = cr, let cplans = cr["plans"] as? [[String: Any]] {
                 for p in cplans {
                     if let code = p["planCode"] as? String {
                         priceMap[code] = monthlyPriceOf(p["pricings"] as? [[String: Any]])
@@ -248,7 +286,19 @@ struct CatalogPane: View {
                 }
                 priceCurrency = (cr["locale"] as? [String: Any])?["currencyCode"] as? String ?? ""
             }
+            // 缓存龄(后端 /servers 自带 cacheInfo)
+            if let ci = sr["cacheInfo"] as? [String: Any] {
+                cacheAgeMin = numToDoubleAny(ci["cacheAgeMinutes"]).map(Int.init)
+                cacheExpired = (ci["usingExpiredCache"] as? Bool ?? false) || (ci["cached"] as? Bool == false)
+            }
+            Self.memCache = (Date(), plans, availability, priceMap, priceCurrency, cacheAgeMin, cacheExpired)
         } catch { err = error.localizedDescription }
+        loading = false
+    }
+
+    private func applyCache(_ c: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], currency: String, age: Int?, expired: Bool)) {
+        plans = c.plans; availability = c.avail; priceMap = c.prices
+        priceCurrency = c.currency; cacheAgeMin = c.age; cacheExpired = c.expired
         loading = false
     }
 
@@ -565,6 +615,8 @@ struct QueuePane: View {
     @State private var loading = true
     @State private var editItem: [String: Any]?
     @State private var clearConfirm = false
+    @State private var selected: Set<String> = []
+    @State private var selecting = false
 
     var body: some View {
         ScrollView {
@@ -573,9 +625,32 @@ struct QueuePane: View {
                     Text("\(items.count) 个任务").font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
                     Spacer()
                     if !items.isEmpty {
-                        Button { clearConfirm = true } label: {
-                            Text("清空队列").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.danger))
+                        if selecting {
+                            Button { selected = selected.count == items.count ? [] : Set(items.compactMap { $0["id"] as? String }) } label: {
+                                Text(selected.count == items.count ? "取消全选" : "全选").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.info))
+                            }.buttonStyle(.plain)
+                        }
+                        Button { selecting.toggle(); selected.removeAll() } label: {
+                            Text(selecting ? "完成" : "批量").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(selecting ? t.accent : t.muted))
                         }.buttonStyle(.plain)
+                        if !selecting {
+                            Button { clearConfirm = true } label: {
+                                Text("清空队列").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.danger))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }
+                if selecting && !selected.isEmpty {
+                    HStack(spacing: 8) {
+                        qBtn(icon: "pause.fill", label: "暂停 \(selected.count)", color: t.muted) {
+                            await batch("paused")
+                        }
+                        qBtn(icon: "play.fill", label: "恢复 \(selected.count)", color: t.accent) {
+                            await batch("running")
+                        }
+                        qBtn(icon: "trash", label: "删除 \(selected.count)", color: t.danger) {
+                            await batchDelete()
+                        }
                     }
                 }
                 if let e = err {
@@ -622,9 +697,17 @@ struct QueuePane: View {
         let status = (item["status"] as? String ?? "").lowercased()
         let color = status == "running" ? t.success : status == "paused" ? t.warning : status == "failed" ? t.danger : t.muted
         let id = item["id"] as? String ?? ""
-        return Card(border: color) {
+        return Card(border: selected.contains(id) ? t.accent : color) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
+                    if selecting {
+                        Button {
+                            if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+                        } label: {
+                            Image(systemName: selected.contains(id) ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 17)).foregroundColor(t.color(selected.contains(id) ? t.accent : t.faint))
+                        }.buttonStyle(.plain)
+                    }
                     HStack(spacing: 8) {
                         Dot(color: color)
                         Text(item["planCode"] as? String ?? "").font(.system(size: 12.5, design: .monospaced)).foregroundColor(t.color(t.fg))
@@ -673,6 +756,23 @@ struct QueuePane: View {
             .background(Capsule().stroke(t.color(color), lineWidth: 1))
         }
         .buttonStyle(.plain)
+    }
+
+    private func batch(_ status: String) async {
+        for id in selected {
+            let body = try? JSONSerialization.data(withJSONObject: ["status": status])
+            _ = await conn.client.actionPutData("/queue/\(id)/status", bodyData: body)
+        }
+        selected.removeAll()
+        await load()
+    }
+
+    private func batchDelete() async {
+        for id in selected {
+            _ = await conn.client.actionDelete("/queue/\(id)")
+        }
+        selected.removeAll()
+        await load()
     }
 
     private func load() async {

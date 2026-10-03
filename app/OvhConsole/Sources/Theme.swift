@@ -313,7 +313,9 @@ struct ActBtn: View {
 
     private var btnFg: Color {
         switch kind {
-        case .primary: return theme.t.dark ? Color.white : t.color(t.accent)
+        // 绿底永远配白字:浅色模式下 accent(#15803D)也够深,
+        // 之前浅色下字和背景同色导致按钮文字整体隐形(实测踩坑)
+        case .primary: return Color.white
         case .ghost: return t.color(t.fg)
         case .danger: return t.color(t.danger)
         }
