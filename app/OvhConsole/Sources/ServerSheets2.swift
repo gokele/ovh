@@ -601,6 +601,7 @@ struct ToggleSheet: View {
     @State private var loading = true
     @State private var err: String?
     @State private var busy = false
+    @State private var notAvailable = false
     /// Burst 的 PUT 语义是 status=active/inactive(不是布尔 enabled)
     var usesStatusBody: Bool { getPath.contains("burst") }
 
@@ -613,6 +614,9 @@ struct ToggleSheet: View {
                         ProgressView().padding(30)
                     } else if let e = err {
                         LoadFailed(message: e) { Task { await load() } }
+                    } else if notAvailable {
+                        // KS 等入门机型不支持 Burst/防火墙,后端返回 notAvailable
+                        EmptyHint(icon: "minus.circle", text: "该机型不支持此功能")
                     } else {
                         if let on = enabled {
                             HStack {
@@ -650,6 +654,9 @@ struct ToggleSheet: View {
         do {
             let r = try await conn.client.getDict(getPath)
             // handler 把状态包在 burst / firewall 对象里
+            notAvailable = (r["notAvailable"] as? Bool ?? false)
+                || (r["unknownService"] as? Bool ?? false)
+                || ((r["success"] as? Bool ?? true) == false && r["error"] != nil && (r["burst"] == nil && r["firewall"] == nil))
             let inner = (r["burst"] as? [String: Any]) ?? (r["firewall"] as? [String: Any]) ?? r
             if let st = inner["status"] as? String {
                 enabled = (st == "active" || st == "enabled" || st == "enabledForVrack")

@@ -27,6 +27,7 @@ struct SettingsScreen: View {
                         NavRow(icon: "internaldrive.fill", title: "缓存管理", desc: "目录/价格缓存查看与清除", tint: t.muted) { subpath.append(.cache) }
                         NavRow(icon: "person.text.rectangle.fill", title: "OVH 账户信息", desc: "客户资料 / 邮件历史 / 退款", tint: t.muted) { subpath.append(.accountInfo) }
                         NavRow(icon: "doc.text.magnifyingglass", title: "运行日志", desc: "最近 200 条,自动刷新", tint: t.muted) { subpath.append(.logs) }
+                        snipeDefaultsCard
                         appearanceCard
                         aboutCard
                         dangerCard
@@ -108,6 +109,30 @@ struct SettingsScreen: View {
             .background(RoundedRectangle(cornerRadius: 11).fill(on ? t.color(t.accent).opacity(0.12) : t.color(t.surfaceMuted)))
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: 抢购默认值(只读 —— 保存接口是全量覆盖,部分提交会清掉 TG 等配置,改值去网页端)
+
+    @State private var snipeDefaults: [String: Any]?
+    private var snipeDefaultsCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 9) {
+                SectionTitle(text: "抢购默认间隔")
+                if let d = snipeDefaults {
+                    KV(k: "新任务重试间隔", v: "\(numToDoubleAny(d["defaultRetryInterval"]).map(Int.init) ?? 0) 秒")
+                    KV(k: "自动抢(监控触发)", v: "\(numToDoubleAny(d["quickOrderRetryInterval"]).map(Int.init) ?? 0) 秒")
+                    Text("只影响之后新建的任务;修改在网页端「设置 → 抢购」。")
+                        .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                } else {
+                    Text("…").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                }
+            }
+        }
+        .task {
+            if snipeDefaults == nil {
+                snipeDefaults = try? await conn.client.getDict("/settings")
+            }
+        }
     }
 
     // MARK: 关于(版本 + 构建时间;一眼判断跑的是不是最新构建)
@@ -525,6 +550,12 @@ struct OvhAccountScreen: View {
                                 if let city = i["city"] as? String {
                                     KV(k: "持有人", v: "\(city) \(i["country"] as? String ?? "")")
                                 }
+                                if let sub = i["ovhSubsidiary"] as? String, !sub.isEmpty {
+                                    KV(k: "OVH 子公司", v: sub)
+                                }
+                                if let cur = i["currency"] as? String, !cur.isEmpty {
+                                    KV(k: "结算币种", v: cur)
+                                }
                             }
                         }
                         if let sub = i["subsidiaryMismatch"] as? Bool, sub {
@@ -551,15 +582,28 @@ struct OvhAccountScreen: View {
                         }
                         ForEach(refunds.indices, id: \.self) { i in
                             let r = refunds[i]
+                            let price = r["priceWithoutTax"] as? [String: Any]
                             Card {
                                 VStack(spacing: 6) {
                                     HStack {
                                         Text(r["refundId"] as? String ?? "—").font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
                                         Spacer()
-                                        Text(String(format: "%.2f %@", (r["amount"] as? Double) ?? 0, r["currency"] as? String ?? ""))
-                                            .font(.system(size: 12, weight: .bold, design: .rounded)).foregroundColor(t.color(t.success))
+                                        if let txt = price?["text"] as? String {
+                                            Text(txt).font(.system(size: 12, weight: .bold, design: .rounded)).foregroundColor(t.color(t.success))
+                                        } else if let v = numToDoubleAny(price?["value"]) {
+                                            Text(String(format: "%.2f %@", v, price?["currencyCode"] as? String ?? ""))
+                                                .font(.system(size: 12, weight: .bold, design: .rounded)).foregroundColor(t.color(t.success))
+                                        }
                                     }
                                     KV(k: "日期", v: fmtDate(r["date"] as? String))
+                                    if let url = r["pdfUrl"] as? String, let u = URL(string: url) {
+                                        Link(destination: u) {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "arrow.down.doc").font(.system(size: 10))
+                                                Text("下载 PDF").font(.system(size: 11, weight: .semibold))
+                                            }.foregroundColor(t.color(t.info))
+                                        }
+                                    }
                                 }
                             }
                         }

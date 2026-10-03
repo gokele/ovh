@@ -282,11 +282,13 @@ struct OverviewSection: View {
     }
 
     private func memText(_ mem: Any?) -> String {
-        if let m = mem as? [String: Any] {
-            if let unit = m["unit"] as? String, let val = m["value"] as? Double {
-                return unit.lowercased() == "gi" ? "\(Int(val)) GiB" : "\(val) \(unit)"
-            }
-            return m.values.first.flatMap { "\($0)" } ?? "—"
+        if let m = mem as? [String: Any],
+           let unit = (m["unit"] as? String)?.lowercased(),
+           let val = numToDoubleAny(m["value"]) {
+            // OVH 常给 MB(32768),换算成人话
+            if unit == "mb" && val >= 1024 { return String(format: "%.0f GB", val / 1024) }
+            if unit == "gi" { return "\(Int(val)) GiB" }
+            return "\(Int(val)) \(unit.uppercased())"
         }
         return mem.flatMap { "\($0)" } ?? "—"
     }
