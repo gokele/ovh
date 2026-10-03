@@ -106,7 +106,7 @@ struct CatalogPane: View {
     /// App 端目录缓存:与 web 的 React Query 同思路 —— 5 分钟内切回来直接用旧数据,
     /// 后台静默刷新(否则每次进抢购页都等 OVH 目录+价格,体感就是"加载好久")。
     private static let cacheTTL: TimeInterval = 300
-    static var memCache: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], currency: String, age: Int?, expired: Bool)? = nil
+    static var memCache: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], addons: [String: Double], currency: String, age: Int?, expired: Bool)? = nil
     @State private var loading = true
     @State private var search = ""
     @State private var onlyAvailable = false
@@ -328,10 +328,16 @@ struct CatalogPane: View {
                 avail[code] = dcMap
             }
             availability = avail
+            var addonMap: [String: Double] = [:]
             if let cr = cr, let cplans = cr["plans"] as? [[String: Any]] {
                 for p in cplans {
                     if let code = p["planCode"] as? String {
                         priceMap[code] = monthlyPriceOf(p["pricings"] as? [[String: Any]])
+                    }
+                }
+                for a in (cr["addons"] as? [[String: Any]]) ?? [] {
+                    if let c = a["planCode"] as? String {
+                        addonMap[c] = monthlyPriceOf(a["pricings"] as? [[String: Any]])
                     }
                 }
                 priceCurrency = (cr["locale"] as? [String: Any])?["currencyCode"] as? String ?? ""
@@ -341,12 +347,12 @@ struct CatalogPane: View {
                 cacheAgeMin = numToDoubleAny(ci["cacheAgeMinutes"]).map(Int.init)
                 cacheExpired = (ci["usingExpiredCache"] as? Bool ?? false) || (ci["cached"] as? Bool == false)
             }
-            Self.memCache = (Date(), plans, availability, priceMap, priceCurrency, cacheAgeMin, cacheExpired)
+            Self.memCache = (Date(), plans, availability, priceMap, addonMap, priceCurrency, cacheAgeMin, cacheExpired)
         } catch { err = error.localizedDescription }
         loading = false
     }
 
-    private func applyCache(_ c: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], currency: String, age: Int?, expired: Bool)) {
+    private func applyCache(_ c: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], addons: [String: Double], currency: String, age: Int?, expired: Bool)) {
         plans = c.plans; availability = c.avail; priceMap = c.prices
         priceCurrency = c.currency; cacheAgeMin = c.age; cacheExpired = c.expired
         loading = false
@@ -695,8 +701,10 @@ struct SnipeOrderSheet: View {
         // 目录数据:优先复用目录页的缓存(12MB 的目录不该每开一次下单就重拉一遍)
         var r: [String: Any]? = nil
         if let c = CatalogPane.memCache, !c.prices.isEmpty {
-            // 缓存里只有价格映射,组信息还需要 plan 的 options —— 从缓存 plans 里拿
-            addonPrices = c.prices
+            // 缓存:prices = 各机型基础价;addons = 各选配增量价(ServerPlan 无 pricings 字段,
+            // 基础价必须取缓存价表而不是从 plan 里算 —— 之前就是这里取错来源显示 0.00)
+            basePrice = c.prices[planCode] ?? 0
+            addonPrices = c.addons
             currency = c.currency
             if let p = (c.plans as [[String: Any]]).first(where: { ($0["planCode"] as? String) == planCode }) {
                 buildGroups(from: p)
@@ -723,7 +731,9 @@ struct SnipeOrderSheet: View {
 
     /// defaultOptions + availableOptions 合并 → family 中文分组 → 默认项预选
     private func buildGroups(from p: [String: Any]) {
-        basePrice = max(basePrice, monthlyPrice(p["pricings"] as? [[String: Any]]))
+        if let pr = p["pricings"] as? [[String: Any]] {
+            basePrice = max(basePrice, monthlyPrice(pr))   // catalog 原始 plan 才有 pricings
+        }
         let defaults = (p["defaultOptions"] as? [[String: Any]]) ?? []
         let defaultValues = Set(defaults.compactMap { $0["value"] as? String })
         var all = defaults
