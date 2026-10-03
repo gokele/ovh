@@ -25,11 +25,11 @@ struct PairingScreen: View {
                 VStack(spacing: 12) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 20)
-                            .fill(LinearGradient(colors: [t.color(t.accent).opacity(0.22), t.color(t.accent).opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .fill(t.color(t.accent).opacity(0.12))
                             .frame(width: 84, height: 84)
                         Image(systemName: "server.rack")
                             .font(.system(size: 34, weight: .medium))
-                            .foregroundStyle(LinearGradient(colors: [t.color(t.accent), t.color(t.info)], startPoint: .top, endPoint: .bottom))
+                            .foregroundColor(t.color(t.accent))
                     }
                     .padding(.top, 56)
                     VStack(spacing: 5) {

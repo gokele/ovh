@@ -405,75 +405,83 @@ struct SnipeOrderSheet: View {
                     if loading {
                         ProgressView().padding(30)
                     } else {
-                        // 价格 hero
-                        VStack(spacing: 3) {
-                            Text(String(format: "%.2f", totalPrice) + (currency.isEmpty ? "" : " \(currency)"))
-                                .font(.system(size: 24, weight: .bold, design: .rounded)).foregroundColor(t.color(t.fg))
-                            Text("月费 = 基础 \(String(format: "%.2f", basePrice)) + 选配 \(String(format: "%.2f", totalPrice - basePrice))")
-                                .font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                        // 价格 hero:大数字 + 构成分段着色 + 渐变强调
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                Text(String(format: "%.2f", totalPrice))
+                                    .font(.system(size: 32, weight: .heavy, design: .rounded))
+                                    .foregroundColor(t.color(t.fg))
+                                Text(currency.isEmpty ? "/月" : "\(currency) /月")
+                                    .font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.muted))
+                                Spacer()
+                                if !pickedDCs.isEmpty {
+                                    Chip(text: "\(pickedDCs.count * qty) 个任务", color: t.warning)
+                                }
+                            }
+                            HStack(spacing: 12) {
+                                Text("基础 ").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                                Text(String(format: "%.2f", basePrice)).font(.system(size: 10.5, weight: .semibold, design: .rounded)).foregroundColor(t.color(t.fg))
+                                Text("· 选配 ").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                                Text(String(format: "+%.2f", totalPrice - basePrice)).font(.system(size: 10.5, weight: .semibold, design: .rounded)).foregroundColor(t.color(t.accent))
+                                Spacer()
+                                Text("下单账户:\(conn.activeAccount?["name"] as? String ?? "—")")
+                                    .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                            }
                         }
-                        .frame(maxWidth: .infinity).padding(12)
-                        .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.accent).opacity(0.07)))
+                        .padding(14)
+                        .background(RoundedRectangle(cornerRadius: 15).fill(t.color(t.accent).opacity(0.08)))
+                        .overlay(RoundedRectangle(cornerRadius: 15).stroke(t.color(t.accent).opacity(0.22), lineWidth: 1))
 
-                        // 配置组(对齐 web:family 中文分组 + 人类可读选项 + 默认徽章)
+                        // 配置组:每组一张圆角容器卡,选中 chip 绿描边 + 对勾
                         if groups.isEmpty {
                             SheetNote(text: "目录里没有该机型的选配项,按默认配置下单。", tint: t.muted)
                         } else {
                             ForEach(groups.indices, id: \.self) { gi in
                                 let g = groups[gi]
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(g.key).font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.muted))
-                                    FlowLayout(spacing: 6) {
+                                VStack(alignment: .leading, spacing: 9) {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: groupIcon(g.key)).font(.system(size: 10, weight: .semibold)).foregroundColor(t.color(t.accent))
+                                        Text(g.key).font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.muted))
+                                    }
+                                    FlowLayout(spacing: 7) {
                                         ForEach(g.items, id: \.value) { item in
                                             optionChip(item)
                                         }
                                     }
                                 }
+                                .padding(11)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surfaceMuted).opacity(0.55)))
                             }
                         }
 
-                        // 机房
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
+                        // 机房:双行 chip(代码 + 中文交付短语),选中绿实心
+                        VStack(alignment: .leading, spacing: 9) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "map").font(.system(size: 10, weight: .semibold)).foregroundColor(t.color(t.accent))
                                 Text("数据中心").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.muted))
                                 Spacer()
                                 if dcs.contains(where: { isOrderable((availability[planCode]?[$0]) ?? "") }) {
-                                    Button { pickAllAvailable() } label: {
-                                        Text("选有货").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.accent))
-                                    }.buttonStyle(.plain)
+                                    miniAction("选有货", color: t.accent) { pickAllAvailable() }
                                 }
                                 if !pickedDCs.isEmpty {
-                                    Button { pickedDCs.removeAll() } label: {
-                                        Text("清空").font(.system(size: 11)).foregroundColor(t.color(t.faint))
-                                    }.buttonStyle(.plain)
+                                    miniAction("清空", color: t.faint) { pickedDCs.removeAll() }
                                 }
                             }
-                            FlowLayout(spacing: 6) {
+                            FlowLayout(spacing: 7) {
                                 ForEach(dcs, id: \.self) { dc in
-                                let status = availability[planCode]?[dc] ?? ""
-                                    let ok = isOrderable(status)
-                                    let on = pickedDCs.contains(dc)
-                                    Button { toggleDC(dc) } label: {
-                                        Text("\(dc.uppercased()) \(status)")
-                                            .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(t.color(on ? t.fg : (ok ? t.success : t.faint)))
-                                            .padding(.horizontal, 8).padding(.vertical, 5)
-                                            .background(RoundedRectangle(cornerRadius: 8).fill(on ? t.color(t.accent) : (ok ? t.color(t.success).opacity(0.1) : t.color(t.surfaceMuted))))
-                                    }.buttonStyle(.plain)
+                                    dcChip(dc)
                                 }
                             }
                         }
+                        .padding(11)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surfaceMuted).opacity(0.55)))
 
-                        // 数量与间隔
-                        HStack(spacing: 14) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("每机房数量:\(qty)").font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
-                                Stepper("", value: $qty, in: 1...10).labelsHidden()
-                            }
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("重试间隔:\(interval) 秒").font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
-                                Stepper("", value: $interval, in: 1...120, step: 1).labelsHidden()
-                            }
+                        // 数量与间隔:自绘加减器(原生 Stepper 与深色风格割裂)
+                        HStack(spacing: 10) {
+                            stepCard("每机房数量", value: "\(qty)", onMinus: { if qty > 1 { qty -= 1 } }, onPlus: { if qty < 10 { qty += 1 } })
+                            stepCard("重试间隔", value: "\(interval) 秒", onMinus: { if interval > 1 { interval -= 1 } }, onPlus: { if interval < 3600 { interval += 1 } })
                         }
 
                         Toggle(isOn: $autoPay) {
@@ -486,10 +494,18 @@ struct SnipeOrderSheet: View {
                         Text("将创建 \(pickedDCs.count * qty) 个任务").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.warning))
 
                         HStack(spacing: 10) {
-                            ActBtn(kind: .ghost, icon: "eye", label: "加入监控") {
+                            Button {
                                 Task { await addMonitorWithConfig() }
-                            }
-                            ActBtn(kind: .primary, icon: "bolt.fill", label: busy ? "创建中…" : "创建抢购任务", busy: busy) {
+                            } label: {
+                                VStack(spacing: 3) {
+                                    Image(systemName: "eye").font(.system(size: 15, weight: .semibold))
+                                    Text("加入监控").font(.system(size: 10.5, weight: .semibold))
+                                }
+                                .foregroundColor(t.color(t.muted))
+                                .frame(width: 86, height: 58)
+                                .background(RoundedRectangle(cornerRadius: 14).stroke(t.color(t.border), lineWidth: 1))
+                            }.buttonStyle(.plain)
+                            ActBtn(kind: .primary, icon: "bolt.fill", label: busy ? "创建中…" : "创建抢购任务(\(pickedDCs.count * qty))", busy: busy) {
                                 await submit()
                             }
                         }
@@ -503,35 +519,134 @@ struct SnipeOrderSheet: View {
         .task { await load() }
     }
 
+    private func miniAction(_ label: String, color: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.system(size: 10.5, weight: .semibold)).foregroundColor(t.color(color))
+                .padding(.horizontal, 9).padding(.vertical, 5)
+                .background(Capsule().stroke(t.color(color).opacity(0.5), lineWidth: 1))
+        }.buttonStyle(.plain)
+    }
+
+    /// OVH 可用性枚举 → 中文短语
+    static func availText(_ raw: String) -> String {
+        let r = raw.lowercased()
+        if r == "comingsoon" { return "即将开卖" }
+        if r == "unavailable" || r == "unknown" || r.isEmpty { return "无货" }
+        if let m = r.range(of: #"^(\d+)h(-high|-low)?$"#, options: .regularExpression) {
+            let hours = String(r[m]).prefix(while: \Character.isNumber)
+            let h = Int(hours) ?? 0
+            let suffix = r.contains("-high") ? "充足" : (r.contains("-low") ? "紧张" : "")
+            if h < 24 { return h == 0 ? "现货" : "\(h)小时 交付 \(suffix)".trimmingCharacters(in: .whitespaces) }
+            if h < 168 { return "\(h / 24)天 交付 \(suffix)".trimmingCharacters(in: .whitespaces) }
+            return "\(h / 24)天 \(suffix)".trimmingCharacters(in: .whitespaces)
+        }
+        return raw
+    }
+
+    private func dcChip(_ dc: String) -> some View {
+        let status = availability[planCode]?[dc] ?? ""
+        let inStock = isOrderable(status)
+        let on = pickedDCs.contains(dc)
+        return Button {
+            withAnimation(.easeOut(duration: 0.15)) { toggleDC(dc) }
+        } label: {
+            VStack(spacing: 1.5) {
+                HStack(spacing: 4) {
+                    if inStock {
+                        Circle().fill(on ? Color.white : t.color(t.success)).frame(width: 5, height: 5)
+                    }
+                    Text(dc.uppercased())
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(on ? .white : (inStock ? t.color(t.fg) : t.color(t.faint)))
+                }
+                Text(Self.availText(status))
+                    .font(.system(size: 8.5, weight: .medium))
+                    .foregroundColor(on ? Color.white.opacity(0.85) : t.color(inStock ? t.success : t.faint))
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(minWidth: 64)
+            .background(RoundedRectangle(cornerRadius: 10).fill(on ? t.color(t.accent) : (inStock ? t.color(t.success).opacity(0.09) : t.color(t.bg).opacity(0.45))))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? t.color(t.accent) : (inStock ? t.color(t.success).opacity(0.25) : t.color(t.border).opacity(0.4)), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 自绘加减器(替代原生 Stepper)
+    private func stepCard(_ title: String, value: String, onMinus: @escaping () -> Void, onPlus: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title).font(.system(size: 10.5, weight: .semibold)).foregroundColor(t.color(t.muted))
+            HStack(spacing: 0) {
+                stepBtn("minus", action: onMinus)
+                Spacer(minLength: 4)
+                Text(value).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(t.color(t.fg))
+                    .frame(minWidth: 40)
+                Spacer(minLength: 4)
+                stepBtn("plus", action: onPlus)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surfaceMuted).opacity(0.55)))
+    }
+
+    private func stepBtn(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.12)) { action() }
+        } label: {
+            Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+                .foregroundColor(t.color(t.fg))
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(t.color(t.bg).opacity(0.5)))
+        }.buttonStyle(.plain)
+    }
+
     private var totalPrice: Double {
         basePrice + pickedByGroup.values.reduce(0) { $0 + (addonPrices[$1] ?? 0) }
     }
     private var selected: [String] { Array(pickedByGroup.values) }
 
     private func optionChip(_ item: (value: String, label: String, price: Double, isDefault: Bool)) -> some View {
-        let on = pickedByGroup.first(where: { $0.value == item.value }) != nil || pickedByGroup.values.contains(item.value)
+        let on = pickedByGroup.values.contains(item.value)
         return Button {
-            // 找到该选项所属组(以当前 groups 顺序),单选替换
             if let g = groups.first(where: { grp in grp.items.contains(where: { $0.value == item.value }) }) {
-                pickedByGroup[g.key] = item.value
+                withAnimation(.easeOut(duration: 0.15)) { pickedByGroup[g.key] = item.value }
             }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
+                if on {
+                    Image(systemName: "checkmark").font(.system(size: 8.5, weight: .bold)).foregroundColor(t.color(t.accent))
+                }
                 Text(item.label)
-                    .font(.system(size: 10.5, weight: on ? .semibold : .regular))
+                    .font(.system(size: 11, weight: on ? .semibold : .regular))
                     .foregroundColor(t.color(on ? t.fg : t.muted))
                     .lineLimit(1)
-                if item.isDefault && !on {
-                    Text("默认").font(.system(size: 8, weight: .bold)).foregroundColor(t.color(t.faint))
-                }
                 if item.price > 0 {
-                    Text(String(format: "+%.0f", item.price)).font(.system(size: 9, design: .rounded)).foregroundColor(t.color(on ? t.accent : t.faint))
+                    Text(String(format: "+%.0f", item.price)).font(.system(size: 9.5, design: .rounded)).foregroundColor(t.color(on ? t.accent : t.faint))
+                }
+                if item.isDefault && !on {
+                    Text("默认").font(.system(size: 8, weight: .bold))
+                        .foregroundColor(t.color(t.faint))
+                        .padding(.horizontal, 4).padding(.vertical, 1.5)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(t.color(t.fg).opacity(0.08)))
                 }
             }
-            .padding(.horizontal, 9).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 9).fill(on ? t.color(t.accent).opacity(0.18) : t.color(t.surfaceMuted)))
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 9).fill(on ? t.color(t.accent).opacity(0.13) : t.color(t.bg).opacity(0.45)))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(on ? t.color(t.accent).opacity(0.55) : t.color(t.border).opacity(0.4), lineWidth: 1))
         }
         .buttonStyle(.plain)
+    }
+
+    /// 配置组图标
+    private func groupIcon(_ key: String) -> String {
+        switch key {
+        case "CPU / 处理器": return "cpu"
+        case "内存": return "memorychip"
+        case "系统盘", "存储 / 数据盘": return "internaldrive"
+        case "带宽 / 网络": return "speedometer"
+        case "vRack 内网": return "network"
+        default: return "shippingbox"
+        }
     }
 
     /// option.family → 中文组名;非硬件(许可证/系统/面板)返回 nil 排除(对齐 web isHardwareOption)
