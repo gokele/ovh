@@ -62,6 +62,7 @@ struct CatalogPane: View {
     @State private var cacheAgeMin: Int? = nil
     @State private var cacheExpired = false
     @State private var err: String?
+    @State private var forcing = false
 
     /// App 端目录缓存:与 web 的 React Query 同思路 —— 5 分钟内切回来直接用旧数据,
     /// 后台静默刷新(否则每次进抢购页都等 OVH 目录+价格,体感就是"加载好久")。
@@ -100,17 +101,29 @@ struct CatalogPane: View {
                     }
                     Spacer()
                     Button {
-                        Self.memCache = nil
-                        loading = true
-                        Task { await load(force: true) }
+                        guard !forcing else { return }
+                        forcing = true
+                        Task {
+                            // 对齐 web 的强刷三件套:先清后端内存缓存,逼它去 OVH 拿新数据;
+                            // 只清 App 缓存的话,拉回来的还是后端那份旧缓存,看起来"点了没用"
+                            let body = try? JSONSerialization.data(withJSONObject: ["type": "memory"])
+                            _ = await conn.client.actionPostData("/cache/clear", bodyData: body)
+                            Self.memCache = nil
+                            await load(force: true)
+                            forcing = false
+                            toast.show(cacheExpired ? "已刷新(后端仍在用过期缓存)" : "目录已刷新")
+                        }
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 10.5, weight: .semibold))
-                            Text("强刷目录").font(.system(size: 11.5, weight: .semibold))
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .rotationEffect(.degrees(forcing ? 360 : 0))
+                                .animation(forcing ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: forcing)
+                            Text(forcing ? "刷新中…" : "强刷目录").font(.system(size: 11.5, weight: .semibold))
                         }.foregroundColor(t.color(t.info))
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(Capsule().stroke(t.color(t.info), lineWidth: 1))
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).disabled(forcing)
                 }
 
                 if let e = err {
