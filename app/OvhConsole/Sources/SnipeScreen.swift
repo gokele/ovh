@@ -47,6 +47,45 @@ struct SnipeScreen: View {
     }
 }
 
+// MARK: - 目录数据源:优先直连 OVH 公开目录,失败回落自建后端
+
+/// 子公司 → OVH 站点主机(与后端 ovh.SubsidiaryRegion/APIBaseURLForRegion 同表)
+func catalogHost(_ sub: String) -> String {
+    let s = sub.uppercased()
+    let caSet: Set<String> = ["ASIA", "AU", "CA", "IN", "QC", "SG", "WE", "WS"]
+    if s == "US" { return "api.us.ovhcloud.com" }
+    if caSet.contains(s) { return "ca.api.ovh.com" }
+    return "eu.api.ovh.com"
+}
+
+/// OVH 直连失败(被墙/超时)后的冷却:10 分钟内不再白等,直接走后端
+private var directCatalogFailedAt: Date? = nil
+
+/// 抢购页的机型配置/价格:直连 OVH 公开 eco 目录(与后端拉的是同一 URL,
+/// 响应结构完全一致,解析零改动)。公开接口不带凭据,不占账户配额;
+/// 直连失败(典型:国内网络被墙)自动回落自建后端 /catalog。
+func fetchCatalogSmart(conn: Connection, sub: String) async -> [String: Any]? {
+    let s = sub.uppercased()
+    if let failedAt = directCatalogFailedAt, Date().timeIntervalSince(failedAt) < 600 {
+        // 冷却期内:直接后端
+        let path = s.isEmpty ? "/catalog" : "/catalog?subsidiary=\(urlEncode(s))"
+        return try? await conn.client.getDict(path, timeoutSec: 45)
+    }
+    if !s.isEmpty {
+        let url = "https://\(catalogHost(s))/v1/order/catalog/public/eco?ovhSubsidiary=\(urlEncode(s))"
+        // 直连在独立线程跑 URLSession(阻塞式)
+        let direct = await Task.detached(priority: .userInitiated) {
+            ApiClient.httpsJSON(url, timeoutSec: 15)
+        }.value
+        if let d = direct, !(d["plans"] as? [[String: Any]] ?? []).isEmpty {
+            return d
+        }
+        directCatalogFailedAt = Date()
+    }
+    let path = s.isEmpty ? "/catalog" : "/catalog?subsidiary=\(urlEncode(s))"
+    return try? await conn.client.getDict(path, timeoutSec: 45)
+}
+
 // MARK: - 目录段
 
 struct CatalogPane: View {
@@ -270,11 +309,9 @@ struct CatalogPane: View {
         }
         err = nil
         do {
-            // servers(后端内存缓存,快)与 catalog(SQLite 缓存 2h)并行拉
+            // servers(后端内存缓存,快)与 catalog(直连 OVH / 失败回落后端)并行拉
             let sub = sub2
-            async let catalogTask: [String: Any]? = sub.isEmpty
-                ? conn.client.getDict("/catalog")
-                : conn.client.getDict("/catalog?subsidiary=\(urlEncode(sub))")
+            async let catalogTask: [String: Any]? = fetchCatalogSmart(conn: conn, sub: sub)
             let sr = try await conn.client.getDict("/servers")
             let cr = try await catalogTask
             plans = (sr["servers"] as? [[String: Any]]) ?? []
@@ -553,8 +590,7 @@ struct SnipeOrderSheet: View {
         }
         var sub = ""
         if let acc = conn.activeAccount, let z = acc["zone"] as? String, !z.isEmpty { sub = z }
-        let path = sub.isEmpty ? "/catalog" : "/catalog?subsidiary=\(urlEncode(sub))"
-        guard let resp = try? await conn.client.getDict(path) else { return }
+        guard let resp = await fetchCatalogSmart(conn: conn, sub: sub) else { return }
         r = resp
         currency = (resp["locale"] as? [String: Any])?["currencyCode"] as? String ?? ""
         let cplans = (resp["plans"] as? [[String: Any]]) ?? []

@@ -198,6 +198,27 @@ struct ApiClient {
         return (statusCode, Data(bodyData))
     }
 
+    /// URLSession 直连 https 公开接口(OVH 公开目录)。
+    /// https 不在 ATS 拦截范围,走系统栈反而能吃到连接复用与 CDN 优势。
+    static func httpsJSON(_ url: String, timeoutSec: Double = 15) -> [String: Any]? {
+        guard let u = URL(string: url) else { return nil }
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = timeoutSec
+        cfg.timeoutIntervalForResource = timeoutSec + 30   // 12MB 大目录给足资源时间
+        let sem = DispatchSemaphore(value: 0)
+        var out: [String: Any]? = nil
+        let task = URLSession(configuration: cfg).dataTask(with: u) { data, resp, _ in
+            defer { sem.signal() }
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                  let d = data,
+                  let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return }
+            out = obj
+        }
+        task.resume()
+        sem.wait()
+        return out
+    }
+
     /// 不走 ATS 的 URLSession:某些 iOS 版本对 Info.plist 的
     /// NSAllowsArbitraryLoads 处理有差异,代码层再兜一道底
     /// (URLSessionConfiguration 默认继承 ATS,这里显式允许不安全连接)
