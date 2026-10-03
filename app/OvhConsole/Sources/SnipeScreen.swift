@@ -67,7 +67,7 @@ struct CatalogPane: View {
     /// App 端目录缓存:与 web 的 React Query 同思路 —— 5 分钟内切回来直接用旧数据,
     /// 后台静默刷新(否则每次进抢购页都等 OVH 目录+价格,体感就是"加载好久")。
     private static let cacheTTL: TimeInterval = 300
-    private static var memCache: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], currency: String, age: Int?, expired: Bool)? = nil
+    static var memCache: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], currency: String, age: Int?, expired: Bool)? = nil
     @State private var loading = true
     @State private var search = ""
     @State private var onlyAvailable = false
@@ -344,9 +344,10 @@ struct SnipeOrderSheet: View {
     let availability: [String: [String: String]]
     var t: Tokens { theme.t }
 
-    @State private var families: [(key: String, addons: [String])] = []
+    /// 配置分组(对齐 web:按 option.family 分类,中文组名,排除许可证等非硬件项)
+    @State private var groups: [(key: String, items: [(value: String, label: String, price: Double, isDefault: Bool)])] = []
+    @State private var pickedByGroup: [String: String] = [:]
     @State private var addonPrices: [String: Double] = [:]
-    @State private var selected: [String] = []           // 每组选中的 addon(去前缀比较)
     @State private var dcs: [String] = []
     @State private var pickedDCs: Set<String> = []
     @State private var qty = 1
@@ -369,7 +370,7 @@ struct SnipeOrderSheet: View {
                     } else {
                         // 价格 hero
                         VStack(spacing: 3) {
-                            Text(String(format: "%.2f", totalPrice) + (currency.isEmpty ? " 无币种" : " \(currency)"))
+                            Text(String(format: "%.2f", totalPrice) + (currency.isEmpty ? "" : " \(currency)"))
                                 .font(.system(size: 24, weight: .bold, design: .rounded)).foregroundColor(t.color(t.fg))
                             Text("月费 = 基础 \(String(format: "%.2f", basePrice)) + 选配 \(String(format: "%.2f", totalPrice - basePrice))")
                                 .font(.system(size: 10)).foregroundColor(t.color(t.muted))
@@ -377,17 +378,17 @@ struct SnipeOrderSheet: View {
                         .frame(maxWidth: .infinity).padding(12)
                         .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.accent).opacity(0.07)))
 
-                        // 配置组
-                        if families.isEmpty {
+                        // 配置组(对齐 web:family 中文分组 + 人类可读选项 + 默认徽章)
+                        if groups.isEmpty {
                             SheetNote(text: "目录里没有该机型的选配项,按默认配置下单。", tint: t.muted)
                         } else {
-                            ForEach(families.indices, id: \.self) { i in
-                                let fam = families[i]
+                            ForEach(groups.indices, id: \.self) { gi in
+                                let g = groups[gi]
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text(groupLabel(fam.key)).font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.muted))
+                                    Text(g.key).font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.muted))
                                     FlowLayout(spacing: 6) {
-                                        ForEach(fam.addons, id: \.self) { code in
-                                            addonChip(fam.key, code)
+                                        ForEach(g.items, id: \.value) { item in
+                                            optionChip(item)
                                         }
                                     }
                                 }
@@ -466,27 +467,28 @@ struct SnipeOrderSheet: View {
     }
 
     private var totalPrice: Double {
-        basePrice + selected.reduce(0) { $0 + (addonPrices[$1] ?? 0) }
+        basePrice + pickedByGroup.values.reduce(0) { $0 + (addonPrices[$1] ?? 0) }
     }
+    private var selected: [String] { Array(pickedByGroup.values) }
 
-    private func groupLabel(_ key: String) -> String {
-        // family key 形如 "250sk-内存" 或 fqn 维度;去掉 planCode 前缀做标签
-        var label = key
-        for prefix in [planCode + "-", planCode] where label.hasPrefix(prefix) {
-            label = String(label.dropFirst(prefix.count))
-        }
-        return label.isEmpty ? key : label
-    }
-
-    private func addonChip(_ famKey: String, _ code: String) -> some View {
-        let on = isSelected(famKey, code)
-        let price = addonPrices[code] ?? 0
-        return Button { toggleAddon(famKey, code) } label: {
-            VStack(spacing: 2) {
-                Text(shortAddon(code, famKey: famKey))
-                    .font(.system(size: 10.5)).foregroundColor(t.color(on ? t.fg : t.muted))
-                if price > 0 {
-                    Text(String(format: "+%.2f", price)).font(.system(size: 9, design: .rounded)).foregroundColor(t.color(on ? t.accent : t.faint))
+    private func optionChip(_ item: (value: String, label: String, price: Double, isDefault: Bool)) -> some View {
+        let on = pickedByGroup.first(where: { $0.value == item.value }) != nil || pickedByGroup.values.contains(item.value)
+        return Button {
+            // 找到该选项所属组(以当前 groups 顺序),单选替换
+            if let g = groups.first(where: { grp in grp.items.contains(where: { $0.value == item.value }) }) {
+                pickedByGroup[g.key] = item.value
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(item.label)
+                    .font(.system(size: 10.5, weight: on ? .semibold : .regular))
+                    .foregroundColor(t.color(on ? t.fg : t.muted))
+                    .lineLimit(1)
+                if item.isDefault && !on {
+                    Text("默认").font(.system(size: 8, weight: .bold)).foregroundColor(t.color(t.faint))
+                }
+                if item.price > 0 {
+                    Text(String(format: "+%.0f", item.price)).font(.system(size: 9, design: .rounded)).foregroundColor(t.color(on ? t.accent : t.faint))
                 }
             }
             .padding(.horizontal, 9).padding(.vertical, 6)
@@ -495,27 +497,34 @@ struct SnipeOrderSheet: View {
         .buttonStyle(.plain)
     }
 
-    private func shortAddon(_ code: String, famKey: String) -> String {
-        // 去掉组前缀,剩人类可读部分
-        var s = code
-        if let dash = s.range(of: famKey + "-", options: .caseInsensitive) {
-            s = String(s[dash.upperBound...])
-        } else if s.hasSuffix(famKey) {
-            s = String(s.dropLast(famKey.count))
+    /// option.family → 中文组名;非硬件(许可证/系统/面板)返回 nil 排除(对齐 web isHardwareOption)
+    static func optionGroup(of option: [String: Any]) -> String? {
+        let family = ((option["family"] as? String) ?? "").lowercased()
+        let value = ((option["value"] as? String) ?? (option["label"] as? String) ?? "").lowercased()
+        let label = (option["label"] as? String) ?? ""
+        // 排除许可证/OS/面板类
+        let exclude = ["windows-server", "sql-server", "cpanel-license", "plesk-", "-license-", "control-panel", "panel", "security", "antivirus", "firewall"]
+        if value.hasPrefix("os-") || exclude.contains(where: { value.contains($0) }) || label.lowercased().contains("license") { return nil }
+        if family.contains("system-storage") { return "系统盘" }
+        if family.contains("memory") || family.contains("ram") { return "内存" }
+        if family.contains("storage") { return "存储 / 数据盘" }
+        if family.contains("bandwidth") || family.contains("traffic") { return "带宽 / 网络" }
+        if family.contains("vrack") { return "vRack 内网" }
+        if value.contains("ram-") { return "内存" }
+        if value.contains("cpu") || value.contains("processor") { return "CPU / 处理器" }
+        if value.contains("vrack") { return "vRack 内网" }
+        return "其他"
+    }
+
+    /// 选项 code → 人类可读短名(去机型尾缀与冗余前缀)
+    static func prettyOption(_ raw: String) -> String {
+        var s = raw
+        if let r = s.range(of: #"-\d{2}[a-z]{2,6}-v\d+$"#, options: .regularExpression) { s = String(s[..<r.lowerBound]) }
+        if let r = s.range(of: #"\d{3,}[a-z]+-v\d+$"#, options: .regularExpression) { s = String(s[..<r.lowerBound]) }
+        for (from, to) in [("ram-", ""), ("on-die-ecc-", "ECC "), ("softraid-", "软RAID "), ("hybridsoftraid-", "混合RAID "), ("bandwidth-", ""), ("vrack-bandwidth-", "vRack ")] {
+            if s.hasPrefix(from) { s = to + String(s.dropFirst(from.count)); break }
         }
-        return s.isEmpty ? code : s
-    }
-
-    private func isSelected(_ famKey: String, _ code: String) -> Bool {
-        // 每组单选:selected 存完整 addon code
-        selected.contains(code)
-    }
-
-    private func toggleAddon(_ famKey: String, _ code: String) {
-        // 同组其他项取消
-        let fam = families.first { $0.key == famKey }
-        selected.removeAll { fam?.addons.contains($0) ?? false }
-        if !selected.contains(code) { selected.append(code) }
+        return s.isEmpty ? raw : s
     }
 
     private func toggleDC(_ dc: String) {
@@ -528,34 +537,64 @@ struct SnipeOrderSheet: View {
 
     private func load() async {
         defer { loading = false }
-        // catalog 只认 ?subsidiary=(不认 ?account=),要跟当前账户的结算区走
+        // 机房(可用性 map)
+        dcs = (availability[planCode] ?? [:]).keys.sorted()
+
+        // 目录数据:优先复用目录页的缓存(12MB 的目录不该每开一次下单就重拉一遍)
+        var r: [String: Any]? = nil
+        if let c = CatalogPane.memCache, !c.prices.isEmpty {
+            // 缓存里只有价格映射,组信息还需要 plan 的 options —— 从缓存 plans 里拿
+            addonPrices = c.prices
+            currency = c.currency
+            if let p = (c.plans as [[String: Any]]).first(where: { ($0["planCode"] as? String) == planCode }) {
+                buildGroups(from: p)
+            }
+            return
+        }
         var sub = ""
         if let acc = conn.activeAccount, let z = acc["zone"] as? String, !z.isEmpty { sub = z }
         let path = sub.isEmpty ? "/catalog" : "/catalog?subsidiary=\(urlEncode(sub))"
-        guard let r = try? await conn.client.getDict(path) else { return }
-        currency = (r["locale"] as? [String: Any])?["currencyCode"] as? String ?? ""
-        let plans = (r["plans"] as? [[String: Any]]) ?? []
-        let addons = (r["addons"] as? [[String: Any]]) ?? []
-        var addonByCode: [String: [String: Any]] = [:]
-        for a in addons { if let c = a["planCode"] as? String { addonByCode[c] = a } }
-        // addon 月价
-        for (c, a) in addonByCode {
-            addonPrices[c] = monthlyPrice(a["pricings"] as? [[String: Any]])
-        }
-        // 机房(可用性 map)
-        dcs = (availability[planCode] ?? [:]).keys.sorted()
-        // 该 plan 的 families
-        if let p = plans.first(where: { ($0["planCode"] as? String) == planCode }) {
-            basePrice = monthlyPrice(p["pricings"] as? [[String: Any]])
-            // 目录形状:addonFamilies:[{name, addons:[...]}](不是 families 字典)
-            if let fams = p["addonFamilies"] as? [[String: Any]] {
-                families = fams.compactMap { f in
-                    let name = f["name"] as? String ?? ""
-                    let list = (f["addons"] as? [Any])?.compactMap { $0 as? String } ?? []
-                    return (name.isEmpty || list.isEmpty) ? nil : (key: name, addons: list)
-                }
+        guard let resp = try? await conn.client.getDict(path) else { return }
+        r = resp
+        currency = (resp["locale"] as? [String: Any])?["currencyCode"] as? String ?? ""
+        let cplans = (resp["plans"] as? [[String: Any]]) ?? []
+        let caddons = (resp["addons"] as? [[String: Any]]) ?? []
+        for a in caddons {
+            if let c = a["planCode"] as? String {
+                addonPrices[c] = monthlyPrice(a["pricings"] as? [[String: Any]])
             }
         }
+        if let p = cplans.first(where: { ($0["planCode"] as? String) == planCode }) {
+            basePrice = monthlyPrice(p["pricings"] as? [[String: Any]])
+            buildGroups(from: p)
+        }
+    }
+
+    /// defaultOptions + availableOptions 合并 → family 中文分组 → 默认项预选
+    private func buildGroups(from p: [String: Any]) {
+        basePrice = max(basePrice, monthlyPrice(p["pricings"] as? [[String: Any]]))
+        let defaults = (p["defaultOptions"] as? [[String: Any]]) ?? []
+        let defaultValues = Set(defaults.compactMap { $0["value"] as? String })
+        var all = defaults
+        for o in (p["availableOptions"] as? [[String: Any]]) ?? [] {
+            if let v = o["value"] as? String, !defaultValues.contains(v) { all.append(o) }
+        }
+        var byGroup: [String: [(value: String, label: String, price: Double, isDefault: Bool)]] = [:]
+        var order: [String] = []
+        for o in all {
+            guard let key = Self.optionGroup(of: o),
+                  let v = o["value"] as? String else { continue }
+            let item = (value: v, label: Self.prettyOption(v), price: addonPrices[v] ?? 0, isDefault: defaultValues.contains(v))
+            if byGroup[key] == nil { order.append(key) }
+            if !(byGroup[key]?.contains(where: { $0.value == v }) ?? false) {
+                byGroup[key, default: []].append(item)
+            }
+            if defaultValues.contains(v) { pickedByGroup[key] = v }   // 默认预选
+        }
+        let groupOrder = ["CPU / 处理器", "内存", "系统盘", "存储 / 数据盘", "带宽 / 网络", "vRack 内网", "其他"]
+        groups = byGroup.keys.sorted { a, b in
+            (groupOrder.firstIndex(of: a) ?? 99) < (groupOrder.firstIndex(of: b) ?? 99)
+        }.map { key in (key: key, items: byGroup[key] ?? []) }
     }
 
     private func monthlyPrice(_ pricings: [[String: Any]]?) -> Double {

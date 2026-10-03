@@ -175,7 +175,7 @@ struct ApiClient {
                 }
             }
             if contentLength >= 0, response.count >= contentLength { break }
-            if response.count > 8_388_608 { break } // 8MB 上限(eco 目录可能很大)
+            if response.count > 33_554_432 { break } // 32MB 上限(ASIA 目录实测 12.4MB)
         }
         
         // 解析 HTTP 状态码和 body
