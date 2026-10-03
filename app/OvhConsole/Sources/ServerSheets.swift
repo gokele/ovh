@@ -63,122 +63,164 @@ struct SheetNote: View {
 
 // MARK: - MRTG 流量图
 
-struct MrtgSheet: View {
+/// MRTG 流量图(可内嵌概览页 / sheet 放大复用)。
+/// 数据形状对齐 web:download/upload 两次请求,interfaces 按 mac 配对,
+/// 每张网卡一条时间线(不跨网卡累加),点 = {timestamp(秒), value:{value(bps), unit}}。
+struct MrtgChartView: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
     let sn: String
+    var compact = false
     var t: Tokens { theme.t }
 
     @State private var period = "daily"
-    @State private var points: [(ts: Date, inB: Double, outB: Double)] = []
+    @State private var ifaces: [(mac: String, points: [(ts: Date, dl: Double, ul: Double)])] = []
     @State private var err: String?
     @State private var loading = true
 
     private let periods: [(String, String)] = [("hourly", "时"), ("daily", "日"), ("weekly", "周"), ("monthly", "月"), ("yearly", "年")]
 
     var body: some View {
-        VStack(spacing: 0) {
-            SheetHeader(icon: "chart.xyaxis.line", tint: t.info, title: "MRTG 流量图")
+        VStack(alignment: .leading, spacing: 10) {
             Picker("", selection: $period) {
                 ForEach(periods, id: \.0) { p in Text(p.1).tag(p.0) }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, 16).padding(.bottom, 8)
             .onChange(of: period) { _ in Task { await load() } }
 
-            ScrollView {
-                VStack(spacing: 12) {
-                    if loading {
-                        ProgressView().padding(30)
-                    } else if let e = err {
-                        LoadFailed(message: e) { Task { await load() } }
-                    } else if points.isEmpty {
-                        EmptyHint(icon: "chart.dots.scatter", text: "OVH 未返回流量数据")
-                    } else {
-                        Chart {
-                            ForEach(Array(points.enumerated()), id: \.offset) { _, p in
-                                LineMark(x: .value("时间", p.ts), y: .value("入", p.inB / 1e6))
-                                    .foregroundStyle(t.color(t.info))
-                                    .interpolationMethod(.monotone)
-                                AreaMark(x: .value("时间", p.ts), y: .value("入", p.inB / 1e6))
-                                    .foregroundStyle(LinearGradient(colors: [t.color(t.info).opacity(0.22), .clear], startPoint: .top, endPoint: .bottom))
-                                    .interpolationMethod(.monotone)
-                                LineMark(x: .value("时间", p.ts), y: .value("出", p.outB / 1e6))
-                                    .foregroundStyle(t.color(t.accent))
-                                    .interpolationMethod(.monotone)
-                            }
-                        }
-                        .chartYAxis {
-                            AxisMarks(position: .trailing) { v in
-                                AxisGridLine().foregroundStyle(t.color(t.border).opacity(0.4))
-                                AxisValueLabel().font(.system(size: 9)).foregroundStyle(t.color(t.muted))
-                            }
-                        }
-                        .frame(height: 200)
-                        .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surfaceMuted)))
-
-                        HStack(spacing: 14) {
-                            HStack(spacing: 5) {
-                                Circle().fill(t.color(t.info)).frame(width: 7, height: 7)
-                                Text("下行(入)").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
-                            }
-                            HStack(spacing: 5) {
-                                Circle().fill(t.color(t.accent)).frame(width: 7, height: 7)
-                                Text("上行(出)").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
-                            }
-                            Spacer()
-                            Text("峰值入 \(fmtMbps(maxIn)) · 出 \(fmtMbps(maxOut))")
-                                .font(.system(size: 10)).foregroundColor(t.color(t.faint))
-                        }
-                        .padding(.horizontal, 4)
-                    }
+            if loading {
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, compact ? 18 : 30)
+            } else if let e = err {
+                LoadFailed(message: e) { Task { await load() } }
+            } else if ifaces.isEmpty {
+                EmptyHint(icon: "chart.dots.scatter", text: "该服务器尚未上报 MRTG 数据,或周期内没有流量")
+            } else {
+                ForEach(ifaces.indices, id: \.self) { i in
+                    ifaceCard(ifaces[i])
                 }
-                .padding(16)
             }
         }
-        .background(t.color(t.bg))
-        .presentationDetents([.medium, .large])
         .task { await load() }
     }
 
-    private var maxIn: Double { points.map(\.inB).max() ?? 0 }
-    private var maxOut: Double { points.map(\.outB).max() ?? 0 }
+    private func ifaceCard(_ it: (mac: String, points: [(ts: Date, dl: Double, ul: Double)])) -> some View {
+        let dl = it.points.map(\.dl)
+        let ul = it.points.map(\.ul)
+        let dlAvg = dl.isEmpty ? 0 : dl.reduce(0, +) / Double(dl.count)
+        let ulAvg = ul.isEmpty ? 0 : ul.reduce(0, +) / Double(ul.count)
+        let dlMax = dl.max() ?? 0
+        let ulMax = ul.max() ?? 0
+        let cur = it.points.last
+        return VStack(alignment: .leading, spacing: 8) {
+            if ifaces.count > 1 {
+                Text("网卡 " + it.mac).font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint))
+            }
+            Chart {
+                ForEach(Array(it.points.enumerated()), id: \.offset) { _, p in
+                    LineMark(x: .value("时间", p.ts), y: .value("下行", p.dl / 1e6))
+                        .foregroundStyle(t.color(t.info))
+                        .interpolationMethod(.monotone)
+                    LineMark(x: .value("时间", p.ts), y: .value("上行", p.ul / 1e6))
+                        .foregroundStyle(t.color(t.accent))
+                        .interpolationMethod(.monotone)
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { v in
+                    AxisGridLine().foregroundStyle(t.color(t.border).opacity(0.4))
+                    AxisValueLabel {
+                        if let d = v.as(Double.self) {
+                            Text(d >= 1000 ? String(format: "%.1fG", d / 1000) : String(format: "%.0fM", d))
+                                .font(.system(size: 8.5)).foregroundStyle(t.color(t.muted))
+                        }
+                    }
+                }
+            }
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: compact ? 3 : 5)) { v in
+                    AxisValueLabel(format: .dateTime.month().day().hour(), centered: false)
+                        .font(.system(size: 8.5)).foregroundStyle(t.color(t.muted))
+                }
+            }
+            .frame(height: compact ? 130 : 190)
+
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    Circle().fill(t.color(t.info)).frame(width: 6, height: 6)
+                    Text("↓ 峰值 \(fmtMbps(dlMax))").font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                }
+                HStack(spacing: 4) {
+                    Circle().fill(t.color(t.accent)).frame(width: 6, height: 6)
+                    Text("↑ 峰值 \(fmtMbps(ulMax))").font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                }
+                Spacer()
+                if let c = cur {
+                    Text("现在 ↓\(fmtMbps(c.dl)) ↑\(fmtMbps(c.ul))")
+                        .font(.system(size: 9.5, design: .monospaced)).foregroundColor(t.color(t.faint))
+                }
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surfaceMuted)))
+    }
 
     private func load() async {
         loading = true
         err = nil
         do {
-            // download/upload 两次请求(后端按 type 各查一遍),点形如
-            // data:[{timestamp, value:{value,unit}}];单位统一 bps
             async let dl = conn.client.getDict("/server-control/\(sn)/mrtg?period=\(period)&type=traffic:download")
             async let ul = conn.client.getDict("/server-control/\(sn)/mrtg?period=\(period)&type=traffic:upload")
             let (dr, ur) = try await (dl, ul)
-            var inMap: [Double: Double] = [:]
-            var outMap: [Double: Double] = [:]
-            collect(dr, into: &inMap)
-            collect(ur, into: &outMap)
-            let allTs = Set(inMap.keys).union(outMap.keys)
-            points = allTs.sorted().map { ts in
-                (ts: Date(timeIntervalSince1970: ts), inB: inMap[ts] ?? 0, outB: outMap[ts] ?? 0)
+            let dIf = (dr["interfaces"] as? [[String: Any]]) ?? []
+            let uIf = (ur["interfaces"] as? [[String: Any]]) ?? []
+            var out: [(String, [(Date, Double, Double)])] = []
+            for d in dIf {
+                let mac = d["mac"] as? String ?? ""
+                guard let dData = d["data"] as? [[String: Any]], !dData.isEmpty else { continue }
+                let uData = (uIf.first { ($0["mac"] as? String) == mac }?["data"] as? [[String: Any]]) ?? []
+                var pts: [(Date, Double, Double)] = []
+                for (i, dp) in dData.enumerated() {
+                    guard let ts = numToDouble(dp["timestamp"]),
+                          let val = (dp["value"] as? [String: Any]),
+                          let dlV = numToDouble(val["value"]) else { continue }
+                    let ulV = (i < uData.count)
+                        ? ((uData[i]["value"] as? [String: Any]).flatMap { numToDouble($0["value"]) } ?? 0)
+                        : 0
+                    pts.append((Date(timeIntervalSince1970: ts), dlV, ulV))
+                }
+                if !pts.isEmpty { out.append((mac, pts)) }
             }
-            if let msg = dr["message"] as? String, points.isEmpty { err = msg }
+            ifaces = out
+            if out.isEmpty, let msg = dr["message"] as? String { err = msg }
         } catch { err = error.localizedDescription }
         loading = false
     }
+}
 
-    private func collect(_ resp: [String: Any], into map: inout [Double: Double]) {
-        guard let ifaces = resp["interfaces"] as? [[String: Any]] else { return }
-        for nic in ifaces {
-            guard let data = nic["data"] as? [[String: Any]] else { continue }
-            for row in data {
-                guard let tsRaw = row["timestamp"],
-                      let ts = numToDoubleAny(tsRaw),
-                      let val = row["value"] as? [String: Any],
-                      let v = numToDoubleAny(val["value"]) else { continue }
-                map[ts] = (map[ts] ?? 0) + v   // 多网卡同刻累加
+private func numToDouble(_ v: Any?) -> Double? {
+    if let d = v as? Double { return d }
+    if let i = v as? Int { return Double(i) }
+    if let n = v as? NSNumber { return n.doubleValue }
+    if let s = v as? String { return Double(s) }
+    return nil
+}
+
+/// 放大版流量图 sheet(点"流量图"按钮用)
+struct MrtgSheet: View {
+    @EnvironmentObject var theme: Theme
+    let sn: String
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "chart.xyaxis.line", tint: t.info, title: "MRTG 流量图")
+            ScrollView {
+                MrtgChartView(sn: sn)
+                    .padding(16)
             }
         }
+        .background(t.color(t.bg))
+        .presentationDetents([.large])
     }
 }
 

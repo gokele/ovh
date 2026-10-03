@@ -205,13 +205,6 @@ struct OverviewSection: View {
                 VStack(spacing: 9) {
                     HStack {
                         SectionTitle(text: "硬件")
-                        Spacer()
-                        Button { sheet = .init(kind: .mrtg) } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "chart.xyaxis.line").font(.system(size: 11))
-                                Text("流量图").font(.system(size: 11.5, weight: .semibold))
-                            }.foregroundColor(t.color(t.info))
-                        }.buttonStyle(.plain)
                     }
                     if let hw = hardware {
                         KV(k: "处理器", v: "\(hw["processorName"] ?? "—")")
@@ -226,6 +219,21 @@ struct OverviewSection: View {
                     } else {
                         ProgressView().padding(6)
                     }
+                }
+            }
+
+            Card {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        SectionTitle(text: "流量(网卡)")
+                        Spacer()
+                        Button { sheet = .init(kind: .mrtg) } label: {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(t.color(t.muted))
+                        }.buttonStyle(.plain)
+                    }
+                    MrtgChartView(sn: sn, compact: true)
                 }
             }
 
