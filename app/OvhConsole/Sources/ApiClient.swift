@@ -188,7 +188,13 @@ struct ApiClient {
         if bodyData != nil {
             headers += "Content-Type: application/json\r\n"
         }
-        let (status, data) = try Self.posixHTTP(method, url: u.absoluteString, body: bodyData, extraHeaders: headers, timeoutSec: timeoutSec)
+        // posixHTTP 是同步阻塞调用,绝不能跑在 Swift 协作线程池里:
+        // 概览页一次并发 6 个请求就会把池(≈CPU 核数)占满,MRTG 之类慢请求
+        // 直接饿死,整个 UI 冻住(web 正常、App 看不到数据的根因)。
+        // detached 任务跑在独立线程,不占协作池。
+        let (status, data) = try await Task.detached(priority: .userInitiated) {
+            try Self.posixHTTP(method, url: u.absoluteString, body: bodyData, extraHeaders: headers, timeoutSec: timeoutSec)
+        }.value
         guard (200..<300).contains(status) else {
             if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 for key in ["message", "error", "msg"] {
