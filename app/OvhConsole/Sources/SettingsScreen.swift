@@ -791,7 +791,9 @@ func zoneTint(_ acc: [String: Any]) -> String {
     }
 }
 
-/// 顶栏账户胶囊:色点 + 名称 + 下拉箭头
+/// 顶栏账户切换:轻量文字按钮(色点+名称+小箭头)。
+/// 不加底色/边框/内边距 —— 那些装饰会让系统给的 toolbar 宽度装不下而吞掉文字,
+/// 且和导航栏风格不融合。
 struct AccountButton: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
@@ -800,23 +802,22 @@ struct AccountButton: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 if let acc = conn.activeAccount {
-                    Circle().fill(t.color(zoneTint(acc))).frame(width: 7, height: 7)
-                    Text(acc["name"] as? String ?? "账户").font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                    if zoneBadgeVisible(name: acc["name"] as? String ?? "", zone: acc["zone"] as? String ?? "") {
-                        Chip(text: acc["zone"] as? String ?? "", color: zoneTint(acc))
-                    }
+                    Circle().fill(t.color(zoneTint(acc))).frame(width: 6, height: 6)
+                    Text(acc["name"] as? String ?? "账户")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(t.color(t.faint))
                 } else {
-                    Image(systemName: "person.crop.circle.badge.plus").font(.system(size: 12, weight: .semibold))
-                    Text("添加账户").font(.system(size: 12.5, weight: .semibold))
+                    Image(systemName: "person.crop.circle.badge.plus").font(.system(size: 13, weight: .semibold))
+                    Text("添加账户").font(.system(size: 13.5, weight: .semibold))
                 }
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
             }
             .foregroundColor(t.color(t.fg))
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(Capsule().fill(t.color(t.surfaceMuted)))
-            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
         }
         .buttonStyle(.plain)
     }

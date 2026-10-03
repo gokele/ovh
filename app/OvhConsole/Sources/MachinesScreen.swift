@@ -63,6 +63,8 @@ struct MachinesScreen: View {
                 ToolbarItem(placement: .topBarLeading) {
                     AccountButton { showAccountPicker = true }
                 }
+            }
+            .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         mask.toggle()
