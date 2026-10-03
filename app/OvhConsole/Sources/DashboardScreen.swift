@@ -23,7 +23,9 @@ struct DashboardScreen: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 12) {
-                    accountBanner
+                    if conn.accounts.isEmpty {
+                        noAccountHint
+                    }
                     kpiRow
                     activeQueueCard
                     systemCard
@@ -50,23 +52,12 @@ struct DashboardScreen: View {
         .task { await load() }
     }
 
-    // MARK: 账户横幅(当前账户 + 后端版本)
+    // MARK: 无账户提示(有账户时顶栏胶囊已显示,页内不再重复)
 
-    private var accountBanner: some View {
+    private var noAccountHint: some View {
         HStack(spacing: 8) {
-            if let acc = conn.activeAccount {
-                Dot(color: t.accent)
-                Text(acc["name"] as? String ?? "").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-                if zoneBadgeVisible(name: acc["name"] as? String ?? "", zone: acc["zone"] as? String ?? "") {
-                    Chip(text: acc["zone"] as? String ?? "")
-                }
-                if let ver = version?["version"] as? String {
-                    Chip(text: "v\(ver)", color: t.info, mono: true)
-                }
-            } else {
-                Image(systemName: "person.crop.circle.badge.exclamationmark").font(.system(size: 13)).foregroundColor(t.color(t.warning))
-                Text("没有 OVH 账户 —— 去网页端设置添加").font(.system(size: 12)).foregroundColor(t.color(t.muted))
-            }
+            Image(systemName: "person.crop.circle.badge.exclamationmark").font(.system(size: 13)).foregroundColor(t.color(t.warning))
+            Text("没有 OVH 账户 —— 去网页端「设置 → OVH 账户」添加").font(.system(size: 12)).foregroundColor(t.color(t.muted))
             Spacer()
         }
         .padding(.horizontal, 4)
@@ -149,6 +140,9 @@ struct DashboardScreen: View {
                 SectionTitle(text: "系统状态")
                 sysRow(icon: "bolt.badge.clock", name: "自动抢购引擎", ok: stats?["queueProcessorRunning"] as? Bool ?? false)
                 sysRow(icon: "dot.radiowaves.left.and.right", name: "补货监控", ok: stats?["monitorRunning"] as? Bool ?? false)
+                if let ver = version?["version"] as? String {
+                    KV(k: "后端版本", v: "v\(ver)")
+                }
                 if let host = metrics?["host"] as? [String: Any],
                    let up = host["uptimeSec"] as? Double, up > 0 {
                     KV(k: "后端已运行", v: uptimeText(up))
