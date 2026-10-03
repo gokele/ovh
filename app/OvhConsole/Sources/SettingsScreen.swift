@@ -720,3 +720,119 @@ struct LogsScreen: View {
         loading = false
     }
 }
+
+// MARK: - 账户切换器(顶栏胶囊 + 底部选择 sheet)
+// 对齐 web 顶栏 AccountSwitcher:三区目录互不相通,切账户是高频操作,
+// 不该埋在设置页里 —— 主要页面顶栏随时可切。
+
+/// endpoint → 区色:美区蓝 / 加区橙 / 欧区绿
+func zoneTint(_ acc: [String: Any]) -> String {
+    switch acc["endpoint"] as? String ?? "" {
+    case "ovh-us": return "info"
+    case "ovh-ca": return "warning"
+    default: return "accent"
+    }
+}
+
+/// 顶栏账户胶囊:色点 + 名称 + 下拉箭头
+struct AccountButton: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    let onTap: () -> Void
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                if let acc = conn.activeAccount {
+                    Circle().fill(t.color(zoneTint(acc))).frame(width: 7, height: 7)
+                    Text(acc["name"] as? String ?? "账户").font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                    Chip(text: acc["zone"] as? String ?? "", color: zoneTint(acc))
+                } else {
+                    Image(systemName: "person.crop.circle.badge.plus").font(.system(size: 12, weight: .semibold))
+                    Text("添加账户").font(.system(size: 12.5, weight: .semibold))
+                }
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+            }
+            .foregroundColor(t.color(t.fg))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(Capsule().fill(t.color(t.surfaceMuted)))
+            .lineLimit(1)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 账户选择 sheet:单选切换,全局立即生效(依赖 conn.accountId 的页面自动重载)
+struct AccountPickerSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule().fill(t.color(t.border)).frame(width: 36, height: 4).padding(.top, 10)
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("切换账户").font(.system(size: 17, weight: .bold)).foregroundColor(t.color(t.fg))
+                    Text("目录、库存、下单都跟随所选账户的站点").font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                }
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(t.muted))
+                }.buttonStyle(.plain)
+            }
+            .padding(16)
+
+            ScrollView {
+                VStack(spacing: 9) {
+                    if conn.accounts.isEmpty {
+                        EmptyHint(icon: "person.crop.circle.badge.exclamationmark", text: "还没有账户 —— 在网页端「设置 → OVH 账户」添加")
+                    }
+                    ForEach(conn.accounts.indices, id: \.self) { i in
+                        row(conn.accounts[i])
+                    }
+                    SheetNote(text: "账户的增删和凭据验证在网页端设置页完成。", tint: t.muted)
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium, .large])
+        .task { await conn.loadAccounts() }
+    }
+
+    private func row(_ acc: [String: Any]) -> some View {
+        let id = acc["id"] as? String ?? ""
+        let isActive = id == conn.accountId || (conn.accountId.isEmpty && (acc["isDefault"] as? Bool == true))
+        let tint = zoneTint(acc)
+        let valid = acc["valid"] as? Bool ?? false
+        return Button {
+            conn.setAccount(isActive ? "" : id)
+            toast.show("已切换到 \(acc["name"] as? String ?? "")")
+            dismiss()
+        } label: {
+            HStack(spacing: 10) {
+                Circle().fill(t.color(valid ? tint : t.danger)).frame(width: 9, height: 9)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(acc["name"] as? String ?? "").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        Chip(text: acc["zone"] as? String ?? "—", color: tint)
+                    }
+                    Text(acc["endpoint"] as? String ?? "").font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.muted))
+                }
+                Spacer()
+                if isActive {
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 17)).foregroundColor(t.color(t.accent))
+                } else if acc["isDefault"] as? Bool == true {
+                    Text("默认").font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                }
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 13).fill(isActive ? t.color(t.accent).opacity(0.08) : t.color(t.surfaceMuted)))
+        }
+        .buttonStyle(.plain)
+    }
+}

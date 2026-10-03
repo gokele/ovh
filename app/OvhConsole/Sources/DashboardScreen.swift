@@ -8,6 +8,7 @@ struct DashboardScreen: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
     @EnvironmentObject var nav: AppNav
+    @EnvironmentObject var toast: Toast
     var t: Tokens { theme.t }
 
     @State private var stats: [String: Any]?
@@ -16,6 +17,7 @@ struct DashboardScreen: View {
     @State private var metrics: [String: Any]?
     @State private var version: [String: Any]?
     @State private var refreshAt = Date.distantPast
+    @State private var showAccountPicker = false
 
     var body: some View {
         NavigationStack {
@@ -33,7 +35,17 @@ struct DashboardScreen: View {
             .navigationTitle("总览")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(theme.dark ? .dark : .light, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    AccountButton { showAccountPicker = true }
+                }
+            }
             .refreshable { await load(force: true) }
+            .onChange(of: conn.accountId) { _ in Task { await load(force: true) } }
+            .sheet(isPresented: $showAccountPicker) {
+                AccountPickerSheet()
+                    .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+            }
         }
         .task { await load() }
     }
@@ -54,11 +66,6 @@ struct DashboardScreen: View {
                 Text("没有 OVH 账户 —— 去网页端设置添加").font(.system(size: 12)).foregroundColor(t.color(t.muted))
             }
             Spacer()
-            Button {
-                nav.tab = .settings
-            } label: {
-                Text("切换").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.accent))
-            }.buttonStyle(.plain)
         }
         .padding(.horizontal, 4)
     }

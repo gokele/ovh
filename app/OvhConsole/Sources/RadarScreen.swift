@@ -7,8 +7,11 @@ import SwiftUI
 struct RadarScreen: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
     @EnvironmentObject var nav: AppNav
     var t: Tokens { theme.t }
+
+    @State private var showAccountPicker = false
 
     var body: some View {
         NavigationStack {
@@ -30,6 +33,15 @@ struct RadarScreen: View {
             .navigationTitle("雷达")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(theme.dark ? .dark : .light, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    AccountButton { showAccountPicker = true }
+                }
+            }
+            .sheet(isPresented: $showAccountPicker) {
+                AccountPickerSheet()
+                    .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+            }
         }
     }
 }
@@ -73,6 +85,7 @@ struct ServerMonitorPane: View {
         .background(t.color(t.bg))
         .refreshable { await load() }
         .task { await load() }
+        .onChange(of: conn.accountId) { _ in Task { await load() } }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { creating = true } label: {
@@ -523,6 +536,7 @@ struct VpsMonitorPane: View {
         .background(t.color(t.bg))
         .refreshable { await load() }
         .task { await load() }
+        .onChange(of: conn.accountId) { _ in Task { await load() } }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { creating = true } label: {

@@ -7,6 +7,7 @@ import SwiftUI
 struct MachinesScreen: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
     @AppStorage("ovh_mask_ip") private var mask = false
     var t: Tokens { theme.t }
 
@@ -16,6 +17,7 @@ struct MachinesScreen: View {
     @State private var loading = true
     @State private var seg = 0
     @State private var path: [MachineRef] = []
+    @State private var showAccountPicker = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -32,7 +34,9 @@ struct MachinesScreen: View {
                     } else if loading && servers.isEmpty && vpsList.isEmpty {
                         ProgressView().padding(.top, 60)
                     } else {
-                        if accountsInvalid {
+                        // 只在"真的拿不到机器 + 账户全失效"时才警告;
+                        // 列表有数据时 valid 标志可能是旧状态,再喊失效会和真实数据打架
+                        if servers.isEmpty && vpsList.isEmpty && accountsInvalid {
                             Card(border: t.warning) {
                                 HStack(spacing: 9) {
                                     Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 13)).foregroundColor(t.color(t.warning))
@@ -67,6 +71,9 @@ struct MachinesScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(theme.dark ? .dark : .light, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    AccountButton { showAccountPicker = true }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         mask.toggle()
@@ -92,6 +99,14 @@ struct MachinesScreen: View {
                 }
             }
             .refreshable { await load() }
+            .onChange(of: conn.accountId) { _ in
+                loading = true
+                Task { await load() }
+            }
+        }
+        .sheet(isPresented: $showAccountPicker) {
+            AccountPickerSheet()
+                .environmentObject(theme).environmentObject(conn).environmentObject(toast)
         }
         .task {
             await conn.loadAccounts()
@@ -158,8 +173,11 @@ struct ServerCard: View {
                         .overlay(Image(systemName: "server.rack").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(tint)))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(displayName).font(.system(size: 15, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
-                        Text(item["serviceName"] as? String ?? "")
-                            .font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint)).lineLimit(1)
+                        // 副标题只在有别名时显示机器名;没别名时两行会重复
+                        if hasAlias {
+                            Text(item["serviceName"] as? String ?? "")
+                                .font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint)).lineLimit(1)
+                        }
                     }
                     Spacer()
                     Chip(text: rescue ? "救援模式" : state.uppercased(), color: tint)
@@ -194,10 +212,15 @@ struct ServerCard: View {
         .buttonStyle(.plain)
     }
 
+    /// 有别名时 name(含 "别名 | 机器名" 结构)≠ serviceName
+    private var hasAlias: Bool {
+        let n = item["name"] as? String ?? ""
+        return n != (item["serviceName"] as? String ?? "") && !n.isEmpty
+    }
     private var displayName: String {
         let n = item["name"] as? String ?? ""
         let sn = item["serviceName"] as? String ?? ""
-        if n != sn, !n.isEmpty { return n.components(separatedBy: " | ").first ?? n }
+        if hasAlias { return n.components(separatedBy: " | ").first ?? n }
         return sn
     }
     private var renewalText: String {

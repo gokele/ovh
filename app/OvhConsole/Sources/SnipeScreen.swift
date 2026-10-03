@@ -7,8 +7,11 @@ import SwiftUI
 struct SnipeScreen: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
     @EnvironmentObject var nav: AppNav
     var t: Tokens { theme.t }
+
+    @State private var showAccountPicker = false
 
     var body: some View {
         NavigationStack {
@@ -31,6 +34,15 @@ struct SnipeScreen: View {
             .navigationTitle("抢购")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(theme.dark ? .dark : .light, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    AccountButton { showAccountPicker = true }
+                }
+            }
+            .sheet(isPresented: $showAccountPicker) {
+                AccountPickerSheet()
+                    .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+            }
         }
     }
 }
@@ -92,6 +104,7 @@ struct CatalogPane: View {
         .background(t.color(t.bg))
         .refreshable { await load() }
         .task { await load() }
+        .onChange(of: conn.accountId) { _ in loading = true; Task { await load() } }
         .sheet(item: Binding(
             get: { orderPlan.map { PlanWrap(plan: $0) } },
             set: { orderPlan = $0?.plan }
@@ -529,6 +542,7 @@ struct QueuePane: View {
         .background(t.color(t.bg))
         .refreshable { await load() }
         .task { await load() }
+        .onChange(of: conn.accountId) { _ in Task { await load() } }
         .sheet(item: Binding(
             get: { editItem.map { QueueItemWrap(item: $0) } },
             set: { editItem = $0?.item }
@@ -735,6 +749,7 @@ struct HistoryPane: View {
         .background(t.color(t.bg))
         .refreshable { await load() }
         .task { await load() }
+        .onChange(of: conn.accountId) { _ in Task { await load() } }
         .sheet(isPresented: $clearConfirm) {
             ConfirmSheet(title: "清空历史", message: "删除全部下单记录(不影响 OVH 订单本身)。", confirmText: "确认清空") {
                 let (ok, msg) = await conn.client.actionDelete("/purchase-history")
