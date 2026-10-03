@@ -22,7 +22,7 @@ struct ApiClient {
     /// 组 URL:/api 前缀 + account 参数
     private func url(_ path: String) -> URL? {
         var s = baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        var full = "https://\(s)"
+        var full = "http://\(s)"   // posixHTTP 不支持 TLS,默认 http(与配对页校验一致)
         if s.hasPrefix("http://") || s.hasPrefix("https://") { full = s }
         full += path.hasPrefix("/api") ? path : "/api" + path
         var comp = URLComponents(string: full)
@@ -34,25 +34,49 @@ struct ApiClient {
 
 
     /// POSIX socket HTTP(完全绕过 ATS/URLSession/CFNetwork)
-    /// ATS 只检查 CFNetwork 层;直接用 BSD socket 没有 ATS
+    /// ATS 只检查 CFNetwork 层;直接用 BSD socket 没有 ATS。
+    /// 仅支持明文 http(自建后端);域名走 getaddrinfo,读写有超时,循环写完整请求。
     static func posixHTTP(_ method: String, url: String, body: Data? = nil, extraHeaders: String = "", timeoutSec: Int = 15) throws -> (Int, Data) {
-        guard let u = URL(string: url), let host = u.host, let port = u.port else {
+        guard let u = URL(string: url), let host = u.host else {
             throw ApiError(status: 0, message: "地址不合法")
         }
-        
+        // 无显式端口时按 scheme 给默认值(https 明文 socket 打不通,直接讲清楚)
+        guard u.scheme?.lowercased() != "https" else {
+            throw ApiError(status: 0, message: "暂不支持 https 后端:请在配对地址使用 http")
+        }
+        let port = u.port ?? 80
+
+        // DNS:域名与 IPv4 都走 getaddrinfo(inet_addr 只认点分 IP 且失败不报错)
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_port = UInt16(port).bigEndian
-        addr.sin_addr = in_addr(s_addr: inet_addr(host))
-        
+        var resolved = false
+        if inet_pton(AF_INET, host, &addr.sin_addr) == 1 {
+            resolved = true
+        } else {
+            var hints = addrinfo(), res: UnsafeMutablePointer<addrinfo>? = nil
+            hints.ai_family = AF_INET
+            hints.ai_socktype = SOCK_STREAM
+            guard getaddrinfo(host, "\(port)", &hints, &res) == 0, let first = res else {
+                throw ApiError(status: 0, message: "解析不了地址:\(host)")
+            }
+            defer { freeaddrinfo(res) }
+            if first.pointee.ai_family == AF_INET, let sa = first.pointee.ai_addr {
+                let saIn = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee }
+                addr.sin_addr = saIn.sin_addr
+                resolved = true
+            }
+        }
+        guard resolved else { throw ApiError(status: 0, message: "地址不含 IPv4 记录:\(host)") }
+
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw ApiError(status: 0, message: "创建 socket 失败") }
         defer { close(fd) }
-        
+
         // 非阻塞 + select 超时
         let flags = fcntl(fd, F_GETFL, 0)
         _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
-        
+
         let connectResult = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
@@ -61,12 +85,14 @@ struct ApiClient {
         if connectResult != 0 && errno != EINPROGRESS {
             throw ApiError(status: 0, message: "连接失败(\(String(cString: strerror(errno))))")
         }
-        
-        // select 等 connect 完成
-        // fd_set: iOS 上是 int32 数组,直接清零再设位
+
+        // select 等 connect 完成。fd_set 在 Darwin 上是 int32 元组,
+        // 按 fd/32 选字、fd%32 选位设置(手写 1<<fd 在 fd≥32 时溢出崩溃)
         var writeSet = fd_set()
-        writeSet.fds_bits.0 = 0
-        writeSet.fds_bits.0 |= Int32(1 << fd)
+        withUnsafeMutableBytes(of: &writeSet) { raw in
+            let ints = raw.bindMemory(to: Int32.self)
+            ints[Int(fd) / 32] |= Int32(1 << (Int(fd) % 32))
+        }
         var timeout = timeval(tv_sec: timeoutSec, tv_usec: 0)
         let sel = withUnsafeMutablePointer(to: &writeSet) { setPtr in
             select(fd + 1, nil, setPtr, nil, &timeout)
@@ -79,35 +105,51 @@ struct ApiClient {
         getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &len)
         guard soError == 0 else { throw ApiError(status: 0, message: "连接失败(errno \(soError))") }
         
-        // 恢复阻塞模式
+        // 恢复阻塞模式 + 读写超时(服务器不关连接时 recv 不能永久挂死)
         _ = fcntl(fd, F_SETFL, flags)
-        
-        // 发请求
-        var path = u.path
+        var tv = timeval(tv_sec: timeoutSec, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
+        // 发请求(头与 body 分开、循环写完;不再经 String 往返 —— 非 UTF-8 字节
+        // 会被替换导致 Content-Length 与实发不一致)
+        var path = u.path.isEmpty ? "/" : u.path
         if let q = u.query { path += "?" + q }
-        var req = "\(method) \(path) HTTP/1.1\r\nHost: \(host):\(port)\r\nConnection: close\r\n" + extraHeaders
-        if let b = body {
-            req += "Content-Type: application/json\r\nContent-Length: \(b.count)\r\n\r\n"
-            var full = Data(req.utf8)
-            full.append(b)
-            req = String(decoding: full, as: UTF8.self)
-        } else {
-            req += "\r\n"
+        var head = "\(method) \(path) HTTP/1.1\r\nHost: \(host):\(port)\r\nConnection: close\r\nUser-Agent: OvhConsole-iOS\r\n" + extraHeaders
+        if body != nil {
+            head += "Content-Type: application/json\r\nContent-Length: \(body!.count)\r\n"
         }
-        
-        let sent = req.withCString { ptr in
-            send(fd, ptr, strlen(ptr), 0)
+        head += "\r\n"
+        var out = Data(head.utf8)
+        if let b = body { out.append(b) }
+        out.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            var offset = 0
+            while offset < raw.count {
+                let n = send(fd, raw.baseAddress! + offset, raw.count - offset, 0)
+                if n <= 0 { break }
+                offset += n
+            }
         }
-        guard sent > 0 else { throw ApiError(status: 0, message: "发送失败") }
-        
-        // 读响应
+
+        // 读响应(按 Content-Length 优先收齐,Connection: close 兜底)
         var response = Data()
-        var buf = [UInt8](repeating: 0, count: 16384)
+        var buf = [UInt8](repeating: 0, count: 32768)
+        var contentLength = -1
         while true {
             let n = recv(fd, &buf, buf.count, 0)
             if n <= 0 { break }
             response.append(Data(buf[0..<n]))
-            if response.count > 1_048_576 { break } // 1MB 上限
+            if contentLength < 0,
+               let headerEnd = response.range(of: Data("\r\n\r\n".utf8)) {
+                let headerStr = String(decoding: response[0..<headerEnd.lowerBound], as: UTF8.self).lowercased()
+                if let cl = headerStr.components(separatedBy: "\r\n").first(where: { $0.hasPrefix("content-length:") })?
+                    .dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces),
+                   let v = Int(cl) {
+                    contentLength = v
+                }
+            }
+            if contentLength >= 0, response.count >= contentLength { break }
+            if response.count > 8_388_608 { break } // 8MB 上限(eco 目录可能很大)
         }
         
         // 解析 HTTP 状态码和 body

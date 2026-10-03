@@ -96,14 +96,14 @@ struct MrtgSheet: View {
                         EmptyHint(icon: "chart.dots.scatter", text: "OVH 未返回流量数据")
                     } else {
                         Chart {
-                            ForEach(points, id: \.ts) { p in
-                                LineMark(x: .value("时间", p.ts), y: .value("入", p.inB / 1_000))
+                            ForEach(Array(points.enumerated()), id: \.offset) { _, p in
+                                LineMark(x: .value("时间", p.ts), y: .value("入", p.inB / 1e6))
                                     .foregroundStyle(t.color(t.info))
                                     .interpolationMethod(.monotone)
-                                AreaMark(x: .value("时间", p.ts), y: .value("入", p.inB / 1_000))
+                                AreaMark(x: .value("时间", p.ts), y: .value("入", p.inB / 1e6))
                                     .foregroundStyle(LinearGradient(colors: [t.color(t.info).opacity(0.22), .clear], startPoint: .top, endPoint: .bottom))
                                     .interpolationMethod(.monotone)
-                                LineMark(x: .value("时间", p.ts), y: .value("出", p.outB / 1_000))
+                                LineMark(x: .value("时间", p.ts), y: .value("出", p.outB / 1e6))
                                     .foregroundStyle(t.color(t.accent))
                                     .interpolationMethod(.monotone)
                             }
@@ -149,34 +149,37 @@ struct MrtgSheet: View {
         loading = true
         err = nil
         do {
-            let r = try await conn.client.getDict("/server-control/\(sn)/mrtg?period=\(period)&type=traffic:download")
-            var pts: [(Date, Double, Double)] = []
-            if let ifaces = r["interfaces"] as? [[String: Any]] {
-                for nic in ifaces {
-                    guard let data = nic["data"] as? [[Any]] else { continue }
-                    for row in data {
-                        guard row.count >= 3,
-                              let ts = numToDouble(row[0]),
-                              let i = numToDouble(row[1]),
-                              let o = numToDouble(row[2]) else { continue }
-                        pts.append((Date(timeIntervalSince1970: ts / 1000), i, o))
-                    }
-                }
+            // download/upload 两次请求(后端按 type 各查一遍),点形如
+            // data:[{timestamp, value:{value,unit}}];单位统一 bps
+            async let dl = conn.client.getDict("/server-control/\(sn)/mrtg?period=\(period)&type=traffic:download")
+            async let ul = conn.client.getDict("/server-control/\(sn)/mrtg?period=\(period)&type=traffic:upload")
+            let (dr, ur) = try await (dl, ul)
+            var inMap: [Double: Double] = [:]
+            var outMap: [Double: Double] = [:]
+            collect(dr, into: &inMap)
+            collect(ur, into: &outMap)
+            let allTs = Set(inMap.keys).union(outMap.keys)
+            points = allTs.sorted().map { ts in
+                (ts: Date(timeIntervalSince1970: ts), inB: inMap[ts] ?? 0, outB: outMap[ts] ?? 0)
             }
-            pts.sort { $0.0 < $1.0 }
-            points = pts.map { (ts: $0.0, inB: $0.1, outB: $0.2) }
-            if let msg = r["message"] as? String, points.isEmpty { err = msg }
+            if let msg = dr["message"] as? String, points.isEmpty { err = msg }
         } catch { err = error.localizedDescription }
         loading = false
     }
-}
 
-private func numToDouble(_ v: Any) -> Double? {
-    if let d = v as? Double { return d }
-    if let i = v as? Int { return Double(i) }
-    if let n = v as? NSNumber { return n.doubleValue }
-    if let s = v as? String { return Double(s) }
-    return nil
+    private func collect(_ resp: [String: Any], into map: inout [Double: Double]) {
+        guard let ifaces = resp["interfaces"] as? [[String: Any]] else { return }
+        for nic in ifaces {
+            guard let data = nic["data"] as? [[String: Any]] else { continue }
+            for row in data {
+                guard let tsRaw = row["timestamp"],
+                      let ts = numToDoubleAny(tsRaw),
+                      let val = row["value"] as? [String: Any],
+                      let v = numToDoubleAny(val["value"]) else { continue }
+                map[ts] = (map[ts] ?? 0) + v   // 多网卡同刻累加
+            }
+        }
+    }
 }
 
 // MARK: - 救援系统
@@ -195,6 +198,7 @@ struct RescueSheet: View {
     @State private var loading = true
     @State private var err: String?
     @State private var busy = false
+    @State private var rescueConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -224,13 +228,14 @@ struct RescueSheet: View {
                         if inRescue {
                             SheetNote(text: "退出救援会重启机器并从硬盘正常引导,救援环境里改过的数据保留在盘上。", tint: t.info)
                             ActBtn(kind: .primary, icon: "arrow.uturn.backward", label: busy ? "退出中…" : "退出救援模式") {
+                                rescueConfirm = false
                                 await exitRescue()
                             }
                         } else {
                             SheetNote(text: "进入救援模式相当于用救援镜像重启:原系统数据不动,重启后生效。凭据会发送到邮箱。", tint: t.warning)
                             SheetField(placeholder: rescueMail.isEmpty ? "通知邮箱(留空用账户默认)" : rescueMail, text: $mail, keyboard: .emailAddress)
                             ActBtn(kind: .primary, icon: "lifepreserver.fill", label: busy ? "提交中…" : "进入救援模式(重启)") {
-                                await enter()
+                                rescueConfirm = true
                             }
                         }
                     }
@@ -241,6 +246,12 @@ struct RescueSheet: View {
         .background(t.color(t.bg))
         .presentationDetents([.medium, .large])
         .task { await load() }
+        .sheet(isPresented: $rescueConfirm) {
+            ConfirmSheet(title: "进入救援模式", message: "服务器将立即重启并进入救援镜像(相当于断电重启)。", confirmText: "确认进入") {
+                await enter()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
     }
 
     private func load() async {
@@ -269,7 +280,8 @@ struct RescueSheet: View {
     private func exitRescue() async {
         busy = true
         defer { busy = false }
-        let (ok, msg) = await conn.client.actionPostData("/server-control/\(sn)/rescue/exit", bodyData: nil)
+        let body = try? JSONSerialization.data(withJSONObject: ["confirm": true])
+        let (ok, msg) = await conn.client.actionPostData("/server-control/\(sn)/rescue/exit", bodyData: body)
         toast.show(ok ? "已退出救援模式" : (msg.isEmpty ? "失败" : msg), error: !ok)
         if ok { dismiss() }
     }
@@ -488,7 +500,7 @@ struct IpmiSheet: View {
                             Card(border: t.success) {
                                 VStack(alignment: .leading, spacing: 7) {
                                     Text("申请成功").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.success))
-                                    if let u = r["url"] as? String ?? r["jnlpUrl"] as? String {
+                                    if let u = (r["console"] as? [String: Any])?["value"] as? String ?? r["url"] as? String {
                                         Text(u).font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.fg)).lineLimit(3)
                                             .textSelection(.enabled)
                                     }
@@ -514,6 +526,7 @@ struct IpmiSheet: View {
 
     private func typeRow(_ ty: [String: Any]) -> some View {
         let name = ty["type"] as? String ?? (ty["name"] as? String ?? "—")
+        let _ = name
         let on = pickedType == name
         return Button { pickedType = name } label: {
             HStack {
@@ -535,8 +548,11 @@ struct IpmiSheet: View {
     private func load() async {
         do {
             let r = try await conn.client.getDict("/server-control/\(sn)/ipmi-types")
-            types = (r["types"] as? [[String: Any]]) ?? []
-            pickedType = types.first?["type"] as? String ?? types.first?["name"] as? String
+            // handler: supportedTypes(字符串数组)+ typeLabels + defaultType
+            let labels = r["typeLabels"] as? [String: String] ?? [:]
+            let sup = (r["supportedTypes"] as? [String]) ?? []
+            types = sup.map { ["type": $0, "description": labels[$0] ?? ""] }
+            pickedType = (r["defaultType"] as? String) ?? types.first?["type"] as? String
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
@@ -603,7 +619,7 @@ struct BootModeSheet: View {
     private func bootRow(_ b: [String: Any]) -> some View {
         let id = (b["id"] as? Int) ?? -1
         let type = (b["bootType"] as? String ?? "unknown").lowercased()
-        let isCurrent = b["isCurrent"] as? Bool ?? false
+        let isCurrent = (b["active"] as? Bool ?? false) || (b["isCurrent"] as? Bool ?? false)
         let on = picked == id
         let iconName: String = type == "rescue" ? "lifepreserver" : type.contains("network") || type == "ipxe" ? "wifi" : "internaldrive"
         return Button { if id >= 0 { picked = id } } label: {
@@ -631,9 +647,9 @@ struct BootModeSheet: View {
     private func load() async {
         do {
             let r = try await conn.client.getDict("/server-control/\(sn)/boot-mode")
-            boots = (r["boots"] as? [[String: Any]]) ?? []
-            if let cur = boots.first(where: { ($0["isCurrent"] as? Bool) == true }) {
-                picked = (cur["id"] as? Int) ?? nil
+            boots = (r["bootModes"] as? [[String: Any]]) ?? (r["boots"] as? [[String: Any]]) ?? []
+            if let cur = boots.first(where: { ($0["active"] as? Bool ?? false) || ($0["isCurrent"] as? Bool ?? false) }) {
+                picked = numToDoubleAny(cur["id"]).map(Int.init) ?? nil
             }
             err = nil
         } catch { err = error.localizedDescription }
@@ -743,11 +759,15 @@ struct SplaSheet: View {
         } catch { toast.show(error.localizedDescription, error: true) }
     }
 
+    /// 微软公开的 Windows 10 Pro KMS 客户端安装密钥(GVLK),
+    /// 与 web 端 SplaDialog 的"一键解锁"同一实现
+    private static let WINDOWS_GVLK = "W269N-WFGWX-YVC9B-4J6C9-T83GX"
+
     private func quickUnlock() async {
         busy = true
         defer { busy = false }
         do {
-            let r = try await conn.client.post("/server-control/\(sn)/spla", body: ["type": "os"])
+            let r = try await conn.client.post("/server-control/\(sn)/spla", body: ["type": "os", "serialNumber": Self.WINDOWS_GVLK])
             toast.show(r["message"] as? String ?? "一键解锁完成")
             await load()
         } catch { toast.show(error.localizedDescription, error: true) }
@@ -978,7 +998,7 @@ struct BiosSheet: View {
             async let b = conn.client.getDict("/server-control/\(sn)/bios-settings")
             async let s = conn.client.getDict("/server-control/\(sn)/bios-settings/sgx")
             let (br, sr) = try await (b, s)
-            bios = br["biosSettings"] as? [String: Any] ?? br
+            bios = br["bios"] as? [String: Any] ?? br
             sgx = sr["sgx"] as? [String: Any] ?? sr
             err = nil
         } catch { err = error.localizedDescription }
@@ -1011,7 +1031,12 @@ struct InstallStatusSheet: View {
                         if s["hasInstallation"] as? Bool == false {
                             EmptyHint(icon: "checkmark.circle", text: s["message"] as? String ?? "当前没有正在进行的安装")
                         } else {
-                            let pct = s["progress"] as? Int ?? ((s["progressPercent"] as? Double) != nil ? Int(s["progressPercent"] as! Double) : -1)
+                            // handler 形状:status.progressPercentage + steps[{comment,status}] + elapsedTime
+                            let st = s["status"] as? [String: Any] ?? [:]
+                            let pct = numToDoubleAny(st["progressPercentage"]).map(Int.init) ?? -1
+                            let steps = (st["steps"] as? [[String: Any]]) ?? []
+                            let currentStep = steps.last(where: { ($0["status"] as? String ?? "") != "done" })?["comment"] as? String
+                            let doneSteps = steps.filter { ($0["status"] as? String ?? "") == "done" }.count
                             VStack(spacing: 10) {
                                 if pct >= 0 {
                                     VStack(alignment: .leading, spacing: 6) {
@@ -1019,17 +1044,14 @@ struct InstallStatusSheet: View {
                                         Text("总进度 \(pct)%").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.fg))
                                     }
                                 }
-                                if let step = s["currentStep"] as? String, !step.isEmpty {
+                                if let step = currentStep, !step.isEmpty {
                                     KV(k: "当前步骤", v: step)
                                 }
-                                if let todo = s["todo"] as? String, !todo.isEmpty {
-                                    KV(k: "任务", v: todo)
+                                if !steps.isEmpty {
+                                    KV(k: "步骤", v: "\(doneSteps) / \(steps.count) 完成")
                                 }
-                                if let start = s["startDate"] as? String {
-                                    KV(k: "开始于", v: fmtDate(start))
-                                }
-                                if let eta = s["eta"] as? String ?? s["estimatedEnd"] as? String {
-                                    KV(k: "预计完成", v: fmtDate(eta))
+                                if let el = numToDoubleAny(st["elapsedTime"]), el > 0 {
+                                    KV(k: "已耗时", v: el >= 60 ? String(format: "%.0f 分钟", el / 60) : String(format: "%.0f 秒", el))
                                 }
                             }
                             .padding(14)

@@ -57,22 +57,21 @@ struct ServerDetailView: View {
 
     private var headerCard: some View {
         let state = item["state"] as? String ?? ""
-        let rescue = (item["netbootMode"] as? String) == "rescue"
         let ok = ["ok", "active"].contains(state.lowercased())
         return Card {
             VStack(spacing: 11) {
                 HStack(spacing: 10) {
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(t.color(rescue ? t.warning : ok ? t.success : t.danger).opacity(0.16))
+                        .fill(t.color(ok ? t.success : t.danger).opacity(0.16))
                         .frame(width: 42, height: 42)
-                        .overlay(Image(systemName: "server.rack").font(.system(size: 18, weight: .semibold)).foregroundColor(t.color(rescue ? t.warning : ok ? t.success : t.danger)))
+                        .overlay(Image(systemName: "server.rack").font(.system(size: 18, weight: .semibold)).foregroundColor(t.color(ok ? t.success : t.danger)))
                     VStack(alignment: .leading, spacing: 3) {
                         Text(displayName).font(.system(size: 16, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
                         Text("\(sn) · \((item["datacenter"] as? String ?? "—").uppercased())")
                             .font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.muted)).lineLimit(1)
                     }
                     Spacer()
-                    Chip(text: rescue ? "救援模式" : state.uppercased(), color: rescue ? t.warning : ok ? t.success : t.danger)
+                    Chip(text: state.uppercased(), color: ok ? t.success : t.danger)
                 }
                 HStack(spacing: 6) {
                     Dot(color: ok ? t.success : t.danger)
@@ -122,7 +121,9 @@ struct ServerDetailView: View {
 
     private func load() async {
         if serviceinfo == nil {
-            serviceinfo = try? await conn.client.getDict("/server-control/\(sn)/serviceinfo")
+            if let r = try? await conn.client.getDict("/server-control/\(sn)/serviceinfo") {
+                serviceinfo = (r["serviceInfo"] as? [String: Any]) ?? r
+            }
         }
     }
 
@@ -261,11 +262,13 @@ struct OverviewSection: View {
             HStack {
                 Text(mask ? maskIP(raw) : raw).font(.system(size: 12, design: .monospaced)).foregroundColor(t.color(t.fg))
                 Spacer()
-                if let v = ip["version"] as? Int { Chip(text: "IPv\(v)") }
                 if let t2 = ip["type"] as? String, !t2.isEmpty { Chip(text: t2) }
             }
-            if let rev = ip["reverse"] as? String, !rev.isEmpty {
-                Text("↳ " + (mask ? maskIP(rev) : rev)).font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+            if let routed = ip["routedTo"] as? String, !routed.isEmpty {
+                Text("→ " + (mask ? maskIP(routed) : routed)).font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+            }
+            if let desc = ip["description"] as? String, !desc.isEmpty {
+                Text(desc).font(.system(size: 10)).foregroundColor(t.color(t.faint))
             }
         }
     }
@@ -281,11 +284,14 @@ struct OverviewSection: View {
     }
 
     private func diskText(_ g: [String: Any]) -> String {
-        let n = (g["diskCount"] as? Int) ?? (g["count"] as? Int) ?? 0
-        let cap = g["capacity"] as? Int ?? 0
-        let unit = g["capacityUnit"] as? String ?? "GB"
+        let n = (g["numberOfDisks"] as? Int) ?? (g["diskCount"] as? Int) ?? 0
+        var capText = ""
+        if let ds = g["diskSize"] as? [String: Any],
+           let v = numToDoubleAny(ds["value"]) {
+            capText = v >= 1024 ? String(format: "%.0f GB", v / 1024) : "\(Int(v)) \(ds["unit"] as? String ?? "GB")"
+        }
         let t2 = g["diskType"] as? String ?? (g["type"] as? String ?? "")
-        let parts = [n > 0 ? "\(n) ×" : nil, cap > 0 ? "\(cap) \(unit)" : nil, !t2.isEmpty ? t2 : nil].compactMap { $0 }
+        let parts = [n > 0 ? "\(n) ×" : nil, capText.isEmpty ? nil : capText, !t2.isEmpty ? t2 : nil].compactMap { $0 }
         return parts.isEmpty ? "—" : parts.joined(separator: " ")
     }
 
@@ -398,14 +404,14 @@ struct MaintenanceSection: View {
                             let it = interventions[i]
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack {
-                                    Text(fmtDate(it["plannedDate"] as? String ?? it["date"] as? String))
+                                    Text(fmtDate(it["startDate"] as? String ?? it["plannedDate"] as? String))
                                         .font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.fg))
                                     Spacer()
-                                    if let done = it["done"] as? Bool {
-                                        Chip(text: done ? "已完成" : "进行中", color: done ? t.success : t.warning)
+                                    if let st = it["status"] as? String, !st.isEmpty {
+                                        Chip(text: st == "done" ? "已完成" : st, color: st == "done" ? t.success : t.warning)
                                     }
                                 }
-                                if let todo = it["todo"] as? String, !todo.isEmpty {
+                                if let todo = it["comment"] as? String ?? it["todo"] as? String, !todo.isEmpty {
                                     Text(todo).font(.system(size: 10.5)).foregroundColor(t.color(t.muted)).lineLimit(3)
                                 }
                             }
@@ -488,4 +494,13 @@ struct AdvancedSection: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+/// NSNumber/Int/Double → Double(ServerDetailView 磁盘容量用)
+func numToDoubleAny(_ v: Any?) -> Double? {
+    if let d = v as? Double { return d }
+    if let i = v as? Int { return Double(i) }
+    if let n = v as? NSNumber { return n.doubleValue }
+    if let s2 = v as? String { return Double(s2) }
+    return nil
 }

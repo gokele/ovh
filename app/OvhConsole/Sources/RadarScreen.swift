@@ -411,9 +411,11 @@ struct MonitorSubSheet: View {
         let o = options.split(whereSeparator: { ",".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         body["options"] = o     // PUT 显式传空数组才能清空
         if autoOrder {
+            let accId = conn.accountId.isEmpty ? (conn.activeAccount?["id"] as? String ?? "") : conn.accountId
+            guard !accId.isEmpty else { return }
             body["quantity"] = quantity
             body["autoPay"] = autoPay
-            body["autoOrderAccountId"] = ""
+            body["autoOrderAccountId"] = accId   // 空 = 只通知不下单,必须传实际账户
         }
         do {
             if editing == nil {
@@ -491,8 +493,8 @@ struct MonitorHistorySheet: View {
 
     private func load() async {
         do {
-            let r = try await conn.client.getDict(path)
-            entries = (r[listKey] as? [[String: Any]]) ?? (r["subscriptions"] as? [[String: Any]]) ?? []
+            // 这两个端点返回裸数组
+            entries = try await conn.client.getArray(path)
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
@@ -602,11 +604,11 @@ struct VpsMonitorPane: View {
 
     private func vpsSubCard(_ sub: [String: Any]) -> some View {
         let id = String(describing: sub["id"] ?? "")
-        let model = sub["model"] as? String ?? (sub["modelName"] as? String ?? "—")
+        let model = sub["planCode"] as? String ?? (sub["model"] as? String ?? "—")
         let dcs = sub["datacenters"] as? [String] ?? []
         let retired = sub["retired"] as? Bool ?? false
         let autoOrder = sub["autoOrder"] as? Bool ?? false
-        let available = sub["available"] as? Bool ?? (sub["lastAvailable"] as? Bool ?? false)
+        let available = (sub["lastStatus"] as? [String: String] ?? [:]).values.contains { isOrderable($0) }
         return Card(border: available ? t.success : (retired ? t.warning : nil)) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 7) {
@@ -617,7 +619,7 @@ struct VpsMonitorPane: View {
                     Spacer()
                 }
                 FlowLayout(spacing: 5) {
-                    if let s = sub["subsidiary"] as? String, !s.isEmpty { Chip(text: s) }
+                    if let s = sub["ovhSubsidiary"] as? String, !s.isEmpty { Chip(text: s) }
                     Chip(text: dcs.isEmpty ? "全部机房" : "\(dcs.count) 机房")
                     if sub["monitorLinux"] as? Bool == true { Chip(text: "Linux") }
                     if sub["monitorWindows"] as? Bool == true { Chip(text: "Windows") }
@@ -713,7 +715,8 @@ struct VpsSubSheet: View {
     @State private var busy = false
 
     private var subsidiaries: [String] {
-        ["", "FR", "IE", "DE", "UK", "GB", "US", "WE", "WS", "CA", "QC", "PL", "SG", "AU", "MA", "TN", "SN", "CZ", "ES", "IT", "LT", "NL", "PT", "FI"]
+        // 与后端 vps_monitor 的合法集一致(UK 不是 OVH 子公司,是 GB)
+        ["", "FR", "IE", "DE", "GB", "EU", "US", "WE", "WS", "CA", "QC", "ASIA", "IN", "PL", "SG", "AU", "MA", "TN", "SN", "CZ", "ES", "IT", "LT", "NL", "PT", "FI"]
     }
 
     var body: some View {
@@ -731,7 +734,7 @@ struct VpsSubSheet: View {
                         Menu {
                             ForEach(models.indices, id: \.self) { i in
                                 let m = models[i]
-                                Button(modelLabel(m)) { model = m["name"] as? String ?? (m["modelName"] as? String ?? "") }
+                                Button(modelLabel(m)) { model = m["planCode"] as? String ?? (m["name"] as? String ?? "") }
                             }
                         } label: {
                             HStack {
@@ -805,8 +808,8 @@ struct VpsSubSheet: View {
         .task { await loadModels() }
         .onAppear {
             if let e = editing {
-                model = e["model"] as? String ?? (e["modelName"] as? String ?? "")
-                subsidiary = e["subsidiary"] as? String ?? ""
+                model = e["planCode"] as? String ?? (e["model"] as? String ?? "")
+                subsidiary = e["ovhSubsidiary"] as? String ?? ""
                 dcs = (e["datacenters"] as? [String])?.joined(separator: ",") ?? ""
                 linux = e["monitorLinux"] as? Bool ?? true
                 windows = e["monitorWindows"] as? Bool ?? false
@@ -820,7 +823,7 @@ struct VpsSubSheet: View {
     }
 
     private func modelLabel(_ m: [String: Any]) -> String {
-        let n = m["name"] as? String ?? (m["modelName"] as? String ?? "?")
+        let n = m["name"] as? String ?? (m["planCode"] as? String ?? "?")
         if let p = m["price"] as? Double, p > 0 {
             return "\(n)(\(String(format: "%.2f", p)))"
         }
@@ -840,17 +843,19 @@ struct VpsSubSheet: View {
         busy = true
         defer { busy = false }
         var body: [String: Any] = [
-            "model": m,
+            "planCode": m,          // 后端字段是 planCode(不是 model)
             "monitorLinux": linux,
             "monitorWindows": windows,
             "notifyAvailable": notifyAvail,
             "notifyUnavailable": notifyUnavail,
             "autoOrder": autoOrder,
         ]
-        if !subsidiary.isEmpty { body["subsidiary"] = subsidiary }
+        if !subsidiary.isEmpty { body["ovhSubsidiary"] = subsidiary }
         let d = dcs.split(whereSeparator: { ",;".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if !d.isEmpty { body["datacenters"] = d }
         if autoOrder {
+            let accId = conn.accountId.isEmpty ? (conn.activeAccount?["id"] as? String ?? "") : conn.accountId
+            if !accId.isEmpty { body["autoOrderAccountId"] = accId }
             body["quantity"] = quantity
             body["autoPay"] = autoPay
         }

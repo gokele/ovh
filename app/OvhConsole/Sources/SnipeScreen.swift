@@ -57,6 +57,8 @@ struct CatalogPane: View {
 
     @State private var plans: [[String: Any]] = []
     @State private var availability: [String: [String: String]] = [:]
+    @State private var priceMap: [String: Double] = [:]
+    @State private var priceCurrency = ""
     @State private var err: String?
     @State private var loading = true
     @State private var search = ""
@@ -155,8 +157,8 @@ struct CatalogPane: View {
                         Text(specLine(p)).font(.system(size: 10.5)).foregroundColor(t.color(t.muted)).lineLimit(1)
                     }
                     Spacer()
-                    if let price = p["monthlyPrice"] as? Double, price > 0 {
-                        Text(String(format: "%.2f", price) + (p["currency"] as? String ?? ""))
+                    if let price = priceMap[code], price > 0 {
+                        Text(String(format: "%.2f", price) + (priceCurrency.isEmpty ? "" : " ") + priceCurrency)
                             .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(t.color(t.fg))
                         Text("/月").font(.system(size: 9)).foregroundColor(t.color(t.faint))
                     }
@@ -220,14 +222,51 @@ struct CatalogPane: View {
     private func load() async {
         err = nil
         do {
-            let c = conn.client
-            async let s = c.getDict("/servers")
-            async let a = c.getDict("/availability")
-            let (sr, ar) = try await (s, a)
+            let sr = try await conn.client.getDict("/servers")
             plans = (sr["servers"] as? [[String: Any]]) ?? []
-            availability = ar["availability"] as? [String: [String: String]] ?? [:]
+            // 可用性内嵌在每个 plan 的 datacenters:[{datacenter, availability}]
+            var avail: [String: [String: String]] = [:]
+            for p in plans {
+                guard let code = p["planCode"] as? String else { continue }
+                var dcMap: [String: String] = [:]
+                for d in (p["datacenters"] as? [[String: Any]]) ?? [] {
+                    if let dc = d["datacenter"] as? String, let st = d["availability"] as? String {
+                        dcMap[dc] = st
+                    }
+                }
+                avail[code] = dcMap
+            }
+            availability = avail
+            // 目录价(catalog 缓存 2 小时,后端秒回)
+            if sub2.isEmpty { return }
+            if let cr = try? await conn.client.getDict("/catalog?subsidiary=\(urlEncode(sub2))"),
+               let cplans = cr["plans"] as? [[String: Any]] {
+                for p in cplans {
+                    if let code = p["planCode"] as? String {
+                        priceMap[code] = monthlyPriceOf(p["pricings"] as? [[String: Any]])
+                    }
+                }
+                priceCurrency = (cr["locale"] as? [String: Any])?["currencyCode"] as? String ?? ""
+            }
         } catch { err = error.localizedDescription }
         loading = false
+    }
+
+    private var sub2: String {
+        if let acc = conn.activeAccount, let z = acc["zone"] as? String, !z.isEmpty { return z }
+        return ""
+    }
+
+    private func monthlyPriceOf(_ pricings: [[String: Any]]?) -> Double {
+        guard let ps = pricings else { return 0 }
+        for p in ps {
+            let caps = p["capacities"] as? [String] ?? []
+            if caps.contains("installation") { continue }
+            if (p["intervalUnit"] as? String) == "month", (p["interval"] as? Int) == 1, (p["mode"] as? String) == "default" {
+                return numToDoubleAny(p["price"]).map { $0 / 1e8 } ?? 0
+            }
+        }
+        return 0
     }
 }
 
@@ -426,7 +465,11 @@ struct SnipeOrderSheet: View {
 
     private func load() async {
         defer { loading = false }
-        guard let r = try? await conn.client.getDict("/catalog") else { return }
+        // catalog 只认 ?subsidiary=(不认 ?account=),要跟当前账户的结算区走
+        var sub = ""
+        if let acc = conn.activeAccount, let z = acc["zone"] as? String, !z.isEmpty { sub = z }
+        let path = sub.isEmpty ? "/catalog" : "/catalog?subsidiary=\(urlEncode(sub))"
+        guard let r = try? await conn.client.getDict(path) else { return }
         currency = (r["locale"] as? [String: Any])?["currencyCode"] as? String ?? ""
         let plans = (r["plans"] as? [[String: Any]]) ?? []
         let addons = (r["addons"] as? [[String: Any]]) ?? []
@@ -441,10 +484,12 @@ struct SnipeOrderSheet: View {
         // 该 plan 的 families
         if let p = plans.first(where: { ($0["planCode"] as? String) == planCode }) {
             basePrice = monthlyPrice(p["pricings"] as? [[String: Any]])
-            if let fams = p["families"] as? [String: Any] {
-                families = fams.keys.sorted().compactMap { k in
-                    let list = (fams[k] as? [Any])?.compactMap { $0 as? String } ?? []
-                    return list.isEmpty ? nil : (key: k, addons: list)
+            // 目录形状:addonFamilies:[{name, addons:[...]}](不是 families 字典)
+            if let fams = p["addonFamilies"] as? [[String: Any]] {
+                families = fams.compactMap { f in
+                    let name = f["name"] as? String ?? ""
+                    let list = (f["addons"] as? [Any])?.compactMap { $0 as? String } ?? []
+                    return (name.isEmpty || list.isEmpty) ? nil : (key: name, addons: list)
                 }
             }
         }
@@ -464,12 +509,18 @@ struct SnipeOrderSheet: View {
 
     private func submit() async {
         guard !pickedDCs.isEmpty else { return toast.show("至少选一个机房", error: true) }
+        // 后端按 body.account_id 决定下单账户(?account= 只影响查询)
+        let accountId = conn.accountId.isEmpty ? (conn.activeAccount?["id"] as? String ?? "") : conn.accountId
+        guard !accountId.isEmpty else { return toast.show("没有可用的 OVH 账户", error: true) }
+        let total = pickedDCs.count * qty
+        guard total <= 30 else { return toast.show("一次最多创建 30 个任务(当前 \(total))", error: true) }
         busy = true
         defer { busy = false }
         var okCount = 0, failMsg = ""
         for dc in pickedDCs.sorted() {
             for _ in 0..<qty {
                 var body: [String: Any] = [
+                    "account_id": accountId,
                     "planCode": planCode,
                     "datacenter": dc,
                     "retryInterval": interval,
@@ -579,7 +630,7 @@ struct QueuePane: View {
                         Text(item["planCode"] as? String ?? "").font(.system(size: 12.5, design: .monospaced)).foregroundColor(t.color(t.fg))
                     }
                     Spacer()
-                    Text(["running": "运行中", "paused": "已暂停", "failed": "失败", "pending": "等待中", "success": "已完成"][status] ?? status)
+                    Text(["running": "运行中", "paused": "已暂停", "failed": "失败", "pending": "等待中", "completed": "已完成"][status] ?? status)
                         .font(.system(size: 10.5, weight: .semibold)).foregroundColor(t.color(color))
                 }
                 HStack(spacing: 6) {
@@ -591,12 +642,9 @@ struct QueuePane: View {
                     Spacer()
                 }
                 Button { editItem = item } label: {
-                    Text("重试 \(item["failureCount"] as? Int ?? 0) 次 · 间隔 \(item["retryInterval"] as? Int ?? 0)s(点此改)")
+                    Text("已重试 \(item["failureCount"] as? Int ?? 0) 次 · 间隔 \(item["retryInterval"] as? Int ?? 0)s(点此改)")
                         .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
                 }.buttonStyle(.plain)
-                if let le = item["lastError"] as? String, !le.isEmpty {
-                    Text(le).font(.system(size: 10.5)).foregroundColor(t.color(t.danger)).lineLimit(2)
-                }
                 HStack(spacing: 8) {
                     if status == "running" || status == "paused" {
                         qBtn(icon: status == "paused" ? "play.fill" : "pause.fill", label: status == "paused" ? "恢复" : "暂停", color: t.muted) {
@@ -655,7 +703,7 @@ struct QueueIntervalSheet: View {
                 KV(k: "机房", v: (item["datacenter"] as? String ?? "").uppercased())
                 VStack(alignment: .leading, spacing: 6) {
                     Text("间隔:\(interval) 秒").font(.system(size: 13, weight: .semibold)).foregroundColor(t.color(t.fg))
-                    Slider(value: Binding(get: { Double(interval) }, set: { interval = Int($0) }), in: 1...120, step: 1)
+                    Slider(value: Binding(get: { Double(interval) }, set: { interval = Int($0) }), in: 1...3600, step: 1)
                         .tint(t.color(t.accent))
                 }
                 ActBtn(kind: .primary, icon: "checkmark", label: busy ? "保存中…" : "保存", busy: busy) {
@@ -762,8 +810,8 @@ struct HistoryPane: View {
 
     private var filtered: [[String: Any]] {
         var list = items
-        if filter == 1 { list = list.filter { ($0["success"] as? Bool ?? true) == true } }
-        if filter == 2 { list = list.filter { ($0["success"] as? Bool ?? true) == false } }
+        if filter == 1 { list = list.filter { ($0["status"] as? String) == "success" } }
+        if filter == 2 { list = list.filter { ($0["status"] as? String) == "failed" } }
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty {
             list = list.filter {
@@ -775,10 +823,15 @@ struct HistoryPane: View {
     }
 
     private func historyCard(_ it: [String: Any]) -> some View {
-        let success = it["success"] as? Bool ?? true
-        let payStatus = it["paymentStatus"] as? String ?? ""
-        let createdAt = it["createdAt"] as? String ?? ""
-        let pay = paymentChip(payStatus, expiresAt: it["expiresAt"] as? String ?? it["expirationDate"] as? String)
+        // 后端 PurchaseHistoryEntry:status/orderStatus/expirationTime/errorMessage/
+        // purchaseTime/totalMs/price{withoutTax,currencyCode}/retractionTime
+        let success = (it["status"] as? String) != "failed"
+        let payStatus = it["orderStatus"] as? String ?? ""
+        let pay = paymentChip(payStatus, expiresAt: it["expirationTime"] as? String)
+        let priceObj = it["price"] as? [String: Any]
+        let price = numToDoubleAny(priceObj?["withoutTax"]) ?? 0
+        let currency = priceObj?["currencyCode"] as? String ?? ""
+        let totalMs = numToDoubleAny(it["totalMs"]) ?? 0
         return Card(border: success ? nil : t.danger) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -788,14 +841,17 @@ struct HistoryPane: View {
                         Text(it["planCode"] as? String ?? "").font(.system(size: 12.5, design: .monospaced)).foregroundColor(t.color(t.fg))
                     }
                     Spacer()
-                    if let d = it["durationMs"] as? Double, d > 0 {
-                        Chip(text: d >= 1000 ? String(format: "%.1fs", d / 1000) : "\(Int(d))ms")
+                    if totalMs > 0 {
+                        Chip(text: totalMs >= 1000 ? String(format: "%.1fs", totalMs / 1000) : "\(Int(totalMs))ms")
                     }
                 }
                 HStack(spacing: 6) {
                     Chip(text: (it["datacenter"] as? String ?? "").uppercased())
-                    if let price = it["price"] as? Double, price > 0 {
-                        Chip(text: String(format: "%.2f %@", price, it["currency"] as? String ?? ""), color: t.accent)
+                    if price > 0 {
+                        Chip(text: String(format: "%.2f %@", price, currency), color: t.accent)
+                    }
+                    if let retr = it["retractionTime"] as? String, !retr.isEmpty {
+                        Chip(text: "可撤单至 \(fmtDate(retr))", color: t.info)
                     }
                     Spacer()
                 }
@@ -805,13 +861,14 @@ struct HistoryPane: View {
                         Text(pay.text).font(.system(size: 10.5, weight: .semibold)).foregroundColor(t.color(pay.color))
                     }
                 }
-                if let e = it["error"] as? String, !e.isEmpty {
-                    Text(e).font(.system(size: 10.5)).foregroundColor(t.color(t.danger)).lineLimit(2)
+                if let e = it["errorMessage"] as? String, !e.isEmpty {
+                    Text(e).font(.system(size: 10.5)).foregroundColor(t.color(t.danger)).lineLimit(3)
                 }
                 HStack {
-                    Text(fmtDate(createdAt)).font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                    Text(fmtDate(it["purchaseTime"] as? String)).font(.system(size: 10)).foregroundColor(t.color(t.faint))
                     Spacer()
-                    if let url = it["orderUrl"] as? String ?? it["url"] as? String, let u = URL(string: url) {
+                    if let url = it["orderUrl"] as? String, let u = URL(string: url),
+                       success, (it["orderStatus"] as? String ?? "notPaid") == "notPaid" {
                         Link(destination: u) {
                             HStack(spacing: 3) {
                                 Image(systemName: "safari").font(.system(size: 10))
@@ -826,13 +883,12 @@ struct HistoryPane: View {
 
     private func paymentChip(_ status: String, expiresAt: String?) -> (text: String, color: String, icon: String) {
         switch status.lowercased() {
-        case "paid", "paided": return ("已付款", t.success, "checkmark.circle.fill")
         case "delivering": return ("交付中", t.info, "shippingbox.fill")
         case "delivered": return ("已交付", t.success, "checkmark.seal.fill")
-        case "verifying", "checking": return ("核验中", t.warning, "clock.fill")
+        case "checking": return ("核验中", t.warning, "clock.fill")
         case "cancelling": return ("取消中", t.warning, "arrow.uturn.left")
         case "cancelled", "canceled": return ("已取消", t.muted, "xmark.circle")
-        case "documents_requested": return ("需补材料", t.danger, "doc.badge.ellipsis")
+        case "documentsrequested": return ("需补材料", t.danger, "doc.badge.ellipsis")
         default:
             if let exp = expiresAt, !exp.isEmpty {
                 let f = DateFormatter()

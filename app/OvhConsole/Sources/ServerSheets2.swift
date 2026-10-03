@@ -34,7 +34,7 @@ struct RetractionSheet: View {
                     } else if let e = err {
                         LoadFailed(message: e) { Task { await load() } }
                     } else {
-                        if let deadline = info?["deadline"] as? String ?? info?["endDate"] as? String, !deadline.isEmpty {
+                        if let deadline = info?["retractionDate"] as? String ?? info?["deadline"] as? String, !deadline.isEmpty {
                             SheetNote(text: "可撤单截止:\(fmtDate(deadline))。撤单后服务器将被回收并退款。", tint: t.warning)
                         } else {
                             SheetNote(text: "撤单后服务器将被回收并退款,不可恢复。", tint: t.danger)
@@ -44,11 +44,11 @@ struct RetractionSheet: View {
                         VStack(spacing: 6) {
                             ForEach(reasons.indices, id: \.self) { i in
                                 let r = reasons[i]
-                                let code = r["code"] as? String ?? (r["reason"] as? String ?? "")
+                                let code = r["value"] as? String ?? (r["code"] as? String ?? "")
                                 let on = pickedReason == code
                                 Button { pickedReason = code } label: {
                                     HStack {
-                                        Text(r["label"] as? String ?? (r["description"] as? String ?? code))
+                                        Text(r["label"] as? String ?? code)
                                             .font(.system(size: 12)).foregroundColor(t.color(t.fg))
                                         Spacer()
                                         if on { Image(systemName: "checkmark.circle.fill").font(.system(size: 14)).foregroundColor(t.color(t.accent)) }
@@ -94,8 +94,7 @@ struct RetractionSheet: View {
         guard let reason = pickedReason else { return }
         busy = true
         defer { busy = false }
-        var body: [String: Any] = ["reason": reason, "comment": comment]
-        if let id = info?["retractionId"] as? String { body["retractionId"] = id }
+        let body: [String: Any] = ["reason": reason, "comment": comment, "confirm": true]
         do {
             _ = try await conn.client.post("/server-control/\(sn)/retraction", body: body)
             toast.show("撤单申请已提交")
@@ -198,14 +197,11 @@ struct RenewalSheet: View {
         busy = true
         defer { busy = false }
         do {
-            if mode == 2 {
-                // 先撤销旧终止标记再设置新策略?后端 termination-policy 直接设置
-                _ = try await conn.client.put("\(base)/\(sn)/termination-policy", body: ["strategy": "DELETE_SERVICE_AT_EXPIRATION"])
-                toast.show("已设为到期终止")
-            } else {
-                _ = try await conn.client.put("\(base)/\(sn)/serviceinfo/renewal", body: ["automatic": mode == 0, "period": period])
-                toast.show(mode == 0 ? "已设为自动续费(\(period) 月)" : "已设为手动续费")
-            }
+            // handler 契约:{mode: auto/manual/delete, period}(period 0 = 不改)
+            let modeStr = ["auto", "manual", "delete"][mode]
+            _ = try await conn.client.put("\(base)/\(sn)/serviceinfo/renewal",
+                                          body: ["mode": modeStr, "period": mode == 0 ? period : 0])
+            toast.show(mode == 0 ? "已设为自动续费(\(period) 月)" : (mode == 1 ? "已设为手动续费" : "已设为到期终止"))
             dismiss()
         } catch { toast.show(error.localizedDescription, error: true) }
     }
@@ -333,7 +329,7 @@ struct EngagementSheet: View {
             async let p = conn.client.getDict("\(base)/\(sn)/engagement/request")
             let (cr, ar, pr) = try await (c, a, p)
             current = cr["engagement"] as? [String: Any]
-            available = (ar["available"] as? [[String: Any]]) ?? (ar["offers"] as? [[String: Any]]) ?? []
+            available = (ar["pricings"] as? [[String: Any]]) ?? (ar["available"] as? [[String: Any]]) ?? []
             pending = pr["request"] as? [String: Any]
             err = nil
         } catch { err = error.localizedDescription }
@@ -375,6 +371,7 @@ struct HardwareReplaceSheet: View {
     @State private var comment = ""
     @State private var inverse = false
     @State private var busy = false
+    @State private var hwConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -384,7 +381,7 @@ struct HardwareReplaceSheet: View {
                     SheetNote(text: "提交后 OVH 机房上门更换部件。更换硬盘必须提供盘序列号(在系统日志/BIOS 里查)。", tint: t.warning)
 
                     Picker("部件", selection: $component) {
-                        Text("硬盘").tag("disk")
+                        Text("硬盘").tag("hardDiskDrive")
                         Text("内存").tag("memory")
                         Text("散热").tag("cooling")
                     }
@@ -410,7 +407,7 @@ struct HardwareReplaceSheet: View {
                     }.tint(t.color(t.accent))
 
                     ActBtn(kind: .primary, icon: "paperplane", label: busy ? "提交中…" : "提交工单") {
-                        await submit()
+                        hwConfirm = true
                     }
                 }
                 .padding(16)
@@ -418,14 +415,36 @@ struct HardwareReplaceSheet: View {
         }
         .background(t.color(t.bg))
         .presentationDetents([.large])
+        .sheet(isPresented: $hwConfirm) {
+            ConfirmSheet(title: "提交硬件更换工单", message: "机房将物理更换部件(\(componentName)),换盘有数据丢失风险。", confirmText: "确认提交", danger: false) {
+                await submit()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
+    }
+
+    private var componentName: String {
+        ["hardDiskDrive": "硬盘", "memory": "内存", "cooling": "散热"][component] ?? component
     }
 
     private func submit() async {
         busy = true
         defer { busy = false }
         var body: [String: Any] = ["componentType": component]
+        // handler 的 parseReplaceDisks 要对象数组 [{disk_serial, slot_id}],
+        // 输入形如 "序列号 [槽位]" 逗号分隔
         let s = serials.trimmingCharacters(in: .whitespaces)
-        if component == "disk" && !s.isEmpty { body["disks"] = s.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+        if component == "hardDiskDrive" && !s.isEmpty {
+            body["disks"] = s.components(separatedBy: ",").map { raw -> [String: Any] in
+                let item = raw.trimmingCharacters(in: .whitespaces)
+                if let br = item.range(of: #"\[([^\]]*)\]"#, options: .regularExpression) {
+                    let slot = item[br].trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+                    let serial = item[..<br.lowerBound].trimmingCharacters(in: .whitespaces)
+                    return ["disk_serial": serial, "slot_id": slot.isEmpty ? 0 : (Int(slot) ?? 0)]
+                }
+                return ["disk_serial": item, "slot_id": 0]
+            }
+        }
         let sl = slots.trimmingCharacters(in: .whitespaces)
         if !sl.isEmpty { body["slots"] = sl.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
         let c = comment.trimmingCharacters(in: .whitespaces)
@@ -528,7 +547,7 @@ struct ChangeContactSheet: View {
 
     private func loadReqs() async {
         if let r = try? await conn.client.getDict("/ovh/contact-change-requests") {
-            requests = (r["requests"] as? [[String: Any]]) ?? []
+            requests = (r["data"] as? [[String: Any]]) ?? (r["requests"] as? [[String: Any]]) ?? []
         }
     }
 
@@ -582,6 +601,8 @@ struct ToggleSheet: View {
     @State private var loading = true
     @State private var err: String?
     @State private var busy = false
+    /// Burst 的 PUT 语义是 status=active/inactive(不是布尔 enabled)
+    var usesStatusBody: Bool { getPath.contains("burst") }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -628,8 +649,14 @@ struct ToggleSheet: View {
     private func load() async {
         do {
             let r = try await conn.client.getDict(getPath)
-            enabled = r["enabled"] as? Bool ?? (r["activated"] as? Bool) ?? (r["status"] as? String == "enabled")
-            detail = r
+            // handler 把状态包在 burst / firewall 对象里
+            let inner = (r["burst"] as? [String: Any]) ?? (r["firewall"] as? [String: Any]) ?? r
+            if let st = inner["status"] as? String {
+                enabled = (st == "active" || st == "enabled" || st == "enabledForVrack")
+            } else {
+                enabled = inner["enabled"] as? Bool ?? inner["activated"] as? Bool
+            }
+            detail = inner
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
@@ -638,7 +665,8 @@ struct ToggleSheet: View {
     private func toggle(_ on: Bool) async {
         busy = true
         defer { busy = false }
-        let body = try? JSONSerialization.data(withJSONObject: ["enabled": on])
+        let payload: [String: Any] = usesStatusBody ? ["status": on ? "active" : "inactive"] : ["enabled": on]
+        let body = try? JSONSerialization.data(withJSONObject: payload)
         let (ok, msg) = await conn.client.actionPutData(putPath, bodyData: body)
         if ok {
             enabled = on
@@ -691,8 +719,9 @@ struct BackupFtpSheet: View {
                                 VStack(spacing: 8) {
                                     SectionTitle(text: "状态")
                                     KV(k: "服务器", v: i["ftpUrl"] as? String ?? (i["server"] as? String ?? "—"), mono: true)
-                                    KV(k: "配额", v: fmtBytes((i["quota"] as? Double) ?? 0))
-                                    KV(k: "已用", v: fmtBytes((i["used"] as? Double) ?? 0))
+                                    KV(k: "配额", v: fmtBytes(numToDoubleAny(i["quota"]) ?? 0))
+                                    KV(k: "已用", v: fmtBytes(numToDoubleAny(i["used"]) ?? 0))
+                                    KV(k: "状态", v: i["status"] as? String ?? "—")
                                 }
                             }
 
@@ -764,11 +793,17 @@ struct BackupFtpSheet: View {
             async let i = conn.client.getDict("/server-control/\(sn)/backup-ftp")
             async let a = conn.client.getDict("/server-control/\(sn)/backup-ftp/access")
             let (ir, ar) = try await (i, a)
-            info = ir
-            accesses = (ar["access"] as? [[String: Any]]) ?? (ar["accesses"] as? [[String: Any]]) ?? []
-            if ir["activated"] as? Bool ?? (ir["enabled"] as? Bool ?? false) == true {
+            info = (ir["backupFtp"] as? [String: Any]) ?? ir
+            accesses = (ar["accessList"] as? [[String: Any]]) ?? (ar["access"] as? [[String: Any]]) ?? []
+            let inner = (ir["backupFtp"] as? [String: Any]) ?? ir
+            if inner["activated"] as? Bool ?? (inner["status"] as? String == "active") {
                 if let br = try? await conn.client.getDict("/server-control/\(sn)/backup-ftp/authorizable-blocks") {
-                    blocks = (br["blocks"] as? [[String: Any]]) ?? (br["ipBlocks"] as? [[String: Any]]) ?? []
+                    // handler 返回字符串数组;统一成 [{ipBlock:...}] 供点选复用
+                    if let arr = br["blocks"] as? [String] {
+                        blocks = arr.map { ["ipBlock": $0] }
+                    } else {
+                        blocks = (br["blocks"] as? [[String: Any]]) ?? []
+                    }
                 }
             }
             err = nil
@@ -794,11 +829,10 @@ struct BackupFtpSheet: View {
     private func addAccess() async {
         let ip = newBlock.trimmingCharacters(in: .whitespaces)
         guard !ip.isEmpty else { return toast.show("先填 IP 段", error: true) }
-        var proto: [String] = []
-        if ftp { proto.append("ftp") }
-        if nfs { proto.append("nfs") }
-        if cifs { proto.append("cifs") }
-        let body = try? JSONSerialization.data(withJSONObject: ["ipBlock": ip, "protocols": proto.isEmpty ? ["ftp"] : proto])
+        // handler 契约:ftp/nfs/cifs 是三个布尔
+        let body = try? JSONSerialization.data(withJSONObject: [
+            "ipBlock": ip, "ftp": ftp, "nfs": nfs, "cifs": cifs,
+        ])
         let (ok, msg) = await conn.client.actionPostData("/server-control/\(sn)/backup-ftp/access", bodyData: body)
         toast.show(ok ? "已添加" : (msg.isEmpty ? "失败" : msg), error: !ok)
         if ok { await load() }
@@ -806,7 +840,8 @@ struct BackupFtpSheet: View {
 
     private func removeAccess(_ idx: Int) async {
         guard let ip = accesses[idx]["ipBlock"] as? String else { return }
-        let (ok, msg) = await conn.client.actionDelete("/server-control/\(sn)/backup-ftp/access/\(ip)")
+        // CIDR 含 "/",不能拼路径段;handler 走 ?ipBlock= 查询参数
+        let (ok, msg) = await conn.client.actionDelete("/server-control/\(sn)/backup-ftp/access?ipBlock=\(urlEncode(ip))")
         toast.show(ok ? "已删除" : (msg.isEmpty ? "失败" : msg), error: !ok)
         if ok { await load() }
     }
@@ -955,7 +990,7 @@ struct MitigationSheet: View {
     private func blockCard(_ b: [String: Any]) -> some View {
         let block = b["ipBlock"] as? String ?? "—"
         let mitigations = b["mitigations"] as? [[String: Any]] ?? []
-        let permanentOn = mitigations.contains { ($0["permanentMitigation"] as? Bool ?? false) || (($0["type"] as? String) == "permanent") }
+        let permanentOn = mitigations.contains { ($0["permanent"] as? Bool ?? false) }
         let isV6 = block.contains(":")
         return Card(border: permanentOn ? t.success : t.border) {
             VStack(alignment: .leading, spacing: 9) {
@@ -991,7 +1026,9 @@ struct MitigationSheet: View {
     private func toggle(block: String, on: Bool) async {
         busy = true
         defer { busy = false }
-        let path = "\(base)/\(sn)/mitigation/\(urlEncode(block))?block=\(urlEncode(block))"
+        // :ip 要单个 IPv4(取 CIDR 前段),?block= 带完整网段(与 web AdvancedTab 一致)
+        let ipOnly = block.components(separatedBy: "/").first ?? block
+        let path = "\(base)/\(sn)/mitigation/\(urlEncode(ipOnly))?block=\(urlEncode(block))"
         let (ok, msg) = on ? await conn.client.actionPostData(path, bodyData: nil)
                            : await conn.client.actionDelete(path)
         toast.show(ok ? (on ? "已开启永久缓解" : "已关闭永久缓解") : (msg.isEmpty ? "失败" : msg), error: !ok)

@@ -55,7 +55,7 @@ struct DashboardScreen: View {
     private var accountBanner: some View {
         HStack(spacing: 8) {
             if let acc = conn.activeAccount {
-                Dot(color: (acc["valid"] as? Bool ?? false) ? t.success : t.danger)
+                Dot(color: t.accent)
                 Text(acc["name"] as? String ?? "").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
                 if zoneBadgeVisible(name: acc["name"] as? String ?? "", zone: acc["zone"] as? String ?? "") {
                     Chip(text: acc["zone"] as? String ?? "")
@@ -147,7 +147,6 @@ struct DashboardScreen: View {
         Card {
             VStack(spacing: 9) {
                 SectionTitle(text: "系统状态")
-                sysRow(icon: "arrow.triangle.2.circlepath", name: "OVH API 连接", ok: true)
                 sysRow(icon: "bolt.badge.clock", name: "自动抢购引擎", ok: stats?["queueProcessorRunning"] as? Bool ?? false)
                 sysRow(icon: "dot.radiowaves.left.and.right", name: "补货监控", ok: stats?["monitorRunning"] as? Bool ?? false)
                 if let host = metrics?["host"] as? [String: Any],
@@ -202,7 +201,9 @@ struct DashboardScreen: View {
     // MARK: 加载
 
     private func load(force: Bool = false) async {
-        if force || Date().timeIntervalSince(refreshAt) > 15 { refreshAt = Date() }
+        // 15 秒内非强刷直接跳过(节流:避免 task+onChange 双触发打 4 个接口)
+        guard force || Date().timeIntervalSince(refreshAt) > 15 else { return }
+        refreshAt = Date()
         do {
             async let s = conn.client.getDict("/stats")
             async let q = conn.client.getArray("/queue")

@@ -59,7 +59,7 @@ struct SettingsScreen: View {
                 SectionTitle(text: "当前账户")
                 if let acc = conn.activeAccount {
                     HStack(spacing: 9) {
-                        Dot(color: (acc["valid"] as? Bool ?? false) ? t.success : t.danger)
+                        Circle().fill(t.color(zoneTint(acc))).frame(width: 8, height: 8)
                         Text(acc["name"] as? String ?? "").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(t.fg))
                         if zoneBadgeVisible(name: acc["name"] as? String ?? "", zone: acc["zone"] as? String ?? "") {
                             Chip(text: acc["zone"] as? String ?? "—", color: zoneTint(acc))
@@ -148,12 +148,14 @@ struct NotifyScreen: View {
                 } else if let e = err {
                     Card { LoadFailed(message: e) { Task { await load() } } }
                 } else {
-                    if let ch = channels {
+                    if let chList = channels?["channels"] as? [[String: Any]] {
                         Card {
                             VStack(spacing: 10) {
                                 SectionTitle(text: "通道状态")
-                                channelRow("Telegram", "telegram", ch["telegram"] as? [String: Any])
-                                channelRow("Webhook", "link", ch["webhook"] as? [String: Any])
+                                ForEach(chList.indices, id: \.self) { i in channelRowObj(chList[i]) }
+                                if chList.isEmpty {
+                                    Text("没有配置任何通道").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                                }
                             }
                         }
                     }
@@ -189,17 +191,25 @@ struct NotifyScreen: View {
         .task { await load() }
     }
 
-    private func channelRow(_ name: String, _ icon: String, _ ch: [String: Any]?) -> some View {
-        let available = ch?["available"] as? Bool ?? (ch?["ok"] as? Bool ?? false)
-        let configured = ch?["configured"] as? Bool ?? true
+    /// handler:{"channels":[{name, configured, ok, detail}]}
+    private func channelRowObj(_ ch: [String: Any]) -> some View {
+        let name = ch["name"] as? String ?? "—"
+        let configured = ch["configured"] as? Bool ?? false
+        let good = ch["ok"] as? Bool ?? false
+        let icon = name.lowercased().contains("telegram") ? "paperplane.fill" : "link"
         return HStack(spacing: 9) {
-            Image(systemName: icon).font(.system(size: 13)).foregroundColor(t.color(available ? t.success : t.faint))
-            Text(name).font(.system(size: 12.5)).foregroundColor(t.color(t.fg))
+            Image(systemName: icon).font(.system(size: 13)).foregroundColor(t.color(configured && good ? t.success : t.faint))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name.capitalized).font(.system(size: 12.5)).foregroundColor(t.color(t.fg))
+                if let d = ch["detail"] as? String, !d.isEmpty {
+                    Text(d).font(.system(size: 10)).foregroundColor(t.color(t.muted)).lineLimit(1)
+                }
+            }
             Spacer()
             if !configured {
                 Chip(text: "未配置")
             } else {
-                Chip(text: available ? "可用" : "不可用", color: available ? t.success : t.danger)
+                Chip(text: good ? "可用" : "不可用", color: good ? t.success : t.danger)
             }
         }
     }
@@ -217,7 +227,7 @@ struct NotifyScreen: View {
             async let p = conn.client.getDict("/telegram/poller")
             let (cr, pr) = try await (c, p)
             channels = cr
-            poller = pr
+            poller = (pr["poller"] as? [String: Any]) ?? pr
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
@@ -237,6 +247,7 @@ struct PairingDevicesScreen: View {
     @State private var err: String?
     @State private var loading = true
     @State private var generating = false
+    @State private var revokeId: String?
 
     var body: some View {
         ScrollView {
@@ -282,6 +293,17 @@ struct PairingDevicesScreen: View {
         .navigationTitle("App 配对设备")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
+        .sheet(item: Binding(
+            get: { revokeId.map { RevokeWrap(id: $0) } },
+            set: { revokeId = $0?.id }
+        )) { w in
+            ConfirmSheet(title: "吊销设备", message: "该设备令牌立即失效,需要重新配对。", confirmText: "确认吊销") {
+                let (ok, msg) = await conn.client.actionDelete("/app/devices/\(w.id)")
+                toast.show(ok ? "已吊销" : (msg.isEmpty ? "失败" : msg), error: !ok)
+                await load()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
         .task { await load() }
     }
 
@@ -292,20 +314,14 @@ struct PairingDevicesScreen: View {
                 Image(systemName: "iphone").font(.system(size: 14)).foregroundColor(t.color(t.muted))
                 Text(d["name"] as? String ?? "设备").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
                 Spacer()
-                Button {
-                    Task {
-                        let (ok, msg) = await conn.client.actionDelete("/app/devices/\(id)")
-                        toast.show(ok ? "已吊销" : (msg.isEmpty ? "失败" : msg), error: !ok)
-                        await load()
-                    }
-                } label: {
+                Button { revokeId = id } label: {
                     Text("吊销").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.danger))
                         .padding(.horizontal, 10).padding(.vertical, 5)
                         .background(Capsule().stroke(t.color(t.danger), lineWidth: 1))
                 }.buttonStyle(.plain)
             }
             HStack(spacing: 10) {
-                if let t2 = d["pairedAt"] as? String { Text("配对于 \(fmtDate(t2))") }
+                if let t2 = d["createdAt"] as? String ?? d["pairedAt"] as? String { Text("配对于 \(fmtDate(t2))") }
                 if let t3 = d["lastUsedAt"] as? String, !t3.isEmpty { Text("最近使用 \(fmtDate(t3))") }
                 Spacer()
             }
@@ -352,7 +368,15 @@ struct QRCodeView: View {
     }
 
     private func generate() -> UIImage? {
-        let deep = "ovhconsole://pair?host=\(host)&code=\(code)&auto=1"
+        // host 里的 :/#/& 等必须走 queryItems 编码,手拼会坏
+        var comp = URLComponents()
+        comp.scheme = "ovhconsole"; comp.host = "pair"
+        comp.queryItems = [
+            URLQueryItem(name: "host", value: host),
+            URLQueryItem(name: "code", value: code),
+            URLQueryItem(name: "auto", value: "1"),
+        ]
+        guard let deep = comp.url?.absoluteString else { return nil }
         guard let filter = CIFilter(name: "CIQRCodeGenerator"),
               let data = deep.data(using: .utf8) else { return nil }
         filter.setValue(data, forKey: "inputMessage")
@@ -386,13 +410,20 @@ struct CacheScreen: View {
                 } else if let e = err {
                     Card { LoadFailed(message: e) { Task { await load() } } }
                 } else if let i = info {
+                    // handler:{backend:{serverCount,timestamp}, sqlite:{serverCount,path}}
+                    let be = (i["backend"] as? [String: Any]) ?? [:]
+                    let sq = (i["sqlite"] as? [String: Any]) ?? [:]
+                    let beCount = numToDoubleAny(be["serverCount"]).map(Int.init) ?? 0
+                    let sqCount = numToDoubleAny(sq["serverCount"]).map(Int.init) ?? 0
                     Card {
                         VStack(spacing: 9) {
                             SectionTitle(text: "缓存状态")
-                            KV(k: "内存缓存条数", v: "\(i["memoryCount"] as? Int ?? (i["memory_count"] as? Int ?? 0))")
-                            KV(k: "SQLite 条数", v: "\(i["sqliteCount"] as? Int ?? (i["sqlite_count"] as? Int ?? 0))")
-                            if let p = i["dbPath"] as? String { KV(k: "数据库", v: p, mono: true) }
-                            if let ts = i["lastRefresh"] as? String { KV(k: "最近刷新", v: fmtDate(ts)) }
+                            KV(k: "内存缓存", v: "\(beCount) 条")
+                            KV(k: "SQLite", v: "\(sqCount) 条")
+                            if let p = sq["path"] as? String { KV(k: "数据库", v: p, mono: true) }
+                            if let ts = numToDoubleAny(be["timestamp"]), ts > 0 {
+                                KV(k: "最近刷新", v: fmtDate(isoFromUnix(ts)))
+                            }
                         }
                     }
                     Card {
@@ -554,8 +585,8 @@ struct OvhAccountScreen: View {
             async let r = conn.client.getDict("/ovh/account/refunds")
             let (ir, er, rr) = try await (i, e, r)
             info = ir["info"] as? [String: Any] ?? ir
-            emails = (er["emails"] as? [[String: Any]]) ?? (er["history"] as? [[String: Any]]) ?? []
-            refunds = (rr["refunds"] as? [[String: Any]]) ?? []
+            emails = (try? await conn.client.getArray("/ovh/account/email-history")) ?? []   // 裸数组
+            refunds = (try? await conn.client.getArray("/ovh/account/refunds")) ?? []        // 裸数组
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
@@ -594,6 +625,7 @@ struct EmailDetailSheet: View {
 struct LogsScreen: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
     @AppStorage("ovh_mask_ip") private var mask = false
     var t: Tokens { theme.t }
 
@@ -603,6 +635,7 @@ struct LogsScreen: View {
     @State private var auto = false
     @State private var level = 0
     @State private var search = ""
+    @State private var logClearConfirm = false
 
     var body: some View {
         ScrollView {
@@ -631,9 +664,7 @@ struct LogsScreen: View {
                     Toggle(isOn: $auto) {
                         Text("自动刷新").font(.system(size: 11)).foregroundColor(t.color(t.muted))
                     }.toggleStyle(.button).tint(t.color(t.accent))
-                    Button {
-                        Task { try? await Task.sleep(nanoseconds: 300_000_000); _ = await conn.client.actionDelete("/logs"); await load() }
-                    } label: {
+                    Button { logClearConfirm = true } label: {
                         Text("清空").font(.system(size: 11.5)).foregroundColor(t.color(t.danger))
                     }.buttonStyle(.plain)
                 }
@@ -654,11 +685,19 @@ struct LogsScreen: View {
         .navigationTitle("运行日志")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
+        .sheet(isPresented: $logClearConfirm) {
+            ConfirmSheet(title: "清空日志", message: "删除后端全部日志记录,排障历史不可恢复。", confirmText: "确认清空") {
+                _ = await conn.client.actionDelete("/logs")
+                await load()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
         .task {
             await load()
             // 自动刷新 5 秒轮询
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if Task.isCancelled { break }   // 取消发生在 sleep 中时不再多发请求
                 if auto { await load() }
             }
         }
@@ -803,14 +842,13 @@ struct AccountPickerSheet: View {
         let id = acc["id"] as? String ?? ""
         let isActive = id == conn.accountId || (conn.accountId.isEmpty && (acc["isDefault"] as? Bool == true))
         let tint = zoneTint(acc)
-        let valid = acc["valid"] as? Bool ?? false
         return Button {
             conn.setAccount(isActive ? "" : id)
             toast.show("已切换到 \(acc["name"] as? String ?? "")")
             dismiss()
         } label: {
             HStack(spacing: 10) {
-                Circle().fill(t.color(valid ? tint : t.danger)).frame(width: 9, height: 9)
+                Circle().fill(t.color(tint)).frame(width: 9, height: 9)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(acc["name"] as? String ?? "").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(t.fg))
@@ -832,4 +870,14 @@ struct AccountPickerSheet: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+/// 设备吊销确认的标识
+private struct RevokeWrap: Identifiable {
+    let id: String
+}
+
+/// unix 秒 → ISO(缓存刷新时间用)
+func isoFromUnix(_ ts: Double) -> String {
+    ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: ts))
 }

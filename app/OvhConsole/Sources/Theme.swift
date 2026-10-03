@@ -403,11 +403,16 @@ struct ConfirmSheet: View {
 final class Toast: ObservableObject {
     @Published var msg: String?
     @Published var isError: Bool = false
+    private var generation = 0
 
     func show(_ m: String, error: Bool = false) {
+        generation += 1
+        let gen = generation
         withAnimation { msg = m; isError = error }
         Task {
             try? await Task.sleep(nanoseconds: 2_800_000_000)
+            // 连续 toast:只有最新一条的隐藏任务生效
+            guard gen == generation else { return }
             withAnimation { msg = nil }
         }
     }
@@ -480,6 +485,12 @@ func maskIP(_ s: String) -> String {
         if parts.count == 4 {
             return s.replacingCharacters(in: r, with: parts[0] + "." + parts[1] + ".***.***")
         }
+    }
+    // IPv6:冒号地址保留首组,其余打码
+    if s.contains(":") && !s.contains(".") {
+        let groups = s.components(separatedBy: ":")
+        if groups.count >= 3 { return groups.prefix(2).joined(separator: ":") + ":…:" + groups.suffix(1).joined() }
+        return s
     }
     let parts = s.components(separatedBy: ".")
     if parts.count >= 3 { return parts.prefix(2).joined(separator: ".") + ".***" }

@@ -17,6 +17,7 @@ struct VpsDetailView: View {
     @State private var serviceinfo: [String: Any]?
     @State private var info: [String: Any]?
     @State private var currentOS: String?
+    @State private var ips: [[String: Any]] = []
     @State private var sheet: VpsSheet?
 
     var body: some View {
@@ -58,7 +59,6 @@ struct VpsDetailView: View {
     private var headerCard: some View {
         let state = item["state"] as? String ?? ""
         let running = ["running", "active"].contains(state.lowercased())
-        let ips = item["ips"] as? [String] ?? []
         return Card {
             VStack(spacing: 11) {
                 HStack(spacing: 10) {
@@ -75,7 +75,7 @@ struct VpsDetailView: View {
                 }
                 HStack(spacing: 6) {
                     Dot(color: running ? t.success : t.danger)
-                    Text(mask ? maskIP(ips.first ?? "—") : (ips.first ?? "—"))
+                    Text(mask ? maskIP(firstIP) : firstIP)
                         .font(.system(size: 12.5, design: .monospaced)).foregroundColor(t.color(t.fg))
                     Spacer()
                     Text(renewalText).font(.system(size: 11)).foregroundColor(t.color(t.muted))
@@ -91,6 +91,11 @@ struct VpsDetailView: View {
                 }
             }
         }
+    }
+
+    private var firstIP: String {
+        let raw = ips.first?["ip"] as? String ?? (ips.first?["address"] as? String ?? "")
+        return raw.isEmpty ? "—" : raw
     }
 
     private var renewalText: String {
@@ -169,10 +174,17 @@ struct VpsDetailView: View {
             async let i = conn.client.getDict("/vps-control/\(name)/info")
             async let os = conn.client.getDict("/vps-control/\(name)/current-os")
             let (s, inr, o) = try await (si, i, os)
-            serviceinfo = s
-            info = inr["info"] as? [String: Any] ?? inr
-            currentOS = o["os"] as? String ?? (o["currentOS"] as? String) ?? (o["name"] as? String)
+            serviceinfo = (s["serviceInfo"] as? [String: Any]) ?? s
+            info = (inr["info"] as? [String: Any]) ?? inr
+            if let osObj = o["currentOS"] as? [String: Any] ?? (o["os"] as? [String: Any]) {
+                currentOS = osObj["name"] as? String
+            } else {
+                currentOS = o["name"] as? String
+            }
         } catch { _ = error.localizedDescription }
+        if let r = try? await conn.client.getDict("/vps-control/\(name)/ips") {
+            ips = (r["ips"] as? [[String: Any]]) ?? []
+        }
     }
 
     private func power(_ verb: String) async {
@@ -234,7 +246,7 @@ struct VpsSnapshotSection: View {
                 Card { ProgressView().padding(20).frame(maxWidth: .infinity) }
             } else if let e = err {
                 Card { LoadFailed(message: e) { Task { await load() } } }
-            } else if let s = snap, (s["exists"] as? Bool ?? s["hasSnapshot"] as? Bool ?? (s["createdAt"] != nil)) {
+            } else if let s = snap, s["exists"] as? Bool ?? true {
                 existsCard(s)
             } else {
                 Card {
@@ -282,7 +294,7 @@ struct VpsSnapshotSection: View {
                 SectionTitle(text: "当前快照")
                 KV(k: "创建于", v: fmtDate(s["creationDate"] as? String ?? s["createdAt"] as? String))
                 KV(k: "描述", v: (s["description"] as? String) ?? "—")
-                KV(k: "大小", v: fmtBytes((s["sizeBytes"] as? Double) ?? 0))
+                KV(k: "大小", v: fmtBytes(numToDoubleAny(s["size"]) ?? (numToDoubleAny(s["sizeBytes"]) ?? 0)))
                 KV(k: "状态", v: (s["status"] as? String) ?? "—")
 
                 HStack(spacing: 8) {
@@ -310,7 +322,10 @@ struct VpsSnapshotSection: View {
 
     private func load() async {
         do {
-            snap = try await conn.client.getDict("/vps-control/\(name)/snapshot")
+            let r = try await conn.client.getDict("/vps-control/\(name)/snapshot")
+            // handler:{"snapshot": {...}|null}
+            snap = (r["snapshot"] as? [String: Any])
+            if snap == nil, r["exists"] as? Bool == true { snap = r }   // 兼容旧形状
             err = nil
         } catch { err = error.localizedDescription }
         loading = false

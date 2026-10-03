@@ -34,17 +34,6 @@ struct MachinesScreen: View {
                     } else if loading && servers.isEmpty && vpsList.isEmpty {
                         ProgressView().padding(.top, 60)
                     } else {
-                        // 只在"真的拿不到机器 + 账户全失效"时才警告;
-                        // 列表有数据时 valid 标志可能是旧状态,再喊失效会和真实数据打架
-                        if servers.isEmpty && vpsList.isEmpty && accountsInvalid {
-                            Card(border: t.warning) {
-                                HStack(spacing: 9) {
-                                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 13)).foregroundColor(t.color(t.warning))
-                                    Text("OVH 账户凭据已失效,列表可能为空 —— 去网页端「设置 → OVH 账户 → 重新验证凭据」")
-                                        .font(.system(size: 11)).foregroundColor(t.color(t.muted))
-                                }
-                            }
-                        }
                         if seg == 0 {
                             if servers.isEmpty {
                                 Card { EmptyHint(icon: "server.rack", text: "账户下没有独立服务器") }
@@ -100,6 +89,8 @@ struct MachinesScreen: View {
             }
             .refreshable { await load() }
             .onChange(of: conn.accountId) { _ in
+                // 切账户先清旧数据再拉,避免停留在旧账户的详情页变成空白
+                servers = []; vpsList = []; path.removeAll()
                 loading = true
                 Task { await load() }
             }
@@ -120,11 +111,6 @@ struct MachinesScreen: View {
         } else if let sn = item["serviceName"] as? String {
             path.append(MachineRef(id: sn, isVps: false))
         }
-    }
-
-    /// 账户凭据是否全部失效(此时 OVH 列表为空不是"没机器")
-    private var accountsInvalid: Bool {
-        !conn.accounts.isEmpty && conn.accounts.allSatisfy { ($0["valid"] as? Bool ?? false) == false }
     }
 
     private func load() async {
@@ -248,7 +234,6 @@ struct VpsCard: View {
         let state = item["state"] as? String ?? ""
         let running = ["running", "active"].contains(state.lowercased())
         let name = item["name"] as? String ?? ""
-        let ips = item["ips"] as? [String] ?? []
 
         Button(action: onTap) {
             VStack(spacing: 10) {
@@ -267,11 +252,10 @@ struct VpsCard: View {
                     Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.faint))
                 }
                 HStack {
-                    Text(mask ? maskIP(ips.first ?? "—") : (ips.first ?? "—"))
-                        .font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
-                    Spacer()
                     Text([(item["model"] as? String ?? "VPS"), ((item["zone"] as? String ?? "").uppercased())].filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                        .font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
+                    Spacer()
+                    Text("详情查看 IP").font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
                 }
             }
             .padding(14)
