@@ -22,11 +22,12 @@ struct OvhConsoleApp: App {
                         MainScreen()
                     }
                 }
-                .environmentObject(conn)
-                .environmentObject(theme)
-                .environmentObject(toast)
-                .environmentObject(nav)
             }
+            // 注入必须包住 ThemeSync 本身(它自己也要读 theme),放在 content 里会崩
+            .environmentObject(conn)
+            .environmentObject(theme)
+            .environmentObject(toast)
+            .environmentObject(nav)
             .preferredColorScheme(theme.mode == .system ? nil : (theme.dark ? .dark : .light))
             .onOpenURL { url in
                 // 深链:ovhconsole://pair?host=..&code=..&auto=1
