@@ -114,25 +114,69 @@ struct SettingsScreen: View {
     // MARK: 抢购默认值(只读 —— 保存接口是全量覆盖,部分提交会清掉 TG 等配置,改值去网页端)
 
     @State private var snipeDefaults: [String: Any]?
+    @State private var intervalA = ""   // 新任务默认
+    @State private var intervalB = ""   // 自动抢
+    @State private var snipeSaveBusy = false
+    @State private var snipeLoaded = false
+
     private var snipeDefaultsCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 9) {
                 SectionTitle(text: "抢购默认间隔")
-                if let d = snipeDefaults {
-                    KV(k: "新任务重试间隔", v: "\(numToDoubleAny(d["defaultRetryInterval"]).map(Int.init) ?? 0) 秒")
-                    KV(k: "自动抢(监控触发)", v: "\(numToDoubleAny(d["quickOrderRetryInterval"]).map(Int.init) ?? 0) 秒")
-                    Text("只影响之后新建的任务;修改在网页端「设置 → 抢购」。")
-                        .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                if !snipeLoaded {
+                    ProgressView().padding(4)
                 } else {
-                    Text("…").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("新任务默认重试间隔(秒)").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.muted))
+                        SheetField(placeholder: "默认 60", text: $intervalA, mono: true, keyboard: .numberPad)
+                        Text("网页新建任务、Telegram /buy、上架通知里的一键下单按钮都用它。留空 = 60 秒。范围 1 ~ 86400。")
+                            .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("监控自动下单间隔(秒)").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.muted))
+                        SheetField(placeholder: "默认 2", text: $intervalB, mono: true, keyboard: .numberPad)
+                        Text("/watch 自动抢触发的任务用这个。货刚出现那一刻窗口可能只有几十秒,所以默认比普通任务激进(2 秒);但太密会吃 OVH 的 429,自己权衡。")
+                            .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
+                    }
+                    let va = Int(intervalA.filter(\.isNumber)) ?? -1
+                    let vb = Int(intervalB.filter(\.isNumber)) ?? -1
+                    if (intervalA.isEmpty && intervalB.isEmpty) == false {
+                        let badA = !intervalA.isEmpty && !(1...86400).contains(va)
+                        let badB = !intervalB.isEmpty && !(1...86400).contains(vb)
+                        if badA || badB {
+                            Text("要在 1 ~ 86400 之间").font(.system(size: 10.5)).foregroundColor(t.color(t.danger))
+                        }
+                    }
+                    SheetNote(text: "只影响之后新建的任务。已经在队列里跑的任务各自带着自己的间隔,要改单个任务去「抢购 → 队列」点那条任务的秒数。", tint: t.muted)
+                    ActBtn(kind: .primary, icon: "checkmark", label: snipeSaveBusy ? "保存中…" : "保存抢购设置", busy: snipeSaveBusy) {
+                        await saveSnipeDefaults()
+                    }
                 }
             }
         }
         .task {
-            if snipeDefaults == nil {
-                snipeDefaults = try? await conn.client.getDict("/settings")
+            guard !snipeLoaded else { return }
+            snipeDefaults = try? await conn.client.getDict("/settings")
+            if let d = snipeDefaults {
+                intervalA = "\(numToDoubleAny(d["defaultRetryInterval"]).map(Int.init) ?? 60)"
+                intervalB = "\(numToDoubleAny(d["quickOrderRetryInterval"]).map(Int.init) ?? 2)"
             }
+            snipeLoaded = true
         }
+    }
+
+    private func saveSnipeDefaults() async {
+        let va = Int(intervalA.filter(\.isNumber)) ?? 60
+        let vb = Int(intervalB.filter(\.isNumber)) ?? 2
+        guard (1...86400).contains(va), (1...86400).contains(vb) else {
+            toast.show("要在 1 ~ 86400 之间", error: true)
+            return
+        }
+        snipeSaveBusy = true
+        defer { snipeSaveBusy = false }
+        let body = try? JSONSerialization.data(withJSONObject: ["defaultRetryInterval": va, "quickOrderRetryInterval": vb])
+        let (ok2, msg) = await conn.client.actionPostData("/settings", bodyData: body)
+        toast.show(ok2 ? "设置已保存" : (msg.isEmpty ? "保存失败" : msg), error: !ok2)
     }
 
     // MARK: 关于(版本 + 构建时间;一眼判断跑的是不是最新构建)
@@ -189,6 +233,10 @@ struct NotifyScreen: View {
     @State private var err: String?
     @State private var loading = true
     @State private var testing = false
+    @State private var tgToken = ""
+    @State private var tgChatId = ""
+    @State private var webhookUrl = ""
+    @State private var saveBusy = false
 
     var body: some View {
         ScrollView {
@@ -198,6 +246,35 @@ struct NotifyScreen: View {
                 } else if let e = err {
                     Card { LoadFailed(message: e) { Task { await load() } } }
                 } else {
+                // TG 配置表单(SET-053/054)
+                Card {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionTitle(text: "Telegram 配置")
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Bot Token").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.muted))
+                            SheetField(placeholder: "123456:ABCdef...", text: $tgToken, mono: true)
+                        }
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Chat ID").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.muted))
+                            SheetField(placeholder: "-1001234567890", text: $tgChatId, mono: true, keyboard: .numbersAndPunctuation)
+                        }
+                        ActBtn(kind: .primary, icon: "checkmark", label: saveBusy ? "保存中…" : "保存设置", busy: saveBusy) {
+                            await saveNotify()
+                        }
+                    }
+                }
+                // Webhook(SET-056)
+                Card {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionTitle(text: "自定义 Webhook")
+                        SheetField(placeholder: "https://your.server/notify 或钉钉/飞书机器人地址", text: $webhookUrl, mono: true)
+                        Text("方向是本程序 → 这个地址。发的是一个 JSON POST,同一条文本同时放进 text / message / text_content.text 几个字段。注意「一键下单」按钮只有 Telegram 有。")
+                            .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
+                        Text("会往所有已配置的通道各发一条。先保存设置再测 —— 测的是已保存的配置。")
+                            .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
+                    }
+                }
+
                     if let chList = channels?["channels"] as? [[String: Any]] {
                         Card {
                             VStack(spacing: 10) {
@@ -215,8 +292,16 @@ struct NotifyScreen: View {
                                 SectionTitle(text: "Telegram 长轮询")
                                 KV(k: "状态", v: (p["running"] as? Bool ?? false) ? "运行中" : "已停止")
                                 if let last = p["lastPollAt"] as? String { KV(k: "最近拉取", v: fmtDate(last)) }
+                                if let off = p["offset"] as? Int {
+                                    KV(k: "已确认 update_id", v: "\(off)")
+                                }
                                 if let e2 = p["lastError"] as? String, !e2.isEmpty {
-                                    KV(k: "上次错误", v: e2.contains("409") ? "409 冲突:另一个进程在收消息" : e2)
+                                    if e2.contains("409") || e2.lowercased().contains("conflict") {
+                                        Text("这是同一个 Bot Token 有另一个进程也在收:两边会互相把对方踢下线,表现就是「一键下单」按钮时灵时不灵、消息随机丢。先停掉另一份程序(另一台机器 / 另一个容器 / 本地调试进程),或者给这一份换一个 Bot Token。")
+                                            .font(.system(size: 10)).foregroundColor(t.color(t.danger))
+                                    } else {
+                                        KV(k: "上次错误", v: e2)
+                                    }
                                 }
                             }
                         }
@@ -227,6 +312,8 @@ struct NotifyScreen: View {
                                 .font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
                         }
                     }
+                    Text("会往所有已配置的通道各发一条。先保存设置再测 —— 测的是已保存的配置,不是输入框里的。")
+                        .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
                     ActBtn(kind: .primary, icon: "paperplane.fill", label: testing ? "发送中…" : "发一条测试通知", busy: testing) {
                         await sendTest()
                     }
@@ -267,17 +354,53 @@ struct NotifyScreen: View {
     private func sendTest() async {
         testing = true
         defer { testing = false }
-        let (ok, msg) = await conn.client.actionPostData("/monitor/test-notification", bodyData: nil)
-        toast.show(ok ? "已发送,看手机/TG" : (msg.isEmpty ? "发送失败" : msg), error: !ok)
+        let r = try? await conn.client.post("/monitor/test-notification")
+        // SET-058 三分档:0 条 error / 部分失败 warning / 全成功
+        let delivered = numToDoubleAny(r?["delivered"]).map(Int.init) ?? -1
+        let total = numToDoubleAny(r?["total"]).map(Int.init) ?? -1
+        let results = r?["results"] as? [[String: Any]] ?? []
+        if delivered == 0 {
+            toast.show("一条都没发出去", error: true)
+        } else if delivered > 0 && total > delivered {
+            let failed = results.filter { !(($0["ok"] as? Bool) ?? false) }
+            let names = failed.compactMap { $0["name"] as? String }.joined(separator: "、")
+            let reason = failed.first?["error"] as? String ?? ""
+            toast.show("\(delivered) 条已送达,但 \(names) 失败:\(reason)", error: true)
+        } else if delivered > 0 {
+            toast.show("已发往 \(delivered) 个通道")
+        } else {
+            toast.show((r?["message"] as? String) ?? "发送失败", error: true)
+        }
+    }
+
+    private func saveNotify() async {
+        guard !tgToken.isEmpty || !webhookUrl.isEmpty else {
+            toast.show("至少填一项(TG Token 或 Webhook)", error: true)
+            return
+        }
+        saveBusy = true
+        defer { saveBusy = false }
+        var body: [String: Any] = [:]
+        if !tgToken.isEmpty { body["tgToken"] = tgToken }
+        if !tgChatId.isEmpty { body["tgChatId"] = tgChatId }
+        if !webhookUrl.isEmpty { body["notifyWebhookUrl"] = webhookUrl }
+        let data = try? JSONSerialization.data(withJSONObject: body)
+        let (ok2, msg) = await conn.client.actionPostData("/settings", bodyData: data)
+        toast.show(ok2 ? "设置已保存" : (msg.isEmpty ? "保存失败" : msg), error: !ok2)
+        await load()
     }
 
     private func load() async {
         do {
             async let c = conn.client.getDict("/notify/channels?verify=true")
             async let p = conn.client.getDict("/telegram/poller")
-            let (cr, pr) = try await (c, p)
+            async let s = conn.client.getDict("/settings")
+            let (cr, pr, sr) = try await (c, p, s)
             channels = cr
             poller = (pr["poller"] as? [String: Any]) ?? pr
+            if tgToken.isEmpty, let tok = sr["tgToken"] as? String, !tok.isEmpty { tgToken = tok }
+            if tgChatId.isEmpty, let cid = sr["tgChatId"] as? String, !cid.isEmpty { tgChatId = cid }
+            if webhookUrl.isEmpty, let w = sr["notifyWebhookUrl"] as? String, !w.isEmpty { webhookUrl = w }
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
