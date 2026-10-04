@@ -315,7 +315,7 @@ struct CatalogPane: View {
                         HStack(spacing: 4) {
                             Image(systemName: "bolt.fill").font(.system(size: 10))
                             Text("抢购").font(.system(size: 11, weight: .bold))
-                        }.foregroundColor(.white)
+                        }.foregroundColor(t.color(t.onAccent))
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(Capsule().fill(t.color(t.accent)))
                     }.buttonStyle(.plain)
@@ -638,11 +638,11 @@ struct SnipeOrderSheet: View {
                     }
                     Text(dc.uppercased())
                         .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundColor(on ? .white : (inStock ? t.color(t.fg) : t.color(t.faint)))
+                        .foregroundColor(on ? t.color(t.onAccent) : (inStock ? t.color(t.fg) : t.color(t.faint)))
                 }
                 Text(Self.availText(status))
                     .font(.system(size: 8.5, weight: .medium))
-                    .foregroundColor(on ? .white : t.color(inStock ? t.success : t.faint))
+                    .foregroundColor(on ? t.color(t.onAccent).opacity(0.85) : t.color(inStock ? t.success : t.faint))
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .frame(minWidth: 64)
@@ -695,15 +695,15 @@ struct SnipeOrderSheet: View {
         } label: {
             HStack(spacing: 5) {
                 if on {
-                    Image(systemName: "checkmark").font(.system(size: 8.5, weight: .bold)).foregroundColor(.white)
+                    Image(systemName: "checkmark").font(.system(size: 8.5, weight: .bold)).foregroundColor(t.color(t.onAccent))
                 }
                 Text(item.label)
                     .font(.system(size: 11, weight: on ? .semibold : .regular))
-                    .foregroundColor(on ? .white : t.color(t.muted))
+                    .foregroundColor(on ? t.color(t.onAccent) : t.color(t.muted))
                     .lineLimit(1)
                 if item.price > 0 {
                     Text(String(format: "+%.0f", item.price)).font(.system(size: 9.5, design: .rounded))
-                        .foregroundColor(on ? .white.opacity(0.9) : t.color(t.faint))
+                        .foregroundColor(on ? t.color(t.onAccent).opacity(0.85) : t.color(t.faint))
                 }
                 if item.isDefault && !on {
                     Text("默认").font(.system(size: 8, weight: .bold))

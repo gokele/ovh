@@ -16,6 +16,9 @@ final class Tokens {
     let fg = "fg", muted = "muted", faint = "faint"
     // 语义色(accent = 品牌主操作绿)
     let accent = "accent", success = "success", danger = "danger", warning = "warning", info = "info"
+    /// accent 实底上的前景色:暗色 accent 是亮绿(#22C55E),白字对比度只有 1.9:1 看不清,
+    /// 必须用近黑;浅色 accent 是深绿(#15803D),配白字。所有绿实底的前景一律走这个 token。
+    let onAccent = "onAccent"
 
     func color(_ name: String) -> Color {
         if dark {
@@ -28,6 +31,7 @@ final class Tokens {
             case muted: return Color(hex: 0x94A3B8)
             case faint: return Color(hex: 0x5B6B84)
             case accent, success: return Color(hex: 0x22C55E)
+            case onAccent: return Color(hex: 0x05250F)   // 近黑绿,压亮绿可读
             case danger: return Color(hex: 0xF87171)
             case warning: return Color(hex: 0xFBBF24)
             case info: return Color(hex: 0x38BDF8)
@@ -43,6 +47,7 @@ final class Tokens {
             case muted: return Color(hex: 0x55647C)
             case faint: return Color(hex: 0x8A99AE)
             case accent, success: return Color(hex: 0x15803D)
+            case onAccent: return .white
             case danger: return Color(hex: 0xDC2626)
             case warning: return Color(hex: 0xB45309)
             case info: return Color(hex: 0x0369A1)
@@ -315,9 +320,9 @@ struct ActBtn: View {
 
     private var btnFg: Color {
         switch kind {
-        // 绿底永远配白字:浅色模式下 accent(#15803D)也够深,
-        // 之前浅色下字和背景同色导致按钮文字整体隐形(实测踩坑)
-        case .primary: return Color.white
+        // 绿底前景按模式:暗色 accent 是亮绿(#22C55E),白字对比度 1.9:1 看不清 → 近黑;
+        // 浅色 accent 是深绿(#15803D)配白。onAccent token 统一处理
+        case .primary: return t.color(t.onAccent)
         case .ghost: return t.color(t.fg)
         case .danger: return t.color(t.danger)
         }
@@ -601,7 +606,7 @@ struct DetailTabs: View {
                 } label: {
                     Text(tabs[i])
                         .font(.system(size: 12.5, weight: on ? .bold : .medium))
-                        .foregroundColor(on ? (t.dark ? .white : t.color(t.accent)) : t.color(t.muted))
+                        .foregroundColor(on ? t.color(t.onAccent) : t.color(t.muted))
                         .padding(.horizontal, 14).padding(.vertical, 7)
                         .background(
                             Capsule().fill(on ? t.color(t.accent) : t.color(t.surfaceMuted).opacity(0.6))
