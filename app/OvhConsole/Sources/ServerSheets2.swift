@@ -241,56 +241,94 @@ struct EngagementSheet: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
     @EnvironmentObject var toast: Toast
+    @Environment(\.openURL) private var openURL
     let sn: String
     let isVps: Bool
     var t: Tokens { theme.t }
 
     private var base: String { isVps ? "/vps-control" : "/server-control" }
 
+    // 后端透传 OVH 原始结构(web hooks EngagementInfo/EngagementRequest 同形):
+    // current = {currentPeriod:{startDate,endDate}, endRule:{strategy,possibleStrategies}}
+    // request = {pricing:{description,…}, requestDate, order:{orderId,url}}
     @State private var current: [String: Any]?
+    @State private var currentErr: String? = nil
     @State private var available: [[String: Any]] = []
     @State private var pending: [String: Any]?
+    @State private var pendingErr: String? = nil
+    @State private var availErr: String? = nil
     @State private var loading = true
-    @State private var err: String?
     @State private var busy = false
     @State private var confirming: String?
+    @State private var confirmStrategy: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
-            SheetHeader(icon: "doc.plaintext", tint: t.info, title: "合同期(承诺期)")
+            SheetHeader(icon: "doc.plaintext", tint: t.info, title: "合同期管理")
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if loading {
                         ProgressView().padding(30)
-                    } else if let e = err {
-                        LoadFailed(message: e) { Task { await load() } }
                     } else {
-                        if let cur = current {
-                            Card {
-                                VStack(spacing: 8) {
-                                    SectionTitle(text: "当前承诺期")
-                                    KV(k: "模式", v: (cur["pricingMode"] as? String) ?? (cur["mode"] as? String ?? "—"))
-                                    KV(k: "开始", v: fmtDate(cur["from"] as? String ?? cur["startDate"] as? String))
-                                    KV(k: "结束", v: fmtDate(cur["to"] as? String ?? cur["endDate"] as? String))
+                        // 当前合同期(读失败 ≠ 没签合同期)
+                        Card {
+                            VStack(alignment: .leading, spacing: 8) {
+                                SectionTitle(text: "当前合同期")
+                                if let ce = currentErr {
+                                    Text("合同期信息读取失败:\(ce)。当前是否处于承诺期未知,请勿据此判断续费方式。")
+                                        .font(.system(size: 11)).foregroundColor(t.color(t.danger))
+                                    Button("重试") { Task { await loadCurrent() } }
+                                        .font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.accent))
+                                } else if let cur = current {
+                                    if let period = cur["currentPeriod"] as? [String: Any] {
+                                        KV(k: "周期", v: "\(fmtDate(period["startDate"] as? String)) — \(fmtDate(period["endDate"] as? String))")
+                                    }
+                                    if let rule = cur["endRule"] as? [String: Any] {
+                                        let strategy = rule["strategy"] as? String ?? ""
+                                        Text("到期策略:").font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                                        FlowLayout(spacing: 6) {
+                                            Chip(text: endStrategyName(strategy), color: t.info)
+                                            ForEach(((rule["possibleStrategies"] as? [String]) ?? []).filter { $0 != strategy }, id: \.self) { s in
+                                                Button {
+                                                    if s == "CANCEL_SERVICE" { confirmStrategy = s }
+                                                    else { Task { await updateEndRule(s) } }
+                                                } label: {
+                                                    Text("改为「\(endStrategyName(s))」").font(.system(size: 10.5, weight: .semibold))
+                                                        .foregroundColor(t.color(t.fg))
+                                                        .padding(.horizontal, 8).padding(.vertical, 4)
+                                                        .background(Capsule().stroke(t.color(t.border), lineWidth: 1))
+                                                }.buttonStyle(.plain).disabled(busy)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Text("该服务未签合同期,按标准月付方式续费。可在下方订阅承诺期享受折扣。")
+                                        .font(.system(size: 11)).foregroundColor(t.color(t.muted))
                                 }
                             }
-                        } else {
-                            SheetNote(text: "当前按月付费,没有承诺期。订阅承诺期通常更便宜。", tint: t.muted)
                         }
 
+                        // 进行中的变更请求(读失败 ≠ 没有请求)
                         if let p = pending {
                             Card(border: t.warning) {
-                                VStack(spacing: 8) {
+                                VStack(alignment: .leading, spacing: 8) {
                                     SectionTitle(text: "订单已创建,等待支付")
                                     Text("OVH 已为此变更创建订单,付款前合同期不会生效,服务继续按原月付。30 天未付订单将自动取消。")
                                         .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
-                                    KV(k: "目标模式", v: modeName(p["pricingMode"] as? String ?? ""))
-                                    KV(k: "提交时间", v: fmtDate(p["from"] as? String ?? p["date"] as? String))
-                                    if let oid = p["orderId"] as? String, !oid.isEmpty {
-                                        KV(k: "订单号", v: oid, mono: true)
+                                    if let pricing = p["pricing"] as? [String: Any],
+                                       let desc = pricing["description"] as? String, !desc.isEmpty {
+                                        KV(k: "目标", v: desc)
+                                    }
+                                    if let rd = p["requestDate"] as? String, !rd.isEmpty {
+                                        KV(k: "提交时间", v: fmtDate(rd))
+                                    }
+                                    if let order = p["order"] as? [String: Any],
+                                       let oid = numToDoubleAny(order["orderId"]).map(Int.init) {
+                                        KV(k: "订单号", v: "#\(oid)", mono: true)
                                     }
                                     HStack(spacing: 10) {
-                                        if let url = p["url"] as? String ?? p["orderUrl"] as? String, let u = URL(string: url) {
+                                        if let order = p["order"] as? [String: Any],
+                                           let url = order["url"] as? String, !url.isEmpty, let u = URL(string: url) {
                                             Link(destination: u) {
                                                 HStack(spacing: 4) {
                                                     Image(systemName: "safari").font(.system(size: 11))
@@ -304,43 +342,28 @@ struct EngagementSheet: View {
                                     }
                                 }
                             }
+                        } else if let pe = pendingErr {
+                            SheetNote(text: "进行中的变更请求读取失败,暂时无法订阅 —— 无法确认是否已有未付订单,重复提交会多出一笔订单(\(pe))。", tint: t.warning)
                         }
 
-                        if !available.isEmpty {
-                            Text("可订阅承诺期").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        // 可订阅列表
+                        Text("可订阅的承诺期").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        Text("长周期承诺通常有折扣(部分入门款无折扣)。月均价就是月度等效成本。")
+                            .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                        if let ae = availErr {
+                            LoadFailed(message: "可订阅承诺期读取失败:\(ae)") { Task { await load() } }
+                        } else if available.isEmpty {
+                            EmptyHint(icon: "calendar", text: "暂无可订阅的承诺期")
+                        } else {
                             ForEach(available.indices, id: \.self) { i in
-                                let a = available[i]
-                                let mode = a["pricingMode"] as? String ?? "—"
-                                let price = a["price"] as? [String: Any]
-                                let val = price?["value"] as? Double ?? (a["monthlyPrice"] as? Double ?? 0)
-                                let cur2 = price?["currencyCode"] as? String ?? (a["currency"] as? String ?? "")
-                                let duration = parseISOMonths(a["duration"] as? String) ?? 12
-                                let perMonth = duration > 0 ? val / Double(duration) : val
-                                Button { confirming = mode } label: {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            HStack(spacing: 5) {
-                                                Text(modeName(mode)).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-                                                Chip(text: upfrontFlag(a) ? "一次性预付" : "周期付费")
-                                            }
-                                            Text(a["description"] as? String ?? "").font(.system(size: 10)).foregroundColor(t.color(t.muted)).lineLimit(1)
-                                        }
-                                        Spacer()
-                                        VStack(alignment: .trailing, spacing: 1) {
-                                            if val > 0 { Text(String(format: "%.2f %@", val, cur2)).font(.system(size: 11, design: .rounded)).foregroundColor(t.color(t.muted)) }
-                                            if perMonth > 0 { Text(String(format: "%.2f %@/月", perMonth, cur2)).font(.system(size: 11.5, design: .rounded)).foregroundColor(t.color(t.accent)) }
-                                        }
-                                        Image(systemName: "chevron.right").font(.system(size: 10)).foregroundColor(t.color(t.faint))
-                                    }
-                                    .padding(11)
-                                    .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 12).stroke(t.color(t.border), lineWidth: 1)))
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(busy || pending != nil)
+                                pricingRow(available[i])
                             }
                             if pending != nil {
                                 Text("有变更请求处理中,需先撤销才能订阅新承诺期")
                                     .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                            } else if pendingErr != nil {
+                                Text("进行中的变更请求读取失败,暂时无法订阅(见上方提示)")
+                                    .font(.system(size: 10)).foregroundColor(t.color(t.warning))
                             }
                         }
                     }
@@ -355,8 +378,16 @@ struct EngagementSheet: View {
             get: { confirming.map { ModeWrap(mode: $0) } },
             set: { confirming = $0?.mode }
         )) { w in
-            ConfirmSheet(title: "确认订阅承诺期?", message: "切换到 \(modeName(w.mode))。OVH 创建一笔未付订单;付款前合同期不会激活,服务继续按原月付。一旦付款合同期锁死,中途解约按未消耗月数计违约金。", confirmText: "创建订单", danger: false) {
+            ConfirmSheet(title: "确认订阅承诺期?", message: "1. OVH 创建一笔未付订单(一次性预付=承诺期总价;周期付费=首期价)\n2. 付款前合同期不会激活,服务继续按原月付收费\n3. 若已设自动扣款 + 余额充足 → 几分钟内自动扣款激活\n4. 否则需手动去 OVH manager 支付,30 天没付订单自动取消\n5. 一旦付款 → 合同期锁死,中途解约按未消耗月数计违约金", confirmText: "创建订单", danger: false) {
                 await createRequest(w.mode)
+            }
+        }
+        .sheet(item: Binding(
+            get: { confirmStrategy.map { ModeWrap(mode: $0) } },
+            set: { confirmStrategy = $0?.mode }
+        )) { _ in
+            ConfirmSheet(title: "确认改为「到期自动销毁服务」?", message: "承诺期结束时,OVH 会直接销毁这台服务器,数据不保留、IP 不保留。设置后若要反悔,需要在承诺期结束前改回其它策略。", confirmText: "确认销毁", danger: true) {
+                await updateEndRule("CANCEL_SERVICE", confirm: true)
             }
         }
     }
@@ -366,7 +397,57 @@ struct EngagementSheet: View {
         var id: String { mode }
     }
 
-    /// ISO 8601 duration("P12M"/"P1Y")→ 月数;web parseDurationMonths 同款
+    // MARK: 可订阅行(价格口径与 web PricingRow 一致:
+    // price 的区间是 pricing.duration(续费区间),periodic 行的 price 是每期价,
+    // 总价 = 每期价 × 期数;upfront 直接用 OVH 的 price.text)
+
+    private func pricingRow(_ a: [String: Any]) -> some View {
+        let pricing = a["price"] as? [String: Any] ?? [:]
+        let priceVal = numToDoubleAny(pricing["value"]) ?? 0
+        let currency = pricing["currencyCode"] as? String ?? ""
+        let engCfg = a["engagementConfiguration"] as? [String: Any]
+        let months = parseISOMonths(engCfg?["duration"] as? String) ?? 0
+        let intervalMonths = parseISOMonths(a["duration"] as? String) ?? 0
+        let perMonth = intervalMonths > 0 ? priceVal / Double(intervalMonths) : 0
+        let engType = engCfg?["type"] as? String
+        let isUpfront: Bool
+        if let ty = engType, ty == "upfront" || ty == "periodic" { isUpfront = ty == "upfront" }
+        else { isUpfront = (a["pricingMode"] as? String ?? "").lowercased().contains("upfront") }
+        let totalValue = intervalMonths > 0 && months > 0 ? (priceVal / Double(intervalMonths)) * Double(months) : priceVal
+        let totalText: String
+        if isUpfront, let txt = pricing["text"] as? String, !txt.isEmpty { totalText = txt }
+        else if totalValue > 0 { totalText = currency.isEmpty ? String(format: "%.2f", totalValue) : String(format: "%.2f %@", totalValue, currency) }
+        else { totalText = "—" }
+        let perMonthText = perMonth > 0 ? (currency.isEmpty ? String(format: "%.2f/月", perMonth) : String(format: "%.2f %@/月", perMonth, currency)) : ""
+        let subscribeDisabled = busy || pending != nil || pendingErr != nil
+        return Button { confirming = a["pricingMode"] as? String } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 5) {
+                        Text(humanTitle(a, months: months, isUpfront: isUpfront)).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        Chip(text: isUpfront ? "一次性预付" : "周期付费")
+                    }
+                    if let endAction = engCfg?["defaultEndAction"] as? String, !endAction.isEmpty {
+                        Text("到期:\(endStrategyName(endAction))").font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                    }
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(totalText).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundColor(t.color(t.fg))
+                    if !perMonthText.isEmpty {
+                        Text(perMonthText).font(.system(size: 10, design: .rounded)).foregroundColor(t.color(t.muted))
+                    }
+                    Text("订阅").font(.system(size: 11, weight: .semibold)).foregroundColor(subscribeDisabled ? t.color(t.faint) : t.color(t.accent))
+                }
+            }
+            .padding(11)
+            .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 12).stroke(t.color(t.border), lineWidth: 1)))
+        }
+        .buttonStyle(.plain)
+        .disabled(subscribeDisabled)
+    }
+
+    /// ISO 8601 duration("P12M"/"P1Y")→ 月数;web parseDurationMonths 同款,解析不出返回 0(web 语义:0=不显示月均价)
     private func parseISOMonths(_ raw: String?) -> Int? {
         guard let s = raw, s.hasPrefix("P") else { return nil }
         var months = 0
@@ -374,55 +455,95 @@ struct EngagementSheet: View {
            let y = Int(s[ym].dropLast()) { months += y * 12 }
         if let mm = s.range(of: #"([0-9]+)M"#, options: .regularExpression),
            let m = Int(s[mm].dropLast()) { months += m }
-        return months > 0 ? months : nil
+        return months
     }
 
-    private func upfrontFlag(_ a: [String: Any]) -> Bool {
-        if let cfg = a["engagementConfiguration"] as? [String: Any],
-           let ty = cfg["type"] as? String { return ty.lowercased().contains("upfront") }
-        if let pm = a["pricingMode"] as? String { return pm.lowercased().contains("upfront") }
-        return false
+    /// "rental for 12 months" → "1 年预付/周期"(web humanizeDescription 同款)
+    private func humanTitle(_ a: [String: Any], months: Int, isUpfront: Bool) -> String {
+        if months > 0 {
+            let human = months % 12 == 0 ? "\(months / 12) 年" : "\(months) 个月"
+            return isUpfront ? "\(human)预付" : "\(human)周期"
+        }
+        return (a["description"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "—"
     }
 
-    private func modeName(_ m: String) -> String {
-        switch m {
-        case "12months": return "12 个月承诺"
-        case "24months": return "24 个月承诺"
-        case "36months": return "36 个月承诺"
-        case "1month": return "按月"
-        default: return m
+    /// OVH 到期策略枚举 → 中文(web translateEndStrategy 同款)
+    private func endStrategyName(_ s: String) -> String {
+        switch s {
+        case "REACTIVATE_ENGAGEMENT": return "到期自动再签同样合同期"
+        case "STOP_ENGAGEMENT_FALLBACK_DEFAULT_PRICE": return "到期转月付(回到标准价)"
+        case "STOP_ENGAGEMENT_KEEP_PRICE": return "到期转月付(保持当前价,无合同期)"
+        case "CANCEL_SERVICE": return "到期自动销毁服务"
+        default: return s.isEmpty ? "—" : s
         }
     }
 
+    // MARK: 请求(三个分区独立失败,互不拖垮)
+
     private func load() async {
+        await loadCurrent()
+        pending = nil
+        pendingErr = nil
         do {
-            async let c = conn.client.getDict("\(base)/\(sn)/engagement")
-            async let a = conn.client.getDict("\(base)/\(sn)/engagement/available")
-            async let p = conn.client.getDict("\(base)/\(sn)/engagement/request")
-            let (cr, ar, pr) = try await (c, a, p)
-            current = cr["engagement"] as? [String: Any]
-            available = (ar["pricings"] as? [[String: Any]]) ?? (ar["available"] as? [[String: Any]]) ?? []
+            let pr = try await conn.client.getDict("\(base)/\(sn)/engagement/request")
             pending = pr["request"] as? [String: Any]
-            err = nil
-        } catch { err = error.localizedDescription }
+        } catch { pendingErr = error.localizedDescription }
+        availErr = nil
+        do {
+            let ar = try await conn.client.getDict("\(base)/\(sn)/engagement/available")
+            available = (ar["pricings"] as? [[String: Any]]) ?? []
+        } catch {
+            available = []
+            availErr = error.localizedDescription
+        }
         loading = false
+    }
+
+    private func loadCurrent() async {
+        currentErr = nil
+        do {
+            let cr = try await conn.client.getDict("\(base)/\(sn)/engagement")
+            current = cr["engagement"] as? [String: Any]
+        } catch {
+            current = nil
+            currentErr = error.localizedDescription
+        }
     }
 
     private func createRequest(_ mode: String) async {
         busy = true
         defer { busy = false }
         do {
-            _ = try await conn.client.post("\(base)/\(sn)/engagement/request", body: ["pricingMode": mode])
-            toast.show("变更订单已创建,请到 OVH 完成支付")
+            let resp = try await conn.client.post("\(base)/\(sn)/engagement/request", body: ["pricingMode": mode])
+            if let url = ((resp["request"] as? [String: Any])?["order"] as? [String: Any])?["url"] as? String,
+               !url.isEmpty, let u = URL(string: url) {
+                toast.show("订单已创建,正在打开 OVH 支付页面…")
+                openURL(u)
+            } else {
+                toast.show("变更请求已提交,请前往 OVH manager 完成支付")
+            }
             await load()
         } catch { toast.show(error.localizedDescription, error: true) }
+    }
+
+    /// 改到期策略;CANCEL_SERVICE 不可逆,后端要求 confirm:true(调用前必须过二次确认)
+    private func updateEndRule(_ strategy: String, confirm: Bool = false) async {
+        busy = true
+        defer { busy = false }
+        var body: [String: Any] = ["strategy": strategy]
+        if confirm { body["confirm"] = true }
+        let bodyData = try? JSONSerialization.data(withJSONObject: body)
+        let (ok, msg) = await conn.client.actionPutData("\(base)/\(sn)/engagement/end-rule", bodyData: bodyData)
+        toast.show(ok ? "到期策略已更新" : (msg.isEmpty ? "更新失败" : msg), error: !ok)
+        if ok { await loadCurrent() }
+        confirmStrategy = nil
     }
 
     private func cancelPending() async {
         busy = true
         defer { busy = false }
         let (ok, msg) = await conn.client.actionDelete("\(base)/\(sn)/engagement/request")
-        toast.show(ok ? "已撤销" : (msg.isEmpty ? "撤销失败" : msg), error: !ok)
+        toast.show(ok ? "已撤销变更请求" : (msg.isEmpty ? "撤销失败" : msg), error: !ok)
         if ok { await load() }
     }
 }
@@ -441,6 +562,7 @@ struct HardwareReplaceSheet: View {
     @State private var serials = ""
     @State private var slots = ""
     @State private var comment = ""
+    @State private var details = ""
     @State private var inverse = false
     @State private var busy = false
     @State private var hwConfirm = false
@@ -460,25 +582,32 @@ struct HardwareReplaceSheet: View {
                     .pickerStyle(.segmented)
 
                     if component == "hardDiskDrive" {
-                        Text("硬盘序列号列表").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
-                        SheetField(placeholder: "序列号 [槽位],逗号分隔,如 WS0A123 [d0]", text: $serials, mono: true)
+                        Text(inverse ? "健康盘序列号(必填,每行一块;未列出的盘都会被更换)" : "故障盘序列号(必填,每行一块)")
+                            .font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        SheetField(placeholder: "S3Z2NB0K123456 2   ← 序列号后可跟槽位号", text: $serials, mono: true)
                     }
                     if component == "memory" {
-                        Text("内存槽位(可选)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
-                        SheetField(placeholder: "如 0, 1(留空=全部)", text: $slots, mono: true)
+                        Text("故障内存槽位(可选,逗号或换行分隔)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        SheetField(placeholder: "DIMM_A1, DIMM_B2", text: $slots, mono: true)
+                    }
+                    if component == "memory" || component == "cooling" {
+                        Text("故障详情(\(component == "memory" ? "内存" : "散热")必填,建议英文)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        SheetField(placeholder: component == "memory" ? "e.g., Memory module failure, slot 1" : "e.g., Fan noise, overheating issue", text: $details)
                     }
 
                     Text("英文备注").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                     SheetField(placeholder: "Additional info for datacenter", text: $comment)
 
-                    Toggle(isOn: $inverse) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("故障盘已经读不出序列号 —— 改为列出所有健康盘").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
-                            Text("OVH 更换其余的盘(OVH 硬盘更换指南规定的做法)。列漏一块健康盘它也会被换掉,务必列全。")
-                                .font(.system(size: 10)).foregroundColor(t.color(t.warning))
-                        }
-                    }.tint(t.color(t.accent))
-                    SheetNote(text: "OVH 按 disk_serial 定位硬盘,列表不能为空(空等于申请更换整机所有硬盘,后端会拒绝)。序列号在系统里用 smartctl -i /dev/sdX(NVMe 用 nvme list)查看。官方指南建议把故障盘和健康盘的序列号都写进备注,避免机房技师换错盘;工单提交后可在 OVH 帮助中心按工单号跟进。", tint: t.muted)
+                    if component == "hardDiskDrive" {
+                        Toggle(isOn: $inverse) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("故障盘已经读不出序列号 —— 改为列出所有健康盘").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                Text("OVH 更换其余的盘(OVH 硬盘更换指南规定的做法)。列漏一块健康盘它也会被换掉,务必列全。")
+                                    .font(.system(size: 10)).foregroundColor(t.color(t.warning))
+                            }
+                        }.tint(t.color(t.accent))
+                        SheetNote(text: "OVH 按 disk_serial 定位硬盘,列表不能为空(空等于申请更换整机所有硬盘,后端会拒绝)。序列号在系统里用 smartctl -i /dev/sdX(NVMe 用 nvme list)查看。官方指南建议把故障盘和健康盘的序列号都写进备注,避免机房技师换错盘;工单提交后可在 OVH 帮助中心按工单号跟进。", tint: t.muted)
+                    }
 
                     ActBtn(kind: .primary, icon: "paperplane", label: busy ? "提交中…" : "提交工单") {
                         hwConfirm = true
@@ -504,45 +633,55 @@ struct HardwareReplaceSheet: View {
     private func submit() async {
         busy = true
         defer { busy = false }
-        // 必填校验(S-051)
+        // 必填校验(S-051):内存/散热的"故障详情"是独立字段 details,不是备注
+        let d = details.trimmingCharacters(in: .whitespaces)
         if component == "memory" || component == "cooling" {
-            let d = comment.trimmingCharacters(in: .whitespaces)
             guard !d.isEmpty else {
                 toast.show("此类型需要填写故障详情", error: true)
                 return
             }
         }
+        let s = serials.trimmingCharacters(in: .whitespacesAndNewlines)
         if component == "hardDiskDrive" {
-            let s0 = serials.trimmingCharacters(in: .whitespaces)
-            guard !s0.isEmpty else {
+            guard !s.isEmpty else {
                 toast.show(inverse ? "请填写所有健康盘的序列号(未列出的盘都会被更换)" : "请填写至少一块故障盘的序列号", error: true)
                 return
             }
         }
         var body: [String: Any] = ["componentType": component]
-        // handler 的 parseReplaceDisks 要对象数组 [{disk_serial, slot_id}],
-        // 输入形如 "序列号 [槽位]" 逗号分隔
-        let s = serials.trimmingCharacters(in: .whitespaces)
+        // 每行/每项 "序列号 槽位":槽位段是数字才带 slot_id,拿不到就整个省略 ——
+        // 伪造槽位号(比如兜底发 0)会让机房按错误槽位定位盘(web parseDisks 同款)
         if component == "hardDiskDrive" && !s.isEmpty {
-            body["disks"] = s.components(separatedBy: ",").map { raw -> [String: Any] in
+            body["disks"] = s.components(separatedBy: CharacterSet(charactersIn: ",\n")).map { raw -> [String: Any] in
                 let item = raw.trimmingCharacters(in: .whitespaces)
-                if let br = item.range(of: #"\[([^\]]*)\]"#, options: .regularExpression) {
-                    let slot = item[br].trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                    let serial = item[..<br.lowerBound].trimmingCharacters(in: .whitespaces)
-                    return ["disk_serial": serial, "slot_id": slot.isEmpty ? 0 : (Int(slot) ?? 0)]
+                let parts = item.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+                guard let serial = parts.first, !serial.isEmpty else { return [:] }
+                if parts.count > 1, let slot = Int(parts[1]) {
+                    return ["disk_serial": serial, "slot_id": slot]
                 }
-                return ["disk_serial": item, "slot_id": 0]
+                return ["disk_serial": serial]
+            }.filter { !$0.isEmpty }
+        }
+        if component == "memory" {
+            let sl = slots.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sl.isEmpty {
+                body["slots"] = sl.components(separatedBy: CharacterSet(charactersIn: ",\n"))
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
             }
         }
-        let sl = slots.trimmingCharacters(in: .whitespaces)
-        if !sl.isEmpty { body["slots"] = sl.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+        if !d.isEmpty { body["details"] = d }
         let c = comment.trimmingCharacters(in: .whitespaces)
         if !c.isEmpty { body["comment"] = c }
-        if inverse { body["inverse"] = true }
+        if component == "hardDiskDrive" && inverse { body["inverse"] = true }
         do {
             let r = try await conn.client.post("/server-control/\(sn)/hardware/replace", body: body)
-            let tn = r["ticketNumber"] as? Int ?? (r["ticketId"] as? Int ?? 0)
-            toast.show(tn > 0 ? "工单已提交,工单号 #\(tn)(可在 OVH 帮助中心跟进)" : (r["message"] as? String ?? "工单已提交"))
+            let tn = numToDoubleAny(r["ticketNumber"]).map(Int.init) ?? 0
+            var msg = tn > 0 ? "工单已提交,工单号 #\(tn)(可在 OVH 帮助中心跟进)" : (r["message"] as? String ?? "工单已提交")
+            if let notice = r["notice"] as? String, !notice.isEmpty {
+                msg += " · \(notice)"   // OVH additionalNotice(如 datacenter 特殊安排)必须让用户看到
+            }
+            toast.show(msg)
             dismiss()
         } catch { toast.show("提交失败:\(error.localizedDescription)", error: true) }
     }
@@ -796,15 +935,20 @@ struct BackupFtpSheet: View {
 
     @State private var info: [String: Any]?
     @State private var accesses: [[String: Any]] = []
+    @State private var accessErr: String? = nil
     @State private var blocks: [[String: Any]] = []
     @State private var newBlock = ""
-    @State private var ftp = true
     @State private var nfs = false
     @State private var cifs = false
     @State private var loading = true
     @State private var err: String?
     @State private var busy = false
     @State private var disableConfirm = false
+    // 三种"不可用"形态(与 web 分支同口径):未激活是 404;切错账户是 200+success:false+unknownService;US 区本地拦截
+    @State private var notActivated = false
+    @State private var notAvailTitle: String? = nil
+    @State private var notAvailMsg: String? = nil
+    @State private var accessDel: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -815,79 +959,87 @@ struct BackupFtpSheet: View {
                         ProgressView().padding(30)
                     } else if let e = err {
                         LoadFailed(message: e) { Task { await load() } }
-                    } else if notActivated || info == nil {
-                        SheetNote(text: "该服务器的备份存储未激活。激活后可把备份传到独立 FTP 空间。", tint: t.muted)
-                        ActBtn(kind: .primary, icon: "checkmark.circle", label: busy ? "激活中…" : "激活备份存储") {
+                    } else if let title = notAvailTitle {
+                        VStack(spacing: 7) {
+                            Text(title).font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.fg))
+                            Text(notAvailMsg ?? "").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(13)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surfaceMuted)))
+                    } else if notActivated {
+                        SheetNote(text: "尚未激活 Backup FTP 服务。激活后可获得用于离线备份的 FTP / NFS / CIFS 存储。", tint: t.muted)
+                        ActBtn(kind: .primary, icon: "checkmark.circle", label: busy ? "激活中…" : "激活 Backup FTP") {
                             await activate()
                         }
                     } else if let i = info {
-                        if (i["activated"] as? Bool ?? (i["status"] as? String == "active")) == false {
-                            SheetNote(text: "该服务器的备份存储未激活。激活后可把备份传到独立 FTP 空间。", tint: t.muted)
-                            ActBtn(kind: .primary, icon: "checkmark.circle", label: busy ? "激活中…" : "激活备份存储") {
-                                await activate()
-                            }
-                        } else {
-                            Card {
-                                VStack(spacing: 8) {
-                                    SectionTitle(text: "状态")
-                                    KV(k: "服务器", v: i["ftpUrl"] as? String ?? (i["server"] as? String ?? "—"), mono: true)
-                                    KV(k: "配额", v: fmtBytes(numToDoubleAny(i["quota"]) ?? 0))
-                                    KV(k: "已用", v: fmtBytes(numToDoubleAny(i["used"]) ?? 0))
-                                    KV(k: "状态", v: i["status"] as? String ?? "—")
+                        // OVH 模型字段:ftpBackupName / quota{value,unit} / usage{value,unit} / type(无 activated/status)
+                        Card {
+                            VStack(spacing: 8) {
+                                SectionTitle(text: "状态")
+                                KV(k: "服务器", v: i["ftpBackupName"] as? String ?? "—", mono: true)
+                                KV(k: "配额", v: sizeText(i["quota"]))
+                                KV(k: "已用", v: sizeText(i["usage"]))
+                                if let ty = i["type"] as? String, !ty.isEmpty {
+                                    KV(k: "类型", v: ty)
                                 }
                             }
+                        }
 
-                            ActBtn(kind: .ghost, icon: "key.horizontal", label: "重置密码") { await resetPwd() }
+                        ActBtn(kind: .ghost, icon: "key.horizontal", label: "重置密码") { await resetPwd() }
 
-                            VStack(alignment: .leading, spacing: 8) {
-                                SectionTitle(text: "访问控制(允许连接的 IP 段)")
-                                ForEach(accesses.indices, id: \.self) { x in
-                                    let a = accesses[x]
-                                    HStack(spacing: 6) {
-                                        Text(mask ? maskIP(a["ipBlock"] as? String ?? "—") : (a["ipBlock"] as? String ?? "—"))
-                                            .font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
-                                        if (a["ftp"] as? Bool) ?? true { Chip(text: "FTP") }
-                                        if (a["nfs"] as? Bool) == true { Chip(text: "NFS") }
-                                        if (a["cifs"] as? Bool) == true { Chip(text: "CIFS") }
-                                        if (a["isApplied"] as? Bool) == false { Chip(text: "生效中", color: t.warning) }
-                                        Spacer()
-                                        Button { accessDel = a["ipBlock"] as? String ?? "" } label: {
-                                            Image(systemName: "trash").font(.system(size: 11)).foregroundColor(t.color(t.danger))
+                        VStack(alignment: .leading, spacing: 8) {
+                            SectionTitle(text: "访问控制(允许连接的 IP 段)")
+                            // access 拉失败不拖垮主信息,但必须说明"列表为空是没查到,不是没配过"
+                            if let ae = accessErr {
+                                Text("访问控制列表获取失败:\(ae)。下面列表可能不完整,为空不代表没配过。")
+                                    .font(.system(size: 10)).foregroundColor(t.color(t.danger))
+                            }
+                            ForEach(accesses.indices, id: \.self) { x in
+                                let a = accesses[x]
+                                HStack(spacing: 6) {
+                                    Text(mask ? maskIP(a["ipBlock"] as? String ?? "—") : (a["ipBlock"] as? String ?? "—"))
+                                        .font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                                    if (a["ftp"] as? Bool) ?? true { Chip(text: "FTP") }
+                                    if (a["nfs"] as? Bool) == true { Chip(text: "NFS") }
+                                    if (a["cifs"] as? Bool) == true { Chip(text: "CIFS") }
+                                    if (a["isApplied"] as? Bool) == false { Chip(text: "生效中", color: t.warning) }
+                                    Spacer()
+                                    Button { accessDel = a["ipBlock"] as? String ?? "" } label: {
+                                        Image(systemName: "trash").font(.system(size: 11)).foregroundColor(t.color(t.danger))
+                                    }.buttonStyle(.plain)
+                                }
+                                .padding(9)
+                                .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.surfaceMuted)))
+                            }
+                            if !blocks.isEmpty {
+                                Text("可授权网段(点选)").font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
+                                FlowLayout(spacing: 6) {
+                                    ForEach(blocks.indices, id: \.self) { b in
+                                        let ip = blocks[b]["ipBlock"] as? String ?? ""
+                                        Button { newBlock = ip } label: {
+                                            Text(ip).font(.system(size: 10, design: .monospaced))
+                                                .foregroundColor(t.color(newBlock == ip ? t.accent : t.muted))
+                                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                                .background(RoundedRectangle(cornerRadius: 8).fill(t.color(t.surfaceMuted)))
                                         }.buttonStyle(.plain)
                                     }
-                                    .padding(9)
-                                    .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.surfaceMuted)))
-                                }
-                                if !blocks.isEmpty {
-                                    Text("可授权网段(点选)").font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
-                                    FlowLayout(spacing: 6) {
-                                        ForEach(blocks.indices, id: \.self) { b in
-                                            let ip = blocks[b]["ipBlock"] as? String ?? ""
-                                            Button { newBlock = ip } label: {
-                                                Text(ip).font(.system(size: 10, design: .monospaced))
-                                                    .foregroundColor(t.color(newBlock == ip ? t.accent : t.muted))
-                                                    .padding(.horizontal, 8).padding(.vertical, 4)
-                                                    .background(RoundedRectangle(cornerRadius: 8).fill(t.color(t.surfaceMuted)))
-                                            }.buttonStyle(.plain)
-                                        }
-                                    }
-                                }
-                                SheetField(placeholder: "IP 段,如 1.2.3.4/32", text: $newBlock, mono: true)
-                                HStack(spacing: 10) {
-                                    Toggle("FTP", isOn: $ftp).tint(t.color(t.accent))
-                                    Toggle("NFS", isOn: $nfs).tint(t.color(t.accent))
-                                    Toggle("CIFS", isOn: $cifs).tint(t.color(t.accent))
-                                }
-                                .font(.system(size: 11)).foregroundColor(t.color(t.fg))
-                                ActBtn(kind: .ghost, icon: "plus.circle", label: "添加授权") {
-                                    await addAccess()
                                 }
                             }
+                            SheetField(placeholder: "IP 段,如 1.2.3.4/32", text: $newBlock, mono: true)
+                            HStack(spacing: 10) {
+                                Toggle("NFS", isOn: $nfs).tint(t.color(t.accent))
+                                Toggle("CIFS", isOn: $cifs).tint(t.color(t.accent))
+                            }
+                            .font(.system(size: 11)).foregroundColor(t.color(t.fg))
+                            ActBtn(kind: .ghost, icon: "plus.circle", label: "添加授权") {
+                                await addAccess()
+                            }
+                        }
 
-                            Divider().overlay(t.color(t.border))
-                            ActBtn(kind: .danger, icon: "trash", label: "关闭备份服务(删除所有备份)") {
-                                disableConfirm = true
-                            }
+                        Divider().overlay(t.color(t.border))
+                        ActBtn(kind: .danger, icon: "trash", label: "关闭备份服务(删除所有备份)") {
+                            disableConfirm = true
                         }
                     }
                 }
@@ -917,18 +1069,49 @@ struct BackupFtpSheet: View {
         }
     }
 
-    @State private var notActivated = false
-    @State private var accessDel: String? = nil
+    /// OVH 字段格式:{value, unit} 对象(web quotaText 同款)
+    private func sizeText(_ v: Any?) -> String {
+        guard let d = v as? [String: Any], let val = numToDoubleAny(d["value"]) else {
+            if let s = v as? String { return s }
+            return "—"
+        }
+        return "\(Int(val)) \(d["unit"] as? String ?? "")".trimmingCharacters(in: .whitespaces)
+    }
 
     private func load() async {
+        // US 区官方 schema 没有 backupFTP 系列路径,本地直接拦下,省一次注定失败的请求
+        let endpoint = conn.activeAccount?["endpoint"] as? String ?? ""
+        if endpoint.contains("ovh-us") {
+            notAvailTitle = "美区账户不提供备份FTP"
+            notAvailMsg = "OVHcloud US 没有 dedicated/server/backupFTP 系列接口,请在 OVHcloud US 控制台使用其它备份方案。"
+            loading = false
+            return
+        }
         do {
-            async let i = conn.client.getDict("/server-control/\(sn)/backup-ftp")
-            async let a = conn.client.getDict("/server-control/\(sn)/backup-ftp/access")
-            let (ir, ar) = try await (i, a)
-            info = (ir["backupFtp"] as? [String: Any]) ?? ir
-            accesses = (ar["accessList"] as? [[String: Any]]) ?? (ar["access"] as? [[String: Any]]) ?? []
-            let inner = (ir["backupFtp"] as? [String: Any]) ?? ir
-            if inner["activated"] as? Bool ?? (inner["status"] as? String == "active") {
+            let ir = try await conn.client.getDict("/server-control/\(sn)/backup-ftp")
+            if (ir["success"] as? Bool) == false {
+                // 200 + success:false = 后端拦下的"不可用"(切错账户 unknownService 等),给激活按钮只会必败
+                if ir["unknownService"] as? Bool == true {
+                    notAvailTitle = "服务器不存在或不属于当前账户"
+                    var m = ir["error"] as? String ?? ""
+                    if let reason = ir["reason"] as? String, !reason.isEmpty {
+                        m += m.isEmpty ? "OVH 原文:" + reason : "(OVH 原文:" + reason + ")"
+                    }
+                    notAvailMsg = m
+                } else {
+                    notAvailTitle = "此服务器无 Backup FTP"
+                    notAvailMsg = ir["error"] as? String
+                }
+            } else {
+                // 200 有 backupFtp = 已激活(OVH 模型没有 activated/status 字段,响应本身就是激活的凭证)
+                info = (ir["backupFtp"] as? [String: Any]) ?? ir
+                accessErr = nil
+                if let ar = try? await conn.client.getDict("/server-control/\(sn)/backup-ftp/access") {
+                    accesses = (ar["accessList"] as? [[String: Any]]) ?? (ar["access"] as? [[String: Any]]) ?? []
+                } else {
+                    accesses = []
+                    accessErr = "访问控制列表获取失败"
+                }
                 if let br = try? await conn.client.getDict("/server-control/\(sn)/backup-ftp/authorizable-blocks") {
                     // handler 返回字符串数组;统一成 [{ipBlock:...}] 供点选复用
                     if let arr = br["blocks"] as? [String] {
@@ -940,7 +1123,7 @@ struct BackupFtpSheet: View {
             }
             err = nil
         } catch {
-            // 后端对未激活的备份 FTP 返回 404 + notActivated —— 这正是"未激活"分支
+            // 后端对未激活的备份 FTP 返回 404 —— 这正是"未激活"分支,不是读失败
             if let ae = error as? ApiClient.ApiError, ae.status == 404 {
                 notActivated = true
             } else {
@@ -955,7 +1138,7 @@ struct BackupFtpSheet: View {
         defer { busy = false }
         do {
             _ = try await conn.client.post("/server-control/\(sn)/backup-ftp")
-            toast.show("已激活")
+            toast.show("激活请求已发送")
             await load()
         } catch { toast.show(error.localizedDescription, error: true) }
     }
@@ -967,10 +1150,10 @@ struct BackupFtpSheet: View {
 
     private func addAccess() async {
         let ip = newBlock.trimmingCharacters(in: .whitespaces)
-        guard !ip.isEmpty else { return toast.show("先填 IP 段", error: true) }
-        // handler 契约:ftp/nfs/cifs 是三个布尔
+        guard !ip.isEmpty else { return toast.show("请填写要授权的 IP 段(CIDR,如 1.2.3.4/32)", error: true) }
+        // handler 契约:ftp/nfs/cifs 是三个布尔;web 恒发 ftp:true(FTP 始终授权,勾选只加 NFS/CIFS)
         let body = try? JSONSerialization.data(withJSONObject: [
-            "ipBlock": ip, "ftp": ftp, "nfs": nfs, "cifs": cifs,
+            "ipBlock": ip, "ftp": true, "nfs": nfs, "cifs": cifs,
         ])
         let (ok, msg) = await conn.client.actionPostData("/server-control/\(sn)/backup-ftp/access", bodyData: body)
         toast.show(ok ? "已添加" : (msg.isEmpty ? "失败" : msg), error: !ok)
@@ -1098,6 +1281,8 @@ struct MitigationSheet: View {
     @State private var loading = true
     @State private var err: String?
     @State private var busy: Bool = false
+    /// 有行处于 creationPending/removalPending 时每 5s 自动刷新(web 同款),状态自己变成「已生效」
+    @State private var pollGen = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1125,12 +1310,17 @@ struct MitigationSheet: View {
         .background(t.color(t.bg))
         .presentationDetents([.large])
         .task { await load() }
+        .task(id: pollGen) {
+            guard pollGen > 0 else { return }
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if !Task.isCancelled { await load() }
+        }
     }
 
     private func blockCard(_ b: [String: Any]) -> some View {
         let block = b["ipBlock"] as? String ?? "—"
         let mitigations = b["mitigations"] as? [[String: Any]] ?? []
-        let permanentOn = mitigations.contains { ($0["permanent"] as? Bool ?? false) || (($0["type"] as? String) == "permanent") }
+        let permanentOn = mitigations.contains { $0["permanent"] as? Bool ?? false }
         let isV6 = block.contains(":")
         return Card(border: permanentOn ? t.success : t.border) {
             VStack(alignment: .leading, spacing: 9) {
@@ -1139,8 +1329,8 @@ struct MitigationSheet: View {
                     Spacer()
                     Chip(text: permanentOn ? "永久缓解中" : "自动", color: permanentOn ? t.success : t.muted)
                 }
-                if let note = b["note"] as? String, !note.isEmpty {
-                    Text(note).font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                if let be = b["error"] as? String, !be.isEmpty {
+                    Text("该 IP 块的缓解列表读取失败:\(be)").font(.system(size: 10)).foregroundColor(t.color(t.danger))
                 }
                 if isV6 {
                     Text("IPv6 不适用 anti-DDoS Mitigation(OVH 网络层免疫)").font(.system(size: 10)).foregroundColor(t.color(t.faint))
@@ -1148,31 +1338,50 @@ struct MitigationSheet: View {
                     HStack {
                         Text("无永久缓解,自动缓解备用中").font(.system(size: 11)).foregroundColor(t.color(t.muted))
                         Spacer()
-                        Button { Task { await toggle(block: block, on: true) } } label: {
+                        Button { Task { await toggle(ip: block, block: block, on: true) } } label: {
                             Text(busy ? "应用中…" : "启用永久缓解").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.accent))
                                 .padding(.horizontal, 10).padding(.vertical, 6)
                                 .background(Capsule().stroke(t.color(t.accent), lineWidth: 1))
                         }.buttonStyle(.plain)
                     }
                 } else {
-                    // 有 mitigation 行:状态 chip + 关闭按钮三态(S-063)
+                    // 行字段与 web/后端一致:ipOnMitigation / state / auto / permanent / error(详情拉不到的占位行)
                     ForEach(mitigations.indices, id: \.self) { mi in
                         let mrow = mitigations[mi]
-                        let ip = mrow["ip"] as? String ?? ""
-                        let state = mrow["state"] as? String ?? "ok"
-                        let pending2 = state == "creationPending" || state == "removalPending"
-                        let sc = state == "ok" ? t.success : t.warning
+                        let ip = mrow["ipOnMitigation"] as? String ?? ""
+                        let state = mrow["state"] as? String ?? ""
+                        let rowErr = mrow["error"] as? String
+                        let isOk = state == "ok"
+                        let isCreating = state == "creationPending"
+                        let isRemoving = state == "removalPending"
+                        let pending2 = isCreating || isRemoving
                         VStack(spacing: 7) {
                             HStack {
-                                Text(ip).font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                                Text(ip.isEmpty ? "—" : ip).font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
                                 Spacer()
-                                Chip(text: state == "ok" ? "已生效" : (state == "creationPending" ? "应用中" : "移除中"), color: sc)
-                                Chip(text: (mrow["type"] as? String) == "permanent" ? "永久" : "自动")
+                                if let re = rowErr, !re.isEmpty {
+                                    // 详情没拉到的占位行:标出来,不然显示成一个没有状态的空行
+                                    Chip(text: "获取失败", color: t.danger)
+                                } else {
+                                    Chip(text: isOk ? "已生效" : (isCreating ? "应用中" : (isRemoving ? "移除中" : (state.isEmpty ? "未知" : state))),
+                                         color: isOk ? t.success : (pending2 ? t.warning : t.muted))
+                                    if mrow["auto"] as? Bool ?? false {
+                                        Text("自动").font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                                    }
+                                    if mrow["permanent"] as? Bool ?? false {
+                                        Text("永久").font(.system(size: 10, weight: .semibold)).foregroundColor(t.color(t.success))
+                                    }
+                                }
                             }
                             ActBtn(kind: .danger, icon: "xmark.shield",
-                                   label: busy ? "处理中…" : (state == "removalPending" ? "移除中…" : "关闭永久"),
+                                   label: isCreating ? "应用中…" : (isRemoving ? "移除中…" : "关闭永久"),
                                    busy: busy || pending2) {
-                                await toggle(block: block, on: false)
+                                await toggle(ip: ip.isEmpty ? block : ip, block: block, on: false)
+                            }
+                            .disabled(!isOk || rowErr != nil)
+                            if isCreating {
+                                Text("正在启用中,通常 30 秒-2 分钟,等状态变已生效再点关闭")
+                                    .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
                             }
                         }
                         .padding(10)
@@ -1190,13 +1399,17 @@ struct MitigationSheet: View {
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
+        // 有过渡态就自轮询(web:creationPending/removalPending 每 5s 刷)
+        let hasPending = blocks.flatMap { $0["mitigations"] as? [[String: Any]] ?? [] }
+            .contains { ($0["state"] as? String ?? "") == "creationPending" || ($0["state"] as? String ?? "") == "removalPending" }
+        if hasPending { pollGen += 1 }
     }
 
-    private func toggle(block: String, on: Bool) async {
+    private func toggle(ip: String, block: String, on: Bool) async {
         busy = true
         defer { busy = false }
-        // :ip 要单个 IPv4(取 CIDR 前段),?block= 带完整网段(与 web AdvancedTab 一致)
-        let ipOnly = block.components(separatedBy: "/").first ?? block
+        // :ip 要单个 IPv4(启用取网段前段;关闭用该行的 ipOnMitigation),?block= 带完整网段(与 web AdvancedTab 一致)
+        let ipOnly = on ? block.components(separatedBy: "/").first ?? block : ip
         let path = "\(base)/\(sn)/mitigation/\(urlEncode(ipOnly))?block=\(urlEncode(block))"
         let (ok, msg) = on ? await conn.client.actionPostData(path, bodyData: nil)
                            : await conn.client.actionDelete(path)
@@ -1243,34 +1456,84 @@ struct NetworkSpecsSheet: View {
                         if net.isEmpty {
                             EmptyHint(icon: "network", text: "无网络规格数据")
                         } else {
-                            // 带宽四档
                             let bw = net["bandwidth"] as? [String: Any] ?? [:]
+                            // 带宽四档(OVH schema BandwidthDetails:OvhToInternet/InternetToOvh/OvhToOvh)
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                                bwTile("出向 (OVH → 互联网)", bw["out"])
-                                bwTile("入向 (互联网 → OVH)", bw["in"])
-                                bwTile("内部 (OVH → OVH)", bw["internal"])
-                                bwTile("端口速率", bw["port"])
+                                bwTile("出向 (OVH → 互联网)", bw["OvhToInternet"])
+                                bwTile("入向 (互联网 → OVH)", bw["InternetToOvh"])
+                                bwTile("内部 (OVH → OVH)", bw["OvhToOvh"])
+                                bwTile("端口速率", net["connection"])
                             }
-                            if let ty = net["bandwidthType"] as? String ?? net["type"] as? String, !ty.isEmpty {
-                                KV(k: "带宽类型", v: ty)
+                            if let ty = bw["type"] as? String, !ty.isEmpty {
+                                Text("带宽类型:" + ty).font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.muted))
                             }
-                            // 其余键值
-                            ForEach(net.keys.filter { !["bandwidth","bandwidthType","type","ipv4","ipv6"].contains($0) }.sorted(), id: \.self) { k in
-                                if isScalar2(net[k]!) {
-                                    KV(k: k, v: "\(net[k]!)", mono: k.lowercased().contains("ip") || k.lowercased().contains("gateway"))
+
+                            // 路由:routing.ipv4 / routing.ipv6 各是单个对象 {ip, gateway, network}
+                            if let routing = net["routing"] as? [String: Any] {
+                                routeCard("IPv4 路由", routing["ipv4"] as? [String: Any])
+                                routeCard("IPv6 路由", routing["ipv6"] as? [String: Any])
+                            }
+
+                            // 交换机 / vMAC / vRack / 流量配额 / OLA
+                            if let sw = net["switching"] as? [String: Any],
+                               let name = sw["name"] as? String, !name.isEmpty {
+                                Card {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        SectionTitle(text: "交换机")
+                                        Text(name).font(.system(size: 12, design: .monospaced)).foregroundColor(t.color(t.fg)).textSelection(.enabled)
+                                    }
                                 }
                             }
-                            // IPv4/v6 路由
-                            ForEach(["ipv4", "ipv6"], id: \.self) { ver in
-                                if let routes = net[ver] as? [[String: Any]], !routes.isEmpty {
+                            if let vmac = net["vmac"] as? [String: Any] {
+                                Card {
                                     VStack(alignment: .leading, spacing: 5) {
-                                        SectionTitle(text: ver.uppercased() + " 路由")
-                                        ForEach(routes.indices, id: \.self) { ri in
-                                            let r2 = routes[ri]
-                                            let gw = r2["gateway"] as? String ?? "—"
-                                            let blk = r2["block"] as? String ?? (r2["cidr"] as? String ?? "—")
-                                            KV(k: (r2["ip"] as? String).map { mask ? maskIP($0) : $0 } ?? "—",
-                                               v: (mask ? maskIP(gw) : gw) + " / " + (mask ? maskIP(blk) : blk), mono: true)
+                                        SectionTitle(text: "虚拟 MAC (vMAC)")
+                                        HStack(spacing: 8) {
+                                            Chip(text: (vmac["supported"] as? Bool ?? false) ? "支持" : "不支持",
+                                                 color: (vmac["supported"] as? Bool ?? false) ? t.success : t.muted)
+                                            if let q = numToDoubleAny(vmac["quota"]).map(Int.init) {
+                                                Text("配额:\(q)").font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if let vrack = net["vrack"] as? [String: Any],
+                               numToDoubleAny(vrack["bandwidth"]) != nil || (vrack["type"] as? String) != nil {
+                                Card {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        SectionTitle(text: "vRack 私有网络")
+                                        if let ty = vrack["type"] as? String {
+                                            KV(k: "类型", v: ty, mono: true)
+                                        }
+                                        if numToDoubleAny(vrack["bandwidth"]) != nil {
+                                            KV(k: "带宽", v: bwText(vrack["bandwidth"]))
+                                        }
+                                    }
+                                }
+                            }
+                            if let traffic = net["traffic"] as? [String: Any] {
+                                Card {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        SectionTitle(text: "流量配额")
+                                        KV(k: "入向配额", v: traffic["inputQuotaSize"].map(quotaText) ?? "无限")
+                                        KV(k: "出向配额", v: traffic["outputQuotaSize"].map(quotaText) ?? "无限")
+                                        KV(k: "限速状态", v: (traffic["isThrottled"] as? Bool ?? false) ? "已限速" : "正常")
+                                        if let rd = traffic["resetQuotaDate"] as? String, !rd.isEmpty {
+                                            KV(k: "重置日期", v: fmtDate(rd))
+                                        }
+                                    }
+                                }
+                            }
+                            if let ola = net["ola"] as? [String: Any] {
+                                Card {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        SectionTitle(text: "OLA (OVH Link Aggregation)")
+                                        Chip(text: (ola["available"] as? Bool ?? false) ? "可用" : "不可用",
+                                             color: (ola["available"] as? Bool ?? false) ? t.success : t.muted)
+                                        if let modes = ola["supportedModes"] as? [String], !modes.isEmpty {
+                                            Text("支持模式:\(modes.joined(separator: ", "))")
+                                                .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
                                         }
                                     }
                                 }
@@ -1286,6 +1549,34 @@ struct NetworkSpecsSheet: View {
         .task { await load() }
     }
 
+    /// 路由卡:{ip, gateway, network};路由里有 CIDR/IPv6,打码用宽松规则(保留首段)
+    private func routeCard(_ title: String, _ r: [String: Any]?) -> some View {
+        Group {
+            if let r {
+                Card {
+                    VStack(alignment: .leading, spacing: 5) {
+                        SectionTitle(text: title)
+                        KV(k: "IP 地址", v: maskAny(r["ip"]), mono: true)
+                        KV(k: "网关", v: maskAny(r["gateway"]), mono: true)
+                        KV(k: "网段", v: maskAny(r["network"]), mono: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private func maskAny(_ v: Any?) -> String {
+        guard let s = v as? String, !s.isEmpty else { return "—" }
+        guard mask else { return s }
+        if let dot = s.firstIndex(of: "."), dot > s.startIndex {
+            return String(s[..<dot]) + ".***"
+        }
+        if let colon = s.firstIndex(of: ":"), colon > s.startIndex {
+            return String(s[..<colon]) + ":****"
+        }
+        return s
+    }
+
     private func bwTile(_ label: String, _ v: Any?) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label).font(.system(size: 10)).foregroundColor(t.color(t.muted))
@@ -1296,17 +1587,57 @@ struct NetworkSpecsSheet: View {
         .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surfaceMuted)))
     }
 
+    /// OVH 字段格式:{value, unit} | number | null(web fmtBandwidth 同款)
     private func bwText(_ v: Any?) -> String {
-        if let n = numToDoubleAny(v) { return fmtMbps(n) }
-        if let s = v as? String { return s }
         if let d = v as? [String: Any] {
-            let val = numToDoubleAny(d["value"]) ?? 0
-            return fmtMbps(val) + (d["unit"] as? String ?? "")
+            guard let val = numToDoubleAny(d["value"]) else { return "—" }
+            let unit = (d["unit"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            return "\(trimNum(val)) \(unit)".trimmingCharacters(in: .whitespaces)
         }
+        if let n = numToDoubleAny(v) {
+            if n >= 1_000_000_000 { return String(format: "%.1f Gbps", n / 1_000_000_000) }
+            if n >= 1_000_000 { return String(format: "%.0f Mbps", n / 1_000_000) }
+            return trimNum(n)
+        }
+        if let s = v as? String { return s }
         return "—"
     }
 
-    private func isScalar2(_ v: Any) -> Bool { !(v is [String: Any]) && !(v is [Any]) }
+    private func trimNum(_ n: Double) -> String {
+        n.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(n)) : String(format: "%.1f", n)
+    }
+
+    /// 字节数格式化(最小 GB,1024 进位;接受裸数字或 {value,unit},web fmtBytes 同款)——流量配额用这个,别用带宽的 bps 进位
+    private func quotaText(_ v: Any?) -> String {
+        var bytes: Double?
+        if let d = v as? [String: Any], let n = numToDoubleAny(d["value"]) {
+            let mult: Double
+            switch (d["unit"] as? String ?? "B").uppercased() {
+            case "PB": mult = 1125899906842624.0
+            case "TB": mult = 1099511627776.0
+            case "GB": mult = 1073741824.0
+            case "MB": mult = 1048576.0
+            case "KB": mult = 1024.0
+            default: mult = 1.0
+            }
+            bytes = n * mult
+        } else if let n = numToDoubleAny(v) {
+            bytes = n
+        }
+        guard let b = bytes else {
+            if let s = v as? String { return s }
+            return "—"
+        }
+        if b == 0 { return "0 GB" }
+        let gb = 1073741824.0, tb = 1099511627776.0, pb = 1125899906842624.0
+        if b >= pb { return "\(fmtQ(b / pb)) PB" }
+        if b >= tb { return "\(fmtQ(b / tb)) TB" }
+        return "\(fmtQ(b / gb)) GB"
+    }
+
+    private func fmtQ(_ x: Double) -> String {
+        x.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(x)) : String(format: "%.2f", x)
+    }
 
     private func load() async {
         do {

@@ -676,7 +676,9 @@ struct ServerReinstallSheet: View {
     }
 
     private var isProxmox9: Bool {
-        (picked ?? "").lowercased().contains("proxmox") && (picked ?? "").contains("9")
+        // web 契约:ZFS 预设仅对 proxmox9_64 有效(精确匹配;模糊 contains 会把其它含
+        // "proxmox"+"9" 的模板也当成它,ZFS 配置会被发给不认它的模板)
+        (picked ?? "") == "proxmox9_64"
     }
     private var isWindows: Bool { (picked ?? "").lowercased().contains("win") }
     private var multiGroup: Bool { groups.count > 1 }
@@ -1826,31 +1828,38 @@ struct InstallStatusSheet: View {
                             EmptyHint(icon: "checkmark.circle", text: s["message"] as? String ?? "当前无安装任务")
                         } else {
                             let st = s["status"] as? [String: Any] ?? s
-                            let pct = numToDoubleAny(st["progressPercentage"]).map(Int.init) ?? -1
                             let steps = (st["steps"] as? [[String: Any]]) ?? []
-                            let hasError = steps.contains { ($0["status"] as? String) == "error" }
-                            let allDone = !steps.isEmpty && steps.allSatisfy { ($0["status"] as? String ?? "") == "done" }
+                            // 状态判定直接用后端字段(web 同口径):hasError 含 expired 超时,
+                            // stopping 单列"正在中止";自己从 steps 推导会把超时/中止都显示成"进行中"
+                            let hasError = st["hasError"] as? Bool ?? false
+                            let stopping = st["stopping"] as? Bool ?? false
+                            let allDone = st["allDone"] as? Bool ?? false
+                            // progressUnknown:OVH 本次没返回 progress(percentage 恒 0),显示 0% 进度条只会让人以为卡死
+                            let progressUnknown = st["progressUnknown"] as? Bool ?? false
+                            let pct = numToDoubleAny(st["progressPercentage"]).map(Int.init) ?? 0
+                            let stateText = hasError ? "出错" : (stopping ? "正在中止" : (allDone ? "已完成" : "进行中"))
+                            let stateTint = hasError ? t.danger : (allDone ? t.success : t.fg)
                             VStack(spacing: 10) {
                                 // 状态字
-                                Text(hasError ? "出错" : (allDone ? "已完成" : "进行中"))
-                                    .font(.system(size: 13, weight: .bold)).foregroundColor(t.color(hasError ? t.danger : allDone ? t.success : t.fg))
-                                if pct >= 0 {
+                                Text(stateText)
+                                    .font(.system(size: 13, weight: .bold)).foregroundColor(t.color(stateTint))
+                                if progressUnknown {
+                                    Text("进度暂不可用")
+                                        .font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                                    Text("OVH 本次没有返回安装进度,这不代表安装没有推进。稍等几秒会自动重试。")
+                                        .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                                } else {
                                     VStack(alignment: .leading, spacing: 6) {
                                         ProgressView(value: Double(pct) / 100)
                                             .tint(t.color(hasError ? t.danger : t.accent))
                                         Text("\(steps.filter { ($0["status"] as? String ?? "") == "done" }.count) / \(steps.count) 步 · \(pct)%")
                                             .font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.fg))
                                     }
-                                } else {
-                                    Text("进度暂不可用")
-                                        .font(.system(size: 11)).foregroundColor(t.color(t.muted))
-                                    Text("OVH 本次没有返回安装进度,这不代表安装没有推进。稍等几秒会自动重试。")
-                                        .font(.system(size: 10)).foregroundColor(t.color(t.faint))
                                 }
                                 if let el = numToDoubleAny(st["elapsedTime"]), el > 0 {
                                     KV(k: "耗时", v: el >= 60 ? String(format: "%.0f 分钟", el / 60) : String(format: "%.0f 秒", el))
                                 }
-                                // Step 列表(S-043)
+                                // Step 列表(S-043);出错步骤带出 step.error 详情(装机失败要看得到原因)
                                 if !steps.isEmpty {
                                     VStack(spacing: 5) {
                                         ForEach(steps.indices, id: \.self) { i in
@@ -1858,11 +1867,17 @@ struct InstallStatusSheet: View {
                                             let sst = sp["status"] as? String ?? "todo"
                                             let icon = sst == "done" ? "checkmark.circle.fill" : (sst == "error" ? "xmark.circle.fill" : (sst == "doing" ? "arrow.triangle.2.circlepath" : "circle"))
                                             let ic = sst == "done" ? t.success : (sst == "error" ? t.danger : (sst == "doing" ? t.info : t.faint))
-                                            HStack(spacing: 7) {
-                                                Image(systemName: icon).font(.system(size: 12)).foregroundColor(t.color(ic))
-                                                Text(sp["comment"] as? String ?? sp["commentOriginal"] as? String ?? "—")
-                                                    .font(.system(size: 11)).foregroundColor(t.color(sst == "done" ? t.muted : t.fg))
-                                                Spacer()
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                HStack(spacing: 7) {
+                                                    Image(systemName: icon).font(.system(size: 12)).foregroundColor(t.color(ic))
+                                                    Text(sp["comment"] as? String ?? sp["commentOriginal"] as? String ?? "—")
+                                                        .font(.system(size: 11)).foregroundColor(t.color(sst == "done" ? t.muted : t.fg))
+                                                    Spacer()
+                                                }
+                                                if sst == "error", let se = sp["error"] as? String, !se.isEmpty {
+                                                    Text(se).font(.system(size: 9.5)).foregroundColor(t.color(t.danger))
+                                                        .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 19)
+                                                }
                                             }
                                         }
                                     }

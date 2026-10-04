@@ -224,20 +224,18 @@ struct ServerCard: View {
 
 // MARK: - VPS 卡
 
+// OVH vps.VpsStateEnum 全集(web vps-control.tsx 同表):未知值透传原文,不造不存在的枚举
 let VPS_STATE_CN: [String: String] = [
-    "running": "运行中", "active": "运行中",
-    "stopped": "已关机", "stopping": "关机中", "rebooting": "重启中",
-    "installing": "装机中", "reinstalling": "装机中", "backuping": "备份中",
+    "running": "运行中", "stopped": "已关机", "stopping": "关机中",
+    "rebooting": "重启中", "installing": "装机中", "backuping": "备份中",
     "upgrading": "升级中", "maintenance": "维护中", "rescued": "救援模式",
-    "suspended": "已暂停", "error": "错误", "deleted": "已删除",
-    "to_delete": "待删除", "todelete": "待删除", "unknown": "未知",
 ]
-/// 救援/危险态用 danger 色(V-011)
+/// 配色与 web 同口径:过渡 5 态一律 warning,rescued 用 danger 警示还没退出救援
 func vpsStateColor(_ state: String) -> String {
     switch state.lowercased() {
-    case "running", "active": return "success"
-    case "rescued", "error": return "danger"
-    case "stopped", "maintenance": return "warning"
+    case "running": return "success"
+    case "rescued": return "danger"
+    case "stopped", "stopping", "rebooting", "installing", "backuping", "upgrading", "maintenance": return "warning"
     default: return "muted"
     }
 }

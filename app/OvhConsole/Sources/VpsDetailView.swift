@@ -57,20 +57,21 @@ struct VpsDetailView: View {
         (item["displayName"] as? String) ?? name.components(separatedBy: ".").first ?? name
     }
 
-    // V-027/028 锁定与救援警示
+    // V-027/028 锁定与救援警示(web 口径:锁定看 lockStatus,救援看 netbootMode ——
+    // state 枚举里没有 suspended/locked,按 state 判断这块卡永远不会出现)
     @ViewBuilder private var alertCards: some View {
-        let state = (item["state"] as? String ?? "").lowercased()
-        if state == "suspended" || state == "locked" {
+        let lockStatus = (item["lockStatus"] as? String ?? "unlocked").lowercased()
+        if lockStatus != "unlocked" {
             Card(border: "danger") {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("VPS 已锁定").font(.system(size: 13, weight: .bold)).foregroundColor(t.color(t.danger))
-                    Text("状态: \(item["lockStatus"] as? String ?? state) · 通常因投诉(abuse)被 OVH 临时冻结,联系 OVH 客服处理")
+                    Text("状态: \(item["lockStatus"] as? String ?? lockStatus) · 通常因投诉(abuse)被 OVH 临时冻结,联系 OVH 客服处理")
                         .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
                 }
             }
         }
-        if state == "rescued" {
-            Card(border: "warning") {
+        if (item["netbootMode"] as? String ?? "").lowercased() == "rescue" {
+            Card(border: t.warning) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("救援模式").font(.system(size: 13, weight: .bold)).foregroundColor(t.color(t.warning))
                     Text("下次重启会进入 OVH 救援镜像。修完故障后需要把 netboot 改回 local 再重启回正常系统")
@@ -151,12 +152,9 @@ struct VpsDetailView: View {
     }
 
     private var renewalText: String {
-        if let si = serviceinfo {
-            if (si["terminationScheduled"] as? Bool ?? false) || (si["renewalDeleteAtExpiration"] as? Bool ?? false) { return "到期终止" }
-            if si["renewalType"] as? Bool == true { return "自动续费" }
-            return "手动续费"
-        }
-        return ""
+        // 与独服/web 同一套五分支终止文案 + 强制自动/自动/手动/未知(以前只有三态,
+        // renewalForced 但非自动时会被显示成"手动续费",方向完全反了)
+        renewalLabelText(serviceinfo)
     }
 
     // MARK: 概览(硬件 + 电源 + 控制台 + 重装)
@@ -185,17 +183,22 @@ struct VpsDetailView: View {
             Card {
                 VStack(spacing: 9) {
                     SectionTitle(text: "电源操作")
+                    // 门控与 web 同口径:仅 stopped 可启动、仅 running 可关机、重启非 running 置灰
+                    // (installing/backuping/maintenance 等过渡态不允许下发电源操作)
                     let state = (item["state"] as? String ?? "").lowercased()
-                    let stopped = ["stopped", "suspended", "error"].contains(state)
+                    let isRunning = state == "running"
+                    let isStopped = state == "stopped"
                     HStack(spacing: 8) {
-                        if stopped {
+                        if isStopped {
                             ActBtn(kind: .primary, icon: "play.fill", label: "启动") {
                                 Task { await power("start") }
                             }
-                        } else {
-                            ActBtn(kind: .ghost, icon: "pause.fill", label: "关机") { sheet = .init(kind: .stop) }
-                            ActBtn(kind: .danger, icon: "arrow.triangle.2.circlepath", label: "重启") { sheet = .init(kind: .reboot) }
                         }
+                        if isRunning {
+                            ActBtn(kind: .ghost, icon: "pause.fill", label: "关机") { sheet = .init(kind: .stop) }
+                        }
+                        ActBtn(kind: .danger, icon: "arrow.triangle.2.circlepath", label: "重启") { sheet = .init(kind: .reboot) }
+                            .disabled(!isRunning)
                     }
                     SheetNote(text: "关机不停止计费。VPS 面板的电源是 ACPI 级别的,系统内 shutdown 更稳。", tint: t.muted)
                 }
@@ -258,13 +261,16 @@ struct VpsDetailView: View {
     }
 
     private func load() async {
+        // 三个请求各自独立失败(web 同款):serviceinfo 挂了不代表系统读不到,不能一损俱损
         do {
-            async let si = conn.client.getDict("/vps-control/\(name)/serviceinfo")
-            async let i = conn.client.getDict("/vps-control/\(name)/info")
-            async let os = conn.client.getDict("/vps-control/\(name)/current-os")
-            let (s, inr, o) = try await (si, i, os)
+            let s = try await conn.client.getDict("/vps-control/\(name)/serviceinfo")
             serviceinfo = (s["serviceInfo"] as? [String: Any]) ?? s
-            info = (inr["info"] as? [String: Any]) ?? inr
+            siLoadFailed = false
+        } catch {
+            siLoadFailed = true
+        }
+        do {
+            let o = try await conn.client.getDict("/vps-control/\(name)/current-os")
             if let osObj = o["currentOS"] as? [String: Any] ?? (o["os"] as? [String: Any]) {
                 currentOS = osObj["name"] as? String
             } else {
@@ -272,9 +278,7 @@ struct VpsDetailView: View {
             }
             osLoadFailed = false
         } catch {
-            _ = error.localizedDescription
             osLoadFailed = true
-            siLoadFailed = true
         }
         await loadIPs()
     }
@@ -522,9 +526,10 @@ struct VpsMaintenanceSection: View {
     @Binding var sheet: VpsSheet?
     var t: Tokens { theme.t }
 
-    /// 美区账户(V-034)
+    /// 美区账户(V-034,web ovh-regions 同口径:endpointRegion 精确 ovh-us;
+    /// soyoustart-eu/ca 都含子串 "us",用 contains("us") 会把 KS/So you Start 欧区误伤)
     var isUSAccount: Bool {
-        (conn.activeAccount?["endpoint"] as? String)?.lowercased().contains("us") ?? false
+        ((conn.activeAccount?["endpoint"] as? String) ?? "").lowercased().contains("ovh-us")
     }
 
     var body: some View {
@@ -663,6 +668,7 @@ struct VpsReinstallSheet: View {
     @State private var noMail = false
     @State private var confirmName = ""
     @State private var loading = true
+    @State private var loadErr: String? = nil
     @State private var busy = false
 
     private var filtered: [[String: Any]] {
@@ -682,6 +688,9 @@ struct VpsReinstallSheet: View {
                     SheetField(placeholder: "搜索镜像", text: $search)
                     if loading {
                         ProgressView().padding(20).frame(maxWidth: .infinity)
+                    } else if let e = loadErr {
+                        // 读失败 ≠ 账户没有镜像:显示"没有匹配镜像"会让用户以为无模板可用而放弃重试
+                        LoadFailed(message: "模板列表读取失败:" + e) { Task { await load() } }
                     } else {
                         VStack(spacing: 6) {
                             ForEach(Array(filtered.enumerated()), id: \.offset) { _, tpl in
@@ -689,7 +698,10 @@ struct VpsReinstallSheet: View {
                                 let on = pickedId == id
                                 Button { pickedId = id } label: {
                                     HStack {
-                                        Text(tpl["name"] as? String ?? id).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(tpl["name"] as? String ?? id).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                            Text("ID " + id).font(.system(size: 9.5, design: .monospaced)).foregroundColor(t.color(t.faint))
+                                        }
                                         Spacer()
                                         if on { Image(systemName: "checkmark.circle.fill").font(.system(size: 15)).foregroundColor(t.color(t.accent)) }
                                     }
@@ -725,8 +737,13 @@ struct VpsReinstallSheet: View {
     }
 
     private func load() async {
-        if let r = try? await conn.client.getDict("/vps-control/\(vpsName)/templates") {
+        do {
+            let r = try await conn.client.getDict("/vps-control/\(vpsName)/templates")
             templates = (r["templates"] as? [[String: Any]]) ?? []
+            loadErr = nil
+        } catch {
+            templates = []
+            loadErr = error.localizedDescription
         }
         loading = false
     }
@@ -740,11 +757,16 @@ struct VpsReinstallSheet: View {
         busy = true
         defer { busy = false }
         var body: [String: Any] = ["templateId": id, "doNotSendPassword": noMail]
+        // 分隔符认全角逗号/顿号/分号/换行(web splitList 同款):中文输入法打的全角逗号不能当一个 key 名
         let k = sshKey.trimmingCharacters(in: .whitespaces)
-        if !k.isEmpty { body["sshKey"] = k.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+        if !k.isEmpty {
+            body["sshKey"] = k.components(separatedBy: CharacterSet(charactersIn: ",,、;\n"))
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
         do {
             _ = try await conn.client.post("/vps-control/\(vpsName)/reinstall", body: body)
-            toast.show("重装已开始")
+            toast.show("重装已开始,通常 5-10 分钟完成")
             dismiss()
         } catch { toast.show(error.localizedDescription, error: true) }
     }
@@ -757,17 +779,18 @@ let VPS_TASK_STATE_CN: [String: String] = [
     "blocked": "已阻塞", "cancelled": "已取消", "doing": "进行中", "done": "完成",
     "error": "失败", "paused": "已暂停", "todo": "排队中", "waitingack": "待确认",
 ]
-// V-065 类型中文(对齐 OVH vps.TaskTypeEnum 真实 key,web VpsTasksDialog.tsx:134-160)
+// V-065 类型中文:key 逐字对齐 OVH vps.TaskTypeEnum(web VpsTasksDialog translateTaskType;
+// 注意 OVH 命名大多带 Vm 后缀,rebootVm 不是 reboot —— 以前用无 Vm 的 key 导致 7 个类型原文裸显)
 let VPS_TASK_TYPE_CN: [String: String] = [
-    "addVeeamBackup": "添加 Veeam 备份", "changeRootPassword": "重置 root 密码",
-    "createSnapshot": "创建快照", "deleteSnapshot": "删除快照", "deliver": "交付 VM",
-    "generateConsoleUrl": "生成控制台链接", "internalTask": "内部任务", "migrate": "迁移",
-    "openConsole": "打开控制台", "orderAdditionalIp": "分配额外 IP", "reboot": "重启",
-    "reinstall": "重装系统", "removeVeeamBackup": "移除 Veeam 备份", "revertSnapshot": "回滚快照",
-    "setBackup": "调整自动备份", "setMonitoring": "设置监控", "setNetboot": "设置网络启动",
-    "start": "启动", "stop": "关机", "veeamFullRestore": "Veeam 完整还原",
-    "veeamRestoreFile": "Veeam 还原", "restore": "还原 VM", "updateVmResources": "升级 VM",
-    "revertVm": "还原 VM", "reOpen": "重新打开工单", "rescheduleAutoBackup": "调整自动备份",
+    "addVeeamBackupJob": "添加 Veeam 备份", "changeRootPassword": "重置 root 密码",
+    "createSnapshot": "创建快照", "deleteSnapshot": "删除快照", "deliverVm": "交付 VM",
+    "getConsoleUrl": "生成控制台链接", "internalTask": "内部任务", "migrate": "迁移",
+    "openConsoleAccess": "打开控制台", "provisioningAdditionalIp": "分配额外 IP",
+    "reOpenVm": "重新开机", "rebootVm": "重启", "reinstallVm": "重装系统",
+    "removeVeeamBackup": "移除 Veeam 备份", "restoreFullVeeamBackup": "Veeam 完整还原",
+    "restoreVeeamBackup": "Veeam 还原", "restoreVm": "还原 VM", "revertSnapshot": "回滚快照",
+    "rescheduleAutoBackup": "调整自动备份", "setMonitoring": "设置监控",
+    "setNetboot": "设置网络启动", "startVm": "启动", "stopVm": "关机", "upgradeVm": "升级 VM",
 ]
 
 func vpsTaskStateColor(_ s: String) -> String {
@@ -800,7 +823,7 @@ struct VpsTasksSheet: View {
                     } else if let e = err {
                         LoadFailed(message: e) { Task { await load() } }
                     } else if tasks.isEmpty {
-                        EmptyHint(icon: "checkmark.circle", text: "没有任务记录")
+                        EmptyHint(icon: "checkmark.circle", text: "暂无任务历史")
                     } else {
                         ForEach(tasks.prefix(10).indices, id: \.self) { i in
                             let it = tasks[i]
@@ -837,7 +860,8 @@ struct VpsTasksSheet: View {
     private func load() async {
         do {
             let r = try await conn.client.getDict("/vps-control/\(name)/tasks")
-            tasks = (r["tasks"] as? [[String: Any]]) ?? []
+            // 后端按升序(旧→新)输出,倒过来让最新任务排最上(否则刚提交的重装垫底,第一眼看不到)
+            tasks = Array(((r["tasks"] as? [[String: Any]]) ?? []).reversed())
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
@@ -920,6 +944,7 @@ struct VpsAliasSheet: View {
     var t: Tokens { theme.t }
 
     @State private var alias = ""
+    @State private var aliasLoadFailed = false
     @State private var busy = false
 
     var body: some View {
@@ -927,6 +952,10 @@ struct VpsAliasSheet: View {
             SheetHeader(icon: "tag", tint: t.info, title: "别名")
             VStack(alignment: .leading, spacing: 12) {
                 SheetNote(text: "别名只存在后端,用于列表和下拉里好认。留空保存 = 删除别名。", tint: t.muted)
+                if aliasLoadFailed {
+                    // 读失败时输入框是空并不代表原本没有别名,直接保存会删掉已有别名
+                    SheetNote(text: "别名读取失败:输入框是空不代表原本没有别名,保存空值会删掉它。请关掉重开重试。", tint: t.warning)
+                }
                 SheetField(placeholder: "我的小机器", text: $alias)
                 HStack(spacing: 10) {
                     ActBtn(kind: .primary, icon: "checkmark", label: busy ? "保存中…" : "保存", busy: busy) {
@@ -945,7 +974,17 @@ struct VpsAliasSheet: View {
         }
         .background(t.color(t.bg))
         .presentationDetents([.medium])
-        .onAppear { alias = current }
+        .task {
+            // 预填真实别名:GET /server-control/aliases 的响应体就是 {service_name: alias} map 本身。
+            // 预填 OVH 显示名会有"不改直接保存=把显示名存成别名"的副作用
+            do {
+                let r = try await conn.client.getDict("/server-control/aliases")
+                alias = (r[name] as? String) ?? ""
+                aliasLoadFailed = false
+            } catch {
+                aliasLoadFailed = true
+            }
+        }
     }
 
     private func save() async {
@@ -991,12 +1030,9 @@ struct ServerAliasSheet: View {
         .background(t.color(t.bg))
         .presentationDetents([.medium])
         .task {
-            // 预填真实别名(GET aliases),不是 OVH 计划名
-            if let r = try? await conn.client.getDict("/server-control/aliases"),
-               let map = r["aliases"] as? [String: String] ?? (r["aliases"] as? [String: Any]).flatMap({ dict in
-                   dict.mapValues { $0 as? String ?? "" }
-               }) {
-                alias = map[sn] ?? ""
+            // 预填真实别名:响应体就是 {service_name: alias} map 本身(不是包在 aliases 键里)
+            if let r = try? await conn.client.getDict("/server-control/aliases") {
+                alias = (r[sn] as? String) ?? ""
             }
         }
     }

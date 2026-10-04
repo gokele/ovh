@@ -454,7 +454,7 @@ struct MonitorSubSheet: View {
             "autoOrder": autoOrder,
         ]
         let d = dcs.split(whereSeparator: { ",，、;；\n".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        if !d.isEmpty { body["datacenters"] = d }
+        body["datacenters"] = d   // PUT 显式传空数组=改回全部机房;不传后端会保留旧列表,清空就不生效(web 同款)
         let o = options.split(whereSeparator: { ",".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         body["options"] = o     // PUT 显式传空数组才能清空
         if autoOrder {
@@ -939,6 +939,7 @@ struct VpsSubSheet: View {
                 model = e["planCode"] as? String ?? (e["model"] as? String ?? "")
                 subsidiary = e["ovhSubsidiary"] as? String ?? ""
                 dcs = (e["datacenters"] as? [String])?.joined(separator: ",") ?? ""
+                osChoice = e["os"] as? String ?? ""   // 回填已配系统,不然已配的显示"默认镜像"且改不回去
                 linux = e["monitorLinux"] as? Bool ?? true
                 windows = e["monitorWindows"] as? Bool ?? false
                 notifyAvail = e["notifyAvailable"] as? Bool ?? true
@@ -947,6 +948,10 @@ struct VpsSubSheet: View {
                 quantity = e["quantity"] as? Int ?? 1
                 autoPay = e["autoPay"] as? Bool ?? false
             }
+        }
+        .onChange(of: subsidiary) { _ in
+            // 型号/价格/osChoices/机房提示都随子公司变,切换后重拉(后端缺省会落到账户站点那份)
+            Task { await loadModels() }
         }
     }
 
@@ -979,7 +984,11 @@ struct VpsSubSheet: View {
     }
 
     private func loadModels() async {
-        if let r = try? await conn.client.getDict("/vps-monitor/models") {
+        // 按所选子公司拉型号(web useVPSModels 同款);型号/价格/osChoices 每个子公司都不一样,
+        // 不传后端会落到账户站点那份,表单切了子公司列表却还是旧的
+        var path = "/vps-monitor/models"
+        if !subsidiary.isEmpty { path += "?subsidiary=" + urlEncode(subsidiary) }
+        if let r = try? await conn.client.getDict(path) {
             models = (r["models"] as? [[String: Any]]) ?? []
         }
         loadingModels = false
@@ -1000,7 +1009,7 @@ struct VpsSubSheet: View {
         ]
         if !subsidiary.isEmpty { body["ovhSubsidiary"] = subsidiary }
         let d = dcs.split(whereSeparator: { ",，、;；\n".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        if !d.isEmpty { body["datacenters"] = d }
+        body["datacenters"] = d   // PUT 显式传空数组=改回全部机房;不传后端会保留旧列表(web 同款)
         if autoOrder {
             let accId = conn.accountId.isEmpty ? (conn.activeAccount?["id"] as? String ?? "") : conn.accountId
             if !accId.isEmpty {
@@ -1011,7 +1020,7 @@ struct VpsSubSheet: View {
             }
             body["quantity"] = quantity
             body["autoPay"] = autoPay
-            if !osChoice.isEmpty { body["imageId"] = osChoice }   // VPS 系统在下单时就要定
+            body["os"] = osChoice   // 后端绑定 os(以前发 imageId 被静默丢弃,永远装默认镜像);空串=用默认
         }
         do {
             if let e = editing, let id = e["id"] {

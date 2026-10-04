@@ -177,8 +177,13 @@ struct SettingsScreen: View {
         }
         snipeSaveBusy = true
         defer { snipeSaveBusy = false }
-        // 后端 POST /settings 是全量覆盖 —— 必须先读旧配置合并,否则会清空 TG/Webhook 等
-        var merged: [String: Any] = (try? await conn.client.getDict("/settings")) ?? [:]
+        // 后端 POST /settings 是全量覆盖 —— 必须先读旧配置合并,否则会清空 TG/Webhook 等。
+        // 读失败时宁可不保存也不能拿空字典顶上(那等于一键抹掉全部配置)
+        guard let old: [String: Any] = try? await conn.client.getDict("/settings") else {
+            toast.show("读不到当前配置,已跳过保存(避免用空值覆盖);请检查网络后重试", error: true)
+            return
+        }
+        var merged = old
         merged["defaultRetryInterval"] = va
         merged["quickOrderRetryInterval"] = vb
         let body = try? JSONSerialization.data(withJSONObject: merged)
@@ -385,11 +390,16 @@ struct NotifyScreen: View {
         }
         saveBusy = true
         defer { saveBusy = false }
-        // 全量合并(同上):只发改动字段会把其它配置清空
-        var merged: [String: Any] = (try? await conn.client.getDict("/settings")) ?? [:]
-        if !tgToken.isEmpty { merged["tgToken"] = tgToken }
-        if !tgChatId.isEmpty { merged["tgChatId"] = tgChatId }
-        if !webhookUrl.isEmpty { merged["notifyWebhookUrl"] = webhookUrl }
+        // 全量合并(同上):只发改动字段会把其它配置清空;读失败直接不保存,不拿空字典顶上
+        guard let old: [String: Any] = try? await conn.client.getDict("/settings") else {
+            toast.show("读不到当前配置,已跳过保存(避免用空值覆盖);请检查网络后重试", error: true)
+            return
+        }
+        var merged = old
+        // 空串 = 显式清空该项(web 同款语义:清空输入框保存即清空配置)
+        merged["tgToken"] = tgToken
+        merged["tgChatId"] = tgChatId
+        merged["notifyWebhookUrl"] = webhookUrl
         let data = try? JSONSerialization.data(withJSONObject: merged)
         let (ok2, msg) = await conn.client.actionPostData("/settings", bodyData: data)
         toast.show(ok2 ? "设置已保存" : (msg.isEmpty ? "保存失败" : msg), error: !ok2)

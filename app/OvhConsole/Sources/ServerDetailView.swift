@@ -164,38 +164,7 @@ struct ServerDetailView: View {
     }
 
     private var renewalText: String {
-        if let si = serviceinfo {
-            // 终止态优先(S-015 五种细分)
-            let term = terminationLabel(si)
-            if !term.isEmpty { return term }
-            if si["renewalForced"] as? Bool == true {
-                let p = si["renewalPeriod"] as? Int ?? 1
-                return "强制自动 · \(p)月"
-            }
-            if si["renewalType"] as? Bool == true {
-                let p = si["renewalPeriod"] as? Int ?? 1
-                return "自动 · \(p)月"
-            }
-            if si["renewalType"] == nil { return "续费未知" }   // 没读到 ≠ 手动
-            return "手动"
-        }
-        return ""
-    }
-
-    private func terminationLabel(_ si: [String: Any]) -> String {
-        // 后端实际字段:terminationScheduled/terminationAction(terminate|terminateAtExpirationDate|
-        // terminateAtEngagementDate|deleteAtExpiration)/terminationStateUnknown
-        if si["terminationStateUnknown"] as? Bool == true { return "终止状态未知" }
-        let scheduled = si["terminationScheduled"] as? Bool ?? false
-        let deleteAtExp = si["renewalDeleteAtExpiration"] as? Bool ?? false
-        guard scheduled || deleteAtExp else { return "" }
-        switch (si["terminationAction"] as? String ?? "").lowercased() {
-        case "terminate": return "终止处理中(立即)"
-        case "terminateatengagementdate": return "合同期结束终止"
-        case "terminateatexpirationdate", "deleteatexpiration": return "到期终止"
-        default: break
-        }
-        return deleteAtExp ? "到期终止" : "已安排终止"
+        renewalLabelText(serviceinfo)
     }
 
     private func daysLeft(_ iso: String) -> Int {
@@ -608,6 +577,40 @@ struct AdvancedSection: View {
 }
 
 /// NSNumber/Int/Double → Double(ServerDetailView 磁盘容量用)
+/// 续费/终止文案(独服与 VPS 共用,web hooks terminationLabel 同源)
+func renewalLabelText(_ si: [String: Any]?) -> String {
+    guard let si = si else { return "" }
+    // 终止态优先(S-015 五种细分)
+    let term = terminationLabelText(si)
+    if !term.isEmpty { return term }
+    if si["renewalForced"] as? Bool == true {
+        let p = numToDoubleAny(si["renewalPeriod"]).map(Int.init) ?? 1
+        return "强制自动 · \(p)月"
+    }
+    if si["renewalType"] as? Bool == true {
+        let p = numToDoubleAny(si["renewalPeriod"]).map(Int.init) ?? 1
+        return "自动 · \(p)月"
+    }
+    if si["renewalType"] == nil { return "续费未知" }   // 没读到 ≠ 手动
+    return "手动"
+}
+
+func terminationLabelText(_ si: [String: Any]) -> String {
+    // 后端实际字段:terminationScheduled/terminationAction(terminate|terminateAtExpirationDate|
+    // terminateAtEngagementDate|deleteAtExpiration)/terminationStateUnknown
+    if si["terminationStateUnknown"] as? Bool == true { return "终止状态未知" }
+    let scheduled = si["terminationScheduled"] as? Bool ?? false
+    let deleteAtExp = si["renewalDeleteAtExpiration"] as? Bool ?? false
+    guard scheduled || deleteAtExp else { return "" }
+    switch (si["terminationAction"] as? String ?? "").lowercased() {
+    case "terminate": return "终止处理中(立即)"
+    case "terminateatengagementdate": return "合同期结束终止"
+    case "terminateatexpirationdate", "deleteatexpiration": return "到期终止"
+    default: break
+    }
+    return deleteAtExp ? "到期终止" : "已安排终止"
+}
+
 func numToDoubleAny(_ v: Any?) -> Double? {
     if let d = v as? Double { return d }
     if let i = v as? Int { return Double(i) }
