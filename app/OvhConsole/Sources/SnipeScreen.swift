@@ -586,7 +586,15 @@ struct SnipeOrderSheet: View {
         }
         .background(t.color(t.bg))
         .presentationDetents([.large])
-        .task { await load() }
+        .task {
+            await load()
+            // F-220:重试间隔默认值读设置(defaultRetryInterval)
+            if interval == 5, let sr = try? await conn.client.getDict("/settings"),
+               let v = numToDoubleAny(sr["defaultRetryInterval"]) {
+                defaultIntervalFallback = Int(v)
+                interval = defaultIntervalFallback
+            }
+        }
     }
 
     private func miniAction(_ label: String, color: String, action: @escaping () -> Void) -> some View {
