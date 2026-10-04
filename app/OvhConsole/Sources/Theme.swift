@@ -206,6 +206,7 @@ struct StatTile: View {
     let label: String
     let value: String
     var tint: String? = nil
+    var sub: String? = nil
     var t: Tokens { theme.t }
 
     var body: some View {
@@ -216,6 +217,9 @@ struct StatTile: View {
             }
             Text(value).font(.system(size: 21, weight: .bold, design: .rounded))
                 .foregroundColor(t.color(t.fg)).lineLimit(1).minimumScaleFactor(0.5)
+            if let s = sub {
+                Text(s).font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(13)

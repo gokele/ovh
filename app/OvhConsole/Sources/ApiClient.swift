@@ -230,6 +230,23 @@ struct ApiClient {
         return out
     }
 
+    /// 根节点是数组的公开接口(实时库存 availabilities ~9000 条走这里)
+    static func httpsJSONArray(_ url: String, timeoutSec: Double = 15) -> [[String: Any]]? {
+        guard let u = URL(string: url) else { return nil }
+        let sem = DispatchSemaphore(value: 0)
+        var out: [[String: Any]]? = nil
+        let task = Self.httpsSession.dataTask(with: u) { data, resp, _ in
+            defer { sem.signal() }
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                  let d = data,
+                  let obj = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]] else { return }
+            out = obj
+        }
+        task.resume()
+        sem.wait()
+        return out
+    }
+
     private func request(_ method: String, _ path: String, bodyData: Data? = nil, timeoutSec: Int = 15) async throws -> Data {
         guard let u = url(path) else { throw ApiError(status: 0, message: "后端地址不合法") }
         // POSIX socket 直发:绕过 ATS(ATS 只在 CFNetwork 层,底层 socket 没有)

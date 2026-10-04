@@ -197,6 +197,13 @@ struct CatalogPane: View {
                 } else if filtered.isEmpty {
                     Card { EmptyHint(icon: "shippingbox", text: plans.isEmpty ? "未找到服务器 —— API 未返回服务器,检查账户或设置" : "没有匹配的搜索结果") }
                 } else {
+                    // 实时库存接口挂了必须说出来:下面的红绿点是目录静态状态(最长 2h 旧),
+                    // 把它当"缺货"会让用户直接放弃一台其实有货的机器
+                    if Self.realtimeAvailFailed {
+                        Card {
+                            SheetNote(text: "实时库存读取失败,下面显示的是目录里的静态状态(最长 2 小时旧)。红点不代表真没货,下拉刷新重试。", tint: t.warning)
+                        }
+                    }
                     ForEach(filtered.indices, id: \.self) { i in
                         catalogCard(filtered[i])
                     }
@@ -372,6 +379,10 @@ struct CatalogPane: View {
                 avail[code] = dcMap
             }
             availability = avail
+            // 实时库存(web use-availability 同款):按账户站点直连 OVH 公开接口,
+            // 覆盖目录静态红绿点(目录里的 availability 最长 2 小时旧);
+            // 失败时保留静态并在卡片区顶部明示,不把静态状态当"缺货"卖
+            availability = await Self.mergeRealtimeAvailability(static: avail, conn: conn, sub: sub)
             var addonMap: [String: Double] = [:]
             if let cr = cr, let cplans = cr["plans"] as? [[String: Any]] {
                 for p in cplans {
@@ -404,8 +415,6 @@ struct CatalogPane: View {
                 cacheExpired = (ci["usingExpiredCache"] as? Bool ?? false)
             }
             guard gen == loadGeneration else { return }
-            guard gen == loadGeneration else { return }
-            guard gen == loadGeneration else { return }
             Self.memCache = (Date(), plans, availability, priceMap, addonMap, priceCurrency, cacheAgeMin, cacheExpired, priceSubOfCatalog)
         } catch { err = error.localizedDescription }
         // 子公司错配探测(F-208):失败不阻塞目录
@@ -417,6 +426,50 @@ struct CatalogPane: View {
     }
 
     private var priceSubOfCatalog: String { sub2 }
+
+    /// 实时库存:60 秒新鲜期的内存缓存(web staleTime 60s 同思路)
+    private static var availCache: (at: Date, map: [String: [String: String]])? = nil
+    /// 实时接口失败标记(展示"下面是目录静态状态"横幅用);静态照常兜底
+    private static var realtimeAvailFailed = false
+
+    /// 静态目录 + OVH 实时 availabilities 合并(web servers.tsx 同款):
+    /// 实时按 planCode 整组覆盖;接口挂了/没连上就保留静态
+    private static func mergeRealtimeAvailability(static: [String: [String: String]], conn: Connection, sub: String) async -> [String: [String: String]] {
+        if Self.availCache == nil || Date().timeIntervalSince(Self.availCache!.0) > 60 {
+            // 站点跟「当前账户」走(EU/US/CA 三站库存互不相通);没账户时按结算子公司
+            let ep = (conn.activeAccount?["endpoint"] as? String ?? "").lowercased()
+            let host: String
+            if ep.contains("ovh-us") { host = "api.us.ovhcloud.com" }
+            else if ep.contains("ovh-ca") { host = "ca.api.ovh.com" }
+            else if ep.isEmpty { host = catalogHost(sub) }
+            else { host = "eu.api.ovh.com" }
+            if let list = await Task.detached(priority: .userInitiated, operation: {
+                ApiClient.httpsJSONArray("https://\(host)/1.0/dedicated/server/datacenter/availabilities", timeoutSec: 30)
+            }).value {
+                var rt: [String: [String: String]] = [:]
+                for item in list {
+                    guard let pc = item["planCode"] as? String, !pc.isEmpty else { continue }
+                    var m = rt[pc] ?? [:]
+                    for d in (item["datacenters"] as? [[String: Any]]) ?? [] {
+                        let code = (d["datacenter"] as? String ?? "").lowercased()
+                        guard !code.isEmpty, let st = d["availability"] as? String else { continue }
+                        // 已经可用就不被后续变体覆盖(web buildAvailabilityMap 同款)
+                        if let ex = m[code], isOrderable(ex) { continue }
+                        m[code] = st
+                    }
+                    rt[pc] = m
+                }
+                Self.availCache = (Date(), rt)
+                Self.realtimeAvailFailed = false
+            } else {
+                Self.realtimeAvailFailed = true
+            }
+        }
+        guard let rt = Self.availCache?.map, !rt.isEmpty else { return `static` }
+        var merged = `static`
+        for (pc, m) in rt where !m.isEmpty { merged[pc] = m }
+        return merged
+    }
 
     private func applyCache(_ c: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], addons: [String: Double], currency: String, age: Int?, expired: Bool, priceSub: String)) {
         plans = c.plans; availability = c.avail; priceMap = c.prices

@@ -1127,8 +1127,13 @@ struct ServerAliasSheet: View {
     }
 }
 
-/// OpenStack zone → 中文
+/// OpenStack zone → 中文(web 同款:先用正则从整串里提取 os-* 短码再查表,
+/// 不然 "Region OpenStack: os-eu-west-fr-1" 这种 2025 cloud 形态整串匹配不上,大写裸奔)
 func zoneCn(_ z: String) -> String {
+    var key = z
+    if let m = z.range(of: #"os-[a-z]+-[a-z]+-[a-z]+-?\d*"#, options: .regularExpression) {
+        key = String(z[m])
+    }
     let m: [String: String] = [
         // OS_ZONE_MAP(V-019 新式)
         "os-eu-west-fr-1": "法国·格拉夫林", "os-eu-west-fr-2": "法国·鲁贝", "os-eu-west-fr-3": "法国·斯特拉斯堡",
@@ -1148,7 +1153,7 @@ func zoneCn(_ z: String) -> String {
         "vin": "美国·弗吉尼亚", "sgp": "新加坡", "syd": "澳大利亚·悉尼", "de1": "德国",
         "lim": "墨西哥·克雷塔罗", "eri": "土耳其·伊斯坦布尔",
     ]
-    return m[z.lowercased()] ?? z.uppercased()
+    return m[key.lowercased()] ?? z.uppercased()
 }
 
 extension String {

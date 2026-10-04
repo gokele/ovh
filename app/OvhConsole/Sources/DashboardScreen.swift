@@ -72,11 +72,12 @@ struct DashboardScreen: View {
                 StatTile(icon: "bolt.fill", label: "活跃队列", value: stats?["activeQueues"].intText ?? "—", tint: t.warning)
             }.buttonStyle(.plain)
             Button { nav.tab = .snipe; nav.snipeSegment = 0 } label: {
-                StatTile(icon: "server.rack", label: "目录机型", value: stats?["totalServers"].intText ?? "—",
-                         tint: (stats?["availableServers"] as? Int ?? 0) > 0 ? t.success : nil)
+                StatTile(icon: "server.rack", label: "服务器总数", value: stats?["totalServers"].intText ?? "—",
+                         tint: (stats?["availableServers"] as? Int ?? 0) > 0 ? t.success : nil,
+                         sub: "可用 \(stats?["availableServers"].intText ?? "—")")
             }.buttonStyle(.plain)
             Button { nav.tab = .snipe; nav.snipeSegment = 2 } label: {
-                StatTile(icon: "checkmark.seal.fill", label: "下单成功", value: stats?["purchaseSuccess"].intText ?? "—", tint: t.success)
+                StatTile(icon: "checkmark.seal.fill", label: "下单成功(待付款)", value: stats?["purchaseSuccess"].intText ?? "—", tint: t.success)
             }.buttonStyle(.plain)
         }
     }
@@ -106,7 +107,8 @@ struct DashboardScreen: View {
                                 .font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
                             Chip(text: (item["datacenter"] as? String ?? "").uppercased())
                             Spacer()
-                            Text("第 \((item["failureCount"] as? Int ?? 0) + 1) 轮")
+                            // 轮次用 retryCount(含无货轮次,web 同款);failureCount 只计真实下单失败,数字会偏小
+                            Text("第 \((item["retryCount"] as? Int ?? (numToDoubleAny(item["retryCount"]).map(Int.init) ?? 0)) + 1) 轮")
                                 .font(.system(size: 10)).foregroundColor(t.color(t.muted))
                         }
                     }
