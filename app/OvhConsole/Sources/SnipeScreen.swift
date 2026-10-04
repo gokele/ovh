@@ -642,7 +642,7 @@ struct SnipeOrderSheet: View {
                 }
                 Text(Self.availText(status))
                     .font(.system(size: 8.5, weight: .medium))
-                    .foregroundColor(on ? Color.white.opacity(0.85) : t.color(inStock ? t.success : t.faint))
+                    .foregroundColor(on ? .white : t.color(inStock ? t.success : t.faint))
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .frame(minWidth: 64)
@@ -695,14 +695,15 @@ struct SnipeOrderSheet: View {
         } label: {
             HStack(spacing: 5) {
                 if on {
-                    Image(systemName: "checkmark").font(.system(size: 8.5, weight: .bold)).foregroundColor(t.color(t.accent))
+                    Image(systemName: "checkmark").font(.system(size: 8.5, weight: .bold)).foregroundColor(.white)
                 }
                 Text(item.label)
                     .font(.system(size: 11, weight: on ? .semibold : .regular))
-                    .foregroundColor(t.color(on ? t.fg : t.muted))
+                    .foregroundColor(on ? .white : t.color(t.muted))
                     .lineLimit(1)
                 if item.price > 0 {
-                    Text(String(format: "+%.0f", item.price)).font(.system(size: 9.5, design: .rounded)).foregroundColor(t.color(on ? t.accent : t.faint))
+                    Text(String(format: "+%.0f", item.price)).font(.system(size: 9.5, design: .rounded))
+                        .foregroundColor(on ? .white.opacity(0.9) : t.color(t.faint))
                 }
                 if item.isDefault && !on {
                     Text("默认").font(.system(size: 8, weight: .bold))
@@ -712,8 +713,8 @@ struct SnipeOrderSheet: View {
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 9).fill(on ? t.color(t.accent).opacity(0.13) : t.color(t.bg).opacity(0.45)))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(on ? t.color(t.accent).opacity(0.55) : t.color(t.border).opacity(0.4), lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 9).fill(on ? t.color(t.accent) : t.color(t.bg).opacity(0.45)))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(on ? t.color(t.accent) : t.color(t.border).opacity(0.4), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }

@@ -149,41 +149,48 @@ struct MrtgChartView: View {
             }
             Chart {
                 ForEach(Array(it.points.enumerated()), id: \.offset) { _, p in
+                    // 下行:亮蓝粗线;上行:亮绿粗线(深底上高饱和才看得清)
                     LineMark(x: .value("时间", p.ts), y: .value("下行", p.dl / 1e6))
-                        .foregroundStyle(t.color(t.info))
+                        .foregroundStyle(Color(hex: 0x38BDF8))
+                        .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round))
+                        .interpolationMethod(.monotone)
+                    AreaMark(x: .value("时间", p.ts), y: .value("下行", p.dl / 1e6))
+                        .foregroundStyle(Color(hex: 0x38BDF8).opacity(0.10))
                         .interpolationMethod(.monotone)
                     LineMark(x: .value("时间", p.ts), y: .value("上行", p.ul / 1e6))
-                        .foregroundStyle(t.color(t.accent))
+                        .foregroundStyle(Color(hex: 0x4ADE80))
+                        .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round))
                         .interpolationMethod(.monotone)
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { v in
-                    AxisGridLine().foregroundStyle(t.color(t.border).opacity(0.4))
+                AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { v in
+                    AxisGridLine().foregroundStyle(t.color(t.border).opacity(0.3))
                     AxisValueLabel {
                         if let d = v.as(Double.self) {
                             Text(d >= 1000 ? String(format: "%.1fG", d / 1000) : String(format: "%.0fM", d))
-                                .font(.system(size: 8.5)).foregroundStyle(t.color(t.muted))
+                                .font(.system(size: 9.5, weight: .medium)).foregroundStyle(t.color(t.muted))
                         }
                     }
                 }
             }
             .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: compact ? 3 : 5)) { v in
-                    AxisValueLabel(format: .dateTime.month().day().hour(), centered: false)
-                        .font(.system(size: 8.5)).foregroundStyle(t.color(t.muted))
+                AxisMarks(values: .automatic(desiredCount: compact ? 2 : 3)) { v in
+                    AxisValueLabel(format: .dateTime.month().day(), centered: false)
+                        .font(.system(size: 9.5)).foregroundStyle(t.color(t.muted))
                 }
             }
-            .frame(height: compact ? 130 : 190)
+            .frame(height: compact ? 132 : 192)
+            .padding(.horizontal, 4)
 
-            HStack(spacing: 10) {
-                HStack(spacing: 4) {
-                    Circle().fill(t.color(t.info)).frame(width: 6, height: 6)
-                    Text("↓ 峰值 \(fmtMbps(dlMax))").font(.system(size: 10)).foregroundColor(t.color(t.muted))
+            HStack(spacing: 12) {
+                HStack(spacing: 5) {
+                    RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0x38BDF8)).frame(width: 10, height: 3)
+                    Text("↓ \(fmtMbps(dlMax))").font(.system(size: 10.5, weight: .medium)).foregroundColor(t.color(t.muted))
                 }
-                HStack(spacing: 4) {
-                    Circle().fill(t.color(t.accent)).frame(width: 6, height: 6)
-                    Text("↑ 峰值 \(fmtMbps(ulMax))").font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                HStack(spacing: 5) {
+                    RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0x4ADE80)).frame(width: 10, height: 3)
+                    Text("↑ \(fmtMbps(ulMax))").font(.system(size: 10.5, weight: .medium)).foregroundColor(t.color(t.muted))
                 }
                 Spacer()
                 if let c = cur {
@@ -191,9 +198,12 @@ struct MrtgChartView: View {
                         .font(.system(size: 9.5, design: .monospaced)).foregroundColor(t.color(t.faint))
                 }
             }
+            .padding(.top, 2)
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surfaceMuted)))
+        .padding(11)
+        .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surface)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(t.color(t.border).opacity(0.6), lineWidth: 1))
     }
 
     private func load() async {
