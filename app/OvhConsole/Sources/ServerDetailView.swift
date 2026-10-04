@@ -75,12 +75,16 @@ struct ServerDetailView: View {
                     Spacer()
                     VStack(spacing: 5) {
                         Chip(text: state.uppercased(), color: tint)
-                        Text(renewalText.isEmpty ? "" : renewalText)
-                            .font(.system(size: 9.5, weight: .medium)).foregroundColor(t.color(t.faint))
+                        if !renewalText.isEmpty {
+                            Button { sheet = .init(kind: .renewal) } label: {
+                                InfoPill(icon: "arrow.triangle.2.circlepath", text: renewalText, tint: t.accent)
+                            }.buttonStyle(.plain)
+                        }
                     }
                 }
 
-                // 胶囊行:撤单倒计时 / 监控 / OS(功能锚点不变)
+                // 胶囊行:撤单 / OS / 到期 / 监控,固定单行(放不下横滑,不折行)
+                // 续费胶囊收进右上角状态区(点开续约面板),不占这行
                 if serviceinfo == nil {
                     HStack(spacing: 6) {
                         ForEach(0..<3, id: \.self) { _ in
@@ -89,38 +93,38 @@ struct ServerDetailView: View {
                         Spacer()
                     }
                 }
-                // 全部胶囊一排(FlowLayout:放得下单行,不够自动换行)
-                FlowLayout(spacing: 6) {
-                    if (retraction?["eligible"] as? Bool) == true {
-                        Button { sheet = .init(kind: .retraction) } label: {
-                            InfoPill(icon: "clock.badge.exclamationmark", text: "可撤单 · \(retractionLeftText)", tint: t.warning)
-                        }.buttonStyle(.plain)
-                    }
-                    if let os = item["os"] as? String, !os.isEmpty {
-                        Button { sheet = .init(kind: .reinstall) } label: {
-                            InfoPill(icon: "terminal", text: os, tint: t.info)
-                        }.buttonStyle(.plain)
-                    }
-                    Button { sheet = .init(kind: .renewal) } label: {
-                        InfoPill(icon: "arrow.triangle.2.circlepath", text: renewalText.isEmpty ? "续费" : renewalText, tint: t.accent)
-                    }.buttonStyle(.plain)
-                    if let si = serviceinfo, let exp = si["expiration"] as? String, !exp.isEmpty {
-                        InfoPill(icon: "calendar", text: "到期 \(fmtDate(exp))", tint: daysLeft(exp) < 7 ? t.danger : nil)
-                    }
-                    Button {
-                        if monitoringOn == nil {
-                            Task {
-                                monitoringLoading = true
-                                if let r = try? await conn.client.getDict("/server-control/\(sn)/monitoring") {
-                                    monitoringOn = r["monitoring"] as? Bool
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        if (retraction?["eligible"] as? Bool) == true {
+                            Button { sheet = .init(kind: .retraction) } label: {
+                                InfoPill(icon: "clock.badge.exclamationmark", text: "可撤单 · \(retractionLeftText)", tint: t.warning)
+                            }.buttonStyle(.plain)
+                        }
+                        if let os = item["os"] as? String, !os.isEmpty {
+                            Button { sheet = .init(kind: .reinstall) } label: {
+                                InfoPill(icon: "terminal", text: os, tint: t.info)
+                            }.buttonStyle(.plain)
+                        }
+                        if let si = serviceinfo, let exp = si["expiration"] as? String, !exp.isEmpty {
+                            InfoPill(icon: "calendar", text: "到期 \(fmtDate(exp))", tint: daysLeft(exp) < 7 ? t.danger : nil)
+                        }
+                        Button {
+                            if monitoringOn == nil {
+                                Task {
+                                    monitoringLoading = true
+                                    if let r = try? await conn.client.getDict("/server-control/\(sn)/monitoring") {
+                                        monitoringOn = r["monitoring"] as? Bool
+                                    }
+                                    monitoringLoading = false
                                 }
-                                monitoringLoading = false
-                            }
-                        } else { sheet = .init(kind: .monitoring) }
-                    } label: {
-                        InfoPill(icon: "bell.badge", text: monitoringLabel, tint: monitoringColor)
-                    }.buttonStyle(.plain)
+                            } else { sheet = .init(kind: .monitoring) }
+                        } label: {
+                            InfoPill(icon: "bell.badge", text: monitoringLabel, tint: monitoringColor)
+                        }.buttonStyle(.plain)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 if let si = serviceinfo {
                     let terminating = (si["terminationScheduled"] as? Bool ?? false) || (si["renewalDeleteAtExpiration"] as? Bool ?? false)
                     if terminating {
