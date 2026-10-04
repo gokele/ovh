@@ -102,6 +102,12 @@ struct CatalogPane: View {
     @State private var cacheExpired = false
     @State private var err: String?
     @State private var forcing = false
+    @State private var subsidiaryMismatch = false
+    /// 当前结算子公司(账户 zone)
+    var sub2: String {
+        if let acc = conn.activeAccount, let z = acc["zone"] as? String, !z.isEmpty { return z }
+        return "IE"
+    }
 
     /// App 端目录缓存:与 web 的 React Query 同思路 —— 5 分钟内切回来直接用旧数据,
     /// 后台静默刷新(否则每次进抢购页都等 OVH 目录+价格,体感就是"加载好久")。
@@ -135,9 +141,17 @@ struct CatalogPane: View {
                 .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surface)))
 
                 HStack(spacing: 8) {
+                    Chip(text: "价格按 \(sub2) 结算", color: t.info)
+                    Spacer()
+                    Text(loading && plans.isEmpty ? "加载中..." : "共 \(filtered.count) 款")
+                        .font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
+                }
+                HStack(spacing: 8) {
                     if let age = cacheAgeMin {
-                        Chip(text: cacheExpired ? "目录缓存已过期(\(age)分前)" : "缓存 \(age) 分钟前",
+                        Chip(text: cacheExpired ? "缓存已过期 · \(age) 分前" : "缓存 · \(age) 分钟前",
                              color: cacheExpired ? t.warning : nil)
+                    } else if !loading && !plans.isEmpty {
+                        Chip(text: "尚未加载")
                     }
                     Spacer()
                     Button {
@@ -166,16 +180,23 @@ struct CatalogPane: View {
                     }.buttonStyle(.plain).disabled(forcing)
                 }
 
+                if subsidiaryMismatch {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("账户子公司配置与 OVH 实际归属不一致").font(.system(size: 11.5, weight: .bold)).foregroundColor(t.color(t.warning))
+                        Text("OVH 认这个账户属于另一个子公司,与设置里填的 zone 不同。目录、价格、币种、库存、下单 region 全按子公司走 —— 请去网页端「设置 → OVH 账户」改对 zone 后再下单。")
+                            .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.warning).opacity(0.5), lineWidth: 1))
+                }
                 if let e = err {
-                    Card { LoadFailed(message: e) { Task { await load(force: true) } } }
+                    Card { LoadFailed(message: "机型列表读取失败:\(e)") { Task { await load(force: true) } } }
                 } else if loading && plans.isEmpty {
                     ProgressView().padding(.top, 50)
                 } else if filtered.isEmpty {
-                    Card { EmptyHint(icon: "shippingbox", text: "目录为空 —— 检查账户或刷新缓存") }
+                    Card { EmptyHint(icon: "shippingbox", text: plans.isEmpty ? "未找到服务器 —— API 未返回服务器,检查账户或设置" : "没有匹配的搜索结果") }
                 } else {
-                    Text("\(filtered.count) 款机型")
-                        .font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     ForEach(filtered.indices, id: \.self) { i in
                         catalogCard(filtered[i])
                     }
@@ -233,7 +254,6 @@ struct CatalogPane: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
                             Text(code).font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundColor(t.color(t.fg))
-                            if stock { Chip(text: "有货", color: t.success) }
                         }
                         Text(specLine(p)).font(.system(size: 10.5)).foregroundColor(t.color(t.muted)).lineLimit(1)
                     }
@@ -242,17 +262,37 @@ struct CatalogPane: View {
                         Text(String(format: "%.2f", price) + (priceCurrency.isEmpty ? "" : " ") + priceCurrency)
                             .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundColor(t.color(t.fg))
                         Text("/月").font(.system(size: 9)).foregroundColor(t.color(t.faint))
+                    } else {
+                        // F-212 fallback:加载中 vs 无报价
+                        Text(loading ? "—" : "—")
+                            .font(.system(size: 11, design: .rounded)).foregroundColor(t.color(t.faint))
+                        Text(loading ? "价格加载中" : "\(sub2) 无报价").font(.system(size: 8.5)).foregroundColor(t.color(t.faint))
                     }
                 }
+                // 三态 chip(F-211)
+                HStack(spacing: 6) {
+                    if availCount > 0 {
+                        Chip(text: "\(availCount)/\(dcs.count) 可用", color: t.success)
+                    } else if !dcs.isEmpty {
+                        Chip(text: "暂时缺货", color: t.danger)
+                    } else {
+                        Chip(text: "库存未知", color: t.warning)
+                    }
+                    Spacer()
+                }
                 if !dcs.isEmpty {
+                    // DC 点阵:绿=有货 红=缺货;web 只列该机型真正可选机房
                     FlowLayout(spacing: 5) {
                         ForEach(dcs.keys.sorted(), id: \.self) { dc in
                             let ok = isOrderable(dcs[dc] ?? "")
-                            Text("\(dc.uppercased()) \(dcs[dc] ?? "")")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundColor(t.color(ok ? t.success : t.faint))
-                                .padding(.horizontal, 7).padding(.vertical, 3)
-                                .background(RoundedRectangle(cornerRadius: 7).fill(ok ? t.color(t.success).opacity(0.1) : t.color(t.surfaceMuted)))
+                            HStack(spacing: 3) {
+                                Circle().fill(t.color(ok ? t.success : t.danger).opacity(ok ? 1 : 0.55)).frame(width: 5, height: 5)
+                                Text(dc.uppercased())
+                                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                    .foregroundColor(t.color(ok ? t.fg : t.faint))
+                            }
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(ok ? t.color(t.success).opacity(0.08) : t.color(t.surfaceMuted)))
                         }
                     }
                 }
@@ -352,8 +392,14 @@ struct CatalogPane: View {
                 cacheExpired = (ci["usingExpiredCache"] as? Bool ?? false)
             }
             guard gen == loadGeneration else { return }
+            guard gen == loadGeneration else { return }
             Self.memCache = (Date(), plans, availability, priceMap, addonMap, priceCurrency, cacheAgeMin, cacheExpired)
         } catch { err = error.localizedDescription }
+        // 子公司错配探测(F-208):失败不阻塞目录
+        if let ai = try? await conn.client.getDict("/ovh/account/info") {
+            subsidiaryMismatch = (ai["subsidiaryMismatch"] as? Bool ?? false)
+                || ((ai["info"] as? [String: Any])?["subsidiaryMismatch"] as? Bool ?? false)
+        }
         loading = false
     }
 
@@ -361,11 +407,6 @@ struct CatalogPane: View {
         plans = c.plans; availability = c.avail; priceMap = c.prices
         priceCurrency = c.currency; cacheAgeMin = c.age; cacheExpired = c.expired
         loading = false
-    }
-
-    private var sub2: String {
-        if let acc = conn.activeAccount, let z = acc["zone"] as? String, !z.isEmpty { return z }
-        return ""
     }
 
     private func monthlyPriceOf(_ pricings: [[String: Any]]?) -> Double {
@@ -405,6 +446,8 @@ struct SnipeOrderSheet: View {
     @State private var basePrice: Double = 0
     @State private var loading = true
     @State private var busy = false
+    @State private var defaultIntervalFallback = 60
+    @State private var priceSubRegion = ""
 
     private var planCode: String { plan["planCode"] as? String ?? "" }
 
@@ -443,6 +486,19 @@ struct SnipeOrderSheet: View {
                         .background(RoundedRectangle(cornerRadius: 15).fill(t.color(t.accent).opacity(0.08)))
                         .overlay(RoundedRectangle(cornerRadius: 15).stroke(t.color(t.accent).opacity(0.22), lineWidth: 1))
 
+                        // F-218:价格区与下单账户区不一致警告(三区互不相通)
+                        if let accZone = conn.activeAccount?["zone"] as? String,
+                           !accZone.isEmpty, !priceSubRegion.isEmpty,
+                           accZone.uppercased() != priceSubRegion.uppercased() {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("⚠ 价格按 \(priceSubRegion) 显示,而下单账户在 \(accZone) 站点").font(.system(size: 11, weight: .bold)).foregroundColor(t.color(t.warning))
+                                Text("三区的目录、价格、库存互不相通,实际扣款以账户所属站点为准。")
+                                    .font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                            }
+                            .padding(9)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 10).stroke(t.color(t.warning).opacity(0.5), lineWidth: 1))
+                        }
                         // 配置组:每组一张圆角容器卡,选中 chip 绿描边 + 对勾
                         if groups.isEmpty {
                             SheetNote(text: "目录里没有该机型的选配项,按默认配置下单。", tint: t.muted)
@@ -498,11 +554,14 @@ struct SnipeOrderSheet: View {
                         Toggle(isOn: $autoPay) {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text("抢到后自动付款").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-                                Text("自动付款有真实扣款风险,默认关闭").font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                                Text("需 OVH 账户已设置默认支付方式").font(.system(size: 10)).foregroundColor(t.color(t.muted))
                             }
                         }.tint(t.color(t.accent))
 
-                        Text("将创建 \(pickedDCs.count * qty) 个任务").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.warning))
+                        Text("将创建 \(pickedDCs.count * qty) 个任务(\(pickedDCs.count) DC × \(qty)\(selected.isEmpty ? "" : " · \(selected.count) 项选配"))")
+                            .font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.warning))
+                        Text(autoPay ? "下单后将用 OVH 默认支付方式自动付款" : "下单成功后需自行付款(15 天付款窗口)")
+                            .font(.system(size: 10)).foregroundColor(t.color(t.muted))
 
                         HStack(spacing: 10) {
                             Button {
@@ -711,6 +770,7 @@ struct SnipeOrderSheet: View {
             basePrice = c.prices[planCode] ?? 0
             addonPrices = c.addons
             currency = c.currency
+            priceSubRegion = conn.activeAccount?["zone"] as? String ?? ""
             if let p = (c.plans as [[String: Any]]).first(where: { ($0["planCode"] as? String) == planCode }) {
                 buildGroups(from: p)
             }
@@ -722,7 +782,9 @@ struct SnipeOrderSheet: View {
             buildGroups(from: plan)   // 目录拉不到:配置组还能从 /servers 数据出,只是没价格
             return
         }
-        currency = (resp["locale"] as? [String: Any])?["currencyCode"] as? String ?? ""
+        let locale = resp["locale"] as? [String: Any]
+        currency = locale?["currencyCode"] as? String ?? ""
+        priceSubRegion = locale?["subsidiary"] as? String ?? ""
         for a in (resp["addons"] as? [[String: Any]]) ?? [] {
             if let c = a["planCode"] as? String {
                 addonPrices[c] = monthlyPrice(a["pricings"] as? [[String: Any]])
@@ -781,18 +843,23 @@ struct SnipeOrderSheet: View {
         // 后端按 body.account_id 决定下单账户(?account= 只影响查询)
         let accountId = conn.accountId.isEmpty ? (conn.activeAccount?["id"] as? String ?? "") : conn.accountId
         guard !accountId.isEmpty else { return toast.show("没有可用的 OVH 账户", error: true) }
-        let total = pickedDCs.count * qty
-        guard total <= 30 else { return toast.show("一次最多创建 30 个任务(当前 \(total))", error: true) }
+        // F-219:单机房最多 20 台、单次最多 60 个任务,超限自动收敛(对齐 web clampOrderPlan)
+        var effectiveQty = min(qty, 20)
+        if pickedDCs.count * effectiveQty > 60 {
+            effectiveQty = max(1, min(20, 60 / pickedDCs.count))
+            toast.show("每个机房最多 20 台、单次最多 60 个任务,已按 \(effectiveQty) 台/机房(共 \(pickedDCs.count * effectiveQty) 个任务)创建", error: true)
+        }
         busy = true
         defer { busy = false }
         var okCount = 0, failMsg = ""
         for dc in pickedDCs.sorted() {
-            for _ in 0..<qty {
+            for _ in 0..<effectiveQty {
                 var body: [String: Any] = [
                     "account_id": accountId,
                     "planCode": planCode,
                     "datacenter": dc,
-                    "retryInterval": interval,
+                    // F-220:min 10,未填走设置默认值(60 兜底)
+                    "retryInterval": max(10, interval == 5 ? defaultIntervalFallback : interval),
                 ]
                 if !selected.isEmpty { body["options"] = selected }
                 if autoPay { body["autoPay"] = true }
