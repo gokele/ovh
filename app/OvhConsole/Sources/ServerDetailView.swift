@@ -260,9 +260,9 @@ struct ServerDetailView: View {
     private func serverSheet(_ s: ServerSheet) -> some View {
         switch s.kind {
         case .mrtg: MrtgSheet(sn: sn)
-        case .reboot: ConfirmSheet(title: "硬重启服务器", message: "相当于直接断电再通电:未保存数据会丢失,磁盘检查可能耗时数分钟。", confirmText: "确认重启") {
+        case .reboot: ConfirmSheet(title: "确认硬重启 \(sn)?", message: "这相当于按下电源键,不是操作系统里的正常重启:内存和磁盘缓存里还没落盘的数据会丢,正在跑的服务会被直接切断。确认前请先在系统里停好业务。", confirmText: "确认重启") {
             let (ok, msg) = await conn.client.actionPostData("/server-control/\(sn)/reboot", bodyData: nil)
-            toast.show(ok ? "重启指令已下发" : (msg.isEmpty ? "失败" : msg), error: !ok)
+            toast.show(ok ? "重启已发起" : (msg.isEmpty ? "重启失败" : msg), error: !ok)
         }
         case .rescue: RescueSheet(sn: sn)
         case .reinstall: ServerReinstallSheet(sn: sn)

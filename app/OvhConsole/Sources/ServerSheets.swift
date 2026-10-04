@@ -311,14 +311,23 @@ struct RescueSheet: View {
                         }
 
                         if inRescue {
+                            SheetNote(text: "机器已经在救援模式里。修完之后点「退出救援模式」切回正常系统 —— 不切回去的话,每次重启都会再进救援。", tint: t.warning)
                             SheetNote(text: "退出救援会重启机器并从硬盘正常引导,救援环境里改过的数据保留在盘上。", tint: t.info)
                             ActBtn(kind: .primary, icon: "arrow.uturn.backward", label: busy ? "退出中…" : "退出救援模式") {
                                 rescueConfirm = false
                                 await exitRescue()
                             }
                         } else {
-                            SheetNote(text: "进入救援模式相当于用救援镜像重启:原系统数据不动,重启后生效。凭据会发送到邮箱。", tint: t.warning)
-                            SheetField(placeholder: rescueMail.isEmpty ? "通知邮箱(留空用账户默认)" : rescueMail, text: $mail, keyboard: .emailAddress)
+                            SheetNote(text: "救援系统是一个独立的临时 Linux,从网络启动,不会动你硬盘上的数据。进去之后可以挂载硬盘修配置、改密码、拷数据。进入救援后 OVH 会把 root 密码发到邮箱,约 3~5 分钟后可以 SSH 登录。", tint: t.muted)
+                            SheetField(placeholder: rescueMail.isEmpty ? "留空 = 发到 OVH 账户的联系邮箱" : rescueMail, text: $mail, keyboard: .emailAddress)
+                            if !mail.isEmpty && !mail.contains("@") {
+                                Text("这个邮箱格式不对。救援系统的 root 密码会发到这里,填错就收不到。")
+                                    .font(.system(size: 10.5)).foregroundColor(t.color(t.danger))
+                            }
+                            SheetNote(text: "点下去会立刻重启服务器,上面正在跑的服务会中断。硬盘数据不受影响。", tint: t.warning)
+                            if rescueConfirm {
+                                SheetNote(text: "再点一次「确认进入救援」就会重启。", tint: t.danger)
+                            }
                             ActBtn(kind: .primary, icon: "lifepreserver.fill", label: busy ? "提交中…" : "进入救援模式(重启)") {
                                 rescueConfirm = true
                             }
@@ -562,6 +571,7 @@ struct IpmiSheet: View {
     @State private var err: String?
     @State private var requesting = false
     @State private var result: [String: Any]?
+    @State private var ipmiActivated: Bool? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -573,7 +583,21 @@ struct IpmiSheet: View {
                     } else if let e = err {
                         LoadFailed(message: e) { Task { await load() } }
                     } else {
-                        SheetNote(text: "申请远程 KVM 会独占 IPMI 会话。Java KVM(.jnlp)需要 Java 运行时,SoL 走 SSH。", tint: t.info)
+                        SheetNote(text: "链接仅当次有效。", tint: t.faint)
+                        if let act = ipmiActivated, act == false {
+                            SheetNote(text: "该服务器 IPMI 显示未激活,申请可能失败;如失败请先到 OVH 后台启用 IPMI。", tint: t.warning)
+                        }
+                        if types.isEmpty { EmptyHint(icon: "keyboard", text: "该服务器不支持 KVM / SOL 控制台。") }
+                        else {
+                        ForEach(types.indices, id: \.self) { i in
+                            let name = types[i]["type"] as? String ?? "—"
+                            if name.contains("Jnlp") {
+                                SheetNote(text: "kvmipJnlp:需要本机装 Java Web Start。新版 JDK 已移除它,可用 OpenWebStart 打开 .jnlp。", tint: t.muted)
+                            } else if name.lowercased().contains("ssh") {
+                                SheetNote(text: "serialOverLanSshKey:用 OVH 账户里已登记的 SSH 公钥连接。", tint: t.muted)
+                            }
+                        }
+                        }
 
                         Text("接入方式").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                         VStack(spacing: 6) {
@@ -633,6 +657,7 @@ struct IpmiSheet: View {
     private func load() async {
         do {
             let r = try await conn.client.getDict("/server-control/\(sn)/ipmi-types")
+            ipmiActivated = r["activated"] as? Bool
             // handler: supportedTypes(字符串数组)+ typeLabels + defaultType
             let labels = r["typeLabels"] as? [String: String] ?? [:]
             let sup = (r["supportedTypes"] as? [String]) ?? []
@@ -789,7 +814,15 @@ struct SplaSheet: View {
                     } else if let e = err {
                         LoadFailed(message: e) { Task { await load() } }
                     } else {
-                        SheetNote(text: "重装 Windows 需要先登记 SPLA 授权。没有自己的序列号可一键解锁(自动登记公开 GVLK,仅操作系统类)。", tint: t.info)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("OVH 把 Windows 模板锁在「这台机器名下有操作系统授权记录」后面。点一下只登记这一类,用的是微软公开发布的 Windows KMS 客户端密钥 —— 它只让 OVH 的检查通过,不代表你持有 Windows Server 授权,系统装好后仍需能连上 KMS 服务器才会真正激活。")
+                                .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                            Text("SQL Server 的两类授权不在这里 —— 那要你真的买了 SQL 授权才谈得上登记,请用下面的表单填自己的序列号。")
+                                .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.info).opacity(0.06)))
 
                         Text("已登记授权").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                         if list.isEmpty {
@@ -816,9 +849,11 @@ struct SplaSheet: View {
                         }
 
                         Divider().overlay(t.color(t.border))
-                        ActBtn(kind: .primary, icon: "unlock.fill", label: busy ? "处理中…" : "一键解锁(登记 GVLK)") {
+                        let hasOs = list.contains { ($0["type"] as? String) == "os" }
+                        ActBtn(kind: hasOs ? .ghost : .primary, icon: hasOs ? "checkmark.shield.fill" : "unlock.fill",
+                               label: loading ? "检查中…" : (hasOs ? "已解锁,无需重复登记" : "一键解锁 Windows 安装")) {
                             await quickUnlock()
-                        }
+                        }.disabled(hasOs)
                     }
                 }
                 .padding(16)
