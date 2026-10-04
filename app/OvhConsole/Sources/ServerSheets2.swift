@@ -121,6 +121,7 @@ struct RenewalSheet: View {
     let sn: String
     let isVps: Bool
     let info: [String: Any]
+    var onSaved: () -> Void = {}
     var t: Tokens { theme.t }
 
     private var base: String { isVps ? "/vps-control" : "/server-control" }
@@ -130,25 +131,47 @@ struct RenewalSheet: View {
     @State private var busy = false
     @State private var possible: [Int] = []
 
+    /// 当前是否处于终止态(unknown 时不算 —— 没读到 ≠ 已安排终止)
+    private var isTerminatingNow: Bool {
+        if info["terminationStateUnknown"] as? Bool == true { return false }
+        return (info["terminationScheduled"] as? Bool ?? false) || (info["renewalDeleteAtExpiration"] as? Bool ?? false)
+    }
+
+    private var initialMode: Int {
+        if isTerminatingNow { return 2 }
+        if info["renewalType"] as? Bool == true { return 0 }
+        return 1
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             SheetHeader(icon: "arrow.triangle.2.circlepath", tint: t.info, title: "续费策略")
             ScrollView {
                 VStack(alignment: .leading, spacing: 13) {
                     let forced = info["renewalForced"] as? Bool ?? false
+                    // 终止状态语境卡(web 同款):改策略的现场必须能看到"自己正处于立即终止"
+                    let termLabel = terminationLabelText(info)
+                    if !termLabel.isEmpty {
+                        Text(termLabel)
+                            .font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(termLabel == "终止状态未知" ? t.warning : t.danger))
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(t.color(termLabel == "终止状态未知" ? t.warning : t.danger).opacity(0.08)))
+                    }
 
                     if forced {
-                        SheetNote(text: "OVH 强制该服务自动续费,策略不可修改。", tint: t.warning)
+                        SheetNote(text: "OVH 强制该服务自动续费,策略不可修改。要解除需联系 OVH 客服或等合同期结束。", tint: t.warning)
                     }
 
                     VStack(spacing: 8) {
                         modeRow(0, icon: "arrow.triangle.2.circlepath", title: "自动续费", desc: "到期自动扣款续期")
                             .disabled(forced)
-                        modeRow(1, icon: "hand.raised", title: "手动续费", desc: "到期前自己付款", disabled: forced)
-                        modeRow(2, icon: "scissors", title: "到期终止", desc: "到期后删除服务", danger: true, disabled: forced)
+                        modeRow(1, icon: "hand.raised", title: "手动续费", desc: "到期前需手动付款,不付则服务终止", disabled: forced)
+                        modeRow(2, icon: "scissors", title: "到期终止", desc: "到期后服务将被删除", danger: true, disabled: forced)
                     }
 
-                    if mode == 0 {
+                    // web 同款:非 delete 模式都能选周期,并总是提交所选值(手动模式也能改周期)
+                    if mode != 2 {
                         Text("续费周期").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                         FlowLayout(spacing: 7) {
                             ForEach(possible.isEmpty ? [1, 3, 6, 12] : possible, id: \.self) { p in
@@ -159,12 +182,16 @@ struct RenewalSheet: View {
                                 }.buttonStyle(.plain)
                             }
                         }
+                    } else if let exp = info["expiration"] as? String, !exp.isEmpty {
+                        SheetNote(text: "到期日 \(fmtDate(exp)) 之前服务照常可用。改主意了随时切回自动/手动即可撤销终止安排。", tint: t.muted)
                     }
 
-                    ActBtn(kind: mode == 2 ? .danger : .primary, icon: nil, label: info.isEmpty ? "读取服务信息中…" : (busy ? "保存中…" : "保存策略")) {
+                    let noChange = mode == initialMode && (mode == 2 || period == (numToDoubleAny(info["renewalPeriod"]).map(Int.init) ?? 1))
+                    ActBtn(kind: mode == 2 ? .danger : .primary, icon: nil,
+                           label: info.isEmpty ? "读取服务信息中…" : (busy ? "保存中…" : (noChange ? "无变化" : "保存策略"))) {
                         await submit()
                     }
-                    .disabled(forced || busy)
+                    .disabled(forced || busy || noChange)
                 }
                 .padding(16)
             }
@@ -172,12 +199,10 @@ struct RenewalSheet: View {
         .background(t.color(t.bg))
         .presentationDetents([.medium, .large])
         .onAppear {
-            let delete = info["renewalDeleteAtExpiration"] as? Bool ?? false
-            let automatic = info["renewalType"] as? Bool ?? true
-            mode = delete ? 2 : (automatic ? 0 : 1)
-            period = info["renewalPeriod"] as? Int ?? 1
+            mode = initialMode
+            period = numToDoubleAny(info["renewalPeriod"]).map(Int.init) ?? 1
             if let p = info["possibleRenewPeriod"] as? [Any] {
-                possible = p.compactMap { ($0 as? Int) ?? Int("\($0)") }
+                possible = p.compactMap { numToDoubleAny($0).map(Int.init) }
             }
         }
     }
@@ -202,16 +227,6 @@ struct RenewalSheet: View {
     }
 
     private func submit() async {
-        // 无变化禁保存(S-064)
-        let initialMode: Int = {
-            if (info["terminationScheduled"] as? Bool ?? false) || (info["renewalDeleteAtExpiration"] as? Bool ?? false) { return 2 }
-            if info["renewalType"] as? Bool == true { return 0 }
-            return 1
-        }()
-        let initialPeriod = info["renewalPeriod"] as? Int ?? 1
-        if mode == initialMode && (mode != 0 || period == initialPeriod) {
-            return
-        }
         busy = true
         defer { busy = false }
         do {
@@ -221,15 +236,15 @@ struct RenewalSheet: View {
                 _ = try await conn.client.put("\(base)/\(sn)/termination-policy", body: ["policy": "terminateAtExpirationDate"])
                 toast.show("已设为到期终止")
             } else {
-                let wasTerminating = (info["terminationScheduled"] as? Bool ?? false) || (info["renewalDeleteAtExpiration"] as? Bool ?? false)
-                if wasTerminating {
+                if isTerminatingNow {
                     _ = try await conn.client.put("\(base)/\(sn)/termination-policy", body: ["policy": "empty"])
                 }
                 let modeStr = mode == 0 ? "auto" : "manual"
                 _ = try await conn.client.put("\(base)/\(sn)/serviceinfo/renewal",
-                                              body: ["mode": modeStr, "period": mode == 0 ? period : 0])
-                toast.show(mode == 0 ? "已设为自动续费(\(period) 月)" : "已设为手动续费")
+                                              body: ["mode": modeStr, "period": period])
+                toast.show(mode == 0 ? "已设为自动续费(\(period) 月)" : "已设为手动续费(\(period) 月)")
             }
+            onSaved()   // 详情页的续费胶囊/终止状态要立刻跟上,不能等手动刷新
             dismiss()
         } catch { toast.show(error.localizedDescription, error: true) }
     }
@@ -704,6 +719,8 @@ struct ChangeContactSheet: View {
     @State private var requests: [[String: Any]] = []
     @State private var tokenInput: [String: String] = [:]
     @State private var busy = false
+    @State private var notSupported = false
+    @State private var reqsErr: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -723,7 +740,17 @@ struct ChangeContactSheet: View {
                         await submit()
                     }
 
-                    if !requests.isEmpty {
+                    if notSupported {
+                        Divider().overlay(t.color(t.border)).padding(.vertical, 4)
+                        Text("当前区域不支持联系人变更(US 区)")
+                            .font(.system(size: 11)).foregroundColor(t.color(t.muted)).padding(6)
+                    } else if let re = reqsErr {
+                        Divider().overlay(t.color(t.border)).padding(.vertical, 4)
+                        Text("待确认请求读取失败:\(re)。列表为空是没查到,不代表没有请求。")
+                            .font(.system(size: 10.5)).foregroundColor(t.color(t.warning))
+                        Button("重试") { Task { await loadReqs() } }
+                            .font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.accent))
+                    } else if !requests.isEmpty {
                         Divider().overlay(t.color(t.border)).padding(.vertical, 4)
                         Text("待确认请求").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                         ForEach(requests.indices, id: \.self) { i in
@@ -741,36 +768,65 @@ struct ChangeContactSheet: View {
 
     private func reqRow(_ r: [String: Any]) -> some View {
         let id = String(describing: r["id"] ?? r["requestId"] ?? "")
+        let state = (r["state"] as? String ?? "").lowercased()
+        let tone = state == "done" ? t.success : (state == "refused" || state == "cancelled" ? t.muted : t.warning)
+        let types = ((r["contactTypes"] as? [String]) ?? []).joined(separator: " / ")
+        // 操作门槛(web 同款):仅 todo/doing/validatingbycustomers 可接受/拒绝/重发,
+        // done/refused 的请求按钮只会被 OVH 拒
+        let canAct = ["todo", "doing", "validatingbycustomers"].contains(state)
         return VStack(alignment: .leading, spacing: 7) {
-            KV(k: "任务", v: String(describing: r["taskId"] ?? r["task"] ?? id))
-            KV(k: "状态", v: (r["state"] as? String ?? "—"))
-            HStack(spacing: 8) {
-                Button { Task { await resend(id) } } label: {
-                    Text("重发邮件").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.info))
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Capsule().stroke(t.color(t.info), lineWidth: 1))
-                }.buttonStyle(.plain)
+            HStack(spacing: 7) {
+                Text("#" + id).font(.system(size: 11.5, weight: .semibold, design: .monospaced)).foregroundColor(t.color(t.fg))
+                Chip(text: r["state"] as? String ?? "—", color: tone)
+                if !types.isEmpty {
+                    Text(types).font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                }
                 Spacer()
             }
-            HStack(spacing: 8) {
-                TextField("邮件里的 token", text: Binding(
-                    get: { tokenInput[id] ?? "" },
-                    set: { tokenInput[id] = $0 }
-                ))
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(t.color(t.fg))
-                    .padding(.horizontal, 9).frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(t.color(t.surfaceMuted)))
-                Button { Task { await respond(id, accept: true) } } label: {
-                    Text("接受").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.accent))
-                        .padding(.horizontal, 10).padding(.vertical, 7)
-                        .background(Capsule().fill(t.color(t.accent).opacity(0.15)))
-                }.buttonStyle(.plain)
-                Button { Task { await respond(id, accept: false) } } label: {
-                    Text("拒绝").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.danger))
-                        .padding(.horizontal, 10).padding(.vertical, 7)
-                        .background(Capsule().fill(t.color(t.danger).opacity(0.12)))
-                }.buttonStyle(.plain)
+            if let dom = r["serviceDomain"] as? String, !dom.isEmpty {
+                Text(dom).font(.system(size: 11, design: .monospaced)).foregroundColor(t.color(t.muted))
+            }
+            if (r["fromAccount"] as? String) != nil || (r["toAccount"] as? String) != nil {
+                Text("\((r["fromAccount"] as? String) ?? "—") → \((r["toAccount"] as? String) ?? "—")"
+                     + ((r["askingAccount"] as? String).map { " · 发起人 \($0)" } ?? ""))
+                    .font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.muted))
+            }
+            if let dr = r["dateRequest"] as? String, !dr.isEmpty {
+                Text("请求 \(fmtDate(dr))" + ((r["dateDone"] as? String).map { " · 完成 \(fmtDate($0))" } ?? ""))
+                    .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+            }
+            if canAct {
+                HStack(spacing: 8) {
+                    Button { Task { await resend(id) } } label: {
+                        Text("重发邮件").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.info))
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Capsule().stroke(t.color(t.info), lineWidth: 1))
+                    }.buttonStyle(.plain)
+                    Spacer()
+                }
+                HStack(spacing: 8) {
+                    TextField("邮件里的 token", text: Binding(
+                        get: { tokenInput[id] ?? "" },
+                        set: { tokenInput[id] = $0 }
+                    ))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(t.color(t.fg))
+                        .padding(.horizontal, 9).frame(height: 34)
+                        .background(RoundedRectangle(cornerRadius: 9).fill(t.color(t.surfaceMuted)))
+                    Button { Task { await respond(id, accept: true) } } label: {
+                        Text("接受").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.accent))
+                            .padding(.horizontal, 10).padding(.vertical, 7)
+                            .background(Capsule().fill(t.color(t.accent).opacity(0.15)))
+                    }.buttonStyle(.plain)
+                    Button { Task { await respond(id, accept: false) } } label: {
+                        Text("拒绝").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.danger))
+                            .padding(.horizontal, 10).padding(.vertical, 7)
+                            .background(Capsule().fill(t.color(t.danger).opacity(0.12)))
+                    }.buttonStyle(.plain)
+                }
+                // token 是邮件里的确认码,不是 API 密钥;报 Invalid token 先重发邮件再试
+                Text("token 是确认邮件里的那一串,不是 OVH API 密钥。报 Invalid token 时先点「重发邮件」。")
+                    .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
             }
         }
         .padding(11)
@@ -778,8 +834,18 @@ struct ChangeContactSheet: View {
     }
 
     private func loadReqs() async {
-        if let r = try? await conn.client.getDict("/ovh/contact-change-requests") {
+        notSupported = false
+        reqsErr = nil
+        do {
+            let r = try await conn.client.getDict("/ovh/contact-change-requests")
             requests = (r["data"] as? [[String: Any]]) ?? (r["requests"] as? [[String: Any]]) ?? []
+        } catch let e as ApiClient.ApiError where e.status == 501 || e.status == 404 {
+            // 501 = US 区不支持(业务事实,不是读失败)
+            requests = []
+            notSupported = true
+        } catch {
+            requests = []
+            reqsErr = error.localizedDescription
         }
     }
 
@@ -797,7 +863,14 @@ struct ChangeContactSheet: View {
             _ = try await conn.client.post("\(base)/\(sn)/change-contact", body: body)
             toast.show("变更请求已提交,等待对方邮件确认")
             dismiss()
-        } catch { toast.show(error.localizedDescription, error: true) }
+        } catch {
+            let msg = error.localizedDescription
+            if msg.contains("contact change task is already running") {
+                toast.show("已有一个变更请求在处理中,不能重复提交 —— 到下方待确认列表里重发邮件或处理它", error: true)
+            } else {
+                toast.show(msg, error: true)
+            }
+        }
     }
 
     private func resend(_ id: String) async {
@@ -1680,7 +1753,9 @@ struct OptionsSheet: View {
                             let it = items[i]
                             let code = it["option"] as? String ?? it["code"] as? String ?? "—"
                             let state = it["state"] as? String ?? ""
-                            let color = state == "subscribed" ? t.success : (["releasing","todelete"].contains(state) ? t.warning : t.muted)
+                            // OVH 枚举是 camelCase "toDelete"(web 先 lower 再比,精确匹配会漏判)
+                            let sl = state.lowercased()
+                            let color = sl == "subscribed" ? t.success : (["releasing","todelete"].contains(sl) ? t.warning : t.muted)
                             HStack {
                                 Text(Self.names[code.uppercased()] ?? code).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
                                 Spacer()

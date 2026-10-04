@@ -216,7 +216,7 @@ struct ServerDetailView: View {
         case .bios: BiosSheet(sn: sn)
         case .installStatus: InstallStatusSheet(sn: sn)
         case .retraction: RetractionSheet(sn: sn)
-        case .renewal: RenewalSheet(sn: sn, isVps: false, info: serviceinfo ?? [:])
+        case .renewal: RenewalSheet(sn: sn, isVps: false, info: serviceinfo ?? [:], onSaved: { Task { await load() } })
         case .networkSpecs: NetworkSpecsSheet(sn: sn)
         case .engagement: EngagementSheet(sn: sn, isVps: false)
         case .hwReplace: HardwareReplaceSheet(sn: sn)
@@ -485,14 +485,26 @@ struct MaintenanceSection: View {
                     } else {
                         ForEach(interventions.prefix(20).indices, id: \.self) { i in
                             let it = interventions[i]
+                            // 字段对齐 web MaintenanceTab:#id(interventionId 优先)/type/status/description/预计结束
+                            let iid = numToDoubleAny(it["interventionId"] ?? it["id"]).map(Int.init)
+                            let status = ((it["status"] as? String) ?? "").lowercased()
+                            let statusTone = status == "done" ? t.success : (status == "doing" ? t.warning : t.muted)
                             VStack(alignment: .leading, spacing: 3) {
-                                HStack {
+                                HStack(spacing: 7) {
                                     Text(fmtDate(it["date"] as? String ?? it["startDate"] as? String))
                                         .font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                    if let n = iid { Text("#\(n)").font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint)) }
                                     Spacer()
+                                    if !status.isEmpty { Chip(text: status, color: statusTone) }
                                 }
                                 if let ty = it["type"] as? String, !ty.isEmpty {
                                     Text(ty).font(.system(size: 10.5, weight: .medium)).foregroundColor(t.color(t.muted)).lineLimit(2)
+                                }
+                                if let d = it["description"] as? String, !d.isEmpty {
+                                    Text(d).font(.system(size: 10)).foregroundColor(t.color(t.muted)).lineLimit(2)
+                                }
+                                if let pe = it["plannedEndAt"] as? String ?? it["endDate"] as? String, !pe.isEmpty {
+                                    Text("预计结束 \(fmtDate(pe))").font(.system(size: 10)).foregroundColor(t.color(t.faint))
                                 }
                             }
                             .padding(.vertical, 4)

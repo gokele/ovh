@@ -305,9 +305,9 @@ struct VpsDetailView: View {
         }
         case .tasks: VpsTasksSheet(name: name)
         case .engagement: EngagementSheet(sn: name, isVps: true)
-        case .renewal: RenewalSheet(sn: name, isVps: true, info: serviceinfo ?? [:])
+        case .renewal: RenewalSheet(sn: name, isVps: true, info: serviceinfo ?? [:], onSaved: { Task { await load() } })
         case .terminate: VpsTerminateSheet(name: name)
-        case .options: JsonSheet(title: "附加选项", icon: "shippingbox", path: "/vps-control/\(name)/options")
+        case .options: VpsOptionsSheet(name: name, endpoint: (conn.activeAccount?["endpoint"] as? String) ?? "")
         case .changeContact: ChangeContactSheet(sn: name, isVps: true)
         case .alias: VpsAliasSheet(name: name, current: displayName)
         }
@@ -929,6 +929,80 @@ struct VpsTerminateSheet: View {
         let (ok, msg) = await conn.client.actionPostData("/vps-control/\(name)/confirm-termination", bodyData: body)
         toast.show(ok ? "终止已确认" : (msg.isEmpty ? "失败" : msg), error: !ok)
         if ok { dismiss() }
+    }
+}
+
+// MARK: - VPS 附加选项(结构化,web VpsOptionsPanel 同款)
+
+/// ftpbackup/veeam 等选项在美区只有 /option 端点,管理端点不存在 ——
+/// 后端打 manageEndpointsAvailable:false + unsupportedReason,如实显示,
+/// 不然用户只看到"已开通"却找不到管理入口,以为面板漏做了
+struct VpsOptionsSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    let name: String
+    let endpoint: String
+    var t: Tokens { theme.t }
+
+    @State private var items: [[String: Any]] = []
+    @State private var loading = true
+    @State private var err: String?
+
+    private var regionTag: String {
+        endpoint.lowercased().contains("ovh-us") ? "US" : ""
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "shippingbox", tint: t.info, title: "附加选项")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if loading {
+                        ProgressView().padding(30)
+                    } else if let e = err {
+                        LoadFailed(message: "附加选项读取失败:" + e) { Task { await load() } }
+                    } else if items.isEmpty {
+                        EmptyHint(icon: "shippingbox", text: "该 VPS 没有附加选项")
+                    } else {
+                        ForEach(items.indices, id: \.self) { i in
+                            let opt = items[i]
+                            let manageable = (opt["manageEndpointsAvailable"] as? Bool) != false
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack(spacing: 7) {
+                                    Text(opt["option"] as? String ?? "—").font(.system(size: 12, design: .monospaced)).foregroundColor(t.color(t.fg))
+                                    if let st = opt["state"] as? String, !st.isEmpty {
+                                        Chip(text: st)
+                                    }
+                                    if !manageable, !regionTag.isEmpty {
+                                        Chip(text: "\(regionTag) 无管理接口", color: t.warning)
+                                    }
+                                    Spacer()
+                                }
+                                if !manageable, let reason = opt["unsupportedReason"] as? String, !reason.isEmpty {
+                                    Text("\(reason)\n(该选项仍在计费和生效中;退订请到 OVH 控制台)")
+                                        .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                                }
+                            }
+                            .padding(11)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 12).stroke(t.color(t.border), lineWidth: 1)))
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium, .large])
+        .task { await load() }
+    }
+
+    private func load() async {
+        do {
+            let r = try await conn.client.getDict("/vps-control/\(name)/options")
+            items = (r["options"] as? [[String: Any]]) ?? (r["data"] as? [[String: Any]]) ?? []
+            err = nil
+        } catch { err = error.localizedDescription }
+        loading = false
     }
 }
 

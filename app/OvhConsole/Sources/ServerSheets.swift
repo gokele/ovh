@@ -1264,7 +1264,15 @@ struct IpmiSheet: View {
                             Card(border: t.success) {
                                 VStack(alignment: .leading, spacing: 7) {
                                     Text("申请成功").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.success))
-                                    if let u = (r["console"] as? [String: Any])?["value"] as? String ?? r["url"] as? String {
+                                    if let u = (r["console"] as? [String: Any])?["value"] as? String ?? r["url"] as? String, !u.isEmpty {
+                                        if let link = URL(string: u) {
+                                            Link(destination: link) {
+                                                HStack(spacing: 4) {
+                                                    Image(systemName: "safari").font(.system(size: 11))
+                                                    Text("在 Safari 打开控制台").font(.system(size: 12, weight: .semibold))
+                                                }.foregroundColor(t.color(t.info))
+                                            }
+                                        }
                                         Text(u).font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.fg)).lineLimit(3)
                                             .textSelection(.enabled)
                                     }
@@ -1278,6 +1286,7 @@ struct IpmiSheet: View {
                         ActBtn(kind: .primary, icon: "arrow.down.circle", label: requesting ? "申请中(最长 20 秒)…" : "申请远程控制台") {
                             await request()
                         }
+                        .disabled(pickedType == nil || pickedType?.isEmpty == true)
                     }
                 }
                 .padding(16)
@@ -1363,6 +1372,9 @@ struct BootModeSheet: View {
                         LoadFailed(message: e) { Task { await load() } }
                     } else {
                         SheetNote(text: "切换启动模式后 OVH 会自动重启服务器。硬盘 = 正常引导;救援 = 救援镜像;网络 =网络启动(iPXE)。", tint: t.info)
+                        if boots.isEmpty {
+                            EmptyHint(icon: "memorychip", text: "暂无可选启动模式")
+                        }
                         VStack(spacing: 6) {
                             ForEach(boots.indices, id: \.self) { i in bootRow(boots[i]) }
                         }
@@ -1385,19 +1397,29 @@ struct BootModeSheet: View {
         let id = (b["id"] as? Int) ?? -1
         let type = (b["bootType"] as? String ?? "unknown").lowercased()
         let isCurrent = (b["active"] as? Bool ?? false) || (b["isCurrent"] as? Bool ?? false)
+        let rowErr = (b["error"] as? String ?? "").isEmpty ? nil : (b["error"] as! String)
         let on = picked == id
-        let iconName: String = type == "rescue" ? "lifepreserver" : type.contains("network") || type == "ipxe" ? "wifi" : "internaldrive"
-        return Button { if id >= 0 { picked = id } } label: {
+        // 图标映射对齐 web:硬盘/救援盾/电源/网络,其余数据库
+        let iconName: String
+        switch type {
+        case "rescue", "ipxe": iconName = "lifepreserver"
+        case "harddisk", "disk": iconName = "internaldrive"
+        case "power", "poweroff", "off": iconName = "power"
+        case "network": iconName = "wifi"
+        default: iconName = "internaldrive"
+        }
+        return Button { if id >= 0, rowErr == nil { picked = id } } label: {
             HStack(spacing: 10) {
-                Image(systemName: iconName).font(.system(size: 14)).foregroundColor(t.color(t.muted))
+                Image(systemName: iconName).font(.system(size: 14)).foregroundColor(t.color(rowErr != nil ? t.faint : t.muted))
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
-                        Text(b["description"] as? String ?? type).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg)).lineLimit(1)
+                        Text(b["description"] as? String ?? type).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(rowErr != nil ? t.faint : t.fg)).lineLimit(1)
                         if isCurrent { Chip(text: "当前", color: t.success) }
                     }
                     Text("\(type) · bootId \(id)").font(.system(size: 9.5, design: .monospaced)).foregroundColor(t.color(t.muted))
-                    if let e = b["error"] as? String, !e.isEmpty {
-                        Text(e).font(.system(size: 9.5)).foregroundColor(t.color(t.danger))
+                    if let e = rowErr {
+                        // 详情拉取失败的占位行:选中它提交等于拿未知配置重启机器(web 会禁用)
+                        Text("该启动模式详情获取失败,暂不可选(\(e))").font(.system(size: 9.5)).foregroundColor(t.color(t.danger))
                     }
                 }
                 Spacer()
@@ -1407,6 +1429,7 @@ struct BootModeSheet: View {
             .background(RoundedRectangle(cornerRadius: 11).fill(t.color(on ? t.accent : t.surface).opacity(0.08)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(on && !isCurrent ? t.accent : t.border), lineWidth: 1)))
         }
         .buttonStyle(.plain)
+        .disabled(rowErr != nil)
     }
 
     private func load() async {
@@ -1428,7 +1451,7 @@ struct BootModeSheet: View {
         let body = try? JSONSerialization.data(withJSONObject: ["bootId": id])
         let (ok, msg) = await conn.client.actionPutData("/server-control/\(sn)/boot-mode", bodyData: body)
         guard ok else {
-            toast.show(msg.isEmpty ? "启动模式读取失败" : msg, error: true)
+            toast.show(msg.isEmpty ? "切换启动模式失败" : msg, error: true)
             return
         }
         // 不重启模式不生效(web BootModeDialog:PUT 成功后自动 reboot)
@@ -1455,6 +1478,7 @@ struct SplaSheet: View {
     @State private var list: [[String: Any]] = []
     @State private var loading = true
     @State private var err: String?
+    @State private var splaPartial = false
     @State private var serial = ""
     @State private var type = "os"
     @State private var busy = false
@@ -1466,9 +1490,24 @@ struct SplaSheet: View {
                 VStack(alignment: .leading, spacing: 13) {
                     if loading {
                         ProgressView().padding(30)
-                    } else if let e = err {
-                        LoadFailed(message: e) { Task { await load() } }
                     } else {
+                        if let e = err {
+                            // 读失败不锁死表单(web 同款):手动登记不受影响,
+                            // 只警告"无法判断是否已解锁"——OVH 会直接拒绝重复登记
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("已登记列表读取失败:\(e)。无法判断这台机器是否已解锁 —— OVH 会直接拒绝重复登记,确定没登记过再点一键解锁。")
+                                    .font(.system(size: 10.5)).foregroundColor(t.color(t.warning))
+                                Button("重试") { Task { await load() } }
+                                    .font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.accent))
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.warning).opacity(0.08)))
+                        }
+                        if splaPartial {
+                            // 有部分记录详情拉失败,"尚未登记任何授权"是断言不是事实
+                            SheetNote(text: "部分授权记录的详情没读到,下面的列表可能不完整,\"已解锁\"判断按未登记处理。", tint: t.warning)
+                        }
                         VStack(alignment: .leading, spacing: 6) {
                             Text("OVH 把 Windows 模板锁在「这台机器名下有操作系统授权记录」后面。点一下只登记这一类,用的是微软公开发布的 Windows KMS 客户端密钥 —— 它只让 OVH 的检查通过,不代表你持有 Windows Server 授权,系统装好后仍需能连上 KMS 服务器才会真正激活。")
                                 .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
@@ -1481,7 +1520,7 @@ struct SplaSheet: View {
 
                         Text("已登记授权").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                         if list.isEmpty {
-                            Text("尚未登记任何授权").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                            Text(splaPartial ? "授权记录状态未知" : "尚未登记任何授权").font(.system(size: 11)).foregroundColor(t.color(t.faint))
                         } else {
                             ForEach(list.indices, id: \.self) { i in
                                 let it = list[i]
@@ -1494,9 +1533,9 @@ struct SplaSheet: View {
                         Text("手动登记自己的 SPLA").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                         SheetNote(text: "这里填你自己购买的 SPLA 授权序列号(SQL Server 的两类只能走这里)。这一步是把授权登记到 OVH 名下,不是申请或生成授权 —— 登记本身不会让你凭空拥有授权。", tint: t.warning)
                         Picker("类型", selection: $type) {
-                            Text("操作系统").tag("os")
-                            Text("SQL Standard").tag("sqlstd")
-                            Text("SQL Web").tag("sqlweb")
+                            Text("操作系统 (Windows Server)").tag("os")
+                            Text("SQL Server 标准版").tag("sqlstd")
+                            Text("SQL Server 网页版").tag("sqlweb")
                         }
                         .pickerStyle(.segmented)
                         SheetField(placeholder: "SPLA 序列号", text: $serial, mono: true)
@@ -1505,7 +1544,9 @@ struct SplaSheet: View {
                         }
 
                         Divider().overlay(t.color(t.border))
-                        let hasOs = list.contains { ($0["type"] as? String) == "os" }
+                        // 已解锁 = 存在未终止的 os 授权(web hasActiveSpla:status != terminated,
+                        // waitingToCheck 也算;terminated 的记录不算,允许重新登记)
+                        let hasOs = !splaPartial && list.contains { ($0["type"] as? String) == "os" && (($0["status"] as? String ?? "") != "terminated") }
                         ActBtn(kind: hasOs ? .ghost : .primary, icon: hasOs ? "checkmark.shield.fill" : "unlock.fill",
                                label: loading ? "检查中…" : (hasOs ? "已解锁,无需重复登记" : "一键解锁 Windows 安装")) {
                             await quickUnlock()
@@ -1521,13 +1562,14 @@ struct SplaSheet: View {
     }
 
     private func splaTypeName(_ s: String) -> String {
-        ["os": "操作系统", "sqlstd": "SQL Standard", "sqlweb": "SQL Web"][s] ?? s
+        ["os": "操作系统", "sqlstd": "SQL Server 标准版", "sqlweb": "SQL Server 网页版"][s] ?? s
     }
 
     private func load() async {
         do {
             let r = try await conn.client.getDict("/server-control/\(sn)/spla")
             list = (r["splaList"] as? [[String: Any]]) ?? []
+            splaPartial = (r["partial"] as? Bool ?? false) || !(r["success"] as? Bool ?? true)
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
@@ -1553,8 +1595,8 @@ struct SplaSheet: View {
         busy = true
         defer { busy = false }
         do {
-            let r = try await conn.client.post("/server-control/\(sn)/spla", body: ["type": "os", "serialNumber": Self.WINDOWS_GVLK])
-            toast.show(r["message"] as? String ?? "一键解锁完成")
+            _ = try await conn.client.post("/server-control/\(sn)/spla", body: ["type": "os", "serialNumber": Self.WINDOWS_GVLK])
+            toast.show("已登记,刷新后重装列表里就会出现 Windows 模板")
             await load()
         } catch { toast.show(error.localizedDescription, error: true) }
     }
@@ -1577,6 +1619,7 @@ struct TasksSheet: View {
     @State private var slotsMsg: String?
     @State private var backedUp = false
     @State private var busy = false
+    @State private var pickedSlot: Int? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1589,8 +1632,18 @@ struct TasksSheet: View {
                         LoadFailed(message: e) { Task { await load() } }
                     } else {
                         if slotsTaskId == nil {
+                            HStack {
+                                Text("近 10 条任务记录").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                                Spacer()
+                                Button { Task { await load() } } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "arrow.clockwise").font(.system(size: 10))
+                                        Text("刷新").font(.system(size: 11, weight: .semibold))
+                                    }.foregroundColor(t.color(t.accent))
+                                }.buttonStyle(.plain)
+                            }
                             if tasks.isEmpty {
-                                EmptyHint(icon: "checkmark.circle", text: "没有进行中的运维任务")
+                                EmptyHint(icon: "checkmark.circle", text: "暂无任务记录")
                             } else {
                                 ForEach(tasks.indices, id: \.self) { i in taskRow(tasks[i]) }
                             }
@@ -1610,21 +1663,31 @@ struct TasksSheet: View {
     private func taskRow(_ task: [String: Any]) -> some View {
         let id = String(describing: task["taskId"] ?? "")
         let status = task["status"] as? String ?? "unknown"
+        // 详情拉取失败的占位行(function=N/A/status=unknown/error):标出来,
+        // 不然渲染成一个"unknown 状态的 N/A 任务"会被当成机器真实状态
+        let rowErr = (task["error"] as? String ?? "").isEmpty ? nil : (task["error"] as! String)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Dot(color: statusColor(status))
+                Dot(color: rowErr != nil ? t.faint : statusColor(status))
                 Text(task["function"] as? String ?? "—").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
                 Spacer()
-                Chip(text: statusCn(status), color: statusColor(status))
+                if rowErr != nil {
+                    Chip(text: "获取失败", color: t.danger)
+                } else {
+                    Chip(text: statusCn(status), color: statusColor(status))
+                }
+            }
+            if let re = rowErr {
+                Text(re).font(.system(size: 9.5)).foregroundColor(t.color(t.danger))
             }
             if let c = task["comment"] as? String, !c.isEmpty {
                 Text(c).font(.system(size: 10.5)).foregroundColor(t.color(t.muted)).lineLimit(2)
             }
             HStack {
-                Text("\(fmtDate(task["startDate"] as? String)) → \(fmtDate(task["doneDate"] as? String))")
+                Text("#" + id + " · \(fmtDate(task["startDate"] as? String)) → \(fmtDate(task["doneDate"] as? String))")
                     .font(.system(size: 10)).foregroundColor(t.color(t.faint))
                 Spacer()
-                if status == "todo" || status == "doing" {
+                if rowErr == nil {
                     Button { Task { await loadSlots(id) } } label: {
                         Text("预约时段").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.info))
                     }.buttonStyle(.plain)
@@ -1638,13 +1701,19 @@ struct TasksSheet: View {
     private var slotPicker: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Button { slotsTaskId = nil; slots = [] } label: {
+                Button { slotsTaskId = nil; slots = []; pickedSlot = nil } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
                         Text("返回任务列表").font(.system(size: 11.5, weight: .semibold))
                     }.foregroundColor(t.color(t.accent))
                 }.buttonStyle(.plain)
                 Spacer()
+                Button { Task { await loadSlots(slotsTaskId ?? "") } } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 10))
+                        Text("重新查询").font(.system(size: 11, weight: .semibold))
+                    }.foregroundColor(t.color(t.accent))
+                }.buttonStyle(.plain)
             }
             if let m = slotsMsg {
                 SheetNote(text: m, tint: t.info)
@@ -1652,16 +1721,20 @@ struct TasksSheet: View {
             if slots.isEmpty && slotsMsg == nil {
                 Text("加载可用时段…").font(.system(size: 11)).foregroundColor(t.color(t.faint))
             }
+            // 先点选时段、再点「预约此时段」确认(web 同款):物理干预一点就提交太容易误触
             ForEach(slots.indices, id: \.self) { i in
                 let s = slots[i]
-                Button { Task { await schedule(s) } } label: {
+                let on = pickedSlot == i
+                Button { pickedSlot = i } label: {
                     HStack {
                         Text(slotText(s)).font(.system(size: 11.5)).foregroundColor(t.color(t.fg))
                         Spacer()
-                        if busy { ProgressView().scaleEffect(0.7) }
+                        if on {
+                            Image(systemName: "checkmark.circle.fill").font(.system(size: 14)).foregroundColor(t.color(t.accent))
+                        }
                     }
                     .padding(11)
-                    .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.border), lineWidth: 1)))
+                    .background(RoundedRectangle(cornerRadius: 11).fill(t.color(on ? t.accent : t.surface).opacity(on ? 0.1 : 1)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(on ? t.accent : t.border), lineWidth: 1)))
                 }
                 .buttonStyle(.plain)
                 .disabled(busy)
@@ -1670,6 +1743,14 @@ struct TasksSheet: View {
                 Text("我已完成数据备份").font(.system(size: 12)).foregroundColor(t.color(t.fg))
             }.tint(t.color(t.accent))
             SheetNote(text: "预约的是机房物理干预(换硬件等)。未备份就预约可能丢数据。", tint: t.warning)
+            if !slots.isEmpty {
+                ActBtn(kind: .primary, icon: "calendar.badge.plus",
+                       label: busy ? "预约中…" : "预约此时段",
+                       busy: busy) {
+                    if let i = pickedSlot { await schedule(slots[i]) }
+                }
+                .disabled(pickedSlot == nil)
+            }
         }
     }
 
@@ -1703,6 +1784,7 @@ struct TasksSheet: View {
     private func loadSlots(_ taskId: String) async {
         slotsTaskId = taskId
         slotsMsg = nil
+        pickedSlot = nil
         do {
             let end = ISO8601DateFormatter().string(from: Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date())
             let now = ISO8601DateFormatter().string(from: Date())

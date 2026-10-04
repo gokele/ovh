@@ -386,6 +386,18 @@ struct CatalogPane: View {
                 }
                 priceCurrency = (cr["locale"] as? [String: Any])?["currencyCode"] as? String ?? ""
             }
+            // 卡片价 = 基础月费 + defaultOptions 各 addon 月费(web computePriceFromOptions 同款)。
+            // 默认选配含付费项(如软 RAID)时只按基础价显示会偏低,还和下单弹窗的初始价对不上
+            for sp in plans {
+                guard let code = sp["planCode"] as? String, let base = priceMap[code] else { continue }
+                var total = base
+                for d in (sp["defaultOptions"] as? [[String: Any]]) ?? [] {
+                    if let v = d["value"] as? String, !v.isEmpty, let ap = addonMap[v] {
+                        total += ap
+                    }
+                }
+                priceMap[code] = total
+            }
             // 缓存龄(后端 /servers 自带 cacheInfo)
             if let ci = sr["cacheInfo"] as? [String: Any] {
                 cacheAgeMin = numToDoubleAny(ci["cacheAgeMinutes"]).map(Int.init)
@@ -550,7 +562,7 @@ struct SnipeOrderSheet: View {
 
                         // 数量与间隔:自绘加减器(原生 Stepper 与深色风格割裂)
                         HStack(spacing: 10) {
-                            stepCard("每机房数量", value: "\(qty)", onMinus: { if qty > 1 { qty -= 1 } }, onPlus: { if qty < 10 { qty += 1 } })
+                            stepCard("每机房数量", value: "\(qty)", onMinus: { if qty > 1 { qty -= 1 } }, onPlus: { if qty < 20 { qty += 1 } })
                             stepCard("重试间隔", value: "\(interval) 秒", onMinus: { if interval > 1 { interval -= 1 } }, onPlus: { if interval < 3600 { interval += 1 } })
                         }
 
@@ -1584,13 +1596,14 @@ struct HistoryPane: View {
 
     private func historyCard(_ it: [String: Any]) -> some View {
         // 后端 PurchaseHistoryEntry:status/orderStatus/expirationTime/errorMessage/
-        // purchaseTime/totalMs/price{withoutTax,currencyCode}/retractionTime
+        // purchaseTime/totalMs/price{withTax,withoutTax,currencyCode}/retractionTime
         let success = (it["status"] as? String) != "failed"
         let payStatus = it["orderStatus"] as? String ?? ""
-        let pay = paymentChip(payStatus, expiresAt: it["expirationTime"] as? String)
+        let pay = paymentChip(payStatus, item: it)
         let priceObj = it["price"] as? [String: Any]
-        let price = numToDoubleAny(priceObj?["withoutTax"]) ?? 0
-        let currency = priceObj?["currencyCode"] as? String ?? ""
+        // 显示含税价(web 同款):不含税价和实际扣款对不上,对账时会差一截
+        let price = numToDoubleAny(priceObj?["withTax"]) ?? numToDoubleAny(priceObj?["withoutTax"]) ?? 0
+        let currency = (priceObj?["currencyCode"] as? String ?? "").trimmingCharacters(in: .whitespaces)
         let totalMs = numToDoubleAny(it["totalMs"]) ?? 0
         return Card(border: success ? nil : t.danger) {
             VStack(alignment: .leading, spacing: 8) {
@@ -1608,7 +1621,7 @@ struct HistoryPane: View {
                 HStack(spacing: 6) {
                     Chip(text: (it["datacenter"] as? String ?? "").uppercased())
                     if price > 0 {
-                        Chip(text: String(format: "%.2f %@", price, currency), color: t.accent)
+                        Chip(text: String(format: "%.2f %@", price, currency.isEmpty ? "(币种未知)" : currency), color: t.accent)
                     }
                     if let retr = it["retractionTime"] as? String, !retr.isEmpty {
                         Chip(text: "可撤单至 \(fmtDate(retr))", color: t.info)
@@ -1627,12 +1640,12 @@ struct HistoryPane: View {
                 HStack {
                     Text(fmtDate(it["purchaseTime"] as? String)).font(.system(size: 10)).foregroundColor(t.color(t.faint))
                     Spacer()
-                    if let url = it["orderUrl"] as? String, let u = URL(string: url),
-                       success, (it["orderStatus"] as? String ?? "notPaid") == "notPaid" {
+                    // 任何有订单号的记录都给入口(web 同款):已付款订单同样要能打开订单页
+                    if let url = it["orderUrl"] as? String, let u = URL(string: url), success {
                         Link(destination: u) {
                             HStack(spacing: 3) {
                                 Image(systemName: "safari").font(.system(size: 10))
-                                Text("去付款").font(.system(size: 10.5, weight: .semibold))
+                                Text(payStatus == "notPaid" || payStatus.isEmpty ? "去付款" : "订单页").font(.system(size: 10.5, weight: .semibold))
                             }.foregroundColor(t.color(t.info))
                         }
                     }
@@ -1641,29 +1654,41 @@ struct HistoryPane: View {
         }
     }
 
-    private func paymentChip(_ status: String, expiresAt: String?) -> (text: String, color: String, icon: String) {
+    private func paymentChip(_ status: String, item: [String: Any]) -> (text: String, color: String, icon: String) {
         switch status.lowercased() {
-        case "delivering": return ("交付中", t.info, "shippingbox.fill")
-        case "delivered": return ("已交付", t.success, "checkmark.seal.fill")
-        case "checking": return ("核验中", t.warning, "clock.fill")
+        case "notpaid", "":
+            // 倒计时兜底(web 同款):无 expirationTime 用 purchaseTime + 15 天
+            let expRaw = item["expirationTime"] as? String
+            var date: Date?
+            if let exp = expRaw, !exp.isEmpty { date = parseHistoryDate(exp) }
+            if date == nil, let pt = item["purchaseTime"] as? String {
+                date = parseHistoryDate(pt)?.addingTimeInterval(15 * 24 * 3600)
+            }
+            if let d = date {
+                let left = d.timeIntervalSince(Date())
+                if left <= 0 { return ("付款已过期", t.muted, "clock.slash") }
+                let totalMin = Int(left) / 60
+                let days = totalMin / (24 * 60), hours = (totalMin % (24 * 60)) / 60, mins = totalMin % 60
+                let text = days > 0 ? "付款剩 \(days)天\(hours)时\(mins)分" : (hours > 0 ? "付款剩 \(hours)时\(mins)分" : "付款剩 \(mins)分")
+                return (text, hours < 24 ? t.danger : t.warning, "hourglass")
+            }
+            return ("待付款", t.warning, "creditcard")
+        case "checking": return ("付款核验中", t.info, "clock.fill")
+        case "delivering": return ("已付款·交付中", t.info, "shippingbox.fill")
+        case "delivered": return ("已付款·已交付", t.success, "checkmark.seal.fill")
         case "cancelling": return ("取消中", t.warning, "arrow.uturn.left")
         case "cancelled", "canceled": return ("已取消", t.muted, "xmark.circle")
         case "documentsrequested": return ("需补材料", t.danger, "doc.badge.ellipsis")
+        case "unknown": return ("状态未知", t.muted, "questionmark.circle")
         default:
-            if let exp = expiresAt, !exp.isEmpty {
-                let f = DateFormatter()
-                f.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
-                if let d = f.date(from: exp.hasSuffix("Z") ? String(exp.dropLast()) + "+0000" : exp) {
-                    let left = d.timeIntervalSince(Date())
-                    if left < 0 { return ("付款已过期", t.muted, "clock.slash") }
-                    let h = Int(left) / 3600
-                    if h == 0 { return ("付款剩 \(Int(left) / 60) 分钟", t.danger, "hourglass") }
-                    let text = h < 24 ? "付款倒计时 \(h) 小时" : "付款剩 \(h / 24) 天"
-                    return (text, h < 24 ? t.danger : t.warning, "hourglass")
-                }
-            }
-            return ("待付款", t.warning, "creditcard")
+            return ("状态未查到 · 点「刷新状态」再试", t.muted, "questionmark.circle")
         }
+    }
+
+    private func parseHistoryDate(_ raw: String) -> Date? {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
+        return f.date(from: raw.hasSuffix("Z") ? String(raw.dropLast()) + "+0000" : raw)
     }
 
     private func refreshStatus() async {
