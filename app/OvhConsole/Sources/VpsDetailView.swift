@@ -328,6 +328,8 @@ struct VpsSnapshotSection: View {
     @State private var revertConfirm = false
     @State private var revertName = ""
     @State private var snapDeleteConfirm = false
+    @State private var showDescEdit = false
+    @State private var descEdit = ""
     @State private var createSheet = false
 
     var body: some View {
@@ -355,6 +357,25 @@ struct VpsSnapshotSection: View {
             }
             .environmentObject(theme).environmentObject(conn).environmentObject(toast)
         }
+        .sheet(isPresented: $showDescEdit) {
+            VStack(spacing: 14) {
+                SheetHeader(icon: "pencil", tint: t.info, title: "修改快照描述")
+                VStack(alignment: .leading, spacing: 12) {
+                    SheetField(placeholder: "给快照一段描述,方便日后辨识", text: $descEdit)
+                    ActBtn(kind: .primary, icon: "checkmark", label: "保存") {
+                        let body = try? JSONSerialization.data(withJSONObject: ["description": descEdit])
+                        let (ok2, msg) = await conn.client.actionPutData("/vps-control/\(name)/snapshot", bodyData: body)
+                        toast.show(ok2 ? "快照描述已更新" : (msg.isEmpty ? "更新失败" : msg), error: !ok2)
+                        showDescEdit = false
+                        await load()
+                    }
+                }.padding(.horizontal, 16)
+                Spacer()
+            }
+            .background(t.color(t.bg))
+            .presentationDetents([.medium])
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
         .sheet(isPresented: $snapDeleteConfirm) {
             ConfirmSheet(title: "删除当前快照?",
                          message: "快照本身会删除,VPS 当前状态不受影响。",
@@ -370,7 +391,15 @@ struct VpsSnapshotSection: View {
                 Capsule().fill(t.color(t.border)).frame(width: 36, height: 4).padding(.top, 10)
                 Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 28)).foregroundColor(t.color(t.warning))
                 Text("回滚快照").font(.system(size: 16, weight: .bold)).foregroundColor(t.color(t.fg))
-                Text("当前磁盘数据将被快照内容覆盖,不可逆。输入 VPS 名 \(name) 确认。")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("快照之后所有改动会丢失:").font(.system(size: 11, weight: .bold)).foregroundColor(t.color(t.danger))
+                    Text("· 文件系统回到快照创建那一刻").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                    Text("· VPS 会自动重启,期间几分钟无法访问").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                    Text("· IP / 密码 等元数据不变").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 10).stroke(t.color(t.danger).opacity(0.5), lineWidth: 1))
+                Text("输入 VPS 名 \(name) 确认:")
                     .font(.system(size: 11.5)).foregroundColor(t.color(t.muted)).multilineTextAlignment(.center)
                 SheetField(placeholder: name, text: $revertName, mono: true).padding(.horizontal, 16)
                 HStack(spacing: 10) {
@@ -393,12 +422,16 @@ struct VpsSnapshotSection: View {
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle(text: "当前快照")
                 KV(k: "创建于", v: fmtDate(s["creationDate"] as? String ?? s["createdAt"] as? String))
+                KV(k: "区域", v: s["region"] as? String ?? "—")
                 KV(k: "描述", v: (s["description"] as? String) ?? "—")
 
                 HStack(spacing: 8) {
                     ActBtn(kind: .danger, icon: "arrow.uturn.backward", label: "回滚") { revertConfirm = true }
+                    ActBtn(kind: .ghost, icon: "pencil", label: "改描述") { descEdit = (s["description"] as? String) ?? ""; showDescEdit = true }
                     ActBtn(kind: .ghost, icon: "trash", label: "删除快照") { snapDeleteConfirm = true }
                 }
+                Text("免费档单 VPS 只能存 1 个快照。要做新快照得先删旧的。")
+                    .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
             }
         }
     }

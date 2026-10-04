@@ -1,6 +1,10 @@
 import Foundation
 import UIKit
 
+extension Notification.Name {
+    static let tokenInvalidated = Notification.Name("tokenInvalidated")
+}
+
 /**
  * API 客户端(Swift 版,对齐 packages/core 的 api-client 契约):
  * - 基址 + 设备令牌(Authorization: Bearer)或访问密钥(X-API-Key)
@@ -253,7 +257,14 @@ struct ApiClient {
                     }
                 }
             }
-            throw ApiError(status: status, message: status == 401 ? "鉴权失败:令牌或密钥无效" : "请求失败(HTTP \(status))")
+            if status == 401 {
+                // G-034:令牌失效 —— 广播回配对(web 是固定 toast+重弹登录;App 对应回配对)
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .tokenInvalidated, object: nil)
+                }
+                throw ApiError(status: status, message: "登录状态已失效,请重新输入配对码")
+            }
+            throw ApiError(status: status, message: "请求失败(HTTP \(status))")
         }
         return data
     }

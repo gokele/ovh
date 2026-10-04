@@ -481,24 +481,31 @@ struct FlowLayout: Layout {
 
 // MARK: - 通用工具
 
-/// 隐私打码:IPv4 后两段掩掉;域名留前两段
+/// 隐私打码(对齐 web use-hide-ip maskSensitive):
+/// IPv4 保留首段「54.***.***.***」;MAC 保留厂商段前 8 位「aa:bb:cc:**:**:**」;
+/// OVH 反解主机名(dash/dot 两式)→「ip-***-***-***-***」;IPv6 →「ipv6:****」;其他 ≤16 星号
 func maskIP(_ s: String) -> String {
     guard !s.isEmpty else { return s }
+    // IPv4:保留首段
     if let r = s.range(of: #"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"#, options: .regularExpression) {
-        let parts = String(s[r]).components(separatedBy: ".")
-        if parts.count == 4 {
-            return s.replacingCharacters(in: r, with: parts[0] + "." + parts[1] + ".***.***")
-        }
+        let first = String(s[r]).components(separatedBy: ".").first ?? ""
+        return s.replacingCharacters(in: r, with: first + ".***.***.***")
     }
-    // IPv6:冒号地址保留首组,其余打码
-    if s.contains(":") && !s.contains(".") {
-        let groups = s.components(separatedBy: ":")
-        if groups.count >= 3 { return groups.prefix(2).joined(separator: ":") + ":…:" + groups.suffix(1).joined() }
-        return s
+    // MAC:保留前 8 位(厂商段)
+    if let r = s.range(of: #"(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}"#, options: .regularExpression) {
+        let mac = String(s[r])
+        let head = mac.prefix(8)
+        return s.replacingCharacters(in: r, with: head + ":**:**:**")
     }
-    let parts = s.components(separatedBy: ".")
-    if parts.count >= 3 { return parts.prefix(2).joined(separator: ".") + ".***" }
-    return s
+    // OVH 反解主机名两式:ip-x-y-z-w / ip.x.y.z
+    if let r = s.range(of: #"(?i)ip[-.](\d+[-.]){3}\d+"#, options: .regularExpression) {
+        let dash = String(s[r]).contains("-")
+        return s.replacingCharacters(in: r, with: dash ? "ip-***-***-***-***" : "ip.***.***.***.***")
+    }
+    // IPv6
+    if s.contains(":") && !s.contains(".") { return "ipv6:****" }
+    // 其他:≤16 星号
+    return String(repeating: "*", count: min(16, max(4, s.count)))
 }
 
 func fmtBytes(_ v: Double) -> String {

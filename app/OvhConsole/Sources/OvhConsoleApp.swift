@@ -29,6 +29,14 @@ struct OvhConsoleApp: App {
             .environmentObject(toast)
             .environmentObject(nav)
             .preferredColorScheme(theme.mode == .system ? nil : (theme.dark ? .dark : .light))
+            .onReceive(NotificationCenter.default.publisher(for: .tokenInvalidated))
+            { _ in
+                // 令牌被吊销/失效:清本机并回配对页(下次请求不再 401 刷屏)
+                if conn.isPaired {
+                    toast.show("登录状态已失效,请重新配对", error: true)
+                    conn.forget()
+                }
+            }
             .onOpenURL { url in
                 guard url.scheme == "ovhconsole" else { return }
                 // 深链:ovhconsole://pair?host=..&code=..&auto=1

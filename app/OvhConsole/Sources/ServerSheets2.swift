@@ -772,6 +772,7 @@ struct BackupFtpSheet: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
     @EnvironmentObject var toast: Toast
+    @AppStorage("ovh_mask_ip") private var mask = false
     let sn: String
     var t: Tokens { theme.t }
 
@@ -823,10 +824,16 @@ struct BackupFtpSheet: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 SectionTitle(text: "访问控制(允许连接的 IP 段)")
                                 ForEach(accesses.indices, id: \.self) { x in
-                                    HStack {
-                                        Text(accesses[x]["ipBlock"] as? String ?? "—").font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                                    let a = accesses[x]
+                                    HStack(spacing: 6) {
+                                        Text(mask ? maskIP(a["ipBlock"] as? String ?? "—") : (a["ipBlock"] as? String ?? "—"))
+                                            .font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                                        if (a["ftp"] as? Bool) ?? true { Chip(text: "FTP") }
+                                        if (a["nfs"] as? Bool) == true { Chip(text: "NFS") }
+                                        if (a["cifs"] as? Bool) == true { Chip(text: "CIFS") }
+                                        if (a["isApplied"] as? Bool) == false { Chip(text: "生效中", color: t.warning) }
                                         Spacer()
-                                        Button { Task { await removeAccess(x) } } label: {
+                                        Button { accessDel = a["ipBlock"] as? String ?? "" } label: {
                                             Image(systemName: "trash").font(.system(size: 11)).foregroundColor(t.color(t.danger))
                                         }.buttonStyle(.plain)
                                     }
@@ -872,6 +879,17 @@ struct BackupFtpSheet: View {
         .background(t.color(t.bg))
         .presentationDetents([.large])
         .task { await load() }
+        .sheet(item: Binding(
+            get: { accessDel.map { AccessDel(ip: $0) } },
+            set: { accessDel = $0?.ip }
+        )) { w in
+            ConfirmSheet(title: "删除备份 FTP 授权?", message: "删除对 \(w.ip) 的备份FTP授权?", confirmText: "确认删除") {
+                let (ok2, msg) = await conn.client.actionDelete("/server-control/\(sn)/backup-ftp/access?ipBlock=\(urlEncode(w.ip))")
+                toast.show(ok2 ? "已提交删除授权" : (msg.isEmpty ? "删除授权失败" : msg), error: !ok2)
+                await load()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
         .sheet(isPresented: $disableConfirm) {
             ConfirmSheet(title: "关闭备份服务", message: "所有备份将被删除,不可恢复。", confirmText: "确认关闭") {
                 let (ok, msg) = await conn.client.actionDelete("/server-control/\(sn)/backup-ftp")
@@ -882,6 +900,7 @@ struct BackupFtpSheet: View {
     }
 
     @State private var notActivated = false
+    @State private var accessDel: String? = nil
 
     private func load() async {
         do {
@@ -1337,4 +1356,10 @@ struct OptionsSheet: View {
         } catch { err = error.localizedDescription }
         loading = false
     }
+}
+
+
+struct AccessDel: Identifiable {
+    let ip: String
+    var id: String { ip }
 }

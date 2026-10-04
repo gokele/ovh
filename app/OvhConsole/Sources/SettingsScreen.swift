@@ -417,6 +417,13 @@ struct PairingDevicesScreen: View {
 
     @State private var devices: [[String: Any]] = []
     @State private var code: String?
+    @State private var codeExpiresAt = Date.distantPast
+    @State private var tick = 0
+    private var codeCountdown: String {
+        let left = Int(codeExpiresAt.timeIntervalSinceNow)
+        if left <= 0 { return "已过期" }
+        return String(format: "%d:%02d", left / 60, left % 60)
+    }
     @State private var err: String?
     @State private var loading = true
     @State private var generating = false
@@ -435,6 +442,8 @@ struct PairingDevicesScreen: View {
                         if let c = code {
                             Text(c).font(.system(size: 30, weight: .bold, design: .monospaced)).foregroundColor(t.color(t.fg))
                                 .kerning(3)
+                            Text("剩 \(codeCountdown) · 手填也行:App 端输入框直接打这 8 位")
+                                .font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.accent))
                             Text("2 分钟内有效,一码一机。在手机 App 配对页输入,或用深链 ovhconsole://pair?host=…&code=\(c)")
                                 .font(.system(size: 10)).foregroundColor(t.color(t.muted))
                                 .multilineTextAlignment(.center)
@@ -477,7 +486,14 @@ struct PairingDevicesScreen: View {
             }
             .environmentObject(theme).environmentObject(conn).environmentObject(toast)
         }
-        .task { await load() }
+        .task {
+            await load()
+            // 配对码 2 分钟倒计时逐秒推进
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                tick &+= 1
+            }
+        }
     }
 
     private func deviceRow(_ d: [String: Any]) -> some View {
@@ -519,6 +535,11 @@ struct PairingDevicesScreen: View {
         do {
             let r = try await conn.client.post("/app/pairing-codes")
             code = r["code"] as? String
+            if let ttl = numToDoubleAny(r["expiresIn"] ?? r["ttl"]), ttl > 0 {
+                codeExpiresAt = Date().addingTimeInterval(ttl)
+            } else {
+                codeExpiresAt = Date().addingTimeInterval(120)
+            }
         } catch { toast.show(error.localizedDescription, error: true) }
     }
 
@@ -600,6 +621,8 @@ struct CacheScreen: View {
                     Card {
                         VStack(spacing: 9) {
                             SectionTitle(text: "缓存状态")
+                        Text("缓存只指 OVH 服务器目录。订阅 / 队列 / 历史 等业务数据不在此清理范围内。")
+                            .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
                             KV(k: "内存缓存", v: "\(beCount) 条")
                             KV(k: "SQLite", v: "\(sqCount) 条")
                             if let p = sq["path"] as? String { KV(k: "数据库", v: p, mono: true) }
@@ -695,7 +718,14 @@ struct OvhAccountScreen: View {
                             }
                         }
                         if let sub = i["subsidiaryMismatch"] as? Bool, sub {
-                            SheetNote(text: "账户 zone 与 OVH 子公司不一致,目录可能错区 —— 去网页端设置改 zone。", tint: t.warning)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("账户子公司配置与 OVH 实际归属不一致").font(.system(size: 11.5, weight: .bold)).foregroundColor(t.color(t.warning))
+                                Text("OVH 返回的 ovhSubsidiary 与设置页里给这个账户填的子公司(zone)不同。EU / US / CA 是三套互不相通的系统,目录、价格、币种、库存、下单 region 全部由子公司决定 —— 请去网页端「设置 → OVH 账户」把 zone 改对。")
+                                    .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.warning).opacity(0.5), lineWidth: 1))
                         }
                     }
 
@@ -732,7 +762,10 @@ struct OvhAccountScreen: View {
                                         }
                                     }
                                     KV(k: "日期", v: fmtDate(r["date"] as? String))
-                                    if let url = r["pdfUrl"] as? String, let u = URL(string: url) {
+                                    if let oid = r["orderId"] as? String, !oid.isEmpty {
+                            Chip(text: "订单 \(oid)", mono: true)
+                        }
+                        if let url = r["pdfUrl"] as? String, let u = URL(string: url) {
                                         Link(destination: u) {
                                             HStack(spacing: 4) {
                                                 Image(systemName: "arrow.down.doc").font(.system(size: 10))
@@ -855,10 +888,11 @@ struct LogsScreen: View {
                 .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surface)))
 
                 Picker("", selection: $level) {
-                    Text("全部").tag(0)
-                    Text("INFO+").tag(1)
-                    Text("警告+").tag(2)
-                    Text("错误").tag(3)
+                    Text("所有级别").tag(0)
+                    Text("INFO").tag(1)
+                    Text("WARNING").tag(2)
+                    Text("ERROR").tag(3)
+                    Text("DEBUG").tag(4)
                 }
                 .pickerStyle(.segmented)
 
@@ -867,7 +901,7 @@ struct LogsScreen: View {
                         .font(.system(size: 10.5)).foregroundColor(t.color(err != nil ? t.warning : t.faint))
                     Spacer()
                     Toggle(isOn: $auto) {
-                        Text("自动刷新").font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                        Text("自动刷新(5 秒)").font(.system(size: 11)).foregroundColor(t.color(t.muted))
                     }.toggleStyle(.button).tint(t.color(t.accent))
                     Button { logClearConfirm = true } label: {
                         Text("清空").font(.system(size: 11.5)).foregroundColor(t.color(t.danger))
@@ -877,7 +911,7 @@ struct LogsScreen: View {
                 if let e = err, logs.isEmpty {
                     Card { LoadFailed(message: e) { Task { await load() } } }
                 } else if filtered.isEmpty && !loading {
-                    Card { EmptyHint(icon: "doc.text", text: "没有日志") }
+                    Card { EmptyHint(icon: "doc.text", text: logs.isEmpty ? "没有日志" : "没有匹配的日志(共 \(logs.count) 条,当前筛选条件下一条都没命中)") }
                 } else {
                     ForEach(filtered.indices, id: \.self) { i in
                         logRow(filtered[i])
@@ -910,9 +944,13 @@ struct LogsScreen: View {
 
     private var filtered: [[String: Any]] {
         var list = logs
-        let order = ["debug": 0, "info": 1, "warning": 2, "warn": 2, "error": 3]
         if level > 0 {
-            list = list.filter { (order[($0["level"] as? String ?? "").lowercased()] ?? 1) >= level }
+            let lvName = ["", "info", "warning", "error", "debug"][level]
+            list = list.filter { raw in
+                let l = (raw["level"] as? String ?? "").lowercased()
+                if l == "warn" { return lvName == "warning" }
+                return l == lvName
+            }
         }
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty {
