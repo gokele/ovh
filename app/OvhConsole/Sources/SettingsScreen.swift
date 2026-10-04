@@ -290,7 +290,17 @@ struct NotifyScreen: View {
                     if let chList = channels?["channels"] as? [[String: Any]] {
                         Card {
                             VStack(spacing: 10) {
-                                SectionTitle(text: "通道状态")
+                                HStack {
+                                    SectionTitle(text: "通道状态")
+                                    Spacer()
+                                    // web 的「重新检测」:verify=true 重查一遍,失败也不用去设置页找刷新
+                                    Button { Task { await load() } } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "arrow.clockwise").font(.system(size: 10))
+                                            Text("重新检测").font(.system(size: 11, weight: .semibold))
+                                        }.foregroundColor(t.color(t.accent))
+                                    }.buttonStyle(.plain)
+                                }
                                 ForEach(chList.indices, id: \.self) { i in channelRowObj(chList[i]) }
                                 if chList.isEmpty {
                                     Text("没有配置任何通道").font(.system(size: 11)).foregroundColor(t.color(t.faint))
@@ -475,7 +485,7 @@ struct PairingDevicesScreen: View {
 
                 Card {
                     VStack(spacing: 10) {
-                        SectionTitle(text: "已配对设备(\(devices.count))")
+                        SectionTitle(text: "已配对设备(" + String(devices.count) + ")")
                         if devices.isEmpty && !loading {
                             Text("没有其他设备").font(.system(size: 11)).foregroundColor(t.color(t.faint)).padding(.vertical, 6)
                         }
@@ -495,7 +505,8 @@ struct PairingDevicesScreen: View {
             get: { revokeId.map { RevokeWrap(id: $0) } },
             set: { revokeId = $0?.id }
         )) { w in
-            ConfirmSheet(title: "吊销设备", message: "该设备令牌立即失效,需要重新配对。", confirmText: "确认吊销") {
+            // 确认文案带上设备名(web 同款):不然分不清吊销的是哪台
+            ConfirmSheet(title: "吊销设备", message: "\(deviceName(w.id)) 的令牌将立即失效,需要重新配对。", confirmText: "确认吊销") {
                 let (ok, msg) = await conn.client.actionDelete("/app/devices/\(w.id)")
                 toast.show(ok ? "已吊销" : (msg.isEmpty ? "失败" : msg), error: !ok)
                 await load()
@@ -510,6 +521,13 @@ struct PairingDevicesScreen: View {
                 tick &+= 1
             }
         }
+    }
+
+    /// 吊销确认文案用:按 id 找设备名,找不到就说"该设备"
+    private func deviceName(_ id: String) -> String {
+        let target = Int(id)
+        guard let d = devices.first(where: { numToDoubleAny($0["id"]).map(Int.init) == target }) else { return "该设备" }
+        return (d["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "该设备"
     }
 
     private func deviceRow(_ d: [String: Any]) -> some View {
@@ -629,21 +647,26 @@ struct CacheScreen: View {
                 } else if let e = err {
                     Card { LoadFailed(message: e) { Task { await load() } } }
                 } else if let i = info {
-                    // handler:{backend:{serverCount,timestamp}, sqlite:{serverCount,path}}
+                    // handler:{backend:{serverCount,timestamp,cacheValid}, sqlite:{serverCount,path,updatedAtMs}}
                     let be = (i["backend"] as? [String: Any]) ?? [:]
                     let sq = (i["sqlite"] as? [String: Any]) ?? [:]
                     let beCount = numToDoubleAny(be["serverCount"]).map(Int.init) ?? 0
                     let sqCount = numToDoubleAny(sq["serverCount"]).map(Int.init) ?? 0
+                    let cacheValid = be["cacheValid"] as? Bool
                     Card {
                         VStack(spacing: 9) {
                             SectionTitle(text: "缓存状态")
                         Text("缓存只指 OVH 服务器目录。订阅 / 队列 / 历史 等业务数据不在此清理范围内。")
                             .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
-                            KV(k: "内存缓存", v: "\(beCount) 条")
+                            KV(k: "内存缓存", v: "\(beCount) 条" + (cacheValid == false ? " · 已过期" : ""))
                             KV(k: "SQLite", v: "\(sqCount) 条")
                             if let p = sq["path"] as? String { KV(k: "数据库", v: p, mono: true) }
+                            // 口径对齐 web:内存时间戳和 SQLite 刷新时间是两回事,分开显示
                             if let ts = numToDoubleAny(be["timestamp"]), ts > 0 {
-                                KV(k: "最近刷新", v: fmtDate(isoFromUnix(ts)))
+                                KV(k: "内存缓存时间", v: fmtDate(isoFromUnix(ts)))
+                            }
+                            if let uts = numToDoubleAny(sq["updatedAtMs"]), uts > 0 {
+                                KV(k: "SQLite 最近刷新", v: fmtDate(isoFromUnix(uts / 1000)))
                             }
                         }
                     }

@@ -15,6 +15,7 @@ struct ServerDetailView: View {
     var sn: String { item["serviceName"] as? String ?? "" }
     @State private var seg = 0
     @State private var serviceinfo: [String: Any]?
+    @State private var serviceinfoErr: String? = nil
     @State private var sheet: ServerSheet?
 
     var body: some View {
@@ -83,14 +84,21 @@ struct ServerDetailView: View {
                     }
                 }
 
-                // 胶囊行:撤单 / OS / 到期 / 监控,固定单行(放不下横滑,不折行)
+                // 胶囊行:撤单倒计时 / 监控 / OS(功能锚点不变)
                 // 续费胶囊收进右上角状态区(点开续约面板),不占这行
                 if serviceinfo == nil {
-                    HStack(spacing: 6) {
-                        ForEach(0..<3, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 8).fill(t.color(t.surfaceMuted)).frame(width: 64, height: 22)
+                    if let se = serviceinfoErr {
+                        // 读失败 ≠ 没有到期信息:web 会警示"续费状态显示为未知",App 不能无限骨架
+                        Text("续费/到期信息读取失败(\(se)),显示为未知 —— 下拉刷新重试。")
+                            .font(.system(size: 10)).foregroundColor(t.color(t.warning))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        HStack(spacing: 6) {
+                            ForEach(0..<3, id: \.self) { _ in
+                                RoundedRectangle(cornerRadius: 8).fill(t.color(t.surfaceMuted)).frame(width: 64, height: 22)
+                            }
+                            Spacer()
                         }
-                        Spacer()
                     }
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -189,8 +197,12 @@ struct ServerDetailView: View {
         async let si = conn.client.getDict("/server-control/\(sn)/serviceinfo")
         async let rt = conn.client.getDict("/server-control/\(sn)/retraction", timeoutSec: 20)
         async let mo = conn.client.getDict("/server-control/\(sn)/monitoring")
-        if let r = try? await si {
+        do {
+            let r = try await si
             serviceinfo = (r["serviceInfo"] as? [String: Any]) ?? r
+            serviceinfoErr = nil
+        } catch {
+            serviceinfoErr = error.localizedDescription   // 读失败 ≠ 没有到期日,胶囊区要给错误而不是无限骨架
         }
         if let r = try? await rt { retraction = r }
         if let r = try? await mo { monitoringOn = r["monitoring"] as? Bool }
@@ -215,7 +227,7 @@ struct ServerDetailView: View {
         case .tasks: TasksSheet(sn: sn)
         case .bios: BiosSheet(sn: sn)
         case .installStatus: InstallStatusSheet(sn: sn)
-        case .retraction: RetractionSheet(sn: sn)
+        case .retraction: RetractionSheet(sn: sn, onSaved: { Task { await load() } })
         case .renewal: RenewalSheet(sn: sn, isVps: false, info: serviceinfo ?? [:], onSaved: { Task { await load() } })
         case .networkSpecs: NetworkSpecsSheet(sn: sn)
         case .engagement: EngagementSheet(sn: sn, isVps: false)
@@ -266,6 +278,7 @@ struct OverviewSection: View {
 
     @State private var hardware: [String: Any]?
     @State private var ips: [[String: Any]] = []
+    @State private var ipsErr: String? = nil
     @State private var nics: [[String: Any]] = []
     @State private var err: String?
 
@@ -315,12 +328,14 @@ struct OverviewSection: View {
             Card {
                 VStack(spacing: 8) {
                     SectionTitle(text: "IP 地址")
-                    if ips.isEmpty {
+                    if let ie = ipsErr {
+                        LoadFailed(message: "IP 列表读取失败:" + ie) { Task { await load() } }
+                    } else if ips.isEmpty {
                         // S-021:接口失败/空时回退列表自带主 IP
                         if let fallback = item["ip"] as? String, !fallback.isEmpty {
                             ipRow(["ip": fallback, "type": "IPv4"])
                         } else {
-                            Text(err == nil ? "没有 IP 数据" : "—").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                            Text("没有 IP 数据").font(.system(size: 11)).foregroundColor(t.color(t.faint))
                         }
                     }
                     ForEach(ips.indices, id: \.self) { i in ipRow(ips[i]) }
@@ -331,7 +346,12 @@ struct OverviewSection: View {
                 VStack(spacing: 8) {
                     SectionTitle(text: "网络接口")
                     if nics.isEmpty {
-                        Text("无网卡数据").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                        // 读失败 ≠ 没网卡(web 三态口径):失败要能重试,空才是"未发现"
+                        if err != nil {
+                            Text("网卡接口读取失败,请下拉刷新重试").font(.system(size: 11)).foregroundColor(t.color(t.danger))
+                        } else {
+                            Text("未发现网卡").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                        }
                     }
                     ForEach(nics.indices, id: \.self) { i in
                         let nic = nics[i]
@@ -365,9 +385,7 @@ struct OverviewSection: View {
         if let m = mem as? [String: Any],
            let unit = (m["unit"] as? String)?.lowercased(),
            let val = numToDoubleAny(m["value"]) {
-            // OVH 常给 MB(32768),换算成人话
-            if unit == "mb" && val >= 1024 { return String(format: "%.0f GB", val / 1024) }
-            if unit == "gi" { return "\(Int(val)) GiB" }
+            // web 口径:原样 "{value} {unit}",不做 MB→GB 换算(两侧数字不一致比对时困惑)
             return "\(Int(val)) \(unit.uppercased())"
         }
         return mem.flatMap { "\($0)" } ?? "—"
@@ -395,16 +413,23 @@ struct OverviewSection: View {
     }
 
     private func load() async {
+        // 硬件/网卡与 IP 各自独立失败,不互相拖垮(web 同款)
+        err = nil
         do {
             async let h = conn.client.getDict("/server-control/\(sn)/hardware")
-            async let i = conn.client.getDict("/server-control/\(sn)/ips")
             async let n = conn.client.getDict("/server-control/\(sn)/network-interfaces")
-            let (hr, ir, nr) = try await (h, i, n)
+            let (hr, nr) = try await (h, n)
             hardware = hr["hardware"] as? [String: Any]
-            ips = (ir["ips"] as? [[String: Any]]) ?? []
             nics = (nr["interfaces"] as? [[String: Any]]) ?? (nr["networkInterfaces"] as? [[String: Any]]) ?? []
-            err = nil
         } catch { err = error.localizedDescription }
+        do {
+            let ir = try await conn.client.getDict("/server-control/\(sn)/ips")
+            ips = (ir["ips"] as? [[String: Any]]) ?? []
+            ipsErr = nil
+        } catch {
+            ips = []
+            ipsErr = error.localizedDescription
+        }
     }
 }
 
@@ -471,7 +496,10 @@ struct MaintenanceSection: View {
                 mRow(.renewal, icon: "arrow.triangle.2.circlepath", title: "续费策略", desc: "自动/手动/终止")
                 mRow(.engagement, icon: "doc.plaintext", title: "合同期", desc: "承诺期管理")
                 mRow(.hwReplace, icon: "wrench.and.screwdriver", title: "硬件更换", desc: "硬盘/内存/散热")
-                mRow(.changeContact, icon: "person.2", title: "变更联系人", desc: "admin/tech/billing")
+                // 美区账户直接禁用入口并写明原因(web 同款),别让用户点进去才发现
+                mRow(.changeContact, icon: "person.2", title: "变更联系人", desc: "admin/tech/billing",
+                     disabledNote: ((conn.activeAccount?["endpoint"] as? String) ?? "").lowercased().contains("ovh-us")
+                        ? "不可用:美区账户不支持" : nil)
                 mRow(.retraction, icon: "arrow.uturn.left.circle", title: "撤单", desc: "14 天无理由")
             }
 
@@ -516,22 +544,24 @@ struct MaintenanceSection: View {
         .task { await load() }
     }
 
-    private func mRow(_ kind: ServerSheet.Kind, icon: String, title: String, desc: String) -> some View {
-        Button { sheet = .init(kind: kind) } label: {
+    private func mRow(_ kind: ServerSheet.Kind, icon: String, title: String, desc: String, disabledNote: String? = nil) -> some View {
+        let disabled = disabledNote != nil
+        return Button { if !disabled { sheet = .init(kind: kind) } } label: {
             HStack(spacing: 10) {
-                Image(systemName: icon).font(.system(size: 15)).foregroundColor(t.color(t.info))
+                Image(systemName: icon).font(.system(size: 15)).foregroundColor(t.color(disabled ? t.faint : t.info))
                     .frame(width: 30, height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(t.color(t.info).opacity(0.12)))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(t.color(disabled ? t.muted : t.info).opacity(0.12)))
                 VStack(alignment: .leading, spacing: 1.5) {
-                    Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-                    Text(desc).font(.system(size: 9.5)).foregroundColor(t.color(t.muted))
+                    Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(disabled ? t.faint : t.fg))
+                    Text(disabledNote ?? desc).font(.system(size: 9.5)).foregroundColor(t.color(t.muted))
                 }
                 Spacer()
             }
             .padding(11)
-            .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 13).stroke(t.color(t.border), lineWidth: 1)))
+            .background(RoundedRectangle(cornerRadius: 13).fill(t.color(t.surface)).overlay(RoundedRectangle(cornerRadius: 13).stroke(t.color(t.border), lineWidth: 1)).opacity(disabled ? 0.6 : 1))
         }
         .buttonStyle(.plain)
+        .disabled(disabled)
     }
 
     private func load() async {

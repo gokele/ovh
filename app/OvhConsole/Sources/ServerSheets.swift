@@ -186,11 +186,11 @@ struct MrtgChartView: View {
             HStack(spacing: 12) {
                 HStack(spacing: 5) {
                     RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0x38BDF8)).frame(width: 10, height: 3)
-                    Text("↓ \(fmtMbps(dlMax))").font(.system(size: 10.5, weight: .medium)).foregroundColor(t.color(t.muted))
+                    Text("↓峰 \(fmtMbps(dlMax)) · 均 \(fmtMbps(dlAvg))").font(.system(size: 10.5, weight: .medium)).foregroundColor(t.color(t.muted))
                 }
                 HStack(spacing: 5) {
                     RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0x4ADE80)).frame(width: 10, height: 3)
-                    Text("↑ \(fmtMbps(ulMax))").font(.system(size: 10.5, weight: .medium)).foregroundColor(t.color(t.muted))
+                    Text("↑峰 \(fmtMbps(ulMax)) · 均 \(fmtMbps(ulAvg))").font(.system(size: 10.5, weight: .medium)).foregroundColor(t.color(t.muted))
                 }
                 Spacer()
                 if let c = cur {
@@ -221,6 +221,9 @@ struct MrtgChartView: View {
                 let mac = d["mac"] as? String ?? ""
                 guard let dData = d["data"] as? [[String: Any]], !dData.isEmpty else { continue }
                 let uData = (uIf.first { ($0["mac"] as? String) == mac }?["data"] as? [[String: Any]]) ?? []
+                // web 口径:该网卡 download/upload 双向都有数据点才出图,缺一向整卡丢弃
+                // (upload 缺失按 0 画会把"单向断流"画成"上行空闲",误导排查)
+                guard !uData.isEmpty else { continue }
                 var pts: [(Date, Double, Double)] = []
                 for (i, dp) in dData.enumerated() {
                     guard let ts = numToDouble(dp["timestamp"]),
@@ -328,7 +331,7 @@ struct RescueSheet: View {
                             }
                         } else {
                             SheetNote(text: "救援系统是一个独立的临时 Linux,从网络启动,不会动你硬盘上的数据。进去之后可以挂载硬盘修配置、改密码、拷数据。进入救援后 OVH 会把 root 密码发到邮箱,约 3~5 分钟后可以 SSH 登录。", tint: t.muted)
-                            SheetField(placeholder: rescueMail.isEmpty ? "留空 = 发到 OVH 账户的联系邮箱" : rescueMail, text: $mail, keyboard: .emailAddress)
+                            SheetField(placeholder: "留空 = 发到 OVH 账户的联系邮箱", text: $mail, keyboard: .emailAddress)
                             let mailOK = mail.range(of: #"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"#, options: .regularExpression) != nil
                             if !mail.isEmpty && !mailOK {
                                 Text("这个邮箱格式不对。救援系统的 root 密码会发到这里,填错就收不到。")
@@ -341,6 +344,7 @@ struct RescueSheet: View {
                             ActBtn(kind: .primary, icon: "lifepreserver.fill", label: busy ? "提交中…" : "进入救援模式(重启)") {
                                 rescueConfirm = true
                             }
+                            .disabled(!mail.isEmpty && !mailOK)   // 邮箱非法时拦下,别等后端 400
                         }
                     }
                 }
@@ -363,6 +367,8 @@ struct RescueSheet: View {
             let r = try await conn.client.getDict("/server-control/\(sn)/rescue")
             inRescue = r["inRescue"] as? Bool ?? false
             rescueMail = r["rescueMail"] as? String ?? ""
+            // 预填上次用的邮箱并显式重发(web 同款;placeholder 提示会被误当"会自动带上")
+            if mail.isEmpty { mail = rescueMail }
             err = nil
         } catch { err = error.localizedDescription }
         loading = false
@@ -375,8 +381,9 @@ struct RescueSheet: View {
         let m = mail.trimmingCharacters(in: .whitespaces)
         if !m.isEmpty { body["email"] = m }
         do {
-            _ = try await conn.client.post("/server-control/\(sn)/rescue", body: body)
-            toast.show("已进入救援模式(重启后生效)")
+            let r = try await conn.client.post("/server-control/\(sn)/rescue", body: body)
+            // 后端 message 含"密码发到哪个邮箱/记得退出救援"这些关键指引,别用硬编码盖掉
+            toast.show(r["message"] as? String ?? "已进入救援模式(重启后生效)")
             dismiss()
         } catch { toast.show(error.localizedDescription, error: true) }
     }
@@ -386,7 +393,7 @@ struct RescueSheet: View {
         defer { busy = false }
         let body = try? JSONSerialization.data(withJSONObject: ["confirm": true])
         let (ok, msg) = await conn.client.actionPostData("/server-control/\(sn)/rescue/exit", bodyData: body)
-        toast.show(ok ? "已退出救援模式" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        toast.show(ok ? (msg.isEmpty ? "已退出救援模式" : msg) : (msg.isEmpty ? "失败" : msg), error: !ok)
         if ok { dismiss() }
     }
 }
@@ -926,7 +933,20 @@ struct ServerReinstallSheet: View {
                         LoadFailed(message: e) { Task { await load() } }
                     } else {
                         VStack(spacing: 6) {
-                            ForEach(filtered.indices, id: \.self) { i in tplRow(filtered[i]) }
+                            // 按发行版分段(web 左右栏的手机版:组头带计数,组内排过序)
+                            ForEach(grouped, id: \.kind) { g in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 6) {
+                                        Text(g.label).font(.system(size: 11.5, weight: .bold)).foregroundColor(t.color(t.fg))
+                                        Text("\(g.items.count)").font(.system(size: 10, weight: .semibold)).foregroundColor(t.color(t.muted))
+                                            .padding(.horizontal, 6).padding(.vertical, 1)
+                                            .background(Capsule().fill(t.color(t.surfaceMuted)))
+                                        Spacer()
+                                    }
+                                    .padding(.top, 4)
+                                    ForEach(g.items.indices, id: \.self) { i in tplRow(g.items[i]) }
+                                }
+                            }
                             if filtered.isEmpty {
                                 Text("没有匹配的模板").font(.system(size: 11)).foregroundColor(t.color(t.faint)).padding(8)
                             }
@@ -1051,20 +1071,64 @@ struct ServerReinstallSheet: View {
     private var filtered: [[String: Any]] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return templates }
+        // 搜索匹配 templateName/distribution/family(web 同款)
         return templates.filter {
-            (($0["templateName"] as? String ?? "") + ($0["distribution"] as? String ?? "")).lowercased().contains(q)
+            (($0["templateName"] as? String ?? "") + ($0["distribution"] as? String ?? "") + ($0["family"] as? String ?? "")).lowercased().contains(q)
         }
     }
+
+    /// 按使用频率排序的 OS 分组(web OS_GROUPS 同款);组内按 templateName 排序
+    private var grouped: [(kind: String, label: String, items: [[String: Any]])] {
+        var buckets: [String: [[String: Any]]] = [:]
+        for tpl in filtered {
+            let k = Self.osKindOf(tpl)
+            buckets[k, default: []].append(tpl)
+        }
+        var out: [(String, String, [[String: Any]])] = []
+        for (kind, label) in Self.osGroupLabels {
+            guard var arr = buckets[kind] else { continue }
+            arr.sort { ($0["templateName"] as? String ?? "") < ($1["templateName"] as? String ?? "") }
+            out.append((kind, label, arr))
+        }
+        return out
+    }
+
+    /// OS 分组判定(web OsIcon detectOsKind 同款:templateName+distribution+family 拼串包含匹配)
+    private static func osKindOf(_ tpl: [String: Any]) -> String {
+        let s = (((tpl["templateName"] as? String ?? "") + " " + (tpl["distribution"] as? String ?? "") + " " + (tpl["family"] as? String ?? ""))).lowercased()
+        if s.contains("byolinux") { return "byolinux" }
+        if s.contains("byoi") { return "byoi" }
+        if s.contains("proxmox") { return "proxmox" }
+        if s.contains("esxi") || s.contains("vmware") { return "esxi" }
+        if s.contains("windows") || s.contains("win-") { return "windows" }
+        if s.contains("debian") { return "debian" }
+        if s.contains("ubuntu") { return "ubuntu" }
+        if s.contains("rocky") { return "rocky" }
+        if s.contains("alma") { return "alma" }
+        if s.contains("fedora") { return "fedora" }
+        if s.contains("centos") { return "centos" }
+        if s.contains("suse") { return "opensuse" }
+        if s.contains("freebsd") { return "freebsd" }
+        return "linux"
+    }
+
+    private static let osGroupLabels: [(String, String)] = [
+        ("debian", "Debian"), ("ubuntu", "Ubuntu"), ("windows", "Windows"), ("proxmox", "Proxmox VE"),
+        ("rocky", "Rocky Linux"), ("alma", "AlmaLinux"), ("fedora", "Fedora"), ("esxi", "VMware ESXi"),
+        ("centos", "CentOS"), ("opensuse", "openSUSE"), ("freebsd", "FreeBSD"),
+        ("byoi", "BYOI(镜像导入)"), ("byolinux", "BYO Linux"), ("linux", "其他 Linux"),
+    ]
 
     private func tplRow(_ tpl: [String: Any]) -> some View {
         let name = tpl["templateName"] as? String ?? ""
         let on = picked == name
+        let family = tpl["family"] as? String ?? ""
         return Button { picked = name } label: {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(tpl["distribution"] as? String ?? name).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-                    Text("\(name) · \(tpl["bitFormat"] ?? 64) 位")
-                        .font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.muted)).lineLimit(1)
+                    Text(name).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundColor(t.color(t.fg)).lineLimit(1)
+                    Text("\(tpl["distribution"] as? String ?? "")\(family.isEmpty ? "" : " · \(family)") · \(tpl["bitFormat"] ?? 64) 位")
+                        .font(.system(size: 10)).foregroundColor(t.color(t.muted)).lineLimit(1)
                 }
                 Spacer()
                 if on {
@@ -1264,6 +1328,9 @@ struct IpmiSheet: View {
                             Card(border: t.success) {
                                 VStack(alignment: .leading, spacing: 7) {
                                     Text("申请成功").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.success))
+                                    if let at = r["accessType"] as? String, !at.isEmpty {
+                                        KV(k: "访问类型", v: at, mono: true)
+                                    }
                                     if let u = (r["console"] as? [String: Any])?["value"] as? String ?? r["url"] as? String, !u.isEmpty {
                                         if let link = URL(string: u) {
                                             Link(destination: link) {
@@ -1836,11 +1903,19 @@ struct BiosSheet: View {
                         if let b = bios {
                             Card { VStack(spacing: 8) { SectionTitle(text: "BIOS"); kvRows(b) } }
                         } else {
-                            EmptyHint(icon: "cpu", text: "OVH 未返回 BIOS 信息")
+                            EmptyHint(icon: "cpu", text: "未获取到 BIOS 设置")
                         }
                         if let s = sgx {
                             Card { VStack(spacing: 8) { SectionTitle(text: "SGX(Intel 软件防护扩展)"); kvRows(s) } }
                         }
+                        Button {
+                            Task { await load() }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.clockwise").font(.system(size: 10))
+                                Text("刷新").font(.system(size: 11, weight: .semibold))
+                            }.foregroundColor(t.color(t.accent))
+                        }.buttonStyle(.plain)
                     }
                 }
                 .padding(16)
@@ -1857,8 +1932,25 @@ struct BiosSheet: View {
             Text("无数据").font(.system(size: 11)).foregroundColor(t.color(t.faint))
         }
         ForEach(keys, id: \.self) { k in
-            KV(k: k, v: "\(dict[k] ?? "—")", mono: true)
+            KV(k: k, v: renderBiosValue(dict[k]), mono: true)
         }
+    }
+
+    /// 值渲染对齐 web:null→"—"、布尔→true/false(NSNumber 布尔直接插值会显示"1")、嵌套→JSON
+    private func renderBiosValue(_ v: Any?) -> String {
+        guard let v = v else { return "—" }
+        if let b = v as? Bool { return b ? "true" : "false" }
+        if let n = v as? NSNumber {
+            // CFBooleanType 会被桥成 NSNumber,先认布尔
+            if CFGetTypeID(n) == CFBooleanGetTypeID() { return n.boolValue ? "true" : "false" }
+            return n.stringValue
+        }
+        if let s = v as? String { return s.isEmpty ? "—" : s }
+        if let data = try? JSONSerialization.data(withJSONObject: v),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return "\(v)"
     }
 
     private func load() async {

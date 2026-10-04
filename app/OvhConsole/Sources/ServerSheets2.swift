@@ -13,6 +13,7 @@ struct RetractionSheet: View {
     @EnvironmentObject var toast: Toast
     @Environment(\.dismiss) private var dismiss
     let sn: String
+    var onSaved: () -> Void = {}
     var t: Tokens { theme.t }
 
     @State private var info: [String: Any]?
@@ -41,6 +42,8 @@ struct RetractionSheet: View {
                         } else {
                             SheetNote(text: "撤单后服务器将被回收并退款,不可恢复。", tint: t.danger)
                         }
+                        // 口径对齐 web/后端:14 天从「下单(orderDate)」起算,不是从开通日起算
+                        SheetNote(text: "可撤单期从下单日起算,不是从服务器开通日起算。", tint: t.muted)
 
                         Text("选择撤单原因").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                         VStack(spacing: 6) {
@@ -61,7 +64,7 @@ struct RetractionSheet: View {
                             }
                         }
 
-                        Text("备注(可选)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        Text("备注(可选,建议用英文)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                         SheetField(placeholder: "补充说明", text: $comment)
 
                         ActBtn(kind: .danger, icon: "arrow.uturn.left", label: "申请撤单") { confirming = true }
@@ -88,10 +91,10 @@ struct RetractionSheet: View {
             let r = try await conn.client.getDict("/server-control/\(sn)/retraction")
             info = r
             reasons = (r["reasons"] as? [[String: Any]]) ?? []
-            pickedReason = reasons.first?["value"] as? String
+            pickedReason = nil   // web 同款:理由必须手选,不预选第一项
             // 不可撤单的机器后端给 eligible:false + 原因 —— 显示原因并收起表单
             if (r["eligible"] as? Bool) == false {
-                ineligibleMsg = (r["message"] as? String) ?? "该服务器不在可撤单期内(交付满 14 天后不可无理由撤回)"
+                ineligibleMsg = (r["message"] as? String) ?? "该服务器不在可撤单期内(从下单起满 14 天后不可无理由撤回)"
             }
             err = nil
         } catch { err = error.localizedDescription }
@@ -104,8 +107,10 @@ struct RetractionSheet: View {
         defer { busy = false }
         let body: [String: Any] = ["reason": reason, "comment": comment, "confirm": true]
         do {
-            _ = try await conn.client.post("/server-control/\(sn)/retraction", body: body)
-            toast.show("撤单申请已提交")
+            let r = try await conn.client.post("/server-control/\(sn)/retraction", body: body)
+            // 后端 message 带"进度可在控制面板的订单页查看"这类指引
+            toast.show(r["message"] as? String ?? "撤单申请已提交")
+            onSaved()
             dismiss()
         } catch { toast.show(error.localizedDescription, error: true) }
     }

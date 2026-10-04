@@ -138,7 +138,9 @@ struct VpsDetailView: View {
 
     private var firstIP: String {
         let raw = ips.first?["ipAddress"] as? String ?? (ips.first?["ip"] as? String ?? "")
-        return raw.isEmpty ? "—" : raw
+        if !raw.isEmpty { return raw }
+        // 读失败 ≠ 没有 IP(web 口径):失败显示"读取失败",别用"—"冒充空地址
+        return ipsErr != nil ? "读取失败" : ((item["ip"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "—")
     }
 
     @State private var ipsErr: String? = nil
@@ -176,6 +178,15 @@ struct VpsDetailView: View {
                     }
                     if let z = item["zone"] as? String, !z.isEmpty {
                         KV(k: "区域", v: zoneCn(z))
+                    }
+                    if let cd = item["createdAt"] as? String ?? item["creationDate"] as? String, !cd.isEmpty {
+                        KV(k: "开通日期", v: fmtDate(cd))
+                    }
+                    if let cl = item["cluster"] as? String, !cl.isEmpty {
+                        KV(k: "集群", v: cl, mono: true)
+                    }
+                    if let sla = item["slaMonitor"] as? Bool {
+                        KV(k: "SLA 监控", v: sla ? "开启" : "关闭")
                     }
                 }
             }
@@ -231,6 +242,7 @@ struct VpsDetailView: View {
                                     Spacer()
                                     if let v = ip["version"] as? Int { Chip(text: "IPv\(v)") }
                                     if let ty = ip["type"] as? String, !ty.isEmpty { Chip(text: ty) }
+                                    if let geo = ip["geolocation"] as? String, !geo.isEmpty { Chip(text: geo) }
                                 }
                                 if let rev = ip["reverse"] as? String, !rev.isEmpty {
                                     Text("↩ " + (mask ? maskIP(rev) : rev)).font(.system(size: 10)).foregroundColor(t.color(t.muted))
@@ -449,7 +461,7 @@ struct VpsSnapshotSection: View {
         busy = true
         defer { busy = false }
         let (ok, msg) = await conn.client.actionPostData("/vps-control/\(name)/snapshot/revert", bodyData: nil)
-        toast.show(ok ? "回滚已开始" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        toast.show(ok ? "回滚已开始,即将进入维护态" : (msg.isEmpty ? "失败" : msg), error: !ok)
         revertConfirm = false
         if ok { await load() }
     }
@@ -502,7 +514,7 @@ struct VpsSnapshotCreateSheet: View {
         if !d.isEmpty { body["description"] = d }
         let data = try? JSONSerialization.data(withJSONObject: body)
         let (ok, msg) = await conn.client.actionPostData("/vps-control/\(name)/snapshot", bodyData: data)
-        toast.show(ok ? "快照创建已开始" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        toast.show(ok ? "快照创建已开始,通常 1-3 分钟完成" : (msg.isEmpty ? "失败" : msg), error: !ok)
         dismiss()
         if ok { await onDone() }
     }
@@ -1151,7 +1163,7 @@ func zoneCn(_ z: String) -> String {
         "par": "法国·巴黎", "bhs": "加拿大·博阿尔诺", "tor": "加拿大·多伦多", "mum": "印度·孟买",
         "waw": "波兰·华沙", "fra": "德国·法兰克福", "lon": "英国·伦敦", "hil": "美国西部·俄勒冈",
         "vin": "美国·弗吉尼亚", "sgp": "新加坡", "syd": "澳大利亚·悉尼", "de1": "德国",
-        "lim": "墨西哥·克雷塔罗", "eri": "土耳其·伊斯坦布尔",
+        "lim": "德国·林堡", "eri": "英国·埃里斯",
     ]
     return m[key.lowercased()] ?? z.uppercased()
 }

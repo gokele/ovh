@@ -169,7 +169,8 @@ struct ServerMonitorPane: View {
                 }
                 HStack(spacing: 10) {
                     stat("\(subs.count)", "订阅")
-                    stat("\(status?["known_servers_count"] as? Int ?? 0)", "已知机型")
+                    // 数字未知显示"—"(web 口径),不拿 0 冒充"一台都不认识"
+                    stat(status?["known_servers_count"] == nil ? "—" : "\((status?["known_servers_count"] as? Int ?? 0))", "已知机型")
                     Spacer()
                     if !subs.isEmpty {
                         Button { clearConfirm = true } label: {
@@ -216,18 +217,33 @@ struct ServerMonitorPane: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 7) {
                     Dot(color: hasStock ? t.success : t.faint)
-                    Text(code).font(.system(size: 12.5, weight: .bold, design: .monospaced)).foregroundColor(t.color(t.fg))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(code).font(.system(size: 12.5, weight: .bold, design: .monospaced)).foregroundColor(t.color(t.fg))
+                        if let sn = sub["serverName"] as? String, !sn.isEmpty, sn != code {
+                            Text(sn).font(.system(size: 9.5)).foregroundColor(t.color(t.muted)).lineLimit(1)
+                        }
+                    }
                     if hasStock { Chip(text: "有货", color: t.success) }
                     Spacer()
                 }
                 FlowLayout(spacing: 5) {
                     Chip(text: dcs.isEmpty ? "全部机房" : "\(dcs.count) 机房")
-                    if !options.isEmpty { Chip(text: "只盯 \(options.count) 配置", color: t.info) }
+                    if !options.isEmpty {
+                        // 只盯配置给出可读名(web describeOptionCodes)
+                        let names = options.prefix(2).map { SnipeOrderSheet.prettyOption($0) }
+                        let extra = options.count - names.count
+                        Chip(text: "只盯 " + names.joined(separator: "·") + (extra > 0 ? " +\(extra)" : ""), color: t.info)
+                    }
                     if sub["notifyAvailable"] as? Bool == true { Chip(text: "有货提醒", color: t.success) }
                     if sub["notifyUnavailable"] as? Bool == true { Chip(text: "无货提醒") }
                     if autoOrder {
                         Chip(text: "自动下单 ×\(sub["quantity"] as? Int ?? 1)", color: t.danger)
                         if sub["autoPay"] as? Bool == true { Chip(text: "自动付款", color: t.danger) }
+                        // 下单账户 chip:没有它看不出下单会落到哪个账户
+                        if let acc = sub["autoOrderAccountId"] as? String {
+                            let name = conn.accounts.first { ($0["id"] as? String) == acc }?["name"] as? String
+                            Chip(text: name ?? "未知账户")
+                        }
                     }
                 }
                 HStack(spacing: 10) {
@@ -522,14 +538,19 @@ struct MonitorHistorySheet: View {
     }
 
     private func historyRow(_ it: [String: Any]) -> some View {
-        let status = it["status"] as? String ?? ""
-        let ok = isOrderable(status) || status == "available"
+        // web 判定口径:按 changeType("available")区分有/无货,不用 OVH 原始 status 猜
+        let changeType = (it["changeType"] as? String ?? it["status"] as? String ?? "").lowercased()
+        let ok = changeType == "available"
         return HStack(spacing: 9) {
             Circle().fill(t.color(ok ? t.success : t.faint)).frame(width: 6, height: 6)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text((it["datacenter"] as? String ?? "").uppercased()).font(.system(size: 11.5, weight: .semibold, design: .monospaced)).foregroundColor(t.color(t.fg))
                     Text(ok ? "有货" : "无货").font(.system(size: 10.5, weight: .semibold)).foregroundColor(t.color(ok ? t.success : t.muted))
+                }
+                if let cfg = it["config"] as? [String: Any],
+                   let disp = cfg["display"] as? String, !disp.isEmpty {
+                    Text(disp).font(.system(size: 9.5)).foregroundColor(t.color(t.muted)).lineLimit(1)
                 }
                 if let ts = it["timestamp"] as? String {
                     Text(fmtDate(ts)).font(.system(size: 9.5)).foregroundColor(t.color(t.faint))

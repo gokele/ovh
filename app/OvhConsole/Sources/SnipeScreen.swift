@@ -158,9 +158,9 @@ struct CatalogPane: View {
                         guard !forcing else { return }
                         forcing = true
                         Task {
-                            // 对齐 web 的强刷三件套:先清后端内存缓存,逼它去 OVH 拿新数据;
-                            // 只清 App 缓存的话,拉回来的还是后端那份旧缓存,看起来"点了没用"
-                            let body = try? JSONSerialization.data(withJSONObject: ["type": "all"])
+                            // 对齐 web 的强刷:只清后端内存缓存(type:memory,逼它去 OVH 拿新数据),
+                            // 不动 SQLite(web 同款;all 会把磁盘缓存也抹掉,下次冷启动反而变慢)
+                            let body = try? JSONSerialization.data(withJSONObject: ["type": "memory"])
                             _ = await conn.client.actionPostData("/cache/clear", bodyData: body)
                             Self.memCache = nil
                             await load(force: true)
@@ -236,9 +236,10 @@ struct CatalogPane: View {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty {
             list = list.filter {
+                // 搜索字段对齐 web:含 storage(App 用 storage 字段本身,不再拿 description 顶替)
                 let s = (($0["planCode"] as? String ?? "") + ($0["name"] as? String ?? "") +
                          ($0["cpu"] as? String ?? "") + ($0["memory"] as? String ?? "") +
-                         ($0["description"] as? String ?? "")).lowercased()
+                         ($0["storage"] as? String ?? "")).lowercased()
                 return s.contains(q)
             }
         }
@@ -307,9 +308,10 @@ struct CatalogPane: View {
                     Text(availCount > 0 ? "\(availCount) 个机房可下单" : "全部无货")
                         .font(.system(size: 10)).foregroundColor(t.color(t.faint))
                     Spacer()
-                    // 一键加监控:盯该机型全部机房
+                    // 一键加监控:盯该机型全部机房(web 同款带 serverName+该机型机房列表)
                     Button {
-                        Task { await addMonitor(code) }
+                        let dcs = dcs.keys.map { $0 }
+                        Task { await addMonitor(code, datacenters: dcs, serverName: p["name"] as? String ?? code) }
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "eye").font(.system(size: 10))
@@ -340,9 +342,13 @@ struct CatalogPane: View {
         return parts.isEmpty ? (p["description"] as? String ?? "") : parts.joined(separator: " · ")
     }
 
-    private func addMonitor(_ code: String) async {
+    private func addMonitor(_ code: String, datacenters: [String] = [], serverName: String = "") async {
         do {
-            _ = try await conn.client.post("/monitor/subscriptions", body: ["planCode": code])
+            // web 同款:带 datacenters(空=全部)+serverName;notifyAvailable 默认 true 由后端补
+            var body: [String: Any] = ["planCode": code]
+            if !serverName.isEmpty { body["serverName"] = serverName }
+            if !datacenters.isEmpty { body["datacenters"] = datacenters }
+            _ = try await conn.client.post("/monitor/subscriptions", body: body)
             toast.show("已加入雷达监控(全部机房)")
         } catch { toast.show(error.localizedDescription, error: true) }
     }
@@ -1156,15 +1162,27 @@ struct QueuePane: View {
                 HStack(spacing: 6) {
                     Chip(text: (item["datacenter"] as? String ?? "").uppercased())
                     if let opts = item["options"] as? [String], !opts.isEmpty {
-                        Chip(text: "\(opts.count) 项选配", color: t.info)
+                        // 展示可读选配(web describeOptionCodes),不再只给一个数量
+                        let names = opts.prefix(2).map { SnipeOrderSheet.prettyOption($0) }
+                        let extra = opts.count - names.count
+                        Chip(text: names.joined(separator: "·") + (extra > 0 ? " +\(extra)" : ""), color: t.info)
                     }
                     if item["autoPay"] as? Bool == true { Chip(text: "自动付款", color: t.danger) }
                     Spacer()
                 }
-                Button { editItem = item } label: {
-                    Text("下次尝试 \(item["retryInterval"] as? Int ?? 0)s 后(第 \((item["retryCount"] as? Int ?? 0) + 1) 次)· 已失败 \(item["failureCount"] as? Int ?? 0) 次 · 点此改间隔")
-                        .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
-                }.buttonStyle(.plain)
+                if status == "failed" {
+                    // 终态不再暗示仍在重试(web 同款):failed=已停止,completed=已完成
+                    Text("已停止重试(原因见抢购历史)· 已失败 \(item["failureCount"] as? Int ?? 0) 次")
+                        .font(.system(size: 10.5)).foregroundColor(t.color(t.danger))
+                } else if status == "completed" {
+                    Text("已完成")
+                        .font(.system(size: 10.5)).foregroundColor(t.color(t.success))
+                } else {
+                    Button { editItem = item } label: {
+                        Text("下次尝试 \(item["retryInterval"] as? Int ?? 0)s 后(第 \((item["retryCount"] as? Int ?? 0) + 1) 次)· 已失败 \(item["failureCount"] as? Int ?? 0) 次 · 点此改间隔")
+                            .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                    }.buttonStyle(.plain)
+                }
                 timingRow(item)
                 HStack(spacing: 8) {
                     if let acc = item["accountId"] as? String {
@@ -1177,7 +1195,8 @@ struct QueuePane: View {
                     Spacer()
                 }
                 HStack(spacing: 8) {
-                    if status == "running" || status == "paused" {
+                    // web 同款:pending 也能启停(非终态都给切换)
+                    if status == "running" || status == "paused" || status == "pending" {
                         qBtn(icon: status == "paused" ? "play.fill" : "pause.fill", label: status == "paused" ? "恢复" : "暂停", color: t.muted) {
                             let body = try? JSONSerialization.data(withJSONObject: ["status": status == "paused" ? "running" : "paused"])
                             _ = await conn.client.actionPutData("/queue/\(id)/status", bodyData: body)
@@ -1207,7 +1226,12 @@ struct QueuePane: View {
     }
 
     private func batch(_ status: String) async {
-        for id in selected {
+        // web 同款:暂停只发 running、恢复只发 paused;把终态/无关任务也 PUT 一遍没有意义
+        let want: String = status == "paused" ? "running" : "paused"
+        let ids = items.filter { ($0["id"] as? String).map { selected.contains($0) } ?? false }
+            .filter { ((($0["status"] as? String) ?? "").lowercased()) == want }
+            .compactMap { $0["id"] as? String }
+        for id in ids {
             let body = try? JSONSerialization.data(withJSONObject: ["status": status])
             _ = await conn.client.actionPutData("/queue/\(id)/status", bodyData: body)
         }
