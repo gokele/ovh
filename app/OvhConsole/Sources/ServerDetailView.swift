@@ -89,7 +89,8 @@ struct ServerDetailView: View {
                         Spacer()
                     }
                 }
-                HStack(spacing: 6) {
+                // 全部胶囊一排(FlowLayout:放得下单行,不够自动换行)
+                FlowLayout(spacing: 6) {
                     if (retraction?["eligible"] as? Bool) == true {
                         Button { sheet = .init(kind: .retraction) } label: {
                             InfoPill(icon: "clock.badge.exclamationmark", text: "可撤单 · \(retractionLeftText)", tint: t.warning)
@@ -100,16 +101,12 @@ struct ServerDetailView: View {
                             InfoPill(icon: "terminal", text: os, tint: t.info)
                         }.buttonStyle(.plain)
                     }
-                    Spacer()
-                }
-                HStack(spacing: 6) {
                     Button { sheet = .init(kind: .renewal) } label: {
                         InfoPill(icon: "arrow.triangle.2.circlepath", text: renewalText.isEmpty ? "续费" : renewalText, tint: t.accent)
                     }.buttonStyle(.plain)
                     if let si = serviceinfo, let exp = si["expiration"] as? String, !exp.isEmpty {
                         InfoPill(icon: "calendar", text: "到期 \(fmtDate(exp))", tint: daysLeft(exp) < 7 ? t.danger : nil)
                     }
-                    Spacer()
                     Button {
                         if monitoringOn == nil {
                             Task {
