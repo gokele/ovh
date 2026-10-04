@@ -30,12 +30,25 @@ struct OvhConsoleApp: App {
             .environmentObject(nav)
             .preferredColorScheme(theme.mode == .system ? nil : (theme.dark ? .dark : .light))
             .onOpenURL { url in
+                guard url.scheme == "ovhconsole" else { return }
                 // 深链:ovhconsole://pair?host=..&code=..&auto=1
-                if url.scheme == "ovhconsole", url.host == "pair" {
+                if url.host == "pair" {
                     if conn.isPaired {
                         toast.show("已配对过;要换后端请先在 设置 里断开连接", error: true)
                     } else {
                         pendingPairURL = url
+                    }
+                }
+                // 深链:ovhconsole://queue?create=PLAN&options=a,b(F-302 移动版)
+                if url.host == "queue", conn.isPaired {
+                    nav.tab = .snipe
+                    nav.snipeSegment = 1
+                    let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                    if let p = items.first(where: { $0.name == "create" })?.value, !p.isEmpty {
+                        nav.pendingCreatePlan = p
+                        nav.pendingCreateOptions = (items.first(where: { $0.name == "options" })?.value ?? "")
+                            .split(separator: ",").map(String.init).filter { !$0.isEmpty }
+                        nav.showCreateTrigger = true
                     }
                 }
             }
@@ -65,6 +78,10 @@ final class AppNav: ObservableObject {
     @Published var snipeSegment = 0
     /// 雷达页内的分段:0 独服 / 1 VPS
     @Published var radarSegment = 0
+    /// 队列新建弹窗深链参数(F-302)
+    @Published var pendingCreatePlan: String? = nil
+    @Published var pendingCreateOptions: [String] = []
+    @Published var showCreateTrigger = false
 
     enum Tab: Hashable { case overview, machines, snipe, radar, settings }
 }

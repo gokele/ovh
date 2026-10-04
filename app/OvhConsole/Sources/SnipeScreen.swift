@@ -834,16 +834,22 @@ struct QueuePane: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
     @EnvironmentObject var toast: Toast
+    @EnvironmentObject var nav: AppNav
     var t: Tokens { theme.t }
 
     @State private var items: [[String: Any]] = []
     @State private var err: String?
     @State private var loading = true
+    @State private var timings: [String: [String: Any]] = [:]
+    @State private var timingsErr: String? = nil
+    @State private var showCreate = false
     @State private var editItem: [String: Any]?
     @State private var clearConfirm = false
     @State private var selected: Set<String> = []
     @State private var selecting = false
     @State private var batchDeleteConfirm = false
+    @State private var pendingCreatePlan: String? = nil
+    @State private var pendingCreateOptions: [String] = []
 
     var body: some View {
         ScrollView {
@@ -851,6 +857,12 @@ struct QueuePane: View {
                 HStack {
                     Text("\(items.count) 个任务").font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
                     Spacer()
+                    Button { showCreate = true } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus.circle.fill").font(.system(size: 11))
+                            Text("新建任务").font(.system(size: 11.5, weight: .semibold))
+                        }.foregroundColor(t.color(t.accent))
+                    }.buttonStyle(.plain)
                     if !items.isEmpty {
                         if selecting {
                             Button { selected = selected.count == items.count ? [] : Set(items.compactMap { $0["id"] as? String }) } label: {
@@ -866,6 +878,18 @@ struct QueuePane: View {
                             }.buttonStyle(.plain)
                         }
                     }
+                }
+                if let te = timingsErr, !items.isEmpty {
+                    // 耗时/结论读取失败:任务照常在跑,只是看不到上一轮结论(F-307)
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundColor(t.color(t.warning))
+                        Text("上一轮耗时/结论读取失败,任务照常在跑 · 点我重试")
+                            .font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                        Spacer()
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 10).stroke(t.color(t.warning).opacity(0.4), lineWidth: 1))
+                    .onTapGesture { Task { await loadTimings() } }
                 }
                 if selecting && !selected.isEmpty {
                     HStack(spacing: 8) {
@@ -896,6 +920,14 @@ struct QueuePane: View {
         .refreshable { await load() }
         .task {
             await load()
+            // 深链预填(F-302):ovhconsole://queue?create=PLAN&options=..
+            if nav.pendingCreatePlan != nil {
+                pendingCreatePlan = nav.pendingCreatePlan
+                pendingCreateOptions = nav.pendingCreateOptions
+                nav.pendingCreatePlan = nil
+                nav.pendingCreateOptions = []
+                showCreate = true
+            }
             // 5 秒轮询:抢购进行中状态/结论自动刷新(web 同款;视图销毁自动取消)
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -904,6 +936,13 @@ struct QueuePane: View {
             }
         }
         .onChange(of: conn.accountId) { _ in Task { await load() } }
+        .sheet(isPresented: $showCreate) {
+            CreateQueueSheet(presetPlan: pendingCreatePlan ?? "", presetOptions: pendingCreateOptions) {
+                await load()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+            .onDisappear { pendingCreatePlan = nil; pendingCreateOptions = [] }
+        }
         .sheet(isPresented: $batchDeleteConfirm) {
             ConfirmSheet(title: "删除选中的 \(selected.count) 个任务?",
                          message: "此操作不可撤销。正在执行中的下单(已走到结账那几秒的)可能仍会完成并产生真实订单。",
@@ -968,9 +1007,20 @@ struct QueuePane: View {
                     Spacer()
                 }
                 Button { editItem = item } label: {
-                    Text("已重试 \(item["failureCount"] as? Int ?? 0) 次 · 间隔 \(item["retryInterval"] as? Int ?? 0)s(点此改)")
+                    Text("下次尝试 \(item["retryInterval"] as? Int ?? 0)s 后(第 \((item["retryCount"] as? Int ?? 0) + 1) 次)· 已失败 \(item["failureCount"] as? Int ?? 0) 次 · 点此改间隔")
                         .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
                 }.buttonStyle(.plain)
+                timingRow(item)
+                HStack(spacing: 8) {
+                    if let acc = item["accountId"] as? String {
+                        let name = conn.accounts.first { ($0["id"] as? String) == acc }?["name"] as? String
+                        Chip(text: name ?? "未知账户", mono: false)
+                    }
+                    if let at = item["createdAt"] as? String {
+                        Text(fmtDate(at)).font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
+                    }
+                    Spacer()
+                }
                 HStack(spacing: 8) {
                     if status == "running" || status == "paused" {
                         qBtn(icon: status == "paused" ? "play.fill" : "pause.fill", label: status == "paused" ? "恢复" : "暂停", color: t.muted) {
@@ -1018,11 +1068,288 @@ struct QueuePane: View {
         await load()
     }
 
+    /// 上一轮结论+阶段耗时(F-702 移动版:点耗时 chip 弹分解)
+    @ViewBuilder
+    private func timingRow(_ item: [String: Any]) -> some View {
+        let key = "\(item["planCode"] as? String ?? "")@\(item["datacenter"] as? String ?? "")"
+        if let tm = timings[key],
+           let total = numToDoubleAny(tm["totalMs"]), total > 0 {
+            let outcome = tm["outcome"] as? String ?? ""
+            let (ocn, oc) : (String, String) = outcome == "ordered" ? ("已下单", t.success) : (outcome == "unavailable" ? ("无货", t.muted) : ("出错", t.danger))
+            HStack(spacing: 6) {
+                Text("上一轮").font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                Text(ocn).font(.system(size: 10, weight: .semibold)).foregroundColor(t.color(oc))
+                Button {
+                    // 分解 toast:总 X + 各阶段(F-702)
+                    let phases = (tm["phases"] as? [[String: Any]]) ?? []
+                    var lines = "总 \(msText2(total))"
+                    var slowest = ("", 0.0)
+                    for p in phases {
+                        let n = p["name"] as? String ?? p["stage"] as? String ?? "?"
+                        let ms = numToDoubleAny(p["ms"]) ?? numToDoubleAny(p["durationMs"]) ?? 0
+                        lines += "\n\(stageCn(n)) \(msText2(ms))"
+                        if ms > slowest.1 { slowest = (n, ms) }
+                    }
+                    toast.show(lines, error: false)
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "timer").font(.system(size: 9))
+                        Text(msText2(total)).font(.system(size: 10, design: .rounded))
+                    }.foregroundColor(t.color(t.info))
+                }.buttonStyle(.plain)
+                Spacer()
+            }
+        }
+    }
+
+    private func stageCn(_ k: String) -> String {
+        ["availability": "查库存", "price": "验价", "cart": "建车", "checkout": "下单"][k] ?? k
+    }
+    private func msText2(_ v: Double) -> String {
+        v >= 1000 ? String(format: "%.1fs", v / 1000) : "\(Int(v))ms"
+    }
+
+    private func loadTimings() async {
+        do {
+            let r = try await conn.client.getDict("/queue/timings")
+            timings = r["timings"] as? [String: [String: Any]] ?? [:]
+            timingsErr = nil
+        } catch { timingsErr = error.localizedDescription }
+    }
+
     private func load() async {
         err = nil
-        do { items = try await conn.client.getArray("/queue") }
-        catch { err = error.localizedDescription }
+        // 列表与 timings 并行;timings 失败不拖垮列表
+        async let itemsTask = conn.client.getArray("/queue")
+        await loadTimings()
+        do { items = try await itemsTask }
+        catch { err = "队列读取失败,不代表队列是空的:\(error.localizedDescription)" }
         loading = false
+    }
+}
+
+/// 新建抢购任务弹窗(F-315~321):planCode 搜索选择/DC 网格/数量/间隔(设置默认值)/autoPay/手填选配
+struct CreateQueueSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    var presetPlan: String
+    var presetOptions: [String]
+    let onDone: () async -> Void
+    var t: Tokens { theme.t }
+
+    /// web 固定 16 机房表(lib/datacenters.ts):code/apiCode/中文
+    static let dcs: [(code: String, api: String, name: String, region: String)] = [
+        ("gra", "gra", "格拉沃利讷", "法国"), ("sbg", "sbg", "斯特拉斯堡", "法国"),
+        ("rbx", "rbx", "鲁贝", "法国"), ("par-a", "eu-west-par-a", "巴黎 A", "法国"),
+        ("par-b", "eu-west-par-b", "巴黎 B", "法国"), ("par-c", "eu-west-par-c", "巴黎 C", "法国"),
+        ("bhs", "bhs", "博阿尔诺", "加拿大"), ("tor", "ca-east-tor-a", "多伦多", "加拿大"),
+        ("mum", "ynm", "孟买", "印度"), ("waw", "waw", "华沙", "波兰"),
+        ("fra", "fra", "法兰克福", "德国"), ("lon", "lon", "伦敦", "英国"),
+        ("hil", "hil", "俄勒冈", "美国西部"), ("vin", "vin", "弗吉尼亚", "美国东部"),
+        ("sgp", "sgp", "新加坡", "新加坡"), ("syd", "syd", "悉尼", "澳大利亚"),
+    ]
+
+    @State private var search = ""
+    @State private var plan = ""
+    @State private var pickedDCs: Set<String> = []
+    @State private var qtyText = ""
+    @State private var intervalText = ""
+    @State private var autoPay = false
+    @State private var optionsText = ""
+    @State private var plans: [[String: Any]] = []
+    @State private var cfgDefaultInterval: Int? = nil
+    @State private var busy = false
+
+    private var qty: Int { max(1, min(20, Int(qtyText.filter(\.isNumber)) ?? 1)) }
+    private var interval: Int { max(1, min(86400, Int(intervalText.filter(\.isNumber)) ?? (cfgDefaultInterval ?? 60))) }
+
+    private var filteredPlans: [[String: Any]] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return plans }
+        return plans.filter {
+            (($0["planCode"] as? String ?? "") + ($0["name"] as? String ?? "") + ($0["cpu"] as? String ?? "") + ($0["memory"] as? String ?? "")).lowercased().contains(q)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(icon: "plus.circle.fill", tint: t.accent, title: "新建抢购任务")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 13) {
+                    SheetNote(text: "下单用当前账户的凭据,购物城 subsidiary 跟随账户 zone。planCode 也要是这个站点的 —— 三区目录互不相通。每台服务器单独成单(每机房最多 20 台,单次最多 60 个任务)。", tint: t.muted)
+
+                    // planCode 搜索选择(F-316/701)
+                    Text("服务器型号").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                    SheetField(placeholder: "选择或搜索服务器型号", text: $search)
+                    if !plan.isEmpty {
+                        HStack(spacing: 8) {
+                            Chip(text: plan, mono: true)
+                            if let p = plans.first(where: { $0["planCode"] as? String == plan }) {
+                                Text([p["cpu"] as? String, p["memory"] as? String, p["storage"] as? String].compactMap { $0 }.filter { !($0 ?? "").isEmpty }.joined(separator: " · "))
+                                    .font(.system(size: 10)).foregroundColor(t.color(t.muted)).lineLimit(1)
+                            }
+                            Spacer()
+                            Button { plan = "" } label: {
+                                Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundColor(t.color(t.faint))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                    if !search.isEmpty && plan.isEmpty {
+                        VStack(spacing: 5) {
+                            ForEach(filteredPlans.prefix(12).indices, id: \.self) { i in
+                                let p = filteredPlans[i]
+                                Button { plan = p["planCode"] as? String ?? ""; search = "" } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(p["planCode"] as? String ?? "").font(.system(size: 12, design: .monospaced)).foregroundColor(t.color(t.fg))
+                                            Text([p["cpu"] as? String, p["memory"] as? String].compactMap { $0 }.joined(separator: " · "))
+                                                .font(.system(size: 9.5)).foregroundColor(t.color(t.muted)).lineLimit(1)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "chevron.right").font(.system(size: 9)).foregroundColor(t.color(t.faint))
+                                    }
+                                    .padding(9)
+                                    .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.surfaceMuted)))
+                                }.buttonStyle(.plain)
+                            }
+                            if filteredPlans.isEmpty {
+                                Text("没有匹配的服务器").font(.system(size: 11)).foregroundColor(t.color(t.faint)).padding(6)
+                            }
+                        }
+                    }
+
+                    // DC 网格(F-317)
+                    HStack {
+                        Text("数据中心").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        Text("(已选 \(pickedDCs.count))").font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
+                        Spacer()
+                        Button { pickedDCs = pickedDCs.count == Self.dcs.count ? [] : Set(Self.dcs.map(\.api)) } label: {
+                            Text(pickedDCs.count == Self.dcs.count ? "清空" : "全选").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.accent))
+                        }.buttonStyle(.plain)
+                    }
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                        ForEach(Self.dcs, id: \.api) { dc in
+                            let on = pickedDCs.contains(dc.api)
+                            Button {
+                                if on { pickedDCs.remove(dc.api) } else { pickedDCs.insert(dc.api) }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: on ? "checkmark.square.fill" : "square")
+                                        .font(.system(size: 13)).foregroundColor(t.color(on ? t.accent : t.faint))
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        Text(dc.code.uppercased()).font(.system(size: 11, weight: .semibold, design: .rounded)).foregroundColor(t.color(t.fg))
+                                        Text(dc.name).font(.system(size: 8.5)).foregroundColor(t.color(t.muted))
+                                    }
+                                    Spacer()
+                                }
+                                .padding(8)
+                                .background(RoundedRectangle(cornerRadius: 9).fill(on ? t.color(t.accent).opacity(0.1) : t.color(t.surfaceMuted)))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+
+                    // 数量/间隔(F-318)
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("每机房数量").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.muted))
+                            SheetField(placeholder: "默认: 1", text: $qtyText, mono: true, keyboard: .numberPad)
+                        }
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("重试间隔(秒)").font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.muted))
+                            SheetField(placeholder: "默认: \(cfgDefaultInterval ?? 60)", text: $intervalText, mono: true, keyboard: .numberPad)
+                        }
+                    }
+
+                    // 选配(F-320)
+                    Text("可选配置(点击目录页机型查看,或手填)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                    SheetField(placeholder: "addon planCode,逗号分隔。例如:ram-64g-ecc-2400, softraid-2x450nvme-24sk50", text: $optionsText, mono: true)
+
+                    Toggle(isOn: $autoPay) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("抢到后自动付款").font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                            Text(autoPay ? "下单成功后用 OVH 默认支付方式自动扣款(需先在 OVH 设置好)" : "不勾则只下单:需在订单过期前自己付款")
+                                .font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                        }
+                    }.tint(t.color(t.accent))
+
+                    if !pickedDCs.isEmpty {
+                        let opts = optionsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                        Text("将创建 \(pickedDCs.count * qty) 个独立任务(\(pickedDCs.count) 个数据中心 × \(qty) 台\(opts.isEmpty ? "" : " · 含 \(opts.count) 个可选配置"))")
+                            .font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.warning))
+                    }
+
+                    ActBtn(kind: .primary, icon: "bolt.fill", label: busy ? "创建中..." : (pickedDCs.isEmpty ? "创建任务" : "创建 \(pickedDCs.count * qty) 个任务"), busy: busy) {
+                        await submit()
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.large])
+        .task {
+            if let r = try? await conn.client.getDict("/servers") {
+                plans = (r["servers"] as? [[String: Any]]) ?? []
+            }
+            if let s2 = try? await conn.client.getDict("/settings"),
+               let v = numToDoubleAny(s2["defaultRetryInterval"]) {
+                cfgDefaultInterval = Int(v)
+            }
+            // 深链/预填(F-302)
+            if plan.isEmpty, !presetPlan.isEmpty {
+                plan = presetPlan
+                if !presetOptions.isEmpty {
+                    optionsText = presetOptions.joined(separator: ", ")
+                }
+            }
+        }
+        .interactiveDismissDisabled(busy)   // 提交中禁止下滑关窗(F-320)
+    }
+
+    private func submit() async {
+        guard !plan.isEmpty, !pickedDCs.isEmpty else {
+            toast.show("请填写计划代码并至少选择一个数据中心", error: true)
+            return
+        }
+        let accountId = conn.accountId.isEmpty ? (conn.activeAccount?["id"] as? String ?? "") : conn.accountId
+        guard !accountId.isEmpty else { return toast.show("请选择 OVH 账户", error: true) }
+        // clamp(F-219):单机房 20 / 单次 60,超限收敛
+        var q = qty
+        if q > 20 || pickedDCs.count * q > 60 {
+            q = max(1, min(20, 60 / pickedDCs.count))
+            toast.show("每个机房最多 20 台、单次最多 60 个任务,已按 \(q) 台/机房(共 \(pickedDCs.count * q) 个任务)创建", error: true)
+        }
+        busy = true
+        defer { busy = false }
+        let opts = optionsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        var okCount = 0, failCount = 0; var firstErr = ""
+        for dc in pickedDCs.sorted() {
+            for _ in 0..<q {
+                var body: [String: Any] = ["account_id": accountId, "planCode": plan, "datacenter": dc, "retryInterval": interval]
+                if !opts.isEmpty { body["options"] = opts }
+                if autoPay { body["autoPay"] = true }
+                do {
+                    _ = try await conn.client.post("/queue", body: body)
+                    okCount += 1
+                } catch {
+                    failCount += 1
+                    if firstErr.isEmpty { firstErr = error.localizedDescription }
+                }
+            }
+        }
+        if failCount == 0 {
+            toast.show("已创建 \(okCount) 个抢购任务")
+            dismiss()
+            await onDone()
+        } else if okCount > 0 {
+            toast.show("已创建 \(okCount)/\(okCount + failCount) 个,失败 \(failCount) 个:\(firstErr)", error: true)
+            dismiss()
+            await onDone()
+        } else {
+            toast.show("有任务没能创建:\(firstErr)", error: true)
+        }
     }
 }
 
