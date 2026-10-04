@@ -542,3 +542,97 @@ func isOrderable(_ s: String) -> Bool {
 func fmtMbps(_ bps: Double) -> String {
     bps >= 1_000_000_000 ? String(format: "%.1f Gbps", bps / 1_000_000_000) : String(format: "%.1f Mbps", bps / 1_000_000)
 }
+
+
+// MARK: - 机器详情页专用组件(视觉层)
+
+/// 状态光环图标:大图标 + 状态色柔光底 + 微光环
+struct StatusBadgeIcon: View {
+    @EnvironmentObject var theme: Theme
+    let systemImage: String
+    let tint: String
+    var size: CGFloat = 52
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        ZStack {
+            Circle().fill(t.color(tint).opacity(0.10)).frame(width: size, height: size)
+            Circle().fill(t.color(tint).opacity(0.16)).frame(width: size * 0.72, height: size * 0.72)
+            Image(systemName: systemImage)
+                .font(.system(size: size * 0.36, weight: .semibold))
+                .foregroundColor(t.color(tint))
+        }
+    }
+}
+
+/// 信息胶囊:图标+文字 的紧凑 pill(详情页顶栏专用)
+struct InfoPill: View {
+    @EnvironmentObject var theme: Theme
+    let icon: String
+    let text: String
+    var tint: String? = nil
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 9, weight: .semibold))
+            Text(text).font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
+        }
+        .foregroundColor(t.color(tint ?? t.muted))
+        .padding(.horizontal, 9).padding(.vertical, 5)
+        .background(Capsule().fill(t.color((tint ?? t.muted)).opacity(0.10)))
+        .overlay(Capsule().stroke(t.color((tint ?? t.muted)).opacity(0.18), lineWidth: 0.5))
+    }
+}
+
+/// 详情页分段 tab:胶囊选中态(替代系统 segmented,更精致)
+struct DetailTabs: View {
+    @EnvironmentObject var theme: Theme
+    let tabs: [String]
+    @Binding var selection: Int
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(tabs.indices, id: \.self) { i in
+                let on = selection == i
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) { selection = i }
+                } label: {
+                    Text(tabs[i])
+                        .font(.system(size: 12.5, weight: on ? .bold : .medium))
+                        .foregroundColor(on ? (t.dark ? .white : t.color(t.accent)) : t.color(t.muted))
+                        .padding(.horizontal, 14).padding(.vertical, 7)
+                        .background(
+                            Capsule().fill(on ? t.color(t.accent) : t.color(t.surfaceMuted).opacity(0.6))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// 规格格:概览硬件 2×2 竖排小卡
+struct SpecTile: View {
+    @EnvironmentObject var theme: Theme
+    let icon: String
+    let label: String
+    let value: String
+    var t: Tokens { theme.t }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 10, weight: .semibold)).foregroundColor(t.color(t.accent))
+                Text(label).font(.system(size: 10)).foregroundColor(t.color(t.muted))
+            }
+            Text(value).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                .lineLimit(2).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surfaceMuted).opacity(0.55)))
+    }
+}

@@ -21,13 +21,9 @@ struct ServerDetailView: View {
         ScrollView {
             VStack(spacing: 12) {
                 headerCard
-                Picker("", selection: $seg) {
-                    Text("概览").tag(0)
-                    Text("电源").tag(1)
-                    Text("维护").tag(2)
-                    Text("高级").tag(3)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    DetailTabs(tabs: ["概览", "电源", "维护", "高级"], selection: $seg)
                 }
-                .pickerStyle(.segmented)
 
                 switch seg {
                 case 1: PowerSection(sn: sn, serviceinfo: serviceinfo, sheet: $sheet)
@@ -58,104 +54,80 @@ struct ServerDetailView: View {
     private var headerCard: some View {
         let state = item["state"] as? String ?? ""
         let ok = ["ok", "active"].contains(state.lowercased())
+        let tint = ok ? t.success : t.danger
+        let alias = displayName != sn ? displayName : nil
         return Card {
-            VStack(spacing: 11) {
-                HStack(spacing: 10) {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(t.color(ok ? t.success : t.danger).opacity(0.16))
-                        .frame(width: 42, height: 42)
-                        .overlay(Image(systemName: "server.rack").font(.system(size: 18, weight: .semibold)).foregroundColor(t.color(ok ? t.success : t.danger)))
+            VStack(spacing: 12) {
+                // Hero 行:状态光环图标 + 名称区 + 状态 chip
+                HStack(alignment: .center, spacing: 13) {
+                    StatusBadgeIcon(systemImage: "server.rack", tint: tint)
+                        .onLongPressGesture { sheet = .init(kind: .alias) }   // S-008:长按=设别名
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(displayName).font(.system(size: 16, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
-                        Text("\(sn) · \((item["datacenter"] as? String ?? "—").uppercased())")
-                            .font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.muted)).lineLimit(1)
+                        Text(alias ?? sn).font(.system(size: 17, weight: .bold)).foregroundColor(t.color(t.fg)).lineLimit(1)
+                        Text(alias == nil ? "" : sn)
+                            .font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.faint)).lineLimit(1)
+                        HStack(spacing: 8) {
+                            Label("\((item["datacenter"] as? String ?? "—").uppercased())", systemImage: "mappin.and.ellipse")
+                            Label(mask ? maskIP(item["ip"] as? String ?? "") : (item["ip"] as? String ?? "—"), systemImage: "network")
+                        }
+                        .font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.muted))
                     }
-                    .onLongPressGesture { sheet = .init(kind: .alias) }   // S-008:长按=web 右键设别名
                     Spacer()
-                    Chip(text: state.uppercased(), color: ok ? t.success : t.danger)
-                }
-                HStack(spacing: 6) {
-                    Dot(color: ok ? t.success : t.danger)
-                    Text(mask ? maskIP(item["ip"] as? String ?? "") : (item["ip"] as? String ?? "—"))
-                        .font(.system(size: 12.5, design: .monospaced)).foregroundColor(t.color(t.fg))
-                    Spacer()
-                    // OS 胶囊(S-016):点击进重装
-                    if let os = item["os"] as? String, !os.isEmpty {
-                        Button { sheet = .init(kind: .reinstall) } label: {
-                            HStack(spacing: 3) {
-                                Image(systemName: "terminal").font(.system(size: 9))
-                                Text(os).font(.system(size: 10.5, design: .monospaced)).lineLimit(1)
-                            }
-                            .foregroundColor(t.color(t.info))
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(Capsule().fill(t.color(t.info).opacity(0.1)))
-                        }.buttonStyle(.plain)
+                    VStack(spacing: 5) {
+                        Chip(text: state.uppercased(), color: tint)
+                        Text(renewalText.isEmpty ? "" : renewalText)
+                            .font(.system(size: 9.5, weight: .medium)).foregroundColor(t.color(t.faint))
                     }
-                    // 续费胶囊可点(S-015)
-                    Button { sheet = .init(kind: .renewal) } label: {
-                        Text(renewalText).font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.accent))
-                    }.buttonStyle(.plain)
                 }
+
+                // 胶囊行:撤单倒计时 / 监控 / OS(功能锚点不变)
                 if serviceinfo == nil {
-                    // S-013:胶囊骨架
                     HStack(spacing: 6) {
-                        ForEach(0..<4, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 8).fill(t.color(t.surfaceMuted))
-                                .frame(width: 72, height: 24)
+                        ForEach(0..<3, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 8).fill(t.color(t.surfaceMuted)).frame(width: 64, height: 22)
                         }
                         Spacer()
                     }
-                    .padding(.top, 4)
                 }
                 HStack(spacing: 6) {
-                    // S-014 撤单倒计时胶囊(eligible 才显示,点击直达)
                     if (retraction?["eligible"] as? Bool) == true {
                         Button { sheet = .init(kind: .retraction) } label: {
-                            HStack(spacing: 3) {
-                                Image(systemName: "clock.badge.exclamationmark").font(.system(size: 9))
-                                Text("可撤单 · \(retractionLeftText)").font(.system(size: 10.5, weight: .semibold))
-                            }
-                            .foregroundColor(t.color(t.warning))
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(Capsule().fill(t.color(t.warning).opacity(0.12)))
+                            InfoPill(icon: "clock.badge.exclamationmark", text: "可撤单 · \(retractionLeftText)", tint: t.warning)
                         }.buttonStyle(.plain)
                     }
-                    // S-018 OVH 监控三态胶囊
+                    if let os = item["os"] as? String, !os.isEmpty {
+                        Button { sheet = .init(kind: .reinstall) } label: {
+                            InfoPill(icon: "terminal", text: os, tint: t.info)
+                        }.buttonStyle(.plain)
+                    }
+                    Spacer()
+                }
+                HStack(spacing: 6) {
+                    Button { sheet = .init(kind: .renewal) } label: {
+                        InfoPill(icon: "arrow.triangle.2.circlepath", text: renewalText.isEmpty ? "续费" : renewalText, tint: t.accent)
+                    }.buttonStyle(.plain)
+                    if let si = serviceinfo, let exp = si["expiration"] as? String, !exp.isEmpty {
+                        InfoPill(icon: "calendar", text: "到期 \(fmtDate(exp))", tint: daysLeft(exp) < 7 ? t.danger : nil)
+                    }
+                    Spacer()
                     Button {
                         if monitoringOn == nil {
-                            Task {   // 读失败时点击只重试,不发指令(防未知当 false 反向关掉)
+                            Task {
                                 monitoringLoading = true
                                 if let r = try? await conn.client.getDict("/server-control/\(sn)/monitoring") {
                                     monitoringOn = r["monitoring"] as? Bool
                                 }
                                 monitoringLoading = false
                             }
-                        } else {
-                            sheet = .init(kind: .monitoring)
-                        }
+                        } else { sheet = .init(kind: .monitoring) }
                     } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "bell.badge").font(.system(size: 9))
-                            Text(monitoringLabel).font(.system(size: 10.5, weight: .semibold))
-                        }
-                        .foregroundColor(t.color(monitoringColor))
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Capsule().fill(t.color(monitoringColor).opacity(0.12)))
+                        InfoPill(icon: "bell.badge", text: monitoringLabel, tint: monitoringColor)
                     }.buttonStyle(.plain)
-                    Spacer()
                 }
-                .padding(.top, 2)
                 if let si = serviceinfo {
-                    FlowLayout(spacing: 6) {
-                        if let exp = si["expiration"] as? String, !exp.isEmpty {
-                            Chip(text: "到期 \(fmtDate(exp))", color: daysLeft(exp) < 7 ? t.danger : t.muted)
-                        }
-                        if (si["terminationScheduled"] as? Bool ?? false) || (si["renewalDeleteAtExpiration"] as? Bool ?? false) {
-                            Chip(text: "到期将终止", color: t.danger)
-                        }
-                        if si["renewalForced"] as? Bool == true {
-                            Chip(text: "OVH 强制续费", color: t.warning)
-                        }
+                    let terminating = (si["terminationScheduled"] as? Bool ?? false) || (si["renewalDeleteAtExpiration"] as? Bool ?? false)
+                    if terminating {
+                        InfoPill(icon: "exclamationmark.triangle.fill", text: "到期将终止服务", tint: t.danger)
                     }
                 }
             }
@@ -335,23 +307,26 @@ struct OverviewSection: View {
                 VStack(spacing: 9) {
                     HStack {
                         SectionTitle(text: "硬件")
+                        Spacer()
+                        if let cr = item["commercialRange"] as? String, !cr.isEmpty {
+                            Chip(text: cr.components(separatedBy: " | ").first ?? cr, color: t.info)
+                        }
                     }
                     if let hw = hardware {
-                        KV(k: "处理器", v: "\(hw["processorName"] ?? "—")")
-                        KV(k: "核心", v: "\(hw["numberOfProcessors"] ?? 0)×\(hw["coresPerProcessor"] ?? 0) 核 / \(hw["threadsPerProcessor"] ?? 0) 线程")
-                        KV(k: "内存", v: memText(hw["memorySize"]))
-                        KV(k: "主板", v: "\(hw["motherboard"] ?? "—")")
-                        if let groups = hw["diskGroups"] as? [[String: Any]] {
-                            ForEach(groups.indices, id: \.self) { i in
-                                KV(k: "磁盘组 \(i+1)", v: diskText(groups[i]))
-                            }
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                            SpecTile(icon: "cpu", label: "处理器", value: "\(hw["processorName"] ?? "—")")
+                            SpecTile(icon: "cpu.fill", label: "核心", value: "\(hw["numberOfProcessors"] ?? 0) 颗 × \(hw["coresPerProcessor"] ?? 0) 核 / \(hw["threadsPerProcessor"] ?? 0) 线程")
+                            SpecTile(icon: "memorychip", label: "内存", value: memText(hw["memorySize"]))
+                            SpecTile(icon: "internaldrive", label: "磁盘", value: diskAllText(hw))
+                        }
+                        if let mb = hw["motherboard"] as? String, mb != "N/A", !mb.isEmpty {
+                            KV(k: "主板", v: mb)
                         }
                     } else {
-                        ProgressView().padding(6)
+                        ProgressView().padding(10).frame(maxWidth: .infinity)
                     }
                 }
             }
-
             Card {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
@@ -426,6 +401,12 @@ struct OverviewSection: View {
             return "\(Int(val)) \(unit.uppercased())"
         }
         return mem.flatMap { "\($0)" } ?? "—"
+    }
+
+    /// 全部磁盘组合并为短文本(2×960GB NVMe / 2×2TB HDD)
+    private func diskAllText(_ hw: [String: Any]) -> String {
+        let groups = (hw["diskGroups"] as? [[String: Any]]) ?? []
+        return groups.map { diskText($0) }.joined(separator: " / ")
     }
 
     private func diskText(_ g: [String: Any]) -> String {
