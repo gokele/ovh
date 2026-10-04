@@ -113,7 +113,7 @@ struct CatalogPane: View {
     /// 后台静默刷新(否则每次进抢购页都等 OVH 目录+价格,体感就是"加载好久")。
     private static let cacheTTL: TimeInterval = 300
     @State private var loadGeneration = 0
-    static var memCache: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], addons: [String: Double], currency: String, age: Int?, expired: Bool)? = nil
+    static var memCache: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], addons: [String: Double], currency: String, age: Int?, expired: Bool, priceSub: String)? = nil
     @State private var loading = true
     @State private var search = ""
     @State private var onlyAvailable = false
@@ -393,7 +393,8 @@ struct CatalogPane: View {
             }
             guard gen == loadGeneration else { return }
             guard gen == loadGeneration else { return }
-            Self.memCache = (Date(), plans, availability, priceMap, addonMap, priceCurrency, cacheAgeMin, cacheExpired)
+            guard gen == loadGeneration else { return }
+            Self.memCache = (Date(), plans, availability, priceMap, addonMap, priceCurrency, cacheAgeMin, cacheExpired, priceSubOfCatalog)
         } catch { err = error.localizedDescription }
         // 子公司错配探测(F-208):失败不阻塞目录
         if let ai = try? await conn.client.getDict("/ovh/account/info") {
@@ -403,7 +404,9 @@ struct CatalogPane: View {
         loading = false
     }
 
-    private func applyCache(_ c: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], addons: [String: Double], currency: String, age: Int?, expired: Bool)) {
+    private var priceSubOfCatalog: String { sub2 }
+
+    private func applyCache(_ c: (at: Date, plans: [[String: Any]], avail: [String: [String: String]], prices: [String: Double], addons: [String: Double], currency: String, age: Int?, expired: Bool, priceSub: String)) {
         plans = c.plans; availability = c.avail; priceMap = c.prices
         priceCurrency = c.currency; cacheAgeMin = c.age; cacheExpired = c.expired
         loading = false
@@ -778,7 +781,7 @@ struct SnipeOrderSheet: View {
             basePrice = c.prices[planCode] ?? 0
             addonPrices = c.addons
             currency = c.currency
-            priceSubRegion = conn.activeAccount?["zone"] as? String ?? ""
+            priceSubRegion = c.priceSub
             if let p = (c.plans as [[String: Any]]).first(where: { ($0["planCode"] as? String) == planCode }) {
                 buildGroups(from: p)
             }
@@ -860,8 +863,10 @@ struct SnipeOrderSheet: View {
         busy = true
         defer { busy = false }
         var okCount = 0, failMsg = ""
+        var createdTotal = 0
         for dc in pickedDCs.sorted() {
             for _ in 0..<effectiveQty {
+                createdTotal += 1
                 var body: [String: Any] = [
                     "account_id": accountId,
                     "planCode": planCode,
@@ -879,7 +884,7 @@ struct SnipeOrderSheet: View {
                 }
             }
         }
-        let totalCreated = pickedDCs.count * qty
+        let totalCreated = createdTotal
         if okCount == totalCreated {
             toast.show("已创建 \(okCount) 个任务")
         } else if okCount > 0 {
@@ -975,7 +980,7 @@ struct QueuePane: View {
                             await batch("running")
                         }
                         qBtn(icon: "trash", label: "删除 \(selected.count)", color: t.danger) {
-                            await batchDelete()
+                            batchDeleteConfirm = true
                         }
                     }
                 }
@@ -1008,6 +1013,15 @@ struct QueuePane: View {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 if Task.isCancelled { break }
                 await load()
+            }
+        }
+        .onChange(of: nav.pendingCreatePlan) { _ in
+            if nav.pendingCreatePlan != nil, !showCreate {
+                pendingCreatePlan = nav.pendingCreatePlan
+                pendingCreateOptions = nav.pendingCreateOptions
+                nav.pendingCreatePlan = nil
+                nav.pendingCreateOptions = []
+                showCreate = true
             }
         }
         .onChange(of: conn.accountId) { _ in Task { await load() } }
@@ -1448,7 +1462,7 @@ struct QueueIntervalSheet: View {
                 KV(k: "机房", v: (item["datacenter"] as? String ?? "").uppercased())
                 VStack(alignment: .leading, spacing: 6) {
                     Text("间隔:\(interval) 秒").font(.system(size: 13, weight: .semibold)).foregroundColor(t.color(t.fg))
-                    Slider(value: Binding(get: { Double(interval) }, set: { interval = Int($0) }), in: 1...3600, step: 1)
+                    Slider(value: Binding(get: { Double(interval) }, set: { interval = Int($0) }), in: 1...86400, step: 1)
                         .tint(t.color(t.accent))
                 }
                 ActBtn(kind: .primary, icon: "checkmark", label: busy ? "保存中…" : "保存", busy: busy) {

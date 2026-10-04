@@ -270,7 +270,12 @@ struct VpsDetailView: View {
             } else {
                 currentOS = o["name"] as? String
             }
-        } catch { _ = error.localizedDescription }
+            osLoadFailed = false
+        } catch {
+            _ = error.localizedDescription
+            osLoadFailed = true
+            siLoadFailed = true
+        }
         await loadIPs()
     }
 
@@ -288,7 +293,7 @@ struct VpsDetailView: View {
         switch s.kind {
         case .console: VpsConsoleSheet(name: name)
         case .reinstall: VpsReinstallSheet(vpsName: name)
-        case .stop: ConfirmSheet(title: "确认关机?", message: "VPS 将立即停机,业务中断直到下次启动。注意:OVH 不会因为关机停止计费,VPS 仍占用 hypervisor 配额。", confirmText: "确认关机") {
+        case .stop: ConfirmSheet(title: "确认关机?", message: "VPS 将立即停机,业务中断直到下次启动。注意:OVH 不会因为关机停止计费,VPS 仍占用 hypervisor 配额,只是物理上不再消耗 CPU/磁盘 IO。", confirmText: "确认关机") {
             await power("stop")
         }
         case .reboot: ConfirmSheet(title: "重启 VPS", message: "强制重启,未保存数据会丢失。", confirmText: "确认重启") {
@@ -530,7 +535,18 @@ struct VpsMaintenanceSection: View {
                 m(.tasks, icon: "checklist", title: "任务历史", desc: "VPS 操作任务")
                 m(.alias, icon: "tag", title: "别名", desc: "本地显示名")
                 m(.options, icon: "shippingbox", title: "附加选项", desc: "已订阅选项")
-                m(.changeContact, icon: "person.2", title: isUSAccount ? "美区限制" : "变更联系人", desc: isUSAccount ? "变更联系人/Backup FTP/重置密码/IPMI 测试不可用" : "admin/tech/billing")
+                if isUSAccount {
+                    // V-034:美区整卡替换为说明,不可点入
+                    Card(border: "warning") {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("美区限制").font(.system(size: 13, weight: .bold)).foregroundColor(t.color(t.warning))
+                            Text("US OVHcloud 是独立公司,以下功能不可用:变更联系人 / 重置密码 / Backup FTP / IPMI 测试。密码可在 Web 控制台进系统后用 passwd 自助改;过户需直接联系 OVH US 客服。")
+                                .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                        }
+                    }
+                } else {
+                    m(.changeContact, icon: "person.2", title: "变更联系人", desc: "admin/tech/billing NIC")
+                }
             }
             Card {
                 VStack(spacing: 10) {
@@ -741,16 +757,17 @@ let VPS_TASK_STATE_CN: [String: String] = [
     "blocked": "已阻塞", "cancelled": "已取消", "doing": "进行中", "done": "完成",
     "error": "失败", "paused": "已暂停", "todo": "排队中", "waitingack": "待确认",
 ]
-// V-065 类型中文 24 种(OVH 命名带 Vm 后缀)
+// V-065 类型中文(对齐 OVH vps.TaskTypeEnum 真实 key,web VpsTasksDialog.tsx:134-160)
 let VPS_TASK_TYPE_CN: [String: String] = [
-    "addVeeamBackupVm": "添加 Veeam 备份", "changeRootPasswordVm": "重置 root 密码",
-    "createSnapshotVm": "创建快照", "deleteSnapshotVm": "删除快照", "deliverVm": "交付 VM",
-    "generateConsoleUrlVm": "生成控制台链接", "internalTaskVm": "内部任务", "migrateVm": "迁移",
-    "openConsoleVm": "打开控制台", "orderAdditionalIpVm": "分配额外 IP", "rebootVm": "重启",
-    "reinstallVm": "重装系统", "removeVeeamBackupVm": "移除 Veeam 备份", "revertSnapshotVm": "回滚快照",
-    "setBackupVm": "调整自动备份", "setMonitoringVm": "设置监控", "setNetbootVm": "设置网络启动",
-    "startVm": "启动", "stopVm": "关机", "veeamFullRestoreVm": "Veeam 完整还原",
-    "veeamRestoreFileVm": "Veeam 还原", "restoreVm": "还原 VM", "updateVmResources": "升级 VM", "upgradeVm": "升级 VM",
+    "addVeeamBackup": "添加 Veeam 备份", "changeRootPassword": "重置 root 密码",
+    "createSnapshot": "创建快照", "deleteSnapshot": "删除快照", "deliver": "交付 VM",
+    "generateConsoleUrl": "生成控制台链接", "internalTask": "内部任务", "migrate": "迁移",
+    "openConsole": "打开控制台", "orderAdditionalIp": "分配额外 IP", "reboot": "重启",
+    "reinstall": "重装系统", "removeVeeamBackup": "移除 Veeam 备份", "revertSnapshot": "回滚快照",
+    "setBackup": "调整自动备份", "setMonitoring": "设置监控", "setNetboot": "设置网络启动",
+    "start": "启动", "stop": "关机", "veeamFullRestore": "Veeam 完整还原",
+    "veeamRestoreFile": "Veeam 还原", "restore": "还原 VM", "updateVmResources": "升级 VM",
+    "revertVm": "还原 VM", "reOpen": "重新打开工单", "rescheduleAutoBackup": "调整自动备份",
 ]
 
 func vpsTaskStateColor(_ s: String) -> String {
@@ -794,7 +811,7 @@ struct VpsTasksSheet: View {
                                 VStack(alignment: .leading, spacing: 6) {
                                     HStack {
                                         Text("#\(it["id"] as? Int ?? 0)").font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint))
-                                        Text(VPS_TASK_TYPE_CN[act] ?? act).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                        Text(VPS_TASK_TYPE_CN[act] ?? VPS_TASK_TYPE_CN[String(act.dropSuffix("Vm"))] ?? act).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
                                         Spacer()
                                         if progress > 0 && progress < 100 { Chip(text: "\(progress)%") }
                                         Chip(text: VPS_TASK_STATE_CN[state] ?? state, color: vpsTaskStateColor(state))
@@ -973,7 +990,15 @@ struct ServerAliasSheet: View {
         }
         .background(t.color(t.bg))
         .presentationDetents([.medium])
-        .onAppear { alias = current.contains(" | ") ? String(current.components(separatedBy: " | ").first ?? "") : "" }
+        .task {
+            // 预填真实别名(GET aliases),不是 OVH 计划名
+            if let r = try? await conn.client.getDict("/server-control/aliases"),
+               let map = r["aliases"] as? [String: String] ?? (r["aliases"] as? [String: Any]).flatMap({ dict in
+                   dict.mapValues { $0 as? String ?? "" }
+               }) {
+                alias = map[sn] ?? ""
+            }
+        }
     }
 
     private func save() async {
@@ -988,7 +1013,7 @@ struct ServerAliasSheet: View {
             let (ok, msg) = await conn.client.actionPutData("/server-control/\(sn)/alias", bodyData: body)
             toast.show(ok ? "别名已保存" : (msg.isEmpty ? "失败" : msg), error: !ok)
         }
-        if !busy || alias.isEmpty { dismiss() }
+        dismiss()
     }
 }
 
@@ -997,6 +1022,10 @@ func zoneCn(_ z: String) -> String {
     let m: [String: String] = [
         // OS_ZONE_MAP(V-019 新式)
         "os-eu-west-fr-1": "法国·格拉夫林", "os-eu-west-fr-2": "法国·鲁贝", "os-eu-west-fr-3": "法国·斯特拉斯堡",
+        "os-us-west-or-1": "美国西部·俄勒冈", "os-us-west-or-2": "美国西部·俄勒冈 2",
+        "os-eu-west-de-1": "德国·法兰克福", "os-eu-west-pl-1": "波兰·华沙",
+        "os-asia-southeast-sg-1": "新加坡", "os-asia-south-in-1": "印度·孟买",
+        "os-au-southeast-syd-1": "澳大利亚·悉尼", "os-eu-south-it-1": "意大利", "os-eu-north-fi-1": "芬兰",
         "os-eu-west-par-1": "法国·巴黎", "os-eu-west-par-2": "法国·巴黎 2", "os-eu-west-par-3": "法国·巴黎 3",
         "os-eu-central-de-1": "德国·法兰克福", "os-eu-central-waw-1": "波兰·华沙", "os-eu-west-uk-1": "英国·伦敦",
         "os-ca-east-bhs-1": "加拿大·博阿尔诺", "os-ca-east-tor-2": "加拿大·多伦多", "os-us-east-vin-1": "美国·弗吉尼亚",
@@ -1007,6 +1036,13 @@ func zoneCn(_ z: String) -> String {
         "par": "法国·巴黎", "bhs": "加拿大·博阿尔诺", "tor": "加拿大·多伦多", "mum": "印度·孟买",
         "waw": "波兰·华沙", "fra": "德国·法兰克福", "lon": "英国·伦敦", "hil": "美国西部·俄勒冈",
         "vin": "美国·弗吉尼亚", "sgp": "新加坡", "syd": "澳大利亚·悉尼", "de1": "德国",
+        "lim": "墨西哥·克雷塔罗", "eri": "土耳其·伊斯坦布尔",
     ]
     return m[z.lowercased()] ?? z.uppercased()
+}
+
+extension String {
+    func dropSuffix(_ suffix: String) -> Substring {
+        hasSuffix(suffix) ? dropLast(suffix.count) : Substring(self)
+    }
 }

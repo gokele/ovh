@@ -59,7 +59,10 @@ struct SettingsScreen: View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle(text: "当前账户")
-                if let acc = conn.activeAccount {
+                if let ae = conn.accountsError {
+                    Text("账户读取失败(\(ae))—— 账户相关功能可能不对,下拉重试")
+                        .font(.system(size: 10.5)).foregroundColor(t.color(t.danger))
+                } else if let acc = conn.activeAccount {
                     HStack(spacing: 9) {
                         Circle().fill(t.color(zoneTint(acc))).frame(width: 8, height: 8)
                         Text(acc["name"] as? String ?? "").font(.system(size: 14, weight: .semibold)).foregroundColor(t.color(t.fg))
@@ -174,7 +177,11 @@ struct SettingsScreen: View {
         }
         snipeSaveBusy = true
         defer { snipeSaveBusy = false }
-        let body = try? JSONSerialization.data(withJSONObject: ["defaultRetryInterval": va, "quickOrderRetryInterval": vb])
+        // 后端 POST /settings 是全量覆盖 —— 必须先读旧配置合并,否则会清空 TG/Webhook 等
+        var merged: [String: Any] = (try? await conn.client.getDict("/settings")) ?? [:]
+        merged["defaultRetryInterval"] = va
+        merged["quickOrderRetryInterval"] = vb
+        let body = try? JSONSerialization.data(withJSONObject: merged)
         let (ok2, msg) = await conn.client.actionPostData("/settings", bodyData: body)
         toast.show(ok2 ? "设置已保存" : (msg.isEmpty ? "保存失败" : msg), error: !ok2)
     }
@@ -355,21 +362,19 @@ struct NotifyScreen: View {
         testing = true
         defer { testing = false }
         let r = try? await conn.client.post("/monitor/test-notification")
-        // SET-058 三分档:0 条 error / 部分失败 warning / 全成功
-        let delivered = numToDoubleAny(r?["delivered"]).map(Int.init) ?? -1
-        let total = numToDoubleAny(r?["total"]).map(Int.init) ?? -1
-        let results = r?["results"] as? [[String: Any]] ?? []
+        // 后端契约:{delivered, channels:[{name, ok, error?}], message?}
+        let delivered = numToDoubleAny(r?["delivered"]).map(Int.init) ?? 0
+        let chs = (r?["channels"] as? [[String: Any]]) ?? []
+        let failed = chs.filter { !(($0["ok"] as? Bool) ?? false) }
         if delivered == 0 {
-            toast.show("一条都没发出去", error: true)
-        } else if delivered > 0 && total > delivered {
-            let failed = results.filter { !(($0["ok"] as? Bool) ?? false) }
+            let reason = failed.compactMap { "\($0["name"] ?? "?"):\($0["error"] as? String ?? "不可用")" }.joined(separator: ";")
+            toast.show(reason.isEmpty ? "一条都没发出去。请在设置页配置 Telegram 或 Webhook" : "一条都没发出去:\(reason)", error: true)
+        } else if !failed.isEmpty {
             let names = failed.compactMap { $0["name"] as? String }.joined(separator: "、")
             let reason = failed.first?["error"] as? String ?? ""
             toast.show("\(delivered) 条已送达,但 \(names) 失败:\(reason)", error: true)
-        } else if delivered > 0 {
-            toast.show("已发往 \(delivered) 个通道")
         } else {
-            toast.show((r?["message"] as? String) ?? "发送失败", error: true)
+            toast.show("已发往 \(delivered) 个通道")
         }
     }
 
@@ -380,11 +385,12 @@ struct NotifyScreen: View {
         }
         saveBusy = true
         defer { saveBusy = false }
-        var body: [String: Any] = [:]
-        if !tgToken.isEmpty { body["tgToken"] = tgToken }
-        if !tgChatId.isEmpty { body["tgChatId"] = tgChatId }
-        if !webhookUrl.isEmpty { body["notifyWebhookUrl"] = webhookUrl }
-        let data = try? JSONSerialization.data(withJSONObject: body)
+        // 全量合并(同上):只发改动字段会把其它配置清空
+        var merged: [String: Any] = (try? await conn.client.getDict("/settings")) ?? [:]
+        if !tgToken.isEmpty { merged["tgToken"] = tgToken }
+        if !tgChatId.isEmpty { merged["tgChatId"] = tgChatId }
+        if !webhookUrl.isEmpty { merged["notifyWebhookUrl"] = webhookUrl }
+        let data = try? JSONSerialization.data(withJSONObject: merged)
         let (ok2, msg) = await conn.client.actionPostData("/settings", bodyData: data)
         toast.show(ok2 ? "设置已保存" : (msg.isEmpty ? "保存失败" : msg), error: !ok2)
         await load()

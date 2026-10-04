@@ -210,16 +210,17 @@ struct ServerDetailView: View {
     }
 
     private func terminationLabel(_ si: [String: Any]) -> String {
+        // 后端实际字段:terminationScheduled/terminationAction(terminate|terminateAtExpirationDate|
+        // terminateAtEngagementDate|deleteAtExpiration)/terminationStateUnknown
+        if si["terminationStateUnknown"] as? Bool == true { return "终止状态未知" }
         let scheduled = si["terminationScheduled"] as? Bool ?? false
         let deleteAtExp = si["renewalDeleteAtExpiration"] as? Bool ?? false
         guard scheduled || deleteAtExp else { return "" }
-        if let policy = si["terminationPolicy"] as? String {
-            switch policy.lowercased() {
-            case "terminateservice": return "终止处理中(立即)"
-            case "terminateatengagementdate": return "合同期结束终止"
-            case "terminateatexpirationdate": return "到期终止"
-            default: break
-            }
+        switch (si["terminationAction"] as? String ?? "").lowercased() {
+        case "terminate": return "终止处理中(立即)"
+        case "terminateatengagementdate": return "合同期结束终止"
+        case "terminateatexpirationdate", "deleteatexpiration": return "到期终止"
+        default: break
         }
         return deleteAtExp ? "到期终止" : "已安排终止"
     }

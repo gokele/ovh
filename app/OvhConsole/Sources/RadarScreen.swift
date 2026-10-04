@@ -453,7 +453,7 @@ struct MonitorSubSheet: View {
             "notifyUnavailable": notifyUnavail,
             "autoOrder": autoOrder,
         ]
-        let d = dcs.split(whereSeparator: { ",;,;;、\n".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let d = dcs.split(whereSeparator: { ",，、;；\n".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if !d.isEmpty { body["datacenters"] = d }
         let o = options.split(whereSeparator: { ",".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         body["options"] = o     // PUT 显式传空数组才能清空
@@ -804,16 +804,30 @@ struct VpsSubSheet: View {
     /// F-610:只列与当前账户 endpoint 同区的子公司(web subsidiariesForEndpoint;跨区必被 400)
     private var subsidiaries: [String] {
         let ep = (conn.activeAccount?["endpoint"] as? String ?? "ovh-eu").lowercased()
-        if ep.contains("us") { return ["", "US", "WE", "WS"] }
+        if ep.contains("us") { return ["", "US"] }
         if ep.contains("ca") { return ["", "CA", "QC", "ASIA", "AU", "IN", "SG", "WE", "WS"] }
-        return ["", "FR", "IE", "DE", "GB", "EU", "PL", "CZ", "ES", "IT", "LT", "NL", "PT", "FI", "MA", "TN", "SN"]
+        return ["", "FR", "IE", "DE", "GB", "PL", "CZ", "ES", "IT", "LT", "NL", "PT", "FI", "MA", "TN", "SN"]
     }
+
+    @State private var notifyBlocked = false
+    @State private var notifyReason = ""
+    @State private var notifyChecking = true
 
     var body: some View {
         VStack(spacing: 0) {
             SheetHeader(icon: editing == nil ? "plus.circle" : "square.and.pencil", tint: t.accent, title: editing == nil ? "添加 VPS 监控" : "编辑 VPS 监控")
             ScrollView {
                 VStack(alignment: .leading, spacing: 13) {
+                    if notifyBlocked {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("没有可用的通知通道").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.warning))
+                            Text(notifyReason.isEmpty ? "请先在设置页配置 Telegram 或自定义 Webhook,至少一条" : notifyReason)
+                                .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.warning).opacity(0.5), lineWidth: 1))
+                    }
                     Text("VPS 型号").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                     if loadingModels && editing == nil {
                         HStack(spacing: 8) {
@@ -906,16 +920,20 @@ struct VpsSubSheet: View {
                             .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
                     }
 
-                    ActBtn(kind: .primary, icon: "checkmark", label: busy ? "保存中…" : "保存订阅", busy: busy) {
+                    ActBtn(kind: .primary, icon: "checkmark", label: notifyChecking ? "校验通知…" : (busy ? "保存中…" : "保存订阅"), busy: busy) {
                         await save()
                     }
+                    .disabled(notifyChecking || notifyBlocked)
                 }
                 .padding(16)
             }
         }
         .background(t.color(t.bg))
         .presentationDetents([.large])
-        .task { await loadModels() }
+        .task {
+            await loadModels()
+            await checkNotifyGate()
+        }
         .onAppear {
             if let e = editing {
                 model = e["planCode"] as? String ?? (e["model"] as? String ?? "")
@@ -946,6 +964,20 @@ struct VpsSubSheet: View {
         return (m["osChoices"] as? [String]) ?? []
     }
 
+    private func checkNotifyGate() async {
+        notifyChecking = true
+        guard let r = try? await conn.client.getDict("/notify/channels?verify=true") else {
+            notifyChecking = false; notifyBlocked = false; return
+        }
+        notifyBlocked = !(r["anyAvailable"] as? Bool ?? false)
+        if notifyBlocked {
+            let list = (r["channels"] as? [[String: Any]]) ?? []
+            let bad = list.filter { ($0["configured"] as? Bool ?? false) && !(($0["ok"] as? Bool) ?? false) }
+            notifyReason = bad.isEmpty ? "还没有配置任何通知通道(Telegram / Webhook 至少配一个)" : bad.compactMap { "\($0["name"] ?? "?"): \($0["detail"] ?? "不可用")" }.joined(separator: ";")
+        }
+        notifyChecking = false
+    }
+
     private func loadModels() async {
         if let r = try? await conn.client.getDict("/vps-monitor/models") {
             models = (r["models"] as? [[String: Any]]) ?? []
@@ -967,7 +999,7 @@ struct VpsSubSheet: View {
             "autoOrder": autoOrder,
         ]
         if !subsidiary.isEmpty { body["ovhSubsidiary"] = subsidiary }
-        let d = dcs.split(whereSeparator: { ",;".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let d = dcs.split(whereSeparator: { ",，、;；\n".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if !d.isEmpty { body["datacenters"] = d }
         if autoOrder {
             let accId = conn.accountId.isEmpty ? (conn.activeAccount?["id"] as? String ?? "") : conn.accountId

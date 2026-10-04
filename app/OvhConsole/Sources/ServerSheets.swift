@@ -320,7 +320,8 @@ struct RescueSheet: View {
                         } else {
                             SheetNote(text: "救援系统是一个独立的临时 Linux,从网络启动,不会动你硬盘上的数据。进去之后可以挂载硬盘修配置、改密码、拷数据。进入救援后 OVH 会把 root 密码发到邮箱,约 3~5 分钟后可以 SSH 登录。", tint: t.muted)
                             SheetField(placeholder: rescueMail.isEmpty ? "留空 = 发到 OVH 账户的联系邮箱" : rescueMail, text: $mail, keyboard: .emailAddress)
-                            if !mail.isEmpty && !mail.contains("@") {
+                            let mailOK = mail.range(of: #"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"#, options: .regularExpression) != nil
+                            if !mail.isEmpty && !mailOK {
                                 Text("这个邮箱格式不对。救援系统的 root 密码会发到这里,填错就收不到。")
                                     .font(.system(size: 10.5)).foregroundColor(t.color(t.danger))
                             }
@@ -396,7 +397,7 @@ struct ServerReinstallSheet: View {
     @State private var picked: String?
     @State private var hostname = ""
     enum StorageMode { case tplDefault, zfs, scheme, advanced }
-    @State private var storageMode: StorageMode = .zfs
+    @State private var storageMode: StorageMode = .tplDefault
     @State private var useZFS = true
     @State private var zfsRaid = 1
     @State private var vzGB = 100.0
@@ -686,7 +687,12 @@ struct ServerReinstallSheet: View {
         .background(t.color(t.bg))
         .presentationDetents([.large])
         .task { await load() }
-        .onChange(of: picked) { _ in Task { await loadSchemes() } }
+        .onChange(of: picked) { _ in
+            // web 同款互切:proxmox9→ZFS 预设,其它→模板默认;清掉旧方案选择
+            if isProxmox9 { storageMode = .zfs } else { storageMode = .tplDefault }
+            pickedScheme = nil
+            Task { await loadSchemes() }
+        }
     }
 
     private var filtered: [[String: Any]] {
@@ -767,31 +773,33 @@ struct ServerReinstallSheet: View {
         case .scheme:
             if let s = pickedScheme, !s.isEmpty { body["partitionSchemeName"] = s }
         case .advanced:
-            // hardwareRaid: {raidLevel, disks:数量}(按磁盘组);storageConfig 自定义分区数组
-            let raids = hwRaidByGroup.filter { $0.value >= 0 }
-            if !raids.isEmpty {
-                for g in diskGroups {
-                    let gid = numToDoubleAny(g["diskGroupId"]).map(Int.init) ?? -1
-                    if let lvl = hwRaidByGroup[gid], lvl >= 0,
-                       let n = numToDoubleAny(g["numberOfDisks"]).map(Int.init) {
-                        body["hardwareRaid"] = ["raidLevel": lvl, "disks": n]
-                        break   // 后端单字段;多组取第一组显式配置
-                    }
-                }
-            }
-            if softRaid { body["softRaidLevel"] = softRaidLevel }
+            // 后端契约(web use-server-control.ts 同组装):
+            // storageConfig = [{diskGroupId?, partitioning:{layout:[{mountPoint,fileSystem,size,raidLevel?}]}, hardwareRaid:[{raidLevel,disks}]}]
             let validParts = partitions.filter { !($0["mount"] ?? "").isEmpty }
-            if !validParts.isEmpty {
-                body["storageConfig"] = validParts.map { p in
+            let groups = diskGroups.isEmpty ? [["diskGroupId": 0] as [String: Any]] : diskGroups
+            var storage: [[String: Any]] = []
+            for (gi, g) in groups.enumerated() {
+                let gid = numToDoubleAny(g["diskGroupId"]).map(Int.init) ?? gi
+                var entry: [String: Any] = ["diskGroupId": gid]
+                if let lvl = hwRaidByGroup[gid], lvl >= 0,
+                   let n = numToDoubleAny(g["numberOfDisks"]).map(Int.init) {
+                    entry["hardwareRaid"] = [["raidLevel": lvl, "disks": n]]
+                }
+                let layout: [[String: Any]] = (groups.count == 1 ? validParts : validParts).map { p in
                     var item: [String: Any] = [
-                        "mountpoint": p["mount"] ?? "/",
-                        "filesystem": p["fs"] ?? "ext4",
+                        "mountPoint": p["mount"] ?? "/",
+                        "fileSystem": p["fs"] ?? "ext4",
                         "size": Int(p["size"] ?? "0") ?? 0,
                     ]
-                    if softRaid { item["raid"] = "raid\(softRaidLevel)" }
+                    if softRaid { item["raidLevel"] = softRaidLevel }
                     return item
                 }
+                if !layout.isEmpty { entry["partitioning"] = ["layout": layout] }
+                if entry["hardwareRaid"] != nil || entry["partitioning"] != nil {
+                    storage.append(entry)
+                }
             }
+            if !storage.isEmpty { body["storageConfig"] = storage }
         default:
             break   // 模板默认分区:不带任何存储字段
         }
@@ -1089,6 +1097,7 @@ struct SplaSheet: View {
                         Divider().overlay(t.color(t.border))
 
                         Text("手动登记自己的 SPLA").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                        SheetNote(text: "这里填你自己购买的 SPLA 授权序列号(SQL Server 的两类只能走这里)。这一步是把授权登记到 OVH 名下,不是申请或生成授权 —— 登记本身不会让你凭空拥有授权。", tint: t.warning)
                         Picker("类型", selection: $type) {
                             Text("操作系统").tag("os")
                             Text("SQL Standard").tag("sqlstd")

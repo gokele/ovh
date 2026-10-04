@@ -314,14 +314,14 @@ struct EngagementSheet: View {
                                 let price = a["price"] as? [String: Any]
                                 let val = price?["value"] as? Double ?? (a["monthlyPrice"] as? Double ?? 0)
                                 let cur2 = price?["currencyCode"] as? String ?? (a["currency"] as? String ?? "")
-                                let duration = numToDoubleAny(a["duration"]).map(Int.init) ?? 12
+                                let duration = parseISOMonths(a["duration"] as? String) ?? 12
                                 let perMonth = duration > 0 ? val / Double(duration) : val
                                 Button { confirming = mode } label: {
                                     HStack {
                                         VStack(alignment: .leading, spacing: 1) {
                                             HStack(spacing: 5) {
                                                 Text(modeName(mode)).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
-                                                Chip(text: String(describing: a["pricingType"] ?? "periodic").contains("upfront") ? "一次性预付" : "周期付费")
+                                                Chip(text: upfrontFlag(a) ? "一次性预付" : "周期付费")
                                             }
                                             Text(a["description"] as? String ?? "").font(.system(size: 10)).foregroundColor(t.color(t.muted)).lineLimit(1)
                                         }
@@ -364,6 +364,24 @@ struct EngagementSheet: View {
     private struct ModeWrap: Identifiable {
         let mode: String
         var id: String { mode }
+    }
+
+    /// ISO 8601 duration("P12M"/"P1Y")→ 月数;web parseDurationMonths 同款
+    private func parseISOMonths(_ raw: String?) -> Int? {
+        guard let s = raw, s.hasPrefix("P") else { return nil }
+        var months = 0
+        if let ym = s.range(of: #"([0-9]+)Y"#, options: .regularExpression),
+           let y = Int(s[ym].dropLast()) { months += y * 12 }
+        if let mm = s.range(of: #"([0-9]+)M"#, options: .regularExpression),
+           let m = Int(s[mm].dropLast()) { months += m }
+        return months > 0 ? months : nil
+    }
+
+    private func upfrontFlag(_ a: [String: Any]) -> Bool {
+        if let cfg = a["engagementConfiguration"] as? [String: Any],
+           let ty = cfg["type"] as? String { return ty.lowercased().contains("upfront") }
+        if let pm = a["pricingMode"] as? String { return pm.lowercased().contains("upfront") }
+        return false
     }
 
     private func modeName(_ m: String) -> String {
@@ -1249,8 +1267,10 @@ struct NetworkSpecsSheet: View {
                                         SectionTitle(text: ver.uppercased() + " 路由")
                                         ForEach(routes.indices, id: \.self) { ri in
                                             let r2 = routes[ri]
+                                            let gw = r2["gateway"] as? String ?? "—"
+                                            let blk = r2["block"] as? String ?? (r2["cidr"] as? String ?? "—")
                                             KV(k: (r2["ip"] as? String).map { mask ? maskIP($0) : $0 } ?? "—",
-                                               v: "\(r2["gateway"] as? String ?? "—") / \(r2["block"] as? String ?? r2["cidr"] as? String ?? "—")", mono: true)
+                                               v: (mask ? maskIP(gw) : gw) + " / " + (mask ? maskIP(blk) : blk), mono: true)
                                         }
                                     }
                                 }
