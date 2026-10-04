@@ -395,15 +395,190 @@ struct ServerReinstallSheet: View {
     @State private var search = ""
     @State private var picked: String?
     @State private var hostname = ""
+    enum StorageMode { case tplDefault, zfs, scheme, advanced }
+    @State private var storageMode: StorageMode = .zfs
     @State private var useZFS = true
     @State private var zfsRaid = 1
     @State private var vzGB = 100.0
-    @State private var schemes: [String] = []
+    @State private var schemes: [(name: String, priority: Int)] = []
     @State private var pickedScheme: String?
+    // 高级存储
+    @State private var diskGroups: [[String: Any]] = []
+    @State private var hwRaidProfiles: [[String: Any]] = []
+    @State private var hwRaidSupported = true
+    @State private var hwRaidByGroup: [Int: Int] = [:]      // diskGroupId → raidLevel
+    @State private var softRaid = false
+    @State private var softRaidLevel = 1
+    @State private var partitions: [[String: String]] = [["mount": "/", "fs": "ext4", "size": "0"]]
+    @State private var diskInfoFailed: String? = nil
+    @State private var templatesFailed: String? = nil
     @State private var confirmName = ""
     @State private var loading = true
     @State private var err: String?
     @State private var busy = false
+
+    // MARK: 存储四选一组件(S-036)
+    private func storageModeRow(_ m: StorageMode, title: String, desc: String) -> some View {
+        let on = storageMode == m
+        return Button { storageMode = m } label: {
+            HStack(spacing: 9) {
+                Image(systemName: on ? "largecircle.fill.circle" : "circle").font(.system(size: 15)).foregroundColor(t.color(on ? t.accent : t.faint))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                    Text(desc).font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                }
+                Spacer()
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 11).fill(on ? t.color(t.accent).opacity(0.07) : t.color(t.surfaceMuted)))
+        }.buttonStyle(.plain)
+    }
+
+    private func raidOption(_ level: Int, _ title: String, _ desc: String) -> some View {
+        let on = zfsRaid == level
+        return Button { zfsRaid = level } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(on ? t.accent : t.fg))
+                Text(desc).font(.system(size: 9.5)).foregroundColor(t.color(t.muted))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(9)
+            .background(RoundedRectangle(cornerRadius: 10).stroke(t.color(on ? t.accent : t.border), lineWidth: on ? 1.5 : 1))
+        }.buttonStyle(.plain)
+    }
+
+    /// 高级存储:磁盘组+硬件 RAID+软 RAID+自定义分区
+    private var advancedStoragePanel: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            if let df = diskInfoFailed {
+                LoadFailed(message: "磁盘组信息读取失败:\(df)") { Task { await loadDiskInfo() } }
+            } else {
+                ForEach(diskGroups.indices, id: \.self) { gi in
+                    let g = diskGroups[gi]
+                    let gid = numToDoubleAny(g["diskGroupId"]).map(Int.init) ?? gi
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack {
+                            Text("磁盘组 \(gid)").font(.system(size: 11.5, weight: .bold)).foregroundColor(t.color(t.fg))
+                            if let n = numToDoubleAny(g["numberOfDisks"]).map(Int.init), n > 0 {
+                                Text("\(n) × \(Int(numToDoubleAny((g["diskSize"] as? [String: Any])?["value"]) ?? 0)) \(((g["diskSize"] as? [String: Any])?["unit"] as? String) ?? "GB") \(g["diskType"] as? String ?? "")")
+                                    .font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                            }
+                            Spacer()
+                        }
+                        if hwRaidSupported {
+                            Picker("硬件 RAID", selection: Binding(
+                                get: { hwRaidByGroup[gid] ?? -1 },
+                                set: { hwRaidByGroup[gid] = $0 }
+                            )) {
+                                Text("默认(无 RAID)").tag(-1)
+                                ForEach([0, 1, 5, 6, 10], id: \.self) { r in
+                                    Text(raidName(r)).tag(r)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.surfaceMuted)))
+                }
+                if !hwRaidSupported {
+                    Text("此服务器不支持硬件 RAID,可改用下方「软 RAID」。").font(.system(size: 10.5)).foregroundColor(t.color(t.warning))
+                }
+
+                Toggle(isOn: $softRaid) {
+                    Text("使用软 RAID(Software RAID)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
+                }.tint(t.color(t.accent))
+                if softRaid {
+                    Picker("软 RAID 级别", selection: $softRaidLevel) {
+                        ForEach([0, 1, 5, 6, 10], id: \.self) { r in Text(raidName(r)).tag(r) }
+                    }
+                    .pickerStyle(.segmented)
+                    Text("软 RAID 由 Linux mdadm 管理,不需要硬件 RAID 控制器。所有磁盘将自动加入软 RAID 阵列。")
+                        .font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                }
+
+                Text("自定义分区(size=0 表示剩余空间)").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.muted))
+                ForEach(partitions.indices, id: \.self) { pi in
+                    HStack(spacing: 6) {
+                        TextField("挂载点", text: Binding(get: { partitions[pi]["mount"] ?? "" }, set: { partitions[pi]["mount"] = $0 }))
+                            .font(.system(size: 11, design: .monospaced)).frame(maxWidth: 80)
+                        TextField("MB", text: Binding(get: { partitions[pi]["size"] ?? "" }, set: { partitions[pi]["size"] = $0.filter(\.isNumber) }))
+                            .font(.system(size: 11, design: .monospaced)).frame(maxWidth: 52)
+                            .keyboardType(.numberPad)
+                        Menu {
+                            ForEach(["ext4","ext3","xfs","btrfs","zfs","swap","ntfs","fat16","ufs","vmfs5","vmfs6","vmfsl","none"], id: \.self) { fs in
+                                Button(fs) { partitions[pi]["fs"] = fs }
+                            }
+                        } label: {
+                            Text(partitions[pi]["fs"] ?? "ext4").font(.system(size: 11, design: .monospaced))
+                                .padding(.horizontal, 8).padding(.vertical, 5)
+                                .background(RoundedRectangle(cornerRadius: 7).fill(t.color(t.surfaceMuted)))
+                        }
+                        Spacer()
+                        Button {
+                            partitions.remove(at: pi)
+                        } label: {
+                            Image(systemName: "minus.circle.fill").font(.system(size: 15)).foregroundColor(t.color(t.danger))
+                        }.buttonStyle(.plain)
+                    }
+                }
+                Button {
+                    partitions.append(["mount": "/", "fs": "ext4", "size": "0"])
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.circle").font(.system(size: 11))
+                        Text("添加分区").font(.system(size: 11.5, weight: .semibold))
+                    }.foregroundColor(t.color(t.accent))
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(11)
+        .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surfaceMuted).opacity(0.5)))
+        .task { await loadDiskInfo() }
+    }
+
+    private func raidName(_ r: Int) -> String {
+        switch r {
+        case 0: return "RAID 0 · 条带"
+        case 1: return "RAID 1 · 镜像"
+        case 5: return "RAID 5 · 分布式奇偶"
+        case 6: return "RAID 6 · 双重奇偶"
+        case 10: return "RAID 10 · 镜像+条带"
+        default: return "RAID \(r)"
+        }
+    }
+
+    private var singleDiskCount: Int {
+        diskGroups.reduce(0) { $0 + (numToDoubleAny($1["numberOfDisks"]).map(Int.init) ?? 0) }
+    }
+
+    private var vzMaxText: String {
+        guard let g = diskGroups.first,
+              let ds = g["diskSize"] as? [String: Any],
+              let cap = numToDoubleAny(ds["value"]),
+              let n = numToDoubleAny(g["numberOfDisks"]).map(Int.init) else { return "未知" }
+        let total = zfsRaid == 0 ? cap * Double(n) : cap
+        return String(format: "%.0f", total * 0.92 - 9)
+    }
+
+    private func loadDiskInfo() async {
+        do {
+            let r = try await conn.client.getDict("/server-control/\(sn)/hardware-disk-info")
+            diskGroups = (r["diskGroups"] as? [[String: Any]]) ?? []
+            if diskGroups.isEmpty, let hw = r["hardware"] as? [String: Any] {
+                diskGroups = (hw["diskGroups"] as? [[String: Any]]) ?? []
+            }
+            diskInfoFailed = nil
+        } catch {
+            diskInfoFailed = error.localizedDescription
+        }
+        if let rp = try? await conn.client.getDict("/server-control/\(sn)/hardware-raid-profiles") {
+            hwRaidSupported = (rp["supported"] as? Bool ?? false) && !((rp["profiles"] as? [[String: Any]]) ?? []).isEmpty
+            hwRaidProfiles = (rp["profiles"] as? [[String: Any]]) ?? []
+        } else {
+            hwRaidSupported = false
+        }
+    }
 
     private var isProxmox9: Bool {
         (picked ?? "").lowercased().contains("proxmox") && (picked ?? "").contains("9")
@@ -433,41 +608,76 @@ struct ServerReinstallSheet: View {
 
                     if picked != nil {
                         Text("自定义主机名(可选)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
-                        SheetField(placeholder: sn, text: $hostname, mono: true)
+                        SheetField(placeholder: "如 server1.example.com", text: $hostname, mono: true)
 
-                        if isProxmox9 {
-                            Toggle(isOn: $useZFS) {
-                                Text("Proxmox 9 + ZFS 预设").font(.system(size: 12.5)).foregroundColor(t.color(t.fg))
-                            }.tint(t.color(t.accent))
-                            if useZFS {
-                                Picker("ZFS RAID", selection: $zfsRaid) {
-                                    ForEach([0, 1, 5, 6, 7, 10], id: \.self) { r in Text("RAID \(r)").tag(r) }
+                        // 存储配置四选一(S-036:OVH 只接受其中一种)
+                        VStack(spacing: 8) {
+                            storageModeRow(.tplDefault, title: "使用模板默认分区", desc: "最省事,OVH 按模板推荐布局装")
+                            if isProxmox9 {
+                                storageModeRow(.zfs, title: "Proxmox 9 + ZFS 预设(推荐)", desc: "ZFS 根文件系统 + 独立 /var/lib/vz")
+                            }
+                            storageModeRow(.scheme, title: "内置分区方案", desc: "OVH 为模板预置的布局")
+                            storageModeRow(.advanced, title: "高级存储配置", desc: "硬件 / 软 RAID + 自定义分区")
+                        }
+
+                        switch storageMode {
+                        case .zfs where isProxmox9:
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    raidOption(1, "RAID1 · 镜像", "冗余")
+                                    raidOption(0, "RAID0 · 条带", "最大容量")
                                 }
-                                .pickerStyle(.segmented)
+                                if singleDiskCount <= 1, zfsRaid == 1 {
+                                    Text("该服务器只检测到 1 块磁盘,无法做镜像,请改用 RAID0。")
+                                        .font(.system(size: 10.5)).foregroundColor(t.color(t.danger))
+                                }
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("/var/lib/vz 容量:\(Int(vzGB)) GB").font(.system(size: 11.5)).foregroundColor(t.color(t.muted))
                                     Slider(value: $vzGB, in: 10...500, step: 10).tint(t.color(t.accent))
                                 }
+                                Text("剩余分给根目录(/),最大 \(vzMaxText) GB").font(.system(size: 10)).foregroundColor(t.color(t.faint))
                             }
-                        } else if !schemes.isEmpty {
-                            Text("分区方案").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
-                            FlowLayout(spacing: 7) {
-                                ForEach(schemes, id: \.self) { s in
-                                    Button { pickedScheme = pickedScheme == s ? nil : s } label: {
-                                        Text(s).font(.system(size: 11)).foregroundColor(t.color(pickedScheme == s ? t.fg : t.muted))
-                                            .padding(.horizontal, 10).padding(.vertical, 6)
-                                            .background(RoundedRectangle(cornerRadius: 9).fill(pickedScheme == s ? t.color(t.accent).opacity(0.2) : t.color(t.surfaceMuted)))
+                            .padding(10)
+                            .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.accent).opacity(0.06)))
+                        case .scheme:
+                            if schemes.isEmpty {
+                                Text("该模板没有内置分区方案,请改用其它存储模式。").font(.system(size: 10.5)).foregroundColor(t.color(t.muted)).padding(6)
+                            } else {
+                                ForEach(schemes.indices, id: \.self) { i in
+                                    let sc = schemes[i]
+                                    Button { pickedScheme = pickedScheme == sc.name ? nil : sc.name } label: {
+                                        HStack {
+                                            Image(systemName: pickedScheme == sc.name ? "checkmark.circle.fill" : "circle").font(.system(size: 14)).foregroundColor(t.color(pickedScheme == sc.name ? t.accent : t.faint))
+                                            Text("\(sc.name) · 优先级 \(sc.priority)").font(.system(size: 11.5)).foregroundColor(t.color(t.fg))
+                                            Spacer()
+                                        }
+                                        .padding(9)
+                                        .background(RoundedRectangle(cornerRadius: 10).fill(t.color(t.surfaceMuted)))
                                     }.buttonStyle(.plain)
                                 }
                             }
+                        case .advanced:
+                            advancedStoragePanel
+                        default:
+                            EmptyView()
+                        }
+
+                        if let df = diskInfoFailed {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("有配置没读出来,已暂时锁住重装按钮").font(.system(size: 11, weight: .bold)).foregroundColor(t.color(t.danger))
+                                Text("磁盘组信息读取失败 · \(df)。重装会清空全部数据且不可撤销,数据没拿到时照着选可能装出完全不同的系统。")
+                                    .font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                            }.padding(9)
+                            .background(RoundedRectangle(cornerRadius: 10).stroke(t.color(t.danger).opacity(0.5), lineWidth: 1))
                         }
 
                         Text("输入机器名确认").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                         SheetField(placeholder: sn, text: $confirmName, mono: true)
 
-                        ActBtn(kind: .danger, icon: "faceid", label: busy ? "提交中…" : "面容确认并重装") {
+                        let blocked = diskInfoFailed != nil && storageMode == .advanced
+                        ActBtn(kind: .danger, icon: "faceid", label: busy ? "提交中…" : (blocked ? "配置未读全,暂不可重装" : "面容确认并重装"), busy: busy) {
                             await submit()
-                        }
+                        }.disabled(blocked)
                     }
                 }
                 .padding(16)
@@ -521,7 +731,11 @@ struct ServerReinstallSheet: View {
         guard let tpl = picked, !isProxmox9 else { schemes = []; pickedScheme = nil; return }
         if let r = try? await conn.client.getDict("/server-control/\(sn)/partition-schemes?templateName=\(urlEncode(tpl))"),
            let list = r["schemes"] as? [[String: Any]] {
-            schemes = list.compactMap { ($0["name"] as? String) ?? ($0["schemeName"] as? String) }
+            schemes = list.compactMap { raw -> (name: String, priority: Int)? in
+                guard let n = (raw["name"] as? String) ?? (raw["schemeName"] as? String) else { return nil }
+                let pr = numToDoubleAny(raw["priority"]).map(Int.init) ?? 0
+                return (name: n, priority: pr)
+            }
         }
     }
 
@@ -535,13 +749,51 @@ struct ServerReinstallSheet: View {
         defer { busy = false }
         var body: [String: Any] = ["templateName": tpl]
         let h = hostname.trimmingCharacters(in: .whitespaces)
-        if !h.isEmpty { body["customHostname"] = h }
-        if isProxmox9 && useZFS {
+        if !h.isEmpty {
+            // hostname 字符校验(S-036 原文)
+            let okHost = h.range(of: #"^[A-Za-z0-9.-]+$"#, options: .regularExpression) != nil
+                && !h.hasPrefix("-") && !h.hasSuffix("-")
+            guard okHost else {
+                toast.show("Hostname 只能包含字母、数字、连字符和点,且不能以连字符开头或结尾", error: true)
+                return
+            }
+            body["customHostname"] = h
+        }
+        switch storageMode {
+        case .zfs where isProxmox9:
             body["useProxmox9Zfs"] = true
             body["zfsRaidLevel"] = zfsRaid
             body["zfsVzSize"] = Int(vzGB) * 1024
-        } else if let s = pickedScheme, !s.isEmpty {
-            body["partitionSchemeName"] = s
+        case .scheme:
+            if let s = pickedScheme, !s.isEmpty { body["partitionSchemeName"] = s }
+        case .advanced:
+            // hardwareRaid: {raidLevel, disks:数量}(按磁盘组);storageConfig 自定义分区数组
+            let raids = hwRaidByGroup.filter { $0.value >= 0 }
+            if !raids.isEmpty {
+                for g in diskGroups {
+                    let gid = numToDoubleAny(g["diskGroupId"]).map(Int.init) ?? -1
+                    if let lvl = hwRaidByGroup[gid], lvl >= 0,
+                       let n = numToDoubleAny(g["numberOfDisks"]).map(Int.init) {
+                        body["hardwareRaid"] = ["raidLevel": lvl, "disks": n]
+                        break   // 后端单字段;多组取第一组显式配置
+                    }
+                }
+            }
+            if softRaid { body["softRaidLevel"] = softRaidLevel }
+            let validParts = partitions.filter { !($0["mount"] ?? "").isEmpty }
+            if !validParts.isEmpty {
+                body["storageConfig"] = validParts.map { p in
+                    var item: [String: Any] = [
+                        "mountpoint": p["mount"] ?? "/",
+                        "filesystem": p["fs"] ?? "ext4",
+                        "size": Int(p["size"] ?? "0") ?? 0,
+                    ]
+                    if softRaid { item["raid"] = "raid\(softRaidLevel)" }
+                    return item
+                }
+            }
+        default:
+            break   // 模板默认分区:不带任何存储字段
         }
         do {
             _ = try await conn.client.post("/server-control/\(sn)/install", body: body)
