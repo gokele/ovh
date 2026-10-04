@@ -158,7 +158,7 @@ struct ServerMonitorPane: View {
                         .font(.system(size: 15)).foregroundColor(t.color((status?["running"] as? Bool ?? false) ? t.success : t.faint))
                     VStack(alignment: .leading, spacing: 1) {
                         Text((status?["running"] as? Bool ?? false) ? "监控运行中" : "监控已停止").font(.system(size: 13, weight: .bold)).foregroundColor(t.color(t.fg))
-                        Text("检查间隔 \(status?["check_interval"] as? Int ?? 0) 秒").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                        Text("检查间隔 \(status?["check_interval"] == nil ? "—" : "\(status?["check_interval"] as? Int ?? 0)") 秒").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
                     }
                     Spacer()
                     Button { intervalEdit = true } label: {
@@ -339,11 +339,26 @@ struct MonitorSubSheet: View {
     @State private var autoPay = false
     @State private var busy = false
 
+    @State private var notifyBlocked = false
+    @State private var notifyReason = ""
+    @State private var notifyChecking = true
+
     var body: some View {
         VStack(spacing: 0) {
             SheetHeader(icon: editing == nil ? "plus.circle" : "square.and.pencil", tint: t.accent, title: editing == nil ? "添加监控" : "编辑监控")
             ScrollView {
                 VStack(alignment: .leading, spacing: 13) {
+                    // 通知门禁(F-510):无可用通道拦截
+                    if notifyBlocked {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("没有可用的通知通道").font(.system(size: 12.5, weight: .bold)).foregroundColor(t.color(t.warning))
+                            Text(notifyReason.isEmpty ? "请先在设置页配置 Telegram 或自定义 Webhook,至少一条" : notifyReason)
+                                .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.warning).opacity(0.5), lineWidth: 1))
+                    }
                     Text("机型 planCode").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
                     SheetField(placeholder: "如 25sk-adv-01", text: $planCode, mono: true)
                         .disabled(editing != nil)   // PUT 按主键定位,改了就 404
@@ -381,15 +396,17 @@ struct MonitorSubSheet: View {
                         SheetNote(text: "自动付款有真实扣款风险,默认关闭。", tint: t.danger)
                     }
 
-                    ActBtn(kind: .primary, icon: "checkmark", label: busy ? "保存中…" : "保存订阅", busy: busy) {
+                    ActBtn(kind: .primary, icon: "checkmark", label: notifyChecking ? "校验通知…" : (busy ? "保存中…" : "保存订阅"), busy: busy) {
                         await save()
                     }
+                    .disabled(notifyChecking || notifyBlocked)
                 }
                 .padding(16)
             }
         }
         .background(t.color(t.bg))
         .presentationDetents([.large])
+        .task { await checkNotify() }
         .onAppear {
             if let e = editing {
                 planCode = e["planCode"] as? String ?? ""
@@ -408,6 +425,23 @@ struct MonitorSubSheet: View {
         }
     }
 
+    private func checkNotify() async {
+        notifyChecking = true
+        guard let r = try? await conn.client.getDict("/notify/channels?verify=true") else {
+            notifyChecking = false; notifyBlocked = false; return   // 查不到不拦(后端仍会校验)
+        }
+        let any = r["anyAvailable"] as? Bool ?? false
+        notifyBlocked = !any
+        if !any {
+            let list = (r["channels"] as? [[String: Any]]) ?? []
+            let bad = list.filter { ($0["configured"] as? Bool ?? false) && !(($0["ok"] as? Bool) ?? false) }
+            notifyReason = bad.isEmpty
+                ? "还没有配置任何通知通道(Telegram / Webhook 至少配一个)"
+                : bad.compactMap { "\($0["name"] ?? "?"): \($0["detail"] ?? "不可用")" }.joined(separator: ";")
+        }
+        notifyChecking = false
+    }
+
     private func save() async {
         let code = planCode.trimmingCharacters(in: .whitespaces)
         guard !code.isEmpty else { return toast.show("planCode 必填", error: true) }
@@ -419,13 +453,16 @@ struct MonitorSubSheet: View {
             "notifyUnavailable": notifyUnavail,
             "autoOrder": autoOrder,
         ]
-        let d = dcs.split(whereSeparator: { ",;".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let d = dcs.split(whereSeparator: { ",;,;;、\n".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if !d.isEmpty { body["datacenters"] = d }
         let o = options.split(whereSeparator: { ",".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         body["options"] = o     // PUT 显式传空数组才能清空
         if autoOrder {
             let accId = conn.accountId.isEmpty ? (conn.activeAccount?["id"] as? String ?? "") : conn.accountId
-            guard !accId.isEmpty else { return }
+            guard !accId.isEmpty else {
+                toast.show("开启自动下单时必须选择 OVH 账户(否则只通知不下单)", error: true)
+                return
+            }
             body["quantity"] = quantity
             body["autoPay"] = autoPay
             body["autoOrderAccountId"] = accId   // 空 = 只通知不下单,必须传实际账户
@@ -618,7 +655,8 @@ struct VpsMonitorPane: View {
                         .font(.system(size: 15)).foregroundColor(t.color(running ? t.success : t.faint))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(running ? "VPS 监控运行中" : "VPS 监控已停止").font(.system(size: 13, weight: .bold)).foregroundColor(t.color(t.fg))
-                        Text("\(subs.count) 个订阅 · 间隔 \(status?["checkInterval"] as? Int ?? (status?["check_interval"] as? Int ?? 0)) 秒").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                        let iv = status?["checkInterval"] as? Int ?? (status?["check_interval"] as? Int)
+                        Text("\(subs.count) 个订阅 · 间隔 \(iv.map(String.init) ?? "—") 秒").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
                     }
                     Spacer()
                     if !subs.isEmpty {
@@ -702,11 +740,25 @@ struct VpsMonitorPane: View {
         }
     }
 
+    private var statusKnown: Bool {
+        // 状态未知时不发启停指令(猜错方向会对运行中的监控误发 start)
+        if let sr = status {
+            return sr["running"] as? Bool != nil || sr["Running"] as? Bool != nil
+        }
+        return false
+    }
+
     private func toggleRun() async {
+        guard statusKnown else {
+            // F-602:只重试状态,不启停
+            toast.show("读不到监控状态就不知道该启还是该停,先重试", error: true)
+            await load()
+            return
+        }
         toggling = true
         defer { toggling = false }
         let (ok, msg) = await conn.client.actionPostData(running ? "/vps-monitor/stop" : "/vps-monitor/start", bodyData: nil)
-        toast.show(ok ? (running ? "已停止" : "已启动") : (msg.isEmpty ? "失败" : msg), error: !ok)
+        toast.show(ok ? (running ? "VPS 监控已停止" : "VPS 监控已启动") : (msg.isEmpty ? "失败" : msg), error: !ok)
         await load()
     }
 
@@ -739,7 +791,8 @@ struct VpsSubSheet: View {
     @State private var subsidiary = ""
     @State private var dcs = ""
     @State private var linux = true
-    @State private var windows = false
+    @State private var windows = true   // F-611:web 默认双开
+    @State private var osChoice = ""
     @State private var notifyAvail = true
     @State private var notifyUnavail = false
     @State private var autoOrder = false
@@ -748,9 +801,12 @@ struct VpsSubSheet: View {
     @State private var loadingModels = true
     @State private var busy = false
 
+    /// F-610:只列与当前账户 endpoint 同区的子公司(web subsidiariesForEndpoint;跨区必被 400)
     private var subsidiaries: [String] {
-        // 与后端 vps_monitor 的合法集一致(UK 不是 OVH 子公司,是 GB)
-        ["", "FR", "IE", "DE", "GB", "EU", "US", "WE", "WS", "CA", "QC", "ASIA", "IN", "PL", "SG", "AU", "MA", "TN", "SN", "CZ", "ES", "IT", "LT", "NL", "PT", "FI"]
+        let ep = (conn.activeAccount?["endpoint"] as? String ?? "ovh-eu").lowercased()
+        if ep.contains("us") { return ["", "US", "WE", "WS"] }
+        if ep.contains("ca") { return ["", "CA", "QC", "ASIA", "AU", "IN", "SG", "WE", "WS"] }
+        return ["", "FR", "IE", "DE", "GB", "EU", "PL", "CZ", "ES", "IT", "LT", "NL", "PT", "FI", "MA", "TN", "SN"]
     }
 
     var body: some View {
@@ -780,9 +836,12 @@ struct VpsSubSheet: View {
                             .padding(.horizontal, 13).frame(height: 44)
                             .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surfaceMuted)).overlay(RoundedRectangle(cornerRadius: 11).stroke(t.color(t.border), lineWidth: 1)))
                         }
+                        .disabled(editing != nil)   // F-609:编辑模式型号=订阅身份,禁改
                         if editing == nil {
                             SheetField(placeholder: "或手填型号名(目录没有的)", text: $model, mono: true)
                         }
+                        Text(models.isEmpty ? "读不到 OVH 目录,下面是兜底列表,可能不是最新在售型号" : "")
+                            .font(.system(size: 9.5)).foregroundColor(models.isEmpty ? t.color(t.warning) : t.color(t.warning).opacity(0))
                     }
 
                     Text("OVH 子公司(结算区)").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.fg))
@@ -826,8 +885,25 @@ struct VpsSubSheet: View {
                             Spacer()
                             Stepper("", value: $quantity, in: 1...100).labelsHidden()
                         }
-                        Toggle(isOn: $autoPay) { Text("下单后自动付款").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.danger)) }.tint(t.color(t.danger))
-                        SheetNote(text: "自动付款有真实扣款风险,默认关闭。", tint: t.danger)
+                        Toggle(isOn: $autoPay) { Text("下单成功后自动付款").font(.system(size: 12, weight: .semibold)).foregroundColor(t.color(t.danger)) }.tint(t.color(t.danger))
+                        // F-611:安装系统(VPS 下单时就要定)
+                        Menu {
+                            Button("用 OVH 默认镜像") { osChoice = "" }
+                            ForEach(osChoices.indices, id: \.self) { i in
+                                Button(osChoices[i]) { osChoice = osChoices[i] }
+                            }
+                        } label: {
+                            HStack {
+                                Text("安装系统:\(osChoice.isEmpty ? "用 OVH 默认镜像" : osChoice)")
+                                    .font(.system(size: 12)).foregroundColor(t.color(t.fg))
+                                Spacer()
+                                Image(systemName: "chevron.down").font(.system(size: 10)).foregroundColor(t.color(t.faint))
+                            }
+                            .padding(.horizontal, 13).padding(.vertical, 10)
+                            .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surfaceMuted)))
+                        }
+                        Text("VPS 和独服不同:系统是下单时就要定的,买完再换要重装。不确定就留默认。")
+                            .font(.system(size: 9.5)).foregroundColor(t.color(t.faint))
                     }
 
                     ActBtn(kind: .primary, icon: "checkmark", label: busy ? "保存中…" : "保存订阅", busy: busy) {
@@ -865,6 +941,11 @@ struct VpsSubSheet: View {
         return n
     }
 
+    private var osChoices: [String] {
+        guard let m = models.first(where: { ($0["planCode"] as? String) == model || ($0["name"] as? String) == model }) else { return [] }
+        return (m["osChoices"] as? [String]) ?? []
+    }
+
     private func loadModels() async {
         if let r = try? await conn.client.getDict("/vps-monitor/models") {
             models = (r["models"] as? [[String: Any]]) ?? []
@@ -890,9 +971,15 @@ struct VpsSubSheet: View {
         if !d.isEmpty { body["datacenters"] = d }
         if autoOrder {
             let accId = conn.accountId.isEmpty ? (conn.activeAccount?["id"] as? String ?? "") : conn.accountId
-            if !accId.isEmpty { body["autoOrderAccountId"] = accId }
+            if !accId.isEmpty {
+                body["autoOrderAccountId"] = accId
+            } else {
+                toast.show("开启自动下单时必须选择 OVH 账户", error: true)
+                return
+            }
             body["quantity"] = quantity
             body["autoPay"] = autoPay
+            if !osChoice.isEmpty { body["imageId"] = osChoice }   // VPS 系统在下单时就要定
         }
         do {
             if let e = editing, let id = e["id"] {
