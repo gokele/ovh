@@ -1376,14 +1376,24 @@ struct BiosSheet: View {
     }
 
     private func load() async {
+        async let b = conn.client.getDict("/server-control/\(sn)/bios-settings")
+        // SGX 对不支持的机器 404 —— 单独容错,不拖垮 BIOS 表(S-042)
+        async let s = try? await conn.client.getDict("/server-control/\(sn)/bios-settings/sgx")
         do {
-            async let b = conn.client.getDict("/server-control/\(sn)/bios-settings")
-            async let s = conn.client.getDict("/server-control/\(sn)/bios-settings/sgx")
-            let (br, sr) = try await (b, s)
+            let br = try await b
             bios = br["bios"] as? [String: Any] ?? br
-            sgx = sr["sgx"] as? [String: Any] ?? sr
             err = nil
-        } catch { err = error.localizedDescription }
+        } catch {
+            if let ae = error as? ApiClient.ApiError, ae.status == 404 || ae.status == 501 {
+                bios = [:]
+            } else {
+                err = error.localizedDescription
+            }
+        }
+        if let sr = await s {
+            let inner = sr["sgx"] as? [String: Any] ?? sr
+            sgx = inner.isEmpty ? nil : inner
+        }
         loading = false
     }
 }
@@ -1408,32 +1418,54 @@ struct InstallStatusSheet: View {
                     if loading {
                         ProgressView().padding(30)
                     } else if let e = err {
-                        LoadFailed(message: e) { Task { await load() } }
+                        LoadFailed(message: "安装进度读取失败:\(e)") { Task { await load() } }
                     } else if let s = status {
                         if s["hasInstallation"] as? Bool == false {
-                            EmptyHint(icon: "checkmark.circle", text: s["message"] as? String ?? "当前没有正在进行的安装")
+                            EmptyHint(icon: "checkmark.circle", text: s["message"] as? String ?? "当前无安装任务")
                         } else {
-                            // handler 形状:status.progressPercentage + steps[{comment,status}] + elapsedTime
-                            let st = s["status"] as? [String: Any] ?? [:]
+                            let st = s["status"] as? [String: Any] ?? s
                             let pct = numToDoubleAny(st["progressPercentage"]).map(Int.init) ?? -1
                             let steps = (st["steps"] as? [[String: Any]]) ?? []
-                            let currentStep = steps.last(where: { ($0["status"] as? String ?? "") != "done" })?["comment"] as? String
-                            let doneSteps = steps.filter { ($0["status"] as? String ?? "") == "done" }.count
+                            let hasError = steps.contains { ($0["status"] as? String) == "error" }
+                            let allDone = !steps.isEmpty && steps.allSatisfy { ($0["status"] as? String ?? "") == "done" }
                             VStack(spacing: 10) {
+                                // 状态字
+                                Text(hasError ? "出错" : (allDone ? "已完成" : "进行中"))
+                                    .font(.system(size: 13, weight: .bold)).foregroundColor(t.color(hasError ? t.danger : allDone ? t.success : t.fg))
                                 if pct >= 0 {
                                     VStack(alignment: .leading, spacing: 6) {
-                                        ProgressView(value: Double(pct) / 100).tint(t.color(t.accent))
-                                        Text("总进度 \(pct)%").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                        ProgressView(value: Double(pct) / 100)
+                                            .tint(t.color(hasError ? t.danger : t.accent))
+                                        Text("\(steps.filter { ($0["status"] as? String ?? "") == "done" }.count) / \(steps.count) 步 · \(pct)%")
+                                            .font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.fg))
                                     }
-                                }
-                                if let step = currentStep, !step.isEmpty {
-                                    KV(k: "当前步骤", v: step)
-                                }
-                                if !steps.isEmpty {
-                                    KV(k: "步骤", v: "\(doneSteps) / \(steps.count) 完成")
+                                } else {
+                                    Text("进度暂不可用")
+                                        .font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                                    Text("OVH 本次没有返回安装进度,这不代表安装没有推进。稍等几秒会自动重试。")
+                                        .font(.system(size: 10)).foregroundColor(t.color(t.faint))
                                 }
                                 if let el = numToDoubleAny(st["elapsedTime"]), el > 0 {
-                                    KV(k: "已耗时", v: el >= 60 ? String(format: "%.0f 分钟", el / 60) : String(format: "%.0f 秒", el))
+                                    KV(k: "耗时", v: el >= 60 ? String(format: "%.0f 分钟", el / 60) : String(format: "%.0f 秒", el))
+                                }
+                                // Step 列表(S-043)
+                                if !steps.isEmpty {
+                                    VStack(spacing: 5) {
+                                        ForEach(steps.indices, id: \.self) { i in
+                                            let sp = steps[i]
+                                            let sst = sp["status"] as? String ?? "todo"
+                                            let icon = sst == "done" ? "checkmark.circle.fill" : (sst == "error" ? "xmark.circle.fill" : (sst == "doing" ? "arrow.triangle.2.circlepath" : "circle"))
+                                            let ic = sst == "done" ? t.success : (sst == "error" ? t.danger : (sst == "doing" ? t.info : t.faint))
+                                            HStack(spacing: 7) {
+                                                Image(systemName: icon).font(.system(size: 12)).foregroundColor(t.color(ic))
+                                                Text(sp["comment"] as? String ?? sp["commentOriginal"] as? String ?? "—")
+                                                    .font(.system(size: 11)).foregroundColor(t.color(sst == "done" ? t.muted : t.fg))
+                                                Spacer()
+                                            }
+                                        }
+                                    }
+                                    .padding(10)
+                                    .background(RoundedRectangle(cornerRadius: 11).fill(t.color(t.surfaceMuted).opacity(0.5)))
                                 }
                             }
                             .padding(14)
@@ -1445,9 +1477,16 @@ struct InstallStatusSheet: View {
             }
         }
         .background(t.color(t.bg))
-        .presentationDetents([.medium])
-        .task { await load() }
-        .refreshable { await load() }
+        .presentationDetents([.medium, .large])
+        .task {
+            await load()
+            // 5s 轮询:安装推进自动刷新(web 同款)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if Task.isCancelled { break }
+                await load()
+            }
+        }
     }
 
     private func load() async {
