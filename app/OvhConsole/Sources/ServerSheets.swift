@@ -200,7 +200,6 @@ struct MrtgChartView: View {
             }
             .padding(.top, 2)
         }
-        .padding(10)
         .padding(11)
         .background(RoundedRectangle(cornerRadius: 12).fill(t.color(t.surface)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(t.color(t.border).opacity(0.6), lineWidth: 1))
