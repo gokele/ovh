@@ -9,6 +9,7 @@ import Charts
 
 struct SheetHeader: View {
     @EnvironmentObject var theme: Theme
+    @Environment(\.dismiss) private var dismiss
     let icon: String
     let tint: String
     let title: String
@@ -19,6 +20,17 @@ struct SheetHeader: View {
             Image(systemName: icon).font(.system(size: 15)).foregroundColor(t.color(tint))
             Text(title).font(.system(size: 15.5, weight: .bold)).foregroundColor(t.color(t.fg))
             Spacer()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(t.color(t.muted))
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(t.color(t.surfaceMuted)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭")
         }
         .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 6)
     }
