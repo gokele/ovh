@@ -243,6 +243,7 @@ struct VpsSnapshotSection: View {
     @State private var busy = false
     @State private var revertConfirm = false
     @State private var revertName = ""
+    @State private var snapDeleteConfirm = false
     @State private var createSheet = false
 
     var body: some View {
@@ -267,6 +268,16 @@ struct VpsSnapshotSection: View {
         .sheet(isPresented: $createSheet) {
             VpsSnapshotCreateSheet(name: name) {
                 await load()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
+        .sheet(isPresented: $snapDeleteConfirm) {
+            ConfirmSheet(title: "删除当前快照?",
+                         message: "快照本身会删除,VPS 当前状态不受影响。",
+                         confirmText: "确认删除") {
+                let (ok, msg) = await conn.client.actionDelete("/vps-control/\(name)/snapshot")
+                toast.show(ok ? "快照已删除" : (msg.isEmpty ? "删除失败" : msg), error: !ok)
+                if ok { await load() }
             }
             .environmentObject(theme).environmentObject(conn).environmentObject(toast)
         }
@@ -302,13 +313,7 @@ struct VpsSnapshotSection: View {
 
                 HStack(spacing: 8) {
                     ActBtn(kind: .danger, icon: "arrow.uturn.backward", label: "回滚") { revertConfirm = true }
-                    ActBtn(kind: .ghost, icon: "trash", label: "删除快照") {
-                        Task {
-                            let (ok, msg) = await conn.client.actionDelete("/vps-control/\(name)/snapshot")
-                            toast.show(ok ? "已删除" : (msg.isEmpty ? "失败" : msg), error: !ok)
-                            if ok { await load() }
-                        }
-                    }
+                    ActBtn(kind: .ghost, icon: "trash", label: "删除快照") { snapDeleteConfirm = true }
                 }
             }
         }

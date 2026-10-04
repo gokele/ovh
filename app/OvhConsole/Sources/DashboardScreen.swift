@@ -13,6 +13,7 @@ struct DashboardScreen: View {
 
     @State private var stats: [String: Any]?
     @State private var statsErr: String?
+    @State private var queueErr: String?
     @State private var queue: [[String: Any]] = []
     @State private var metrics: [String: Any]?
     @State private var version: [String: Any]?
@@ -90,7 +91,10 @@ struct DashboardScreen: View {
                     Spacer()
                     Text("\(activeItems.count) 条").font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
                 }
-                if statsErr != nil && queue.isEmpty {
+                if let qe = queueErr {
+                    // 失败 ≠ 空队列:不能画成空态引导重复建单(web 同语义)
+                    LoadFailed(message: qe) { Task { await load(force: true) } }
+                } else if statsErr != nil && queue.isEmpty {
                     LoadFailed(message: statsErr ?? "") { Task { await load(force: true) } }
                 } else if activeItems.isEmpty {
                     EmptyHint(icon: "tray", text: "没有运行中的抢购任务")
@@ -204,8 +208,8 @@ struct DashboardScreen: View {
         async let m = try? await conn.client.getDict("/system/metrics")
         async let v = try? await conn.client.getDict("/version")
         let (sr, qr, mr, vr) = await (s, q, m, v)
-        if let sr { stats = sr; statsErr = nil } else if stats == nil { statsErr = "读取失败" }
-        if let qr { queue = qr }
+        if let sr { stats = sr; statsErr = nil } else if stats == nil { statsErr = "仪表盘统计读取失败" }
+        if let qr { queue = qr; queueErr = nil } else if queue.isEmpty { queueErr = "活跃队列读取失败" }
         if let mr { metrics = mr }
         if let vr { version = vr }
         if conn.accounts.isEmpty { await conn.loadAccounts() }

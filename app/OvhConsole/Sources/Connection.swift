@@ -91,10 +91,18 @@ final class Connection: ObservableObject {
         if id.isEmpty { Keychain.delete(K_ACCOUNT) } else { Keychain.set(id, K_ACCOUNT) }
     }
 
+    /// 账户列表读取错误(非空=这次没读到;各页据此显示降级警示)
+    @Published var accountsError: String? = nil
+
     /// 拉账户列表(启动 / 设置页保存后调用)
     func loadAccounts() async {
-        guard let r = try? await client.getDict("/accounts") else { return }
-        accounts = (r["accounts"] as? [[String: Any]]) ?? []
+        do {
+            let r = try await client.getDict("/accounts")
+            accounts = (r["accounts"] as? [[String: Any]]) ?? []
+            accountsError = nil
+        } catch {
+            accountsError = error.localizedDescription
+        }
     }
 
     /// 断开(吊销在网页端做,这里只清本地)

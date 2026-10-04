@@ -63,6 +63,7 @@ struct ServerMonitorPane: View {
     @State private var historyCode: String?
     @State private var clearConfirm = false
     @State private var intervalEdit = false
+    @State private var deleteCode: String?
 
     var body: some View {
         ScrollView {
@@ -115,8 +116,19 @@ struct ServerMonitorPane: View {
             MonitorIntervalSheet(current: status?["check_interval"] as? Int ?? 5) { Task { await load() } }
                 .environmentObject(theme).environmentObject(conn).environmentObject(toast)
         }
+        .sheet(item: Binding(
+            get: { deleteCode.map { CodeDel(c: $0) } },
+            set: { deleteCode = $0?.c }
+        )) { w in
+            ConfirmSheet(title: "取消订阅", message: "确定要取消订阅 \(w.c) 吗?", confirmText: "确定") {
+                _ = await conn.client.actionDelete("/monitor/subscriptions/\(w.c)")
+                toast.show("已删除订阅")
+                await load()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
         .sheet(isPresented: $clearConfirm) {
-            ConfirmSheet(title: "清空全部订阅", message: "删除所有独服补货监控订阅。", confirmText: "确认清空") {
+            ConfirmSheet(title: "确认清空所有订阅?", message: "所有监控订阅将被删除,此操作不可撤销。", confirmText: "确认清空") {
                 let (ok, msg) = await conn.client.actionDelete("/monitor/subscriptions/clear")
                 toast.show(ok ? "已清空" : (msg.isEmpty ? "失败" : msg), error: !ok)
                 await load()
@@ -132,6 +144,10 @@ struct ServerMonitorPane: View {
     private struct CodeWrap: Identifiable {
         let code: String
         var id: String { code }
+    }
+    private struct CodeDel: Identifiable {
+        let c: String
+        var id: String { c }
     }
 
     private var statusCard: some View {
@@ -222,12 +238,7 @@ struct ServerMonitorPane: View {
                     Button { editSub = sub } label: {
                         hBtn("编辑", "square.and.pencil")
                     }
-                    Button {
-                        Task {
-                            _ = await conn.client.actionDelete("/monitor/subscriptions/\(code)")
-                            await load()
-                        }
-                    } label: {
+                    Button { deleteCode = code } label: {
                         hBtn("删除", "trash", danger: true)
                     }
                 }
@@ -519,6 +530,8 @@ struct VpsMonitorPane: View {
     @State private var creating = false
     @State private var historyId: String?
     @State private var toggling = false
+    @State private var deleteVpsId: String?
+    @State private var vpsClearConfirm = false
 
     var body: some View {
         ScrollView {
@@ -560,6 +573,25 @@ struct VpsMonitorPane: View {
                 .environmentObject(theme).environmentObject(conn).environmentObject(toast)
         }
         .sheet(item: Binding(
+            get: { deleteVpsId.map { IdWrap(id: $0) } },
+            set: { deleteVpsId = $0?.id }
+        )) { w in
+            ConfirmSheet(title: "取消订阅", message: "确定要取消订阅这台 VPS 吗?", confirmText: "确定") {
+                _ = await conn.client.actionDelete("/vps-monitor/subscriptions/\(w.id)")
+                toast.show("已删除")
+                await load()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
+        .sheet(isPresented: $vpsClearConfirm) {
+            ConfirmSheet(title: "确认清空所有 VPS 订阅?", message: "此操作不可撤销。", confirmText: "确认清空") {
+                let (ok2, msg) = await conn.client.actionDelete("/vps-monitor/subscriptions/clear")
+                toast.show(ok2 ? "已清空全部 VPS 订阅" : (msg.isEmpty ? "清空失败" : msg), error: !ok2)
+                await load()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
+        .sheet(item: Binding(
             get: { historyId.map { IdWrap(id: $0) } },
             set: { historyId = $0?.id }
         )) { w in
@@ -589,6 +621,11 @@ struct VpsMonitorPane: View {
                         Text("\(subs.count) 个订阅 · 间隔 \(status?["checkInterval"] as? Int ?? (status?["check_interval"] as? Int ?? 0)) 秒").font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
                     }
                     Spacer()
+                    if !subs.isEmpty {
+                        Button { vpsClearConfirm = true } label: {
+                            Text("清空").font(.system(size: 11.5, weight: .semibold)).foregroundColor(t.color(t.danger))
+                        }.buttonStyle(.plain)
+                    }
                     Button { Task { await toggleRun() } } label: {
                         HStack(spacing: 4) {
                             if toggling { ProgressView().scaleEffect(0.6) }
@@ -651,12 +688,7 @@ struct VpsMonitorPane: View {
                         .padding(.horizontal, 9).padding(.vertical, 5)
                         .background(Capsule().stroke(t.color(t.border), lineWidth: 1))
                     }.buttonStyle(.plain)
-                    Button {
-                        Task {
-                            _ = await conn.client.actionDelete("/vps-monitor/subscriptions/\(id)")
-                            await load()
-                        }
-                    } label: {
+                    Button { deleteVpsId = id } label: {
                         HStack(spacing: 3) {
                             Image(systemName: "trash").font(.system(size: 10))
                             Text("删除").font(.system(size: 11))

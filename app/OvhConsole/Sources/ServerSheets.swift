@@ -747,8 +747,18 @@ struct BootModeSheet: View {
         defer { busy = false }
         let body = try? JSONSerialization.data(withJSONObject: ["bootId": id])
         let (ok, msg) = await conn.client.actionPutData("/server-control/\(sn)/boot-mode", bodyData: body)
-        toast.show(ok ? "启动模式已切换" : (msg.isEmpty ? "失败" : msg), error: !ok)
-        if ok { dismiss() }
+        guard ok else {
+            toast.show(msg.isEmpty ? "启动模式读取失败" : msg, error: true)
+            return
+        }
+        // 不重启模式不生效(web BootModeDialog:PUT 成功后自动 reboot)
+        let (rok, rmsg) = await conn.client.actionPostData("/server-control/\(sn)/reboot", bodyData: nil)
+        if rok {
+            toast.show("启动模式已切换,重启任务已提交,几分钟后生效")
+            dismiss()
+        } else {
+            toast.show("启动模式已切换,但重启失败(\(rmsg)),请手动重启", error: true)
+        }
     }
 }
 

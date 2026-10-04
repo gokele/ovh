@@ -843,6 +843,7 @@ struct QueuePane: View {
     @State private var clearConfirm = false
     @State private var selected: Set<String> = []
     @State private var selecting = false
+    @State private var batchDeleteConfirm = false
 
     var body: some View {
         ScrollView {
@@ -893,8 +894,24 @@ struct QueuePane: View {
         }
         .background(t.color(t.bg))
         .refreshable { await load() }
-        .task { await load() }
+        .task {
+            await load()
+            // 5 秒轮询:抢购进行中状态/结论自动刷新(web 同款;视图销毁自动取消)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if Task.isCancelled { break }
+                await load()
+            }
+        }
         .onChange(of: conn.accountId) { _ in Task { await load() } }
+        .sheet(isPresented: $batchDeleteConfirm) {
+            ConfirmSheet(title: "删除选中的 \(selected.count) 个任务?",
+                         message: "此操作不可撤销。正在执行中的下单(已走到结账那几秒的)可能仍会完成并产生真实订单。",
+                         confirmText: "确认删除") {
+                await batchDelete()
+            }
+            .environmentObject(theme).environmentObject(conn).environmentObject(toast)
+        }
         .sheet(item: Binding(
             get: { editItem.map { QueueItemWrap(item: $0) } },
             set: { editItem = $0?.item }

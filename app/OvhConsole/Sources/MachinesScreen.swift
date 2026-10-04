@@ -122,7 +122,13 @@ struct MachinesScreen: View {
             async let s = c.getDict("/server-control/list")
             async let v = c.getDict("/vps-control/list")
             let (sr, vr) = try await (s, v)
-            servers = (sr["servers"] as? [[String: Any]]) ?? []
+            // 与 web useOwnedServers 同过滤:过期/暂停/异常的机器不进列表
+            servers = ((sr["servers"] as? [[String: Any]]) ?? []).filter { sv in
+                let state = ((sv["state"] as? String) ?? "").lowercased()
+                let status = ((sv["status"] as? String) ?? "").lowercased()
+                guard state == "ok" || state == "active" else { return false }
+                return !["expired", "suspended"].contains(status) && state != "error" && state != "suspended"
+            }
             vpsList = (vr["vps"] as? [[String: Any]]) ?? []
         } catch {
             err = error.localizedDescription
