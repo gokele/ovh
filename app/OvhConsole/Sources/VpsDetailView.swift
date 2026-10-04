@@ -18,12 +18,15 @@ struct VpsDetailView: View {
     @State private var info: [String: Any]?
     @State private var currentOS: String?
     @State private var ips: [[String: Any]] = []
+    @State private var osLoadFailed = false
+    @State private var siLoadFailed = false
     @State private var sheet: VpsSheet?
 
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
                 headerCard
+                alertCards
                 Picker("", selection: $seg) {
                     Text("概览").tag(0)
                     Text("快照").tag(1)
@@ -54,6 +57,29 @@ struct VpsDetailView: View {
         (item["displayName"] as? String) ?? name.components(separatedBy: ".").first ?? name
     }
 
+    // V-027/028 锁定与救援警示
+    @ViewBuilder private var alertCards: some View {
+        let state = (item["state"] as? String ?? "").lowercased()
+        if state == "suspended" || state == "locked" {
+            Card(border: "danger") {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("VPS 已锁定").font(.system(size: 13, weight: .bold)).foregroundColor(t.color(t.danger))
+                    Text("状态: \(item["lockStatus"] as? String ?? state) · 通常因投诉(abuse)被 OVH 临时冻结,联系 OVH 客服处理")
+                        .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                }
+            }
+        }
+        if state == "rescued" {
+            Card(border: "warning") {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("救援模式").font(.system(size: 13, weight: .bold)).foregroundColor(t.color(t.warning))
+                    Text("下次重启会进入 OVH 救援镜像。修完故障后需要把 netboot 改回 local 再重启回正常系统")
+                        .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                }
+            }
+        }
+    }
+
     // MARK: 顶卡
 
     private var headerCard: some View {
@@ -71,7 +97,7 @@ struct VpsDetailView: View {
                         Text(name).font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.muted)).lineLimit(1)
                     }
                     Spacer()
-                    Chip(text: VPS_STATE_CN[state.lowercased()] ?? state.uppercased(), color: running ? t.success : t.danger)
+                    Chip(text: VPS_STATE_CN[state.lowercased()] ?? state.uppercased(), color: vpsStateColor(state))
                 }
                 HStack(spacing: 6) {
                     Dot(color: running ? t.success : t.danger)
@@ -81,7 +107,23 @@ struct VpsDetailView: View {
                     Text(renewalText).font(.system(size: 11)).foregroundColor(t.color(t.muted))
                 }
                 if let os = currentOS, !os.isEmpty {
-                    KV(k: "当前系统", v: os)
+                    Button { sheet = .init(kind: .reinstall) } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "terminal").font(.system(size: 10))
+                            Text("系统 · \(os)").font(.system(size: 11, weight: .semibold)).lineLimit(1)
+                        }
+                        .foregroundColor(t.color(t.info))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(t.color(t.info).opacity(0.1)))
+                    }.buttonStyle(.plain)
+                } else if osLoadFailed {
+                    Button { Task { await load() } } label: {
+                        Text("当前系统读取失败 · 点击重试").font(.system(size: 10.5, weight: .semibold)).foregroundColor(t.color(t.danger))
+                    }.buttonStyle(.plain)
+                }
+                if siLoadFailed {
+                    Text("到期 / 续费信息读取失败 —— 点右上刷新重试;未读到不等于没有到期日")
+                        .font(.system(size: 10)).foregroundColor(t.color(t.danger))
                 }
                 if let si = serviceinfo, let exp = si["expiration"] as? String, !exp.isEmpty {
                     FlowLayout(spacing: 6) {
@@ -96,6 +138,16 @@ struct VpsDetailView: View {
     private var firstIP: String {
         let raw = ips.first?["ipAddress"] as? String ?? (ips.first?["ip"] as? String ?? "")
         return raw.isEmpty ? "—" : raw
+    }
+
+    @State private var ipsErr: String? = nil
+    private func loadIPs() async {
+        ipsErr = nil
+        if let r = try? await conn.client.getDict("/vps-control/\(name)/ips") {
+            ips = (r["ips"] as? [[String: Any]]) ?? []
+        } else {
+            ipsErr = "读取失败"
+        }
     }
 
     private var renewalText: String {
@@ -153,6 +205,38 @@ struct VpsDetailView: View {
                 vOp(.console, icon: "rectangle.and.pencil.and.selection", title: "Web 控制台", desc: "noVNC(5 分钟有效)", tint: t.info)
                 vOp(.reinstall, icon: "opticaldiscdrive.fill", title: "重装系统", desc: "模板 + SSH key", tint: t.danger)
             }
+
+            // V-029/030 IP 列表卡
+            Card {
+                VStack(spacing: 8) {
+                    HStack {
+                        SectionTitle(text: "IP 地址")
+                        Spacer()
+                        Text("主 IP:\(mask ? maskIP(firstIP) : firstIP)").font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint))
+                    }
+                    if ipsErr != nil {
+                        LoadFailed(message: "IP 地址读取失败:\(ipsErr ?? "")") { Task { await loadIPs() } }
+                    } else if ips.isEmpty {
+                        Text("无 IP").font(.system(size: 11)).foregroundColor(t.color(t.faint)).padding(.vertical, 4)
+                    } else {
+                        ForEach(ips.indices, id: \.self) { i in
+                            let ip = ips[i]
+                            VStack(spacing: 3) {
+                                HStack {
+                                    Text(mask ? maskIP(ip["ipAddress"] as? String ?? "") : (ip["ipAddress"] as? String ?? "—"))
+                                        .font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
+                                    Spacer()
+                                    if let v = ip["version"] as? Int { Chip(text: "IPv\(v)") }
+                                    if let ty = ip["type"] as? String, !ty.isEmpty { Chip(text: ty) }
+                                }
+                                if let rev = ip["reverse"] as? String, !rev.isEmpty {
+                                    Text("↩ " + (mask ? maskIP(rev) : rev)).font(.system(size: 10)).foregroundColor(t.color(t.muted))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -187,14 +271,14 @@ struct VpsDetailView: View {
                 currentOS = o["name"] as? String
             }
         } catch { _ = error.localizedDescription }
-        if let r = try? await conn.client.getDict("/vps-control/\(name)/ips") {
-            ips = (r["ips"] as? [[String: Any]]) ?? []
-        }
+        await loadIPs()
     }
 
     private func power(_ verb: String) async {
         let (ok, msg) = await conn.client.actionPostData("/vps-control/\(name)/\(verb)", bodyData: nil)
-        toast.show(ok ? "指令已下发" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        let v2 = ["start": "启动", "stop": "关机", "reboot": "重启"][verb] ?? verb
+        toast.show(ok ? "\(v2)任务已提交" : (msg.isEmpty ? "\(v2)失败" : msg), error: !ok)
+        if ok { await load() }   // V-069:电源操作后刷新状态
     }
 
     // MARK: sheet 调度
@@ -204,7 +288,7 @@ struct VpsDetailView: View {
         switch s.kind {
         case .console: VpsConsoleSheet(name: name)
         case .reinstall: VpsReinstallSheet(vpsName: name)
-        case .stop: ConfirmSheet(title: "关闭 VPS", message: "关机后所有服务停止(计费继续)。确定关闭?", confirmText: "确认关机") {
+        case .stop: ConfirmSheet(title: "确认关机?", message: "VPS 将立即停机,业务中断直到下次启动。注意:OVH 不会因为关机停止计费,VPS 仍占用 hypervisor 配额。", confirmText: "确认关机") {
             await power("stop")
         }
         case .reboot: ConfirmSheet(title: "重启 VPS", message: "强制重启,未保存数据会丢失。", confirmText: "确认重启") {
@@ -400,6 +484,11 @@ struct VpsMaintenanceSection: View {
     @Binding var sheet: VpsSheet?
     var t: Tokens { theme.t }
 
+    /// 美区账户(V-034)
+    var isUSAccount: Bool {
+        (conn.activeAccount?["endpoint"] as? String)?.lowercased().contains("us") ?? false
+    }
+
     var body: some View {
         VStack(spacing: 10) {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
@@ -408,13 +497,17 @@ struct VpsMaintenanceSection: View {
                 m(.tasks, icon: "checklist", title: "任务历史", desc: "VPS 操作任务")
                 m(.alias, icon: "tag", title: "别名", desc: "本地显示名")
                 m(.options, icon: "shippingbox", title: "附加选项", desc: "已订阅选项")
-                m(.changeContact, icon: "person.2", title: "变更联系人", desc: "admin/tech/billing")
+                m(.changeContact, icon: "person.2", title: isUSAccount ? "美区限制" : "变更联系人", desc: isUSAccount ? "变更联系人/Backup FTP/重置密码/IPMI 测试不可用" : "admin/tech/billing")
             }
             Card {
                 VStack(spacing: 10) {
                     SectionTitle(text: "危险操作")
-                    ActBtn(kind: .danger, icon: "xmark.octagon", label: "终止这台 VPS") {
-                        sheet = .init(kind: .terminate)
+                    Text("提交终止请求后 OVH 邮件发 token,确认后立即销毁。数据不可恢复。")
+                        .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
+                    HStack(spacing: 10) {
+                        ActBtn(kind: .danger, icon: "paperplane", label: "提交终止请求(收 token)") {
+                            sheet = .init(kind: .terminate)
+                        }
                     }
                     Text("终止分两步:先申请(OVH 发邮件给 token),再回来输入 token 确认。")
                         .font(.system(size: 10.5)).foregroundColor(t.color(t.muted))
@@ -610,6 +703,33 @@ struct VpsReinstallSheet: View {
 
 // MARK: - VPS 任务历史
 
+// V-064 状态中文 8 种
+let VPS_TASK_STATE_CN: [String: String] = [
+    "blocked": "已阻塞", "cancelled": "已取消", "doing": "进行中", "done": "完成",
+    "error": "失败", "paused": "已暂停", "todo": "排队中", "waitingack": "待确认",
+]
+// V-065 类型中文 24 种(OVH 命名带 Vm 后缀)
+let VPS_TASK_TYPE_CN: [String: String] = [
+    "addVeeamBackupVm": "添加 Veeam 备份", "changeRootPasswordVm": "重置 root 密码",
+    "createSnapshotVm": "创建快照", "deleteSnapshotVm": "删除快照", "deliverVm": "交付 VM",
+    "generateConsoleUrlVm": "生成控制台链接", "internalTaskVm": "内部任务", "migrateVm": "迁移",
+    "openConsoleVm": "打开控制台", "orderAdditionalIpVm": "分配额外 IP", "rebootVm": "重启",
+    "reinstallVm": "重装系统", "removeVeeamBackupVm": "移除 Veeam 备份", "revertSnapshotVm": "回滚快照",
+    "setBackupVm": "调整自动备份", "setMonitoringVm": "设置监控", "setNetbootVm": "设置网络启动",
+    "startVm": "启动", "stopVm": "关机", "veeamFullRestoreVm": "Veeam 完整还原",
+    "veeamRestoreFileVm": "Veeam 还原", "restoreVm": "还原 VM", "updateVmResources": "升级 VM", "upgradeVm": "升级 VM",
+]
+
+func vpsTaskStateColor(_ s: String) -> String {
+    switch s.lowercased() {
+    case "done": return "success"
+    case "doing", "todo", "waitingack": return "warning"
+    case "cancelled", "error", "blocked": return "danger"
+    case "paused": return "info"
+    default: return "muted"
+    }
+}
+
 struct VpsTasksSheet: View {
     @EnvironmentObject var conn: Connection
     @EnvironmentObject var theme: Theme
@@ -632,17 +752,24 @@ struct VpsTasksSheet: View {
                     } else if tasks.isEmpty {
                         EmptyHint(icon: "checkmark.circle", text: "没有任务记录")
                     } else {
-                        ForEach(tasks.indices, id: \.self) { i in
+                        ForEach(tasks.prefix(10).indices, id: \.self) { i in
                             let it = tasks[i]
+                            let act = it["action"] as? String ?? (it["type"] as? String ?? "")
+                            let state = (it["state"] as? String ?? it["status"] as? String ?? "").lowercased()
+                            let progress = numToDoubleAny(it["progress"]).map(Int.init) ?? -1
                             Card {
                                 VStack(alignment: .leading, spacing: 6) {
                                     HStack {
-                                        Text(it["action"] as? String ?? (it["type"] as? String ?? "—"))
-                                            .font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
+                                        Text("#\(it["id"] as? Int ?? 0)").font(.system(size: 10, design: .monospaced)).foregroundColor(t.color(t.faint))
+                                        Text(VPS_TASK_TYPE_CN[act] ?? act).font(.system(size: 12.5, weight: .semibold)).foregroundColor(t.color(t.fg))
                                         Spacer()
-                                        Chip(text: it["state"] as? String ?? it["status"] as? String ?? "—")
+                                        if progress > 0 && progress < 100 { Chip(text: "\(progress)%") }
+                                        Chip(text: VPS_TASK_STATE_CN[state] ?? state, color: vpsTaskStateColor(state))
                                     }
-                                    KV(k: "更新", v: fmtDate(it["updateDate"] as? String ?? it["date"] as? String))
+                                    if state == "doing" && progress >= 0 {
+                                        ProgressView(value: Double(progress) / 100).tint(t.color(t.warning))
+                                    }
+                                    KV(k: "时间", v: fmtDate(it["updateDate"] as? String ?? it["date"] as? String))
                                 }
                             }
                         }
@@ -834,7 +961,19 @@ struct ServerAliasSheet: View {
 
 /// OpenStack zone → 中文
 func zoneCn(_ z: String) -> String {
-    ["DE1": "德国", "GRA1": "法国 GRA1", "GRA3": "法国 GRA3", "GRA5": "法国 GRA5", "GRA7": "法国 GRA7",
-     "BHS1": "加拿大", "SBG1": "斯特拉斯堡", "SBG3": "斯特拉斯堡", "UK1": "伦敦", "SG1": "新加坡",
-     "SYD1": "悉尼", "WAW1": "华沙", "MUM1": "孟买", "US1": "美国", "VIN1": "弗吉尼亚"][z] ?? z
+    let m: [String: String] = [
+        // OS_ZONE_MAP(V-019 新式)
+        "os-eu-west-fr-1": "法国·格拉夫林", "os-eu-west-fr-2": "法国·鲁贝", "os-eu-west-fr-3": "法国·斯特拉斯堡",
+        "os-eu-west-par-1": "法国·巴黎", "os-eu-west-par-2": "法国·巴黎 2", "os-eu-west-par-3": "法国·巴黎 3",
+        "os-eu-central-de-1": "德国·法兰克福", "os-eu-central-waw-1": "波兰·华沙", "os-eu-west-uk-1": "英国·伦敦",
+        "os-ca-east-bhs-1": "加拿大·博阿尔诺", "os-ca-east-tor-2": "加拿大·多伦多", "os-us-east-vin-1": "美国·弗吉尼亚",
+        "os-us-west-hil-1": "美国西部·俄勒冈", "os-ap-southeast-sgp-1": "新加坡", "os-ap-south-mum-1": "印度·孟买",
+        "os-ap-southeast-syd-1": "澳大利亚·悉尼",
+        // LEGACY_DC_MAP
+        "gra": "法国·格拉沃利纳", "gra1": "法国·格拉沃利纳", "rbx": "法国·鲁贝", "sbg": "法国·斯特拉斯堡",
+        "par": "法国·巴黎", "bhs": "加拿大·博阿尔诺", "tor": "加拿大·多伦多", "mum": "印度·孟买",
+        "waw": "波兰·华沙", "fra": "德国·法兰克福", "lon": "英国·伦敦", "hil": "美国西部·俄勒冈",
+        "vin": "美国·弗吉尼亚", "sgp": "新加坡", "syd": "澳大利亚·悉尼", "de1": "德国",
+    ]
+    return m[z.lowercased()] ?? z.uppercased()
 }

@@ -225,10 +225,22 @@ struct ServerCard: View {
 // MARK: - VPS 卡
 
 let VPS_STATE_CN: [String: String] = [
-    "running": "运行中", "active": "运行中", "stopped": "已关机", "suspended": "已暂停",
-    "error": "错误", "reinstalling": "重装中", "installing": "安装中",
-    "deleted": "已删除", "to_delete": "待删除", "todelete": "待删除", "unknown": "未知",
+    "running": "运行中", "active": "运行中",
+    "stopped": "已关机", "stopping": "关机中", "rebooting": "重启中",
+    "installing": "装机中", "reinstalling": "装机中", "backuping": "备份中",
+    "upgrading": "升级中", "maintenance": "维护中", "rescued": "救援模式",
+    "suspended": "已暂停", "error": "错误", "deleted": "已删除",
+    "to_delete": "待删除", "todelete": "待删除", "unknown": "未知",
 ]
+/// 救援/危险态用 danger 色(V-011)
+func vpsStateColor(_ state: String) -> String {
+    switch state.lowercased() {
+    case "running", "active": return "success"
+    case "rescued", "error": return "danger"
+    case "stopped", "maintenance": return "warning"
+    default: return "muted"
+    }
+}
 
 struct VpsCard: View {
     @EnvironmentObject var theme: Theme
