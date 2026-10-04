@@ -782,6 +782,56 @@ struct VpsAliasSheet: View {
     }
 }
 
+/// 独服别名(S-008/009):长按机器标题呼出;PUT/DELETE /server-control/{sn}/alias
+struct ServerAliasSheet: View {
+    @EnvironmentObject var conn: Connection
+    @EnvironmentObject var theme: Theme
+    @EnvironmentObject var toast: Toast
+    @Environment(\.dismiss) private var dismiss
+    let sn: String
+    let current: String
+    var t: Tokens { theme.t }
+
+    @State private var alias = ""
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            SheetHeader(icon: "tag", tint: t.info, title: "设置别名")
+            VStack(alignment: .leading, spacing: 12) {
+                Text(sn).font(.system(size: 11, design: .monospaced)).foregroundColor(t.color(t.muted))
+                SheetField(placeholder: "例如:kele(留空清除别名)", text: $alias)
+                Text("别名仅在本程序里显示,不会下发到 OVH。")
+                    .font(.system(size: 10.5)).foregroundColor(t.color(t.faint))
+                HStack(spacing: 10) {
+                    ActBtn(kind: .primary, icon: "checkmark", label: busy ? "保存中…" : (alias.isEmpty ? "清除并保存" : "保存"), busy: busy) {
+                        await save()
+                    }
+                }
+            }.padding(.horizontal, 16)
+            Spacer()
+        }
+        .background(t.color(t.bg))
+        .presentationDetents([.medium])
+        .onAppear { alias = current.contains(" | ") ? String(current.components(separatedBy: " | ").first ?? "") : "" }
+    }
+
+    private func save() async {
+        busy = true
+        defer { busy = false }
+        let a = alias.trimmingCharacters(in: .whitespaces)
+        if a.isEmpty {
+            let (ok, msg) = await conn.client.actionDelete("/server-control/\(sn)/alias")
+            toast.show(ok ? "已清除别名" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        } else {
+            let body = try? JSONSerialization.data(withJSONObject: ["alias": String(a.prefix(64))])
+            let (ok, msg) = await conn.client.actionPutData("/server-control/\(sn)/alias", bodyData: body)
+            toast.show(ok ? "别名已保存" : (msg.isEmpty ? "失败" : msg), error: !ok)
+        }
+        if !busy || alias.isEmpty { dismiss() }
+    }
+}
+
 /// OpenStack zone → 中文
 func zoneCn(_ z: String) -> String {
     ["DE1": "德国", "GRA1": "法国 GRA1", "GRA3": "法国 GRA3", "GRA5": "法国 GRA5", "GRA7": "法国 GRA7",

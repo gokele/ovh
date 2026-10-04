@@ -70,6 +70,7 @@ struct ServerDetailView: View {
                         Text("\(sn) · \((item["datacenter"] as? String ?? "—").uppercased())")
                             .font(.system(size: 10.5, design: .monospaced)).foregroundColor(t.color(t.muted)).lineLimit(1)
                     }
+                    .onLongPressGesture { sheet = .init(kind: .alias) }   // S-008:长按=web 右键设别名
                     Spacer()
                     Chip(text: state.uppercased(), color: ok ? t.success : t.danger)
                 }
@@ -78,8 +79,72 @@ struct ServerDetailView: View {
                     Text(mask ? maskIP(item["ip"] as? String ?? "") : (item["ip"] as? String ?? "—"))
                         .font(.system(size: 12.5, design: .monospaced)).foregroundColor(t.color(t.fg))
                     Spacer()
-                    Text(renewalText).font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                    // OS 胶囊(S-016):点击进重装
+                    if let os = item["os"] as? String, !os.isEmpty {
+                        Button { sheet = .init(kind: .reinstall) } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "terminal").font(.system(size: 9))
+                                Text(os).font(.system(size: 10.5, design: .monospaced)).lineLimit(1)
+                            }
+                            .foregroundColor(t.color(t.info))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Capsule().fill(t.color(t.info).opacity(0.1)))
+                        }.buttonStyle(.plain)
+                    }
+                    // 续费胶囊可点(S-015)
+                    Button { sheet = .init(kind: .renewal) } label: {
+                        Text(renewalText).font(.system(size: 11, weight: .semibold)).foregroundColor(t.color(t.accent))
+                    }.buttonStyle(.plain)
                 }
+                if serviceinfo == nil {
+                    // S-013:胶囊骨架
+                    HStack(spacing: 6) {
+                        ForEach(0..<4, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 8).fill(t.color(t.surfaceMuted))
+                                .frame(width: 72, height: 24)
+                        }
+                        Spacer()
+                    }
+                    .padding(.top, 4)
+                }
+                HStack(spacing: 6) {
+                    // S-014 撤单倒计时胶囊(eligible 才显示,点击直达)
+                    if (retraction?["eligible"] as? Bool) == true {
+                        Button { sheet = .init(kind: .retraction) } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "clock.badge.exclamationmark").font(.system(size: 9))
+                                Text("可撤单 · \(retractionLeftText)").font(.system(size: 10.5, weight: .semibold))
+                            }
+                            .foregroundColor(t.color(t.warning))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Capsule().fill(t.color(t.warning).opacity(0.12)))
+                        }.buttonStyle(.plain)
+                    }
+                    // S-018 OVH 监控三态胶囊
+                    Button {
+                        if monitoringOn == nil {
+                            Task {   // 读失败时点击只重试,不发指令(防未知当 false 反向关掉)
+                                monitoringLoading = true
+                                if let r = try? await conn.client.getDict("/server-control/\(sn)/monitoring") {
+                                    monitoringOn = r["monitoring"] as? Bool
+                                }
+                                monitoringLoading = false
+                            }
+                        } else {
+                            sheet = .init(kind: .monitoring)
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "bell.badge").font(.system(size: 9))
+                            Text(monitoringLabel).font(.system(size: 10.5, weight: .semibold))
+                        }
+                        .foregroundColor(t.color(monitoringColor))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(t.color(monitoringColor).opacity(0.12)))
+                    }.buttonStyle(.plain)
+                    Spacer()
+                }
+                .padding(.top, 2)
                 if let si = serviceinfo {
                     FlowLayout(spacing: 6) {
                         if let exp = si["expiration"] as? String, !exp.isEmpty {
@@ -97,16 +162,66 @@ struct ServerDetailView: View {
         }
     }
 
+    private var monitoringLabel: String {
+        if monitoringLoading { return "监控 读取中…" }
+        if monitoringOn == nil { return "监控 状态未知 · 重试" }
+        return monitoringOn! ? "监控 已开" : "监控 已关"
+    }
+    private var monitoringColor: String {
+        if monitoringLoading { return t.muted }
+        if monitoringOn == nil { return t.danger }
+        return monitoringOn! ? t.success : t.faint
+    }
+
+    /// 撤单剩余窗口(retractionDate 与当前差)
+    private var retractionLeftText: String {
+        guard let deadline = retraction?["retractionDate"] as? String ?? retraction?["deadline"] as? String else {
+            return "窗口内"
+        }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        for fmt in ["yyyy-MM-dd'T'HH:mm:ssZZZZZ", "yyyy-MM-dd"] {
+            f.dateFormat = fmt
+            if let d = f.date(from: deadline) {
+                let hours = Int(d.timeIntervalSinceNow / 3600)
+                return hours >= 24 ? "\(hours / 24) 天" : "\(max(0, hours)) 小时"
+            }
+        }
+        return "窗口内"
+    }
+
     private var renewalText: String {
         if let si = serviceinfo {
-            if (si["terminationScheduled"] as? Bool ?? false) || (si["renewalDeleteAtExpiration"] as? Bool ?? true) { return "到期终止" }
+            // 终止态优先(S-015 五种细分)
+            let term = terminationLabel(si)
+            if !term.isEmpty { return term }
+            if si["renewalForced"] as? Bool == true {
+                let p = si["renewalPeriod"] as? Int ?? 1
+                return "强制自动 · \(p)月"
+            }
             if si["renewalType"] as? Bool == true {
                 let p = si["renewalPeriod"] as? Int ?? 1
-                return "自动续费 · \(p) 月"
+                return "自动 · \(p)月"
             }
-            return "手动续费"
+            if si["renewalType"] == nil { return "续费未知" }   // 没读到 ≠ 手动
+            return "手动"
         }
         return ""
+    }
+
+    private func terminationLabel(_ si: [String: Any]) -> String {
+        let scheduled = si["terminationScheduled"] as? Bool ?? false
+        let deleteAtExp = si["renewalDeleteAtExpiration"] as? Bool ?? false
+        guard scheduled || deleteAtExp else { return "" }
+        if let policy = si["terminationPolicy"] as? String {
+            switch policy.lowercased() {
+            case "terminateservice": return "终止处理中(立即)"
+            case "terminateatengagementdate": return "合同期结束终止"
+            case "terminateatexpirationdate": return "到期终止"
+            default: break
+            }
+        }
+        return deleteAtExp ? "到期终止" : "已安排终止"
     }
 
     private func daysLeft(_ iso: String) -> Int {
@@ -122,11 +237,21 @@ struct ServerDetailView: View {
         return Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 999
     }
 
+    @State private var retraction: [String: Any]? = nil
+    @State private var monitoringOn: Bool? = nil
+    @State private var monitoringLoading = true
+
     private func load() async {
         // 不缓存:refreshable / 保存续费后回来都要拿到最新状态
-        if let r = try? await conn.client.getDict("/server-control/\(sn)/serviceinfo") {
+        async let si = conn.client.getDict("/server-control/\(sn)/serviceinfo")
+        async let rt = conn.client.getDict("/server-control/\(sn)/retraction", timeoutSec: 20)
+        async let mo = conn.client.getDict("/server-control/\(sn)/monitoring")
+        if let r = try? await si {
             serviceinfo = (r["serviceInfo"] as? [String: Any]) ?? r
         }
+        if let r = try? await rt { retraction = r }
+        if let r = try? await mo { monitoringOn = r["monitoring"] as? Bool }
+        monitoringLoading = false
     }
 
     // MARK: sheet 调度
@@ -166,6 +291,7 @@ struct ServerDetailView: View {
         case .options: JsonSheet(title: "附加选项", icon: "shippingbox", path: "/server-control/\(sn)/options")
         case .ipSpecs: JsonSheet(title: "IP 规格", icon: "number", path: "/server-control/\(sn)/ip-specs")
         case .mitigation: MitigationSheet(sn: sn, isVps: false)
+        case .alias: ServerAliasSheet(sn: sn, current: item["name"] as? String ?? "")
         }
     }
 }
@@ -177,6 +303,7 @@ struct ServerSheet: Identifiable {
         case retraction, renewal, networkSpecs, engagement, hwReplace, changeContact, monitoring
         case burst, firewall, backupFtp, secondaryDns, virtualMac, vrack
         case orderableBandwidth, orderableTraffic, orderableIp, options, ipSpecs, mitigation
+        case alias
     }
     let kind: Kind
     var id: Kind { kind }
@@ -210,7 +337,7 @@ struct OverviewSection: View {
                     }
                     if let hw = hardware {
                         KV(k: "处理器", v: "\(hw["processorName"] ?? "—")")
-                        KV(k: "核心", v: "\(hw["numberOfProcessors"] ?? 0) 颗 × \(hw["coresPerProcessor"] ?? 0) 核")
+                        KV(k: "核心", v: "\(hw["numberOfProcessors"] ?? 0)×\(hw["coresPerProcessor"] ?? 0) 核 / \(hw["threadsPerProcessor"] ?? 0) 线程")
                         KV(k: "内存", v: memText(hw["memorySize"]))
                         KV(k: "主板", v: "\(hw["motherboard"] ?? "—")")
                         if let groups = hw["diskGroups"] as? [[String: Any]] {
@@ -243,7 +370,12 @@ struct OverviewSection: View {
                 VStack(spacing: 8) {
                     SectionTitle(text: "IP 地址")
                     if ips.isEmpty {
-                        Text(err == nil ? "没有 IP 数据" : "—").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                        // S-021:接口失败/空时回退列表自带主 IP
+                        if let fallback = item["ip"] as? String, !fallback.isEmpty {
+                            ipRow(["ip": fallback, "type": "IPv4"])
+                        } else {
+                            Text(err == nil ? "没有 IP 数据" : "—").font(.system(size: 11)).foregroundColor(t.color(t.faint))
+                        }
                     }
                     ForEach(ips.indices, id: \.self) { i in ipRow(ips[i]) }
                 }

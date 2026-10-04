@@ -183,8 +183,8 @@ struct ServerCard: View {
                             .font(.system(size: 11.5, design: .monospaced)).foregroundColor(t.color(t.fg))
                     }
                     Spacer()
-                    Text("\((item["datacenter"] as? String ?? "—").uppercased()) · \(renewalText)")
-                        .font(.system(size: 11)).foregroundColor(t.color(t.muted))
+                    Text("\(commercialText) · \(renewalText)")
+                        .font(.system(size: 11)).foregroundColor(t.color(t.muted)).lineLimit(1)
                 }
                 .padding(.top, 10)
                 .overlay(Rectangle().frame(height: 0.5).foregroundColor(t.color(t.border)).opacity(0.6), alignment: .top)
@@ -209,6 +209,16 @@ struct ServerCard: View {
     private var renewalText: String {
         if let rt = item["renewalType"] as? Bool { return rt ? "自动续费" : "手动续费" }
         return "续费未知"
+    }
+    /// 商业区间(S-007:KS-5-A | Intel Xeon → KS-5-A)+机房
+    private var commercialText: String {
+        let cr = item["commercialRange"] as? String ?? ""
+        let dc = (item["datacenter"] as? String ?? "—").uppercased()
+        if !cr.isEmpty {
+            let head = cr.components(separatedBy: " | ").first ?? cr
+            return "\(head) · \(dc)"
+        }
+        return dc
     }
 }
 
