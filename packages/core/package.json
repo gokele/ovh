@@ -1,9 +1,0 @@
-{
-  "name": "@ovh-console/core",
-  "version": "0.1.0",
-  "private": true,
-  "description": "OVH 控制台共享逻辑层:网页(axios)与 App(React Native fetch)共用的纯逻辑与 API 客户端。无框架、无 DOM 依赖。",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
-  "sideEffects": false
-}

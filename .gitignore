@@ -120,3 +120,4 @@ app/OvhConsole/**/xcuserdata/
 # 本地开发用,不上传(kl 2026-10-05):错误码生成脚本与 iOS App 源码
 /tools/
 /app/
+/packages/
