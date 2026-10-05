@@ -769,9 +769,14 @@ export function useReinstallServer() {
           Object.entries(args.hardwareRaid).forEach(([gidStr, raidMode]) => {
             if (!raidMode) return;
             const parsed = parseInt(gidStr);
-            // 只有一个磁盘组时，硬件 RAID 和分区必须落在同一个 storage 条目里，
-            // 否则就成了「两个组各配一半」。没选组时两边都用 DEFAULT_GID 这个键。
-            const gid = groups.size === 1 && groups.has(DEFAULT_GID) ? DEFAULT_GID : gidKey(parsed);
+            // 分区全落在默认组、RAID 也没选组时，两边必须并进同一个 storage 条目，
+            // 否则就成了「两个组各配一半」。RAID 自己选了真实组号时按它自己的组走 ——
+            // 以前只看分区侧，分区在默认组 + RAID 选组 2 会被错并进默认组条目
+            const parsedKey = gidKey(parsed);
+            const gid =
+              groups.size === 1 && groups.has(DEFAULT_GID) && parsedKey === DEFAULT_GID
+                ? DEFAULT_GID
+                : parsedKey;
             if (!groups.has(gid)) {
               const entry: any = {};
               if (gid !== DEFAULT_GID) entry.diskGroupId = Number(gid);
