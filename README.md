@@ -214,7 +214,7 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 | **凭据落盘加密** | ✅ | AES-256-GCM,密钥首次启动自动生成写进 `.env`,老库自动迁移 |
 | **抢购耗时打点** | ✅ | 查库存 / 建车 / 绑车 / 加购 / 配置 / 选项 / 下单 逐段计时,回答"我慢在哪一步" |
 | 后端询价 | ✅ | `POST /api/servers/{planCode}/price`,走 OVH cart 真实询价 |
-| 已购服务器管理 | ✅ | 电源 / 重装(ZFS·软RAID·自定义分区) / IPMI / BIOS / 启动模式 / 任务 / 维护工单 |
+| 已购服务器管理 | ✅ | 电源 / 重装(对齐官方全能力:OS 定制问题·SSH 密钥·安装后脚本·硬件 RAID arrays/热备·软 RAID 盘数·LVM 卷名·ZFS zpool 名·数据保留) / IPMI / BIOS / 启动模式 / 任务 / 维护工单 |
 | 已购 VPS 管理 | ✅ | 开关机 / 重装 / 快照 / 控制台 / 改密 / 反解 / 自动备份 |
 | 网络与防护 | ✅ | 网卡 / OLA / MRTG 流量图 / DDoS 缓解 / 防火墙 / Backup FTP |
 | 合同期(engagement) | ✅ | 服务器与 VPS 双端,销毁类操作强制二次确认 |
@@ -256,7 +256,7 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 ### 已购服务器管理
 - **账户隔离**:所有 `/server-control/*` 请求由 axios 拦截器自动追加 `?account=<id>`,跟随左侧菜单栏选中的当前账户,无需逐 hook 改造
 - **概览**:硬件信息 + 服务到期 + IP / 网卡 + MRTG 流量图
-- **电源 / 系统**:重启 / 重装(含 ZFS / 软 RAID / 自定义分区)/ IPMI 控制台 / 启动模式 / SPLA Windows 解锁 / 任务列表 / BIOS / 安装进度。重装接口加了 per-service `TryLock`,防双击重复提交
+- **电源 / 系统**:重启 / 重装(对齐 OVH 官方能力:按模板动态渲染 OS 定制问题——SSH 密钥 / 安装后脚本 / 语言等;文件系统与 RAID 级别按模板兼容性过滤;硬件 RAID 支持 arrays/热备盘;软 RAID 可指定参与盘数;分区支持 LVM 卷名与 ZFS zpool 名;非安装盘组可声明保留数据)/ IPMI 控制台 / 启动模式 / SPLA Windows 解锁 / 任务列表 / BIOS / 安装进度。重装接口加了 per-service `TryLock`,防双击重复提交
 - **维护**:维护记录 + 硬件更换工单(硬盘 / 内存 / 散热)+ 联系人变更(Token 邮件确认)
 - **高级**(9 个 sub-tab):Burst / 防火墙 / Backup FTP / Secondary DNS / 虚拟 MAC / vRack / 可订购升级 / 附加选项 / IP 规格
 - **隐私模式**:一键打码所有 IP / MAC / 反向 DNS 主机名

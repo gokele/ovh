@@ -205,7 +205,7 @@ Notification endpoints are configured in the settings page under "Notification C
 | **Encrypted credentials at rest** | ✅ | AES-256-GCM; key auto-generated on first start into `.env`; old databases migrated automatically |
 | **Sniping timing breakdown** | ✅ | Per-phase timing across stock check / cart / assign / item / options / configuration / checkout — answers "which step am I slow at" |
 | Backend price quoting | ✅ | `POST /api/servers/{planCode}/price`, real quotes via the OVH cart |
-| Purchased server management | ✅ | Power / reinstall (ZFS · soft RAID · custom partitions) / IPMI / BIOS / netboot mode / tasks / maintenance tickets |
+| Purchased server management | ✅ | Power / reinstall (full official parity: OS customization questions · SSH keys · post-install scripts · hardware RAID arrays/spares · software RAID disk counts · LVM volume names · ZFS zpool names · data retention) / IPMI / BIOS / netboot mode / tasks / maintenance tickets |
 | Purchased VPS management | ✅ | Start-stop / reinstall / snapshots / console / password reset / reverse DNS / auto backup |
 | Network & protection | ✅ | NICs / OLA / MRTG traffic graphs / DDoS mitigation / firewall / FTP backup |
 | Engagement (contract period) | ✅ | Both servers and VPS; destructive operations require double confirmation |
@@ -246,7 +246,7 @@ Notification endpoints are configured in the settings page under "Notification C
 ### Purchased Server Management
 - **Account isolation**: all `/server-control/*` requests automatically carry `?account=<id>` via an axios interceptor, following the account selected in the left sidebar — no per-hook changes needed
 - **Overview**: hardware info + service expiry + IPs / NICs + MRTG traffic graphs
-- **Power / system**: reboot / reinstall (ZFS / soft RAID / custom partitions) / IPMI console / netboot mode / SPLA Windows unlock / task list / BIOS / install progress. Reinstall has a per-service `TryLock` against double-submits
+- **Power / system**: reboot / reinstall (full parity with OVH's official capabilities: OS-specific customization questions rendered per template — SSH keys / post-installation scripts / language; filesystems and RAID levels filtered by template compatibility; hardware RAID with arrays/hot spares; software RAID with selectable disk counts; partitions support LVM volume names and ZFS zpool names; non-install disk groups can be declared to keep their data) / IPMI console / netboot mode / SPLA Windows unlock / task list / BIOS / install progress. Reinstall has a per-service `TryLock` against double-submits
 - **Maintenance**: maintenance records + hardware replacement tickets (disk / memory / cooling) + contact changes (token email confirmation)
 - **Advanced** (9 sub-tabs): Burst / firewall / FTP backup / secondary DNS / virtual MAC / vRack / orderable upgrades / add-on options / IP specs
 - **Privacy mode**: one-click masking of all IPs / MACs / reverse DNS hostnames
