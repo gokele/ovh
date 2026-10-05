@@ -6,7 +6,8 @@ OVH 独立服务器 / VPS / Eco 系列**抢购 + 监控 + 管理**控制台。
 
 > Go (Gin) + SQLite 后端、Vite/React + TanStack + shadcn-ui 前端、`//go:embed` 单二进制部署(自带 SQLite, 跨平台无依赖)、
 > 强制 OvhCredsGate、多账户支持、双 SQLite driver(`modernc.org/sqlite` 纯 Go / `mattn/go-sqlite3` cgo, build tag 自动选)、
-> 自动检测 GitHub Releases 更新。
+> **中英双语界面(跟随浏览器,可手动固定)**、自动检测 GitHub Releases 更新、
+> 配套 iOS App 接入(一次性配对码 + 独立设备令牌,App 源码暂未开源)。
 
 ## 下载
 
@@ -31,7 +32,7 @@ docker pull ghcr.io/gokele/ovh:latest
 
 | 层 | 技术 |
 |---|---|
-| 前端 | Vite 5 + React 18 + TypeScript + TanStack Router + TanStack Query + shadcn-ui + Tailwind + recharts |
+| 前端 | Vite 5 + React 18 + TypeScript + TanStack Router + TanStack Query + shadcn-ui + Tailwind + recharts + **react-i18next(中/英)** |
 | 后端 | Go 1.21+ + Gin + 官方 [go-ovh](https://github.com/ovh/go-ovh) SDK |
 | 持久化 | SQLite(`modernc.org/sqlite` 纯 Go / `mattn/go-sqlite3` cgo 双 driver, build tag 自动选),凭据字段 AES-256-GCM 加密落盘 |
 | 通知 | Telegram Bot(长轮询,无需公网地址)+ 自定义 Webhook(钉钉 / 飞书 / Bark / 自建),多通道冗余 |
@@ -63,6 +64,7 @@ docker pull ghcr.io/gokele/ovh:latest
         ├── routes/       # 文件路由
         ├── components/   # 共享组件 + AuthGate / OvhCredsGate
         ├── hooks/        # TanStack Query hooks
+        ├── i18n/         # 多语言:语言包(模块化)+ 错误码翻译层 + 本地化格式化
         └── lib/          # 子公司表 / OVH 数据中心常量 / utils
 ```
 
@@ -155,7 +157,7 @@ npm run dev             # 默认 :19997, /api/* 自动反代到 19998
 
 凭据通过后,前端立刻在后台 prefetch 三件套(服务器目录 / catalog / 可用性),用户切到服务器列表页**直接出数据,不会再走"加载中"**。
 
-后续可在"设置 → OVH 账户"加更多账户。每个账户独立的 endpoint / 凭据 / Zone,**抢购队列、监控订阅、自动下单全部按账户隔离**。服务器控制 tab 顶部有账户切换器,可在已登录账户之间切换查看。
+后续可在"设置 → OVH 账户"加更多账户。每个账户独立的 endpoint / 凭据 / Zone,**抢购队列、监控订阅、自动下单全部按账户隔离**。账户切换全站只有一个入口(左侧菜单栏),切换后目录 / 价格 / 控制台 / 下单账户全部跟着走。
 
 ## 配置
 
@@ -193,9 +195,11 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 | 能力 | 状态 | 说明 |
 |---|---|---|
 | **深色模式** | ✅ | 浅色 / 深色 / 跟随系统三态,顶栏右上角一键切换或到「设置 → 外观」选择;选择只存在当前浏览器 |
+| **中英双语界面** | ✅ | 默认跟随浏览器语言;顶栏 / 登录页一键切换,手动切换过则以手动选择为准。日期 / 金额格式跟随语言,**后端报错消息同样双语**(稳定错误码 + 前端按码翻译) |
 | 多 OVH 账户 | ✅ | 独立 endpoint / 凭据 / Zone,抢购队列、历史、监控订阅全按 `account_id` 隔离 |
 | **全站单一账户入口** | ✅ | 只在左侧菜单栏切换,机型列表 / 可用性 / 价格 / 控制台 / 下单账户全部跟着走 |
 | **三区支持(EU / US / CA)** | ✅ | 子公司归属、目录站点、`region` 取值、planCode 后缀、机房集合全部按区解析,不写死欧区 |
+| **实时库存直连** | ✅ | 目录页红绿点直连 OVH 公开可用性接口(按账户所在站点,60 秒新鲜期),不再依赖最长 2 小时旧的目录缓存;接口失败时回落静态并明示"库存未知",不冒充缺货 |
 | 抢购队列 | ✅ | 每机型 × 每机房 × 数量独立任务,可暂停/恢复,fail-fast 不退化到默认配置 |
 | 服务器补货监控 | ✅ | 订阅 planCode + 机房,状态变化推 Telegram,**检查间隔 5–3600 秒可配** |
 | VPS 补货监控 | ✅ | 型号来自 OVH 实时目录(型号会整代下架,写死会让监控静默失效),区分 Linux / Windows,按子公司连对站点 |
@@ -214,6 +218,7 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 | 网络与防护 | ✅ | 网卡 / OLA / MRTG 流量图 / DDoS 缓解 / 防火墙 / Backup FTP |
 | 合同期(engagement) | ✅ | 服务器与 VPS 双端,销毁类操作强制二次确认 |
 | 隐私模式 | ✅ | 一键打码所有 IP / MAC / 反向 DNS |
+| **App 设备配对** | ✅ | 一次性配对码(2 分钟有效、原子兑换、并发恰好成功一次)+ 独立设备令牌(仅存 SHA-256、可单独吊销);按 IP + 全局双层失败限流防撞库 |
 | 自动检测更新 | ✅ | 拉 GitHub Releases 比版本号,有新版显示 ✨ |
 | **在线更新** | ✅ | 点一下自替换 + 自动重启,强制校验 SHA256,新版起不来自动回滚 |
 | **控制台接入方式可选** | ✅ | HTML5 KVM / **Java KVM(.jnlp)** / SOL(URL) / SOL(SSH),由用户选 |
@@ -230,6 +235,7 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 
 ### 抢购
 - **服务器列表**:卡片网格 + 实时 DC 库存灯(绿可用 / 红缺货),点击直接选配置下单
+- **实时库存**:列表页直连 OVH 公开可用性接口拉全量状态(按当前账户所在站点,EU / US / CA 三站库存互不相通),60 秒新鲜期内复用;拉不到时回落目录静态数据并在页面顶部明示 —— 静态状态最长 2 小时旧,把它当"缺货"会错过有货的机器
 - **配置选择器**:按 OVH `addonFamilies`(CPU / 内存 / 系统盘 / 数据盘 / 带宽 / vRack)分组单选,默认值预选
 - **抢购队列**:每台服务器 × 每个 DC × 数量 独立任务,**每个任务绑定到一个 OVH 账户**,可暂停 / 恢复 / 删除,按 retry interval 轮询 OVH 库存
 - **fail-fast**:用户选的配置匹配不上 OVH 当前可订购的 addon → 整单失败,绝不退化到默认 HDD
@@ -248,7 +254,7 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 - **历史时间线**:每个订阅完整变化记录
 
 ### 已购服务器管理
-- **顶部账户切换器**:服务器控制 tab 头单独有账户下拉,切换后所有 `/server-control/*` 请求由 axios 拦截器自动追加 `?account=<id>`,无需逐 hook 改造
+- **账户隔离**:所有 `/server-control/*` 请求由 axios 拦截器自动追加 `?account=<id>`,跟随左侧菜单栏选中的当前账户,无需逐 hook 改造
 - **概览**:硬件信息 + 服务到期 + IP / 网卡 + MRTG 流量图
 - **电源 / 系统**:重启 / 重装(含 ZFS / 软 RAID / 自定义分区)/ IPMI 控制台 / 启动模式 / SPLA Windows 解锁 / 任务列表 / BIOS / 安装进度。重装接口加了 per-service `TryLock`,防双击重复提交
 - **维护**:维护记录 + 硬件更换工单(硬盘 / 内存 / 散热)+ 联系人变更(Token 邮件确认)
@@ -289,7 +295,9 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 |---|---|---|---|---|
 | 服务器目录 | 2h(SQLite + 内存 ServerCache) | 2h | ❌ 完全访问触发 | 缓存过期时下一次访问 / 手动刷新按钮 |
 | OVH catalog(价格) | 2h(SQLite `catalogs` 表) | 2h | ❌ | 同上 |
-| 实时可用性 | — | 1 分钟 | ❌(原每 60 秒轮询已关) | 同上 |
+| 实时可用性 | —(前端直连 OVH 公开接口) | 60 秒 | ❌ | 访问触发;失败回落目录静态并明示 |
+
+实时库存由**前端**直连 OVH 各站点的公开 `datacenter/availabilities` 接口(不带凭据、不占账户配额),按当前账户所在站点选择 EU / US / CA 数据源 —— 三站库存互不相通,跟错站点等于整页永远"无货"。后端 `/api/servers` 返回的目录静态可用性仅作回落。
 
 启动时不主动调 OVH,只把 SQLite 现有数据加载到内存。`ServerCache` 用 SQLite 真实 `updated_at` 重建时间戳,旧数据不会被当成"刚刷过的"。
 
@@ -303,6 +311,22 @@ OVH 凭据**不放 env**,通过前端 OvhCredsGate / 设置页"OVH 账户" tab �
 - **凭据落盘加密**:`ovh_accounts` 的 AppKey / AppSecret / ConsumerKey、`kv` 里的 Telegram Token 都是 AES-256-GCM 加密存的。密钥优先取环境变量 `OVH_DB_KEY`,没有就在首次启动时生成一把写进 `.env`(权限 0600)
 - ⚠️ **加密防的是"只拿到 db 文件"那一类泄漏** —— 备份被同步到网盘、拷整个目录换机器、把 `data/` 打包发给别人排查问题。它**防不住** `.env` 和 db 一起漏出去,那种情况下加密等于没有。而 `.env` 恰恰是最容易被顺手提交、被贴进 issue 的文件
 - **密钥丢了会拒绝启动**:库里有密文却找不到密钥时,程序会停下来并说明怎么办,而不是照常起来。否则表现是"账户都在但每次调 OVH 都报签名错误",没人猜得到是密钥问题,而这时候重新录入凭据会覆盖旧密文,最后一点恢复余地也没了。确实找不回来时用 `OVH_DB_KEY_RESET=1` 启动,那些账户需要重新录入
+
+### App 设备配对(后端内置,iOS App 接入)
+
+配套的 iOS App(App 源码暂未开源)通过一次性配对码接入后端,不持有 `API_SECRET_KEY`:
+
+- **配对流程**:网页端「设置 → App 配对」生成 8 位配对码(2 分钟有效)→ App 端输入(或扫深链)→ 后端兑换出**设备令牌**,之后所有请求用 `Authorization: Bearer <设备令牌>`
+- **一次性保证**:兑换是单条原子 `UPDATE`(WHERE 未使用且未过期),50 并发抢同一码恰好成功一次;兑换 + 建设备在同一事务里,失败自动回滚,码不会被白白浪费
+- **令牌安全**:32 字节随机,库里只存 SHA-256;丢了手机在网页端单独吊销该设备,其他设备不受影响
+- **防撞库**:按 IP 5 次失败锁 5 分钟 + 全局 30 次失败锁 1 分钟(挡换 IP 的分布式尝试);所有配对成败都写审计日志
+
+### 多语言实现口径
+
+- 界面文案全部走 `react-i18next`,语言包按模块拆分在 `web/src/i18n/locales/`(中文是事实来源,英文包经 TypeScript 类型强约束与中文同构,漏翻译直接编译报错)
+- **后端消息双语**:后端在返回 `error` / `message` 的同时带稳定错误码 `code`(内容寻址,同一文案跨接口复用),前端按码取当前语言译文;没有码的(动态拼接、含 OVH 原文)透传原文
+- 日期 / 相对时间 / 金额走 `Intl` + date-fns locale,不随语言出现格式混排
+- 加新语言 = 加一个语言包文件,代码不用动
 
 ### Telegram 消息收取与安全链
 
@@ -399,6 +423,10 @@ POST /order/cart/{id}/checkout
 ## 常见问题与排查
 
 下面这些都是实际踩过的,按"看到什么现象"查。
+
+### 界面变成英文了 / 想换语言
+
+界面语言**默认跟随浏览器语言**:浏览器是英文(或系统语言首位是英文)就显示英文,中文浏览器显示中文。顶栏右上角(登录页也有)的语言按钮可以手动切换;**手动切换过之后就固定为手动选择**,不再跟随浏览器变化。想恢复"跟随浏览器",把浏览器语言调回去后清一下该站点的 localStorage(删 `ovh-lang` 键)即可。
 
 ### 一直提示权限不足 / `This call has not been granted`
 
