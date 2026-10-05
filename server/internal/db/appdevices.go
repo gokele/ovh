@@ -81,12 +81,27 @@ func (d *DB) CreatePairingCode() (code string, expiresAt time.Time, err error) {
 	return "", time.Time{}, err
 }
 
-// RedeemPairingCode 原子兑换:校验未用未过期并当场置 used,返回新建设备的明文令牌(仅此一次可见)
+// RedeemPairingCode 原子兑换:校验未用未过期并当场置 used,返回新建设备的明文令牌(仅此一次可见)。
+//
+// 一次性保证:单条 UPDATE 带 WHERE used_at IS NULL AND expires_at > now 做原子认领,
+// 并发兑换同一码只有一个连接能改到行 —— 与 Telegram 按钮 claim 同一模式。
+// 置 used 与 INSERT 设备在同一个事务:建设备失败时回滚,码回到未用状态,
+// 用户网络闪断重试同一码仍能成功(而不是白白浪费一枚码)。
 func (d *DB) RedeemPairingCode(code, deviceName string) (token string, deviceID int64, err error) {
-	// 单条 UPDATE 做原子认领:WHERE 带 used_at IS NULL AND expires_at > now,
-	// 并发兑换同一码只有一个连接能改到行 —— 与 Telegram 按钮 claim 同一模式
 	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := d.Exec(
+	// 事务包住"认领码 + 建设备";d.Exec 在事务内走 tx
+	tx, err := d.Begin()
+	if err != nil {
+		return "", 0, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	res, err := tx.Exec(
 		`UPDATE app_pairing_codes SET used_at = ? WHERE code = ? AND used_at IS NULL AND expires_at > ?`,
 		now, code, now)
 	if err != nil {
@@ -95,7 +110,7 @@ func (d *DB) RedeemPairingCode(code, deviceName string) (token string, deviceID 
 	if n, _ := res.RowsAffected(); n == 0 {
 		// 区分三种死法给不同提示:不存在(打错)/ 已用(重放了)/ 过期(超 2 分钟)
 		var usedAt, expires sql.NullString
-		row := d.QueryRow(`SELECT used_at, expires_at FROM app_pairing_codes WHERE code = ?`, code)
+		row := tx.QueryRow(`SELECT used_at, expires_at FROM app_pairing_codes WHERE code = ?`, code)
 		if e := row.Scan(&usedAt, &expires); e != nil {
 			return "", 0, ErrPairingCodeNotFound
 		}
@@ -114,13 +129,17 @@ func (d *DB) RedeemPairingCode(code, deviceName string) (token string, deviceID 
 	if deviceName == "" {
 		deviceName = "未命名设备"
 	}
-	res2, err := d.Exec(
+	res2, err := tx.Exec(
 		`INSERT INTO app_devices(name, token_hash, created_at) VALUES(?,?,?)`,
-		deviceName, hex.EncodeToString(sum[:]), time.Now().UTC().Format(time.RFC3339))
+		deviceName, hex.EncodeToString(sum[:]), now)
 	if err != nil {
 		return "", 0, err
 	}
 	deviceID, _ = res2.LastInsertId()
+	if err := tx.Commit(); err != nil {
+		return "", 0, err
+	}
+	committed = true
 	return token, deviceID, nil
 }
 

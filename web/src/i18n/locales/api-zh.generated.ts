@@ -196,5 +196,10 @@ export const apiZh = {
   "INVALID_DEVICE_TOKEN": "设备令牌无效或已被吊销。请到网页控制台重新配对(设置 → App 管理)",
   "NO_API_KEY": "缺少API密钥，请通过官方前端访问",
   "TIMESTAMP_EXPIRED": "请求已过期（时间戳验证失败）",
+  "E21D475B2": "配对码已过期(有效期 2 分钟)。去网页重新生成再试",
+  "E79820B5A": "配对码不存在 —— 检查大小写,或去网页重新生成",
+  "E93CC6F2D": "配对尝试过于频繁,接口已暂时锁定 1 分钟 —— 稍后再试或联系管理员",
+  "EA92792C8": "配对码已被使用(一码一机)。去网页重新生成再试",
+  "ED03B15C6": "配对失败",
 } as const;
 export type ApiCode = keyof typeof apiZh;

@@ -117,3 +117,42 @@ func TestPairingCodeConcurrentRedeem(t *testing.T) {
 		t.Fatalf("并发兑换成功 %d 次,必须恰好 1 次", ok)
 	}
 }
+
+// 并发兑换压力版:50 个 goroutine,恰好 1 成功、其余全部 ErrPairingCodeUsed
+func TestPairingCodeConcurrentRedeem50(t *testing.T) {
+	database, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	code, _, err := database.CreatePairingCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 50
+	type result struct {
+		err error
+	}
+	ch := make(chan result, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			_, _, e := database.RedeemPairingCode(code, "并发50")
+			ch <- result{e}
+		}()
+	}
+	ok, used := 0, 0
+	for i := 0; i < n; i++ {
+		r := <-ch
+		switch {
+		case r.err == nil:
+			ok++
+		case errors.Is(r.err, ErrPairingCodeUsed):
+			used++
+		default:
+			t.Fatalf("预期只有 成功/已用 两种结果, got: %v", r.err)
+		}
+	}
+	if ok != 1 || used != n-1 {
+		t.Fatalf("50 并发: 成功 %d 已用 %d,必须 1/%d", ok, used, n-1)
+	}
+}

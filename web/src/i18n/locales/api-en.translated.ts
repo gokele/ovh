@@ -198,4 +198,9 @@ export const apiEn: Record<ApiCode, string> = {
   "INVALID_DEVICE_TOKEN": "Invalid or revoked device token. Please re-pair the device in the web console (Settings → App management)",
   "NO_API_KEY": "Missing API key. Please access via the official frontend",
   "TIMESTAMP_EXPIRED": "Request expired (timestamp validation failed)",
+  "E21D475B2": "This pairing code has expired (valid for 2 minutes). Generate a new one on the web console",
+  "E79820B5A": "Pairing code not found — check the letters, or generate a new one on the web console",
+  "E93CC6F2D": "Too many pairing attempts — the endpoint is locked for 1 minute. Retry shortly or contact the administrator",
+  "EA92792C8": "This pairing code has already been used (one code per device). Generate a new one on the web console",
+  "ED03B15C6": "Pairing failed",
 };

@@ -25,6 +25,49 @@ import (
 // 那个在鉴权中间件里、而 /api/app/pair 在白名单中不走那套)
 var pairFailureLimiter = &ipFailureWindow{max: 5, window: time.Minute, lockMs: 5 * time.Minute}
 
+// pairGlobalLimiter 全局失败闸:按 IP 的限流挡单点撞库,这里挡分布式 ——
+// 攻击者换一排 IP 各试 4 次(躲开单 IP 阈值)照样能在 2 分钟窗口内扫掉可观空间。
+// 任何来源的兑换失败都计入:每分钟全局最多 30 次失败,超了整个接口锁 1 分钟。
+// 正常用户不可能触发:一次配对就是一次兑换,失败重试也是个位数。
+var pairGlobalLimiter = &globalFailureWindow{max: 30, window: time.Minute, lockMs: time.Minute}
+
+// globalFailureWindow 全局(跨来源)失败计数 + 锁定
+type globalFailureWindow struct {
+	max     int
+	window  time.Duration
+	lockMs  time.Duration
+	mu      sync.Mutex
+	fails   []time.Time
+	blocked time.Time
+}
+
+func (w *globalFailureWindow) allow() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if time.Since(w.blocked) < w.lockMs {
+		return false
+	}
+	now := time.Now()
+	keep := w.fails[:0]
+	for _, t := range w.fails {
+		if now.Sub(t) < w.window {
+			keep = append(keep, t)
+		}
+	}
+	w.fails = keep
+	return len(w.fails) < w.max
+}
+
+func (w *globalFailureWindow) fail() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.fails = append(w.fails, time.Now())
+	if len(w.fails) >= w.max {
+		w.blocked = time.Now()
+		w.fails = w.fails[:0]
+	}
+}
+
 // ipFailureWindow 简单的按 IP 失败计数(与 auth.MaxAuthFailures 同思路,独立实例化)
 type ipFailureWindow struct {
 	max     int
@@ -112,6 +155,15 @@ func RedeemPairingCode(state *app.State) gin.HandlerFunc {
 			})
 			return
 		}
+		// 全局闸在 IP 闸之后:单 IP 闸先给本地用户更快的恢复节奏,
+		// 全局闸只在真出现分布式撞库时才兜底
+		if !pairGlobalLimiter.allow() {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"success": false,
+				"error":   "配对尝试过于频繁,接口已暂时锁定 1 分钟 —— 稍后再试或联系管理员", "code": "E93CC6F2D",
+			})
+			return
+		}
 		var body struct {
 			Code       string `json:"code"`
 			DeviceName string `json:"deviceName"`
@@ -129,17 +181,18 @@ func RedeemPairingCode(state *app.State) gin.HandlerFunc {
 		token, deviceID, err := state.DB.RedeemPairingCode(code, name)
 		if err != nil {
 			pairFailureLimiter.fail(ip)
-			msg := "配对失败"
+			pairGlobalLimiter.fail()
+			msg, code2 := "配对失败", "ED03B15C6"
 			switch {
 			case errors.Is(err, db.ErrPairingCodeNotFound):
-				msg = "配对码不存在 —— 检查大小写,或去网页重新生成"
+				msg, code2 = "配对码不存在 —— 检查大小写,或去网页重新生成", "E79820B5A"
 			case errors.Is(err, db.ErrPairingCodeUsed):
-				msg = "配对码已被使用(一码一机)。去网页重新生成再试"
+				msg, code2 = "配对码已被使用(一码一机)。去网页重新生成再试", "EA92792C8"
 			case errors.Is(err, db.ErrPairingCodeExpired):
-				msg = "配对码已过期(有效期 2 分钟)。去网页重新生成再试"
+				msg, code2 = "配对码已过期(有效期 2 分钟)。去网页重新生成再试", "E21D475B2"
 			}
 			state.Logger.Warn("App 配对失败 ip="+ip+" code="+code+" 原因="+err.Error(), "app")
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": msg})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": msg, "code": code2})
 			return
 		}
 		state.Logger.Info("App 配对成功 device=#"+strconv.FormatInt(deviceID, 10)+" name="+name, "app")
