@@ -4,6 +4,8 @@ import { qk } from "@/lib/query";
 import { toast } from "sonner";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
 import { useActiveServerControlAccount } from "@/hooks/use-active-account";
+import i18n from "@/i18n";
+import { apiMessage } from "@/lib/api-error";
 
 export interface ServerOption {
   label: string;
@@ -103,8 +105,8 @@ export function useAddToMonitor() {
       (await api.post("/monitor/subscriptions", { ...payload, notifyAvailable: true, notifyUnavailable: false })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.monitor.list() });
-      toast.success("已加入监控");
+      toast.success(i18n.t("hooksMsg.servers.monitorAdded"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "加入监控失败"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }

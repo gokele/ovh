@@ -6,6 +6,7 @@ import { qk } from "@/lib/query";
 import { useActiveAccountEndpoint } from "@/components/common/active-endpoint";
 import { apiBaseUrlForEndpoint, endpointRegion } from "@/lib/ovh-regions";
 import { formatMoney } from "@/lib/money";
+import i18n from "@/i18n";
 
 export interface DatacenterInfo {
   datacenter: string;
@@ -459,5 +460,5 @@ export function computePriceFromOptions(
 /** 友好显示：€42.99 / 月。币种缺失时只给数字（formatMoney 不会编一个货币符号出来） */
 export function formatPrice(p: PriceInfo | undefined | null): string {
   if (!p) return "—";
-  return `${formatMoney(p.price, p.currency)} / 月`;
+  return `${formatMoney(p.price, p.currency)} ${i18n.t("commons.perMonthShort")}`;
 }

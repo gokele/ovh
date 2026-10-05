@@ -10,6 +10,19 @@ export type CommonLayerPack = typeof commonLayerZh;
 
 const pack: CommonLayerPack = {
   hooksMsg: {
+    servers: {
+      monitorAdded: "Added to restock monitor",
+    },
+    logs: {
+      cleared: "Logs cleared",
+    },
+    aliases: {
+      saved: "Alias saved",
+      cleared: "Alias cleared",
+    },
+    metrics: {
+      badResponse: "metrics: incomplete response structure",
+    },
     account: {
       created: "Account {{name}} created",
       savedVerifyFailed: "Account saved, but OVH credential verification failed — check the credentials",
@@ -33,6 +46,10 @@ const pack: CommonLayerPack = {
     vpsMonitor: {
       started: "VPS monitor started",
       stopped: "VPS monitor stopped",
+      subAdded: "VPS subscription added",
+      subDeleted: "Deleted",
+      subUpdated: "Subscription updated",
+      subsCleared: "All VPS subscriptions cleared",
     },
     server: {
       retractionSubmitted: "Retraction request submitted",
@@ -127,6 +144,11 @@ const pack: CommonLayerPack = {
     aria: {
       mainNav: "Main navigation",
       more: "More pages",
+        close: "Close",
+    authExpired: "Your session has expired. Please re-enter the API key.",
+    currencyUnknownHint: "OVH did not return a currency (empty currencyCode). Currency follows the account subsidiary: US/WE/WS=USD, CA/QC=CAD, SG=SGD, AU=AUD, GB=GBP — never assume EUR by default.",
+    perMonthShort: "/ mo",
+    githubTitle: "View this project on GitHub (report issues, read release notes)"
     },
     dc: {
       "gra": "Gravelines",

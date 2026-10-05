@@ -42,7 +42,7 @@ const pack: CtrlDialogsPack = {
       countTotal: "{{n}} templates in total",
       cachedAt: "cached {{time}}",
       staleCacheWarn:
-        'The template list below is <b>stale local cache</b> — this refresh failed ({{err}}). The "{{n}} templates" count above is equally stale: OVH may have added or removed templates since. Click "Refresh" above and wait for a successful retry before picking.',
+        'The template list below is <b>stale local cache</b> — this refresh failed ({{err}}). The template count above is equally stale: OVH may have added or removed templates since. Click "Refresh" above and wait for a successful retry before picking.',
       loadingTitle: "Loading OS templates…",
       loadingHint: "The first OVH fetch takes 3-8 seconds; it is cached afterwards",
       tplLoadFailed: "Failed to load the OS template list",

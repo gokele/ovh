@@ -64,7 +64,7 @@ function orderStatusView(item: PurchaseHistory): {
       return { labelKey: "history.st.notFound.label", tone: "default", paid: false, closed: false, titleKey: "history.st.notFound.title" };
   }
 }
-import { CURRENCY_UNKNOWN_HINT } from "@/lib/money";
+import { currencyUnknownHint } from "@/lib/money";
 
 /** 抢购历史：表格 + 搜索 + 状态过滤 */
 export const Route = createFileRoute("/history")({
@@ -87,7 +87,7 @@ function HistoryPrice({ item, strike }: { item: PurchaseHistory; strike: boolean
   return (
     <span
       className={`font-mono font-medium text-success ${strike ? "line-through" : ""}`}
-      title={currency ? undefined : CURRENCY_UNKNOWN_HINT}
+      title={currency ? undefined : currencyUnknownHint()}
     >
       {value}
       {currency ? ` ${currency}` : <span className="text-muted-foreground">{t("history.currencyUnknown")}</span>}

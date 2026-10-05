@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 /**
  * 金额显示的唯一入口。
  *
@@ -44,5 +45,4 @@ export function formatMoney(value: number, code?: string | null, digits = 2): st
 }
 
 /** 币种缺失时给 title / 说明用的文案，别让用户以为是页面少渲染了一截 */
-export const CURRENCY_UNKNOWN_HINT =
-  "OVH 未返回币种（currencyCode 为空）。币种按账户子公司定：US/WE/WS=USD、CA/QC=CAD、SG=SGD、AU=AUD、GB=GBP，不能默认按欧元读。";
+export const currencyUnknownHint = () => i18n.t("commons.currencyUnknownHint");

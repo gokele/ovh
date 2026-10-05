@@ -5,6 +5,19 @@
  */
 export const commonLayerZh = {
   hooksMsg: {
+    servers: {
+      monitorAdded: "已加入监控",
+    },
+    logs: {
+      cleared: "已清空日志",
+    },
+    aliases: {
+      saved: "别名已保存",
+      cleared: "已清除别名",
+    },
+    metrics: {
+      badResponse: "metrics: 响应结构不完整",
+    },
     account: {
       created: "账户 {{name}} 创建成功",
       savedVerifyFailed: "账户已保存,但 OVH 验证失败,请检查凭据",
@@ -28,6 +41,10 @@ export const commonLayerZh = {
     vpsMonitor: {
       started: "VPS 监控已启动",
       stopped: "VPS 监控已停止",
+      subAdded: "VPS 订阅已添加",
+      subDeleted: "已删除",
+      subUpdated: "订阅已更新",
+      subsCleared: "已清空全部 VPS 订阅",
     },
     server: {
       retractionSubmitted: "撤单申请已提交",
@@ -121,6 +138,11 @@ export const commonLayerZh = {
     aria: {
       mainNav: "主导航",
       more: "更多页面",
+        close: "关闭",
+    authExpired: "登录状态已失效,请重新输入 API 密钥",
+    currencyUnknownHint: "OVH 未返回币种(currencyCode 为空)。币种按账户子公司定:US/WE/WS=USD、CA/QC=CAD、SG=SGD、AU=AUD、GB=GBP,不能默认按欧元读。",
+    perMonthShort: "/ 月",
+    githubTitle: "在 GitHub 上查看本项目(反馈问题、看更新说明)"
     },
     dc: {
       "gra": "格拉沃利讷",

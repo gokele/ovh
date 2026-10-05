@@ -83,7 +83,7 @@ export function BottomTabs() {
             )}
           >
             <MoreHorizontal className="w-[22px] h-[22px]" strokeWidth={inMore ? 2.2 : 1.8} />
-            <span className={cn("text-[10px] leading-none", inMore && "font-semibold")}>更多</span>
+            <span className={cn("text-[10px] leading-none", inMore && "font-semibold")}>{tt("commons.more")}</span>
           </button>
         </div>
       </nav>
@@ -158,11 +158,11 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
         <div className="sticky top-0 bg-background pt-2.5 pb-1">
           <div className="mx-auto w-9 h-1 rounded-full bg-border" />
           <div className="flex items-center justify-between px-4 pt-2">
-            <span className="text-[15px] font-semibold">更多</span>
+            <span className="text-[15px] font-semibold">{tt("commons.more")}</span>
             <button
               type="button"
               onClick={onClose}
-              aria-label="关闭"
+              aria-label={tt("commons.close")}
               className="inline-flex items-center justify-center w-11 h-11 -mr-2 rounded-full text-muted-foreground hover:bg-muted"
             >
               <X className="w-5 h-5" />

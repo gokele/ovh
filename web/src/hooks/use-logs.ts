@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { toast } from "sonner";
+import i18n from "@/i18n";
+import { apiMessage } from "@/lib/api-error";
 
 export interface LogEntry {
   id: string;
@@ -31,8 +33,8 @@ export function useClearLogs() {
     mutationFn: async () => (await api.delete("/logs")).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.logs() });
-      toast.success("已清空日志");
+      toast.success(i18n.t("hooksMsg.logs.cleared"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "清空失败"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }

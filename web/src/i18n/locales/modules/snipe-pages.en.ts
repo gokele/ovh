@@ -89,7 +89,7 @@ export const snipePagesEn = {
       secondsAgo: "{{n}}s ago",
       minutesAgo: "{{n}} min ago",
       hoursMinutesAgo: "{{h}}h {{m}}m ago",
-      hoursAgo: "{{h}}h ago",
+      hoursAgo: "{{n}}h ago",
       validTitle: "Data served from cache; OVH is only queried again after expiry",
       expiredTitle: "Cache expired; the next visit or refresh will pull fresh data from OVH",
       cached: "Cached",

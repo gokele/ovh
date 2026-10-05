@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { toast } from "sonner";
 import i18n from "@/i18n";
-import { apiMessage } from "@/lib/api-error";
+import { apiMessage, bodyMessage } from "@/lib/api-error";
 
 export interface VPSSubscription {
   id: string;
@@ -98,9 +98,9 @@ export function useAddVPSSubscription() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.vpsMonitor.list() });
       qc.invalidateQueries({ queryKey: qk.vpsMonitor.status() });
-      toast.success("VPS 订阅已添加");
+      toast.success(i18n.t("hooksMsg.vpsMonitor.subAdded"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "添加失败"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }
 
@@ -116,9 +116,9 @@ export function useRemoveVPSSubscription() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.vpsMonitor.list() });
       qc.invalidateQueries({ queryKey: qk.vpsMonitor.status() });
-      toast.success("已删除");
+      toast.success(i18n.t("hooksMsg.vpsMonitor.subDeleted"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "删除失败"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }
 
@@ -131,10 +131,10 @@ export function useUpdateVPSSubscription() {
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: qk.vpsMonitor.list() });
       qc.invalidateQueries({ queryKey: qk.vpsMonitor.status() });
-      toast.success(data?.message || "订阅已更新");
+      toast.success(bodyMessage(data) || i18n.t("hooksMsg.vpsMonitor.subUpdated"));
     },
     onError: (e: any) =>
-      toast.error(e.response?.data?.message || e.response?.data?.error || "更新失败"),
+      toast.error(apiMessage(e)),
   });
 }
 
@@ -146,9 +146,9 @@ export function useClearVPSMonitor() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.vpsMonitor.list() });
       qc.invalidateQueries({ queryKey: qk.vpsMonitor.status() });
-      toast.success("已清空全部 VPS 订阅");
+      toast.success(i18n.t("hooksMsg.vpsMonitor.subsCleared"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "清空失败"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }
 

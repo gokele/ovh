@@ -44,7 +44,7 @@ import { groupOptions, type OptionGroupKey } from "@/lib/option-groups";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
 import { lookupDcStatus, datacentersForPlan } from "@/lib/datacenters";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
-import { formatMoney, CURRENCY_UNKNOWN_HINT } from "@/lib/money";
+import { formatMoney, currencyUnknownHint } from "@/lib/money";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
 import { endpointRegion, regionLabel } from "@/lib/ovh-regions";
 import { clampOrderPlan, MAX_ORDER_QUANTITY, MAX_ORDER_FANOUT } from "@/lib/order-limits";
@@ -663,7 +663,7 @@ function DetailContent({
                 <div>{t("servers.detail.installFee", { amount: formatMoney(price.installPrice, price.currency) })}</div>
               )}
               {/* 币种取目录 locale.currencyCode 原值;拿不到就明说未知,不写死 EUR */}
-              <div title={price.currency ? undefined : CURRENCY_UNKNOWN_HINT}>
+              <div title={price.currency ? undefined : currencyUnknownHint()}>
                 {t("servers.detail.currency", {
                   currency: price.currency || t("servers.detail.currencyUnknownValue"),
                 })}

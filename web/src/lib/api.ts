@@ -1,5 +1,6 @@
 import axios, { AxiosError, type AxiosInstance } from "axios";
 import { toast } from "sonner";
+import i18n from "@/i18n";
 
 /**
  * 统一 HTTP Client：
@@ -70,7 +71,7 @@ export function onAuthFailure(fn: AuthFailureHandler): () => void {
 
 function notifyAuthFailure(): void {
   // 固定 id：并发的十几个 401 只会留下一条 toast，而不是叠成一屏
-  toast.error("登录状态已失效，请重新输入 API 密钥", { id: "auth-expired" });
+  toast.error(i18n.t("commons.authExpired"), { id: "auth-expired" });
   // 清掉失效的密钥：留着的话 AuthGate 重新挂载时又会拿它去探测，白跑一次
   clearApiSecretKey();
   authFailureHandler?.();

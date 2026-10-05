@@ -1,5 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import i18n from "@/i18n";
+import { apiMessage } from "@/lib/api-error";
 
 /** 后端二进制版本*/
 export function useAppVersion() {
@@ -103,7 +105,7 @@ export function useSystemMetrics() {
       // 抛错而不是返回 undefined —— React Query 不允许 data 为 undefined,
       // 且 isError 路径会让未知环带上"读取失败"的正确语义
       if (!d || typeof d !== "object" || !d.cpu || !d.memory || !d.disk) {
-        throw new Error("metrics: 响应结构不完整");
+        throw new Error(i18n.t("hooksMsg.metrics.badResponse"));
       }
       return d;
     },

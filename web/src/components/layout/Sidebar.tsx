@@ -149,7 +149,7 @@ export function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
           target="_blank"
           rel="noreferrer noopener"
           className="inline-flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          title="在 GitHub 上查看本项目(反馈问题、看更新说明)"
+          title={t("commons.githubTitle")}
         >
           <Github className="w-3.5 h-3.5" />
           GitHub

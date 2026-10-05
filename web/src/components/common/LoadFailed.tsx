@@ -14,7 +14,7 @@ import i18n from "@/i18n";
  */
 export function LoadFailed({
   icon: Icon = AlertTriangle,
-  title = "读取失败",
+  title,
   error,
   onRetry,
   compact,
@@ -34,11 +34,11 @@ export function LoadFailed({
       }`}
     >
       <Icon className={compact ? "w-6 h-6 text-destructive" : "w-9 h-9 text-destructive"} strokeWidth={1.5} />
-      <p className="text-[13px] font-semibold text-foreground">{title}</p>
+      <p className="text-[13px] font-semibold text-foreground">{title ?? i18n.t("common.readFailed")}</p>
       <p className="text-[11px] text-muted-foreground max-w-sm">{msg}</p>
       {onRetry && (
         <Button size="sm" variant="outline" className="mt-1" onClick={onRetry}>
-          重试
+          {i18n.t("common.retry")}
         </Button>
       )}
     </div>
@@ -68,12 +68,12 @@ export function LoadFailedBanner({
     <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12px]">
       <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
-        <p className="font-semibold">{title}</p>
+        <p className="font-semibold">{title ?? i18n.t("common.readFailed")}</p>
         <p className="text-muted-foreground mt-0.5">{errorMessage(error)}</p>
       </div>
       {onRetry && (
         <Button size="sm" variant="outline" className="flex-shrink-0" onClick={onRetry}>
-          重试
+          {i18n.t("common.retry")}
         </Button>
       )}
     </div>
