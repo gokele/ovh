@@ -6,7 +6,7 @@ A **sniping + monitoring + management** console for OVH bare-metal servers / VPS
 
 Watches stock across OVH datacenters in real time and auto-orders purchasable servers per your configuration (datacenter, RAM, storage, bandwidth, vRack). It also manages the full lifecycle of purchased servers (reboot / reinstall / IPMI / BIOS / netboot mode / maintenance tickets / contact changes / bandwidth / firewall / FTP backup / vRack / secondary DNS, and more). Multiple OVH accounts are supported at once, with sniping and monitoring isolated per account.
 
-> Go (Gin) + SQLite backend, Vite/React + TanStack + shadcn-ui frontend, `//go:embed` single-binary deployment (SQLite embedded, cross-platform with zero dependencies), mandatory OvhCredsGate, multi-account support, dual SQLite drivers (`modernc.org/sqlite` pure-Go / `mattn/go-sqlite3` cgo, auto-selected via build tags), **bilingual UI (Chinese/English, follows the browser, can be pinned manually)**, automatic GitHub Releases update checks, and a companion iOS app (one-time pairing codes + independent device tokens; app source not open-sourced for now).
+> Go (Gin) + SQLite backend, Vite/React + TanStack + shadcn-ui frontend, `//go:embed` single-binary deployment (SQLite embedded, cross-platform with zero dependencies), mandatory OvhCredsGate, multi-account support, dual SQLite drivers (`modernc.org/sqlite` pure-Go / `mattn/go-sqlite3` cgo, auto-selected via build tags), **bilingual UI (Chinese/English, follows the browser, can be pinned manually)**, and automatic GitHub Releases update checks.
 
 ## Download
 
@@ -210,7 +210,6 @@ Notification endpoints are configured in the settings page under "Notification C
 | Network & protection | ✅ | NICs / OLA / MRTG traffic graphs / DDoS mitigation / firewall / FTP backup |
 | Engagement (contract period) | ✅ | Both servers and VPS; destructive operations require double confirmation |
 | Privacy mode | ✅ | One-click masking of all IPs / MACs / reverse DNS |
-| **App device pairing** | ✅ | One-time pairing codes (2-minute validity, atomic redemption, exactly one winner under concurrency) + independent device tokens (SHA-256 only at rest, individually revocable); per-IP + global failure gates against brute force |
 | Auto update check | ✅ | Pulls GitHub Releases and compares versions; shows a ✨ chip on new versions |
 | **In-place update** | ✅ | One-click self-replace + restart, SHA256-verified, auto-rollback if the new version fails to start |
 | **Choice of console access** | ✅ | HTML5 KVM / **Java KVM (.jnlp)** / SOL (URL) / SOL (SSH), user's choice |
@@ -302,15 +301,6 @@ Nothing calls OVH at startup; existing SQLite data is loaded into memory. `Serve
 - **Encrypted credentials at rest**: AppKey / AppSecret / ConsumerKey in `ovh_accounts` and the Telegram token in `kv` are AES-256-GCM encrypted. The key comes from `OVH_DB_KEY` if set, otherwise it's generated on first start and written to `.env` (mode 0600)
 - ⚠️ **The encryption defends against the "db file leaked alone" class** — backups synced to cloud drives, copying the whole directory to another machine, zipping `data/` to share for troubleshooting. It does **not** defend against `.env` and the db leaking together, in which case encryption is moot. And `.env` is precisely the file most likely to be committed by accident or pasted into an issue
 - **Refuses to start when the key is missing**: if ciphertext exists but the key can't be found, the program halts and explains what to do — otherwise you'd see "accounts are all there but every OVH call fails signature checks", nobody would guess it's a key problem, and re-entering credentials would overwrite the old ciphertext, destroying the last chance of recovery. If it's truly unrecoverable, start with `OVH_DB_KEY_RESET=1` and re-enter those accounts
-
-### App Device Pairing (built into the backend, used by the iOS app)
-
-The companion iOS app (source not open-sourced for now) connects via one-time pairing codes and never holds the `API_SECRET_KEY`:
-
-- **Pairing flow**: the web UI's "Settings → App Pairing" generates an 8-character code (2-minute validity) → the app enters it (or follows a deep link) → the backend exchanges it for a **device token**; all subsequent requests use `Authorization: Bearer <device token>`
-- **One-time guarantee**: redemption is a single atomic `UPDATE` (WHERE unused and unexpired); under 50 concurrent attempts on the same code exactly one succeeds. Redemption and device creation share one transaction — failures roll back, so a code is never wasted
-- **Token security**: 32 random bytes; only its SHA-256 is stored. Lose your phone → revoke that one device on the web; other devices stay connected
-- **Anti brute force**: per-IP 5 failures → 5-minute lock, plus a global 30-failures-per-minute gate (against distributed attempts that rotate IPs); every pairing success and failure is audit-logged
 
 ### Localization Implementation Notes
 
