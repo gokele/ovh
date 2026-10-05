@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { HardDrive, Search, AlertTriangle, Database, Plus, X as XIcon, Cog, Zap, RefreshCw, Loader2, Wand2 } from "lucide-react";
+import { HardDrive, Search, AlertTriangle, Database, Plus, X as XIcon, Cog, Zap, RefreshCw, Loader2, Wand2, Terminal } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -129,6 +130,16 @@ export function ReinstallDialog({
   const [hardwareRaid, setHardwareRaid] = useState<Record<number, string>>({});
   const [useSoftwareRaid, setUseSoftwareRaid] = useState(false);
   const [softwareRaidLevel, setSoftwareRaidLevel] = useState("raid1");
+  /** 官方 partitioning.disks:软 RAID 只用前 N 块盘。空串 = 全部盘(官方默认) */
+  const [softwareRaidDisks, setSoftwareRaidDisks] = useState("");
+  /** 官方 hardwareRaid.arrays:RAID10 的阵列数(12 盘 4 arrays = 4×RAID1 再组 RAID0) */
+  const [hwRaidArrays, setHwRaidArrays] = useState("");
+  /** 官方 hardwareRaid.spares:热备盘数 */
+  const [hwRaidSpares, setHwRaidSpares] = useState("");
+  /** 官方 Data erasure:勾选的盘组重装后保留数据(erase:false,只允许非安装组) */
+  const [keepDiskGroups, setKeepDiskGroups] = useState<Set<number>>(new Set());
+  /** OS 特定定制答案(官方 customizeQuestions 动态渲染) */
+  const [customizationAnswers, setCustomizationAnswers] = useState<Record<string, string | boolean>>({});
   const [customPartitions, setCustomPartitions] = useState<CustomPartition[]>([]);
   const [showSmart, setShowSmart] = useState(false);
 
@@ -196,6 +207,21 @@ export function ReinstallDialog({
   const isProxmox9 = templateName === "proxmox9_64";
   const useProxmox9Zfs = isProxmox9 && storageMode === "zfs";
   const useCustomStorage = storageMode === "custom";
+
+  // 官方 installationTemplate 元数据(拉不到时退回全集,不阻塞普通流程)
+  const selectedTpl = useMemo(
+    () => (tpl.data || []).find((x) => x.templateName === templateName),
+    [tpl.data, templateName]
+  );
+  const osFilesystems = selectedTpl?.filesystems;
+  const lvmReady = selectedTpl?.lvmReady !== false; // 缺省按可用
+  const noPartitioning = selectedTpl?.noPartitioning === true;
+  const softRaidOnlyMirroring = selectedTpl?.softRaidOnlyMirroring === true;
+  const customizeQuestions = selectedTpl?.customizeQuestions || [];
+  // 官方兼容表:esxi 等不支持自定义分区的模板,存储配置整体不可用
+  useEffect(() => {
+    if (noPartitioning && storageMode !== "default") setStorageMode("default");
+  }, [noPartitioning, storageMode]);
 
   /**
    * 挡住提交的读失败清单。
@@ -304,6 +330,8 @@ export function ReinstallDialog({
         serviceName,
         templateName,
         customHostname: hostname.trim() || undefined,
+        // 官方 customizeQuestions 的答案原样回传(空值由 mutation 过滤)
+        customizations: Object.keys(customizationAnswers).length > 0 ? customizationAnswers : undefined,
         useProxmox9Zfs,
         zfsRaidLevel: useProxmox9Zfs ? zfsRaidLevel : undefined,
         zfsVzSize: useProxmox9Zfs ? zfsVzSize : undefined,
@@ -311,6 +339,14 @@ export function ReinstallDialog({
         hardwareRaid: useCustomStorage ? hardwareRaid : undefined,
         useSoftwareRaid: useCustomStorage && useSoftwareRaid,
         softwareRaidLevel: useCustomStorage && useSoftwareRaid ? softwareRaidLevel : undefined,
+        softwareRaidDisks:
+          useCustomStorage && useSoftwareRaid && softwareRaidDisks ? parseInt(softwareRaidDisks) : undefined,
+        hwRaidArrays:
+          useCustomStorage && hwRaidArrays ? parseInt(hwRaidArrays) : undefined,
+        hwRaidSpares:
+          useCustomStorage && hwRaidSpares ? parseInt(hwRaidSpares) : undefined,
+        keepDiskGroups:
+          useCustomStorage && keepDiskGroups.size > 0 ? Array.from(keepDiskGroups) : undefined,
         customPartitions: useCustomStorage ? customPartitions : undefined,
         diskGroups: useCustomStorage ? disk.data : undefined,
       });
@@ -334,6 +370,11 @@ export function ReinstallDialog({
     setHardwareRaid({});
     setUseSoftwareRaid(false);
     setSoftwareRaidLevel("raid1");
+    setSoftwareRaidDisks("");
+    setHwRaidArrays("");
+    setHwRaidSpares("");
+    setKeepDiskGroups(new Set());
+    setCustomizationAnswers({});
     setCustomPartitions([]);
     setPartitionSchemeName("");
     setConfirming(false);
@@ -591,7 +632,16 @@ export function ReinstallDialog({
             )}
           </div>
 
+          {/* 官方 noPartitioning(如 ESXi):分区由软件发布方决定,自定义存储整体不可用 */}
+          {noPartitioning && (
+            <div className="border border-info/40 bg-info/5 rounded-2xl p-3 text-[12px] flex items-start gap-2">
+              <Zap className="w-4 h-4 text-info mt-0.5 flex-shrink-0" />
+              <p className="text-foreground/80 leading-relaxed">{t("ctrl.reinstall.noPartitioning")}</p>
+            </div>
+          )}
+
           {/* 存储配置模式（三者互斥，见 storageMode 注释） */}
+          {!noPartitioning && (
           <div className="border border-border rounded-2xl p-4 space-y-2">
             <div className="flex items-center gap-2">
               <Cog className="w-4 h-4 text-muted-foreground" />
@@ -629,7 +679,8 @@ export function ReinstallDialog({
                 hint={t("ctrl.reinstall.mode.customHint")}
               />
             </div>
-          </div>
+          </div>)}
+          
 
           {/* Proxmox 9 ZFS 配置 */}
           {isProxmox9 && storageMode === "zfs" && (
@@ -721,6 +772,57 @@ export function ReinstallDialog({
             />
           </div>
 
+          {/* 官方 customizeQuestions:OS 特定定制(sshKey / 安装后脚本 / 语言 / LACP…),
+              键名与取值由 OVH 模板定义,这里动态渲染、原样回传 —— 与官方 Manager 同源 */}
+          {customizeQuestions.length > 0 && (
+            <div className="space-y-3">
+              <h4 className="text-[12px] font-semibold flex items-center gap-1.5">
+                <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
+                {t("ctrl.reinstall.customize.title")}
+              </h4>
+              {customizeQuestions.map((q) => {
+                const isBool = q.type === "boolean";
+                const val = customizationAnswers[q.name];
+                return (
+                  <div key={q.name}>
+                    <label className="block text-[12px] font-medium mb-1">
+                      {q.description || q.name}
+                      {q.required && <span className="text-destructive ml-0.5">*</span>}
+                    </label>
+                    {isBool ? (
+                      <label className="flex items-center gap-2 cursor-pointer text-[12px]">
+                        <input
+                          type="checkbox"
+                          checked={val === true}
+                          onChange={(e) =>
+                            setCustomizationAnswers((a) => ({ ...a, [q.name]: e.target.checked }))
+                          }
+                          className="w-4 h-4"
+                        />
+                        {t("ctrl.reinstall.customize.enable")}
+                      </label>
+                    ) : q.name === "postInstallationScript" ? (
+                      <Textarea
+                        value={typeof val === "string" ? val : ""}
+                        onChange={(e) => setCustomizationAnswers((a) => ({ ...a, [q.name]: e.target.value }))}
+                        placeholder={t("ctrl.reinstall.customize.scriptHint")}
+                        className="font-mono text-[11px] min-h-[72px]"
+                      />
+                    ) : (
+                      <Input
+                        value={typeof val === "string" ? val : ""}
+                        onChange={(e) => setCustomizationAnswers((a) => ({ ...a, [q.name]: e.target.value }))}
+                        placeholder={q.name === "sshKey" ? t("ctrl.reinstall.customize.sshKeyHint") : q.type || ""}
+                        className={q.name === "sshKey" ? "font-mono text-[11px]" : ""}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+              <p className="text-[11px] text-muted-foreground">{t("ctrl.reinstall.customize.note")}</p>
+            </div>
+          )}
+
           {/* 内置分区方案（仅 scheme 模式） */}
           {storageMode === "scheme" && templateName && (
             <div>
@@ -798,6 +900,22 @@ export function ReinstallDialog({
                                 {group.raidController}
                               </span>
                             )}
+                            {/* 官方 Data erasure:默认所有盘组都会被擦。
+                                非安装盘组勾选后带 erase:false —— 混合盘机器保数据盘的唯一手段 */}
+                            <label className="ml-auto flex items-center gap-1.5 cursor-pointer text-[11px] text-muted-foreground">
+                              <input
+                                type="checkbox"
+                                checked={keepDiskGroups.has(gid)}
+                                onChange={(e) => {
+                                  const next = new Set(keepDiskGroups);
+                                  if (e.target.checked) next.add(gid);
+                                  else next.delete(gid);
+                                  setKeepDiskGroups(next);
+                                }}
+                                className="w-3.5 h-3.5"
+                              />
+                              {t("ctrl.reinstall.disk.keepData")}
+                            </label>
                           </div>
                           <div className="grid grid-cols-2 gap-1.5 text-[11px] text-muted-foreground">
                             {group.disks.map((d, idx) => (
@@ -847,6 +965,37 @@ export function ReinstallDialog({
                   </div>
                 )}
 
+                {/* 官方 hardwareRaid 高级参数:RAID10 阵列数 + 热备盘。
+                    arrays=4 配 12 盘 = 4 组 3 盘 RAID1 再组 RAID0;spares 是热备 */}
+                {raid.data?.supported && Object.values(hardwareRaid).some((v) => v && v !== "") && (
+                  <div className="flex flex-wrap items-center gap-3 text-[11px]">
+                    {Object.values(hardwareRaid).includes("raid10") && (
+                      <label className="flex items-center gap-1.5">
+                        <span className="text-muted-foreground">{t("ctrl.reinstall.hwRaid.arrays")}</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={hwRaidArrays}
+                          onChange={(e) => setHwRaidArrays(e.target.value.replace(/\D/g, ""))}
+                          placeholder={t("ctrl.reinstall.hwRaid.auto")}
+                          className="h-7 w-20"
+                        />
+                      </label>
+                    )}
+                    <label className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground">{t("ctrl.reinstall.hwRaid.spares")}</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={hwRaidSpares}
+                        onChange={(e) => setHwRaidSpares(e.target.value.replace(/\D/g, ""))}
+                        placeholder={t("ctrl.reinstall.hwRaid.none")}
+                        className="h-7 w-20"
+                      />
+                    </label>
+                  </div>
+                )}
+
                 {/* 软 RAID */}
                 <div className="border-t border-border pt-3">
                   <label className="flex items-center gap-2 cursor-pointer text-[12px] font-semibold mb-2">
@@ -866,13 +1015,31 @@ export function ReinstallDialog({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {SOFTWARE_RAID_LEVELS.map((l) => (
+                          {/* 官方 softRaidOnlyMirroring:部分 OS 只支持 RAID 0/1 且只能用前两块盘 */}
+                          {SOFTWARE_RAID_LEVELS.filter((l) =>
+                            softRaidOnlyMirroring ? l.value === "raid0" || l.value === "raid1" : true
+                          ).map((l) => (
                             <SelectItem key={l.value} value={l.value}>
                               {t(l.label)}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={softwareRaidDisks}
+                          onChange={(e) =>
+                            setSoftwareRaidDisks(e.target.value.replace(/\D/g, ""))
+                          }
+                          placeholder={t("ctrl.reinstall.swRaid.disksPlaceholder")}
+                          className="h-8 w-28"
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                          {t("ctrl.reinstall.swRaid.disksHint")}
+                        </p>
+                      </div>
                       <p className="text-[11px] text-muted-foreground">
                         {t("ctrl.reinstall.swRaid.desc")}
                       </p>
@@ -932,6 +1099,9 @@ export function ReinstallDialog({
                           key={idx}
                           partition={p}
                           diskGroupIds={Object.keys(disk.data || {}).map((s) => parseInt(s))}
+                          filesystems={osFilesystems}
+                          lvmReady={lvmReady}
+                          softRaidOnlyMirroring={softRaidOnlyMirroring}
                           onChange={(np) => {
                             const next = [...customPartitions];
                             next[idx] = np;
@@ -1108,13 +1278,29 @@ function PartitionRow({
   diskGroupIds,
   onChange,
   onRemove,
+  filesystems,
+  lvmReady,
+  softRaidOnlyMirroring,
 }: {
   partition: CustomPartition;
   diskGroupIds: number[];
   onChange: (p: CustomPartition) => void;
   onRemove: () => void;
+  /** 官方 installationTemplate.filesystems:该 OS 实际支持的文件系统;缺省退回全集 */
+  filesystems?: string[];
+  /** 官方 lvmReady:false 时该 OS 不支持 LVM,LV 名输入不可用 */
+  lvmReady?: boolean;
+  /** 官方 softRaidOnlyMirroring:true 时软 RAID 只允许 0/1 */
+  softRaidOnlyMirroring?: boolean;
 }) {
   const { t } = useTranslation();
+  // 官方口径:文件系统下拉按所选模板的 filesystems 过滤(模板没给元数据时退回全集)
+  const fsOptions = (filesystems && filesystems.length > 0 ? filesystems : FILESYSTEMS).filter(
+    (fs) => FILESYSTEMS.includes(fs)
+  );
+  const raidOptions = softRaidOnlyMirroring
+    ? SOFTWARE_RAID_LEVELS.filter((l) => l.value === "raid0" || l.value === "raid1")
+    : SOFTWARE_RAID_LEVELS;
   return (
     <div className="border border-border rounded-xl p-2.5 flex items-center gap-2 text-[12px] bg-background flex-wrap">
       <Input
@@ -1128,7 +1314,7 @@ function PartitionRow({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {FILESYSTEMS.map((fs) => (
+          {fsOptions.map((fs) => (
             <SelectItem key={fs} value={fs}>
               {fs}
             </SelectItem>
@@ -1171,7 +1357,7 @@ function PartitionRow({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value=" ">{t("ctrl.reinstall.part.noRaid")}</SelectItem>
-          {SOFTWARE_RAID_LEVELS.map((l) => (
+          {raidOptions.map((l) => (
             <SelectItem key={l.value} value={l.value}>
               {l.value.toUpperCase()}
             </SelectItem>
@@ -1181,6 +1367,26 @@ function PartitionRow({
       <Button type="button" variant="outline" size="sm" onClick={onRemove} className="ml-auto h-8 w-8 p-0">
         <XIcon className="w-3.5 h-3.5" />
       </Button>
+      {/* 官方 extras(第二行):ZFS 显示 zpool 名;非 ZFS 且 OS 支持 LVM 显示逻辑卷名。
+          官方 auto-fix:同 RAID 的 LV 自动归同一 VG、同名 zpool 合并 —— 用户只需命名即可控制分组 */}
+      {partition.filesystem === "zfs" && (
+        <Input
+          value={partition.zpoolName ?? ""}
+          onChange={(e) => onChange({ ...partition, zpoolName: e.target.value })}
+          placeholder={t("ctrl.reinstall.part.zpool")}
+          className="h-8 w-36 font-mono text-[11px]"
+          title={t("ctrl.reinstall.part.zpoolHint")}
+        />
+      )}
+      {partition.filesystem !== "zfs" && lvmReady && (
+        <Input
+          value={partition.lvName ?? ""}
+          onChange={(e) => onChange({ ...partition, lvName: e.target.value })}
+          placeholder={t("ctrl.reinstall.part.lv")}
+          className="h-8 w-36 font-mono text-[11px]"
+          title={t("ctrl.reinstall.part.lvHint")}
+        />
+      )}
     </div>
   );
 }

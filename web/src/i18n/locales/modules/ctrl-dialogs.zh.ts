@@ -105,12 +105,26 @@ export const ctrlDialogsZh = {
       },
       advTitle: "高级存储配置（RAID & 自定义分区）",
       disk: {
+      keepData: "保留此盘组数据",
+
         loadFailed: "磁盘组信息读取失败",
         empty: "未检测到磁盘组信息",
         groupTitle: "磁盘组配置",
         group: "磁盘组 {{id}}",
       },
-      hwRaid: {
+      noPartitioning: "这个系统的分区由软件发布方决定(官方标记 noPartitioning),不支持自定义存储配置 —— 将按模板默认布局安装。",
+    customize: {
+      title: "系统定制(官方模板问题)",
+      enable: "启用",
+      scriptHint: "安装后脚本内容(bash/PowerShell…带 shebang);后端原样提交给 OVH",
+      sshKeyHint: "ssh-rsa AAAA… your-comment",
+      note: "这些问题由所选系统的官方模板定义(SSH 密钥、安装后脚本、语言等),答案原样提交给 OVH。",
+    },
+    hwRaid: {
+      arrays: "RAID10 阵列数",
+      auto: "自动",
+      spares: "热备盘",
+
         label: "硬件 RAID 模式",
         none: "默认（无 RAID）",
         raid0: "RAID 0 · 条带（最大容量，无冗余）",
@@ -123,6 +137,9 @@ export const ctrlDialogsZh = {
         unsupported: '此服务器不支持硬件 RAID，可改用下方"软 RAID"。',
       },
       swRaid: {
+      disksPlaceholder: "盘数(可选)",
+      disksHint: "留空 = 该组全部盘参与软 RAID;填 N = 只用前 N 块(其余盘不组阵列,装完自行配置)",
+
         label: "使用软 RAID（Software RAID）",
         raid0: "RAID 0 · 2+ 盘",
         raid1: "RAID 1 · 2+ 盘（推荐）",
@@ -133,6 +150,11 @@ export const ctrlDialogsZh = {
         desc: "软 RAID 由 Linux mdadm 管理，不需要硬件 RAID 控制器。所有磁盘将自动加入软 RAID 阵列。",
       },
       part: {
+      zpool: "zpool 名(可选)",
+      zpoolHint: "ZFS 池名。同名数据集合并同一 zpool;/ 和 /boot 默认分池以便开启不兼容 bootloader 的高级特性",
+      lv: "LV 名(可选)",
+      lvHint: "LVM 逻辑卷名。相同 RAID 级别的卷会被自动归入同一卷组(VG)",
+
         title: "自定义分区方案（可选）",
         add: "添加分区",
         desc: "留空则使用默认分区。size=0 表示剩余空间。",

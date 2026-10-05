@@ -106,12 +106,26 @@ const pack: CtrlDialogsPack = {
       },
       advTitle: "Advanced storage (RAID & custom partitions)",
       disk: {
+      keepData: "Keep this disk group's data",
+
         loadFailed: "Failed to load disk group info",
         empty: "No disk group info detected",
         groupTitle: "Disk group configuration",
         group: "Disk group {{id}}",
       },
-      hwRaid: {
+      noPartitioning: "Partitioning for this OS is defined by the software publisher (officially flagged noPartitioning) — custom storage is unavailable; the template default layout will be applied.",
+    customize: {
+      title: "OS customizations (official template questions)",
+      enable: "Enable",
+      scriptHint: "Post-installation script (bash/PowerShell… with shebang); submitted to OVH as-is",
+      sshKeyHint: "ssh-rsa AAAA… your-comment",
+      note: "These questions come from the selected OS's official template (SSH key, post-install script, language…); answers go to OVH as-is.",
+    },
+    hwRaid: {
+      arrays: "RAID10 arrays",
+      auto: "Auto",
+      spares: "Hot spares",
+
         label: "Hardware RAID mode",
         none: "Default (no RAID)",
         raid0: "RAID 0 · stripe (max capacity, no redundancy)",
@@ -124,6 +138,9 @@ const pack: CtrlDialogsPack = {
         unsupported: 'This server does not support hardware RAID; use "software RAID" below instead.',
       },
       swRaid: {
+      disksPlaceholder: "Disks (optional)",
+      disksHint: "Empty = all disks of the group join the software RAID; a number N = only the first N (the rest stay unconfigured for later use)",
+
         label: "Use software RAID",
         raid0: "RAID 0 · 2+ disks",
         raid1: "RAID 1 · 2+ disks (recommended)",
@@ -134,6 +151,11 @@ const pack: CtrlDialogsPack = {
         desc: "Software RAID is managed by Linux mdadm and needs no hardware RAID controller. All disks join the array automatically.",
       },
       part: {
+      zpool: "zpool name (optional)",
+      zpoolHint: "ZFS pool name. Datasets sharing a name merge into one zpool; / and /boot get separate pools by default",
+      lv: "LV name (optional)",
+      lvHint: "LVM logical volume name. Volumes with the same RAID level are automatically grouped into the same VG",
+
         title: "Custom partitioning (optional)",
         add: "Add partition",
         desc: "Leave empty to use the default partitioning. size=0 means the remaining space.",

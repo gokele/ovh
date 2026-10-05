@@ -255,13 +255,22 @@ func GetOSTemplates(state *app.State) gin.HandlerFunc {
 				if v, ok := numconv.ToInt64(detail["bitFormat"]); ok {
 					bf = int(v)
 				}
-				details[idx] = gin.H{
+				entry := gin.H{
 					"templateName": name,
 					"distribution": valueOr(detail, "distribution", "N/A"),
 					"family":       valueOr(detail, "family", "N/A"),
 					"description":  valueOr(detail, "description", ""),
 					"bitFormat":    bf,
 				}
+				// 官方 partitioning-ovh 文档的 OS 兼容元数据(详情拉不到的字段不编造):
+				// filesystems 过滤文件系统下拉;lvmReady/noPartitioning/softRaidOnlyMirroring
+				// 控制存储配置可用性;customizeQuestions 驱动 OS 特定定制表单(sshKey/语言/LACP 等)
+				for _, k := range []string{"filesystems", "lvmReady", "noPartitioning", "softRaidOnlyMirroring", "customizeQuestions"} {
+					if v, ok := detail[k]; ok && v != nil {
+						entry[k] = v
+					}
+				}
+				details[idx] = entry
 			}(i, tn)
 		}
 		wg.Wait()
@@ -547,7 +556,16 @@ func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 				entry["partitioning"] = part
 			}
 		}
-		if len(entry) == 0 || (entry["partitioning"] == nil && entry["hardwareRaid"] == nil) {
+		// 官方文档 Data erasure:默认所有盘组都会被擦;非安装盘组可以只带 erase:false
+		// 声明"保留该组数据"(混合盘机器保数据盘的唯一手段);安装组(带
+		// partitioning/hardwareRaid)不允许 erase:false —— 官方明确禁止
+		if er, ok := g["erase"].(bool); ok {
+			entry["erase"] = er
+			if !er && (entry["partitioning"] != nil || entry["hardwareRaid"] != nil) {
+				return nil, fmt.Errorf("磁盘组 %v 同时带了存储配置和 erase:false —— 安装盘组必须擦除,erase:false 只能用于非安装盘组", g["diskGroupId"])
+			}
+		}
+		if len(entry) == 0 || (entry["partitioning"] == nil && entry["hardwareRaid"] == nil && entry["erase"] == nil) {
 			return nil, fmt.Errorf("自定义存储配置里有磁盘组既没有分区也没有硬件 RAID")
 		}
 		out = append(out, entry)
@@ -592,11 +610,30 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 		installParams := map[string]interface{}{
 			"operatingSystem": templateName,
 		}
+		customizations := map[string]interface{}{}
 		if v, ok := body["customHostname"].(string); ok && v != "" {
 			// schema: 主机名在 dedicated.server.reinstall.Customizations.hostname，
 			// 顶层 customHostname 是旧 /install/start 的写法，reinstall 不认这个字段
-			installParams["customizations"] = map[string]interface{}{"hostname": v}
+			customizations["hostname"] = v
 			state.Logger.Info("设置自定义主机名: "+v, "server_control")
+		}
+		// 官方 api-os-installation 文档:customizations 是 OS 特定问题表
+		// (sshKey / postInstallationScript / language / enableLacpBonding …)。
+		// 键名与取值由 /dedicated/installationTemplate 的 customizeQuestions 定义,
+		// 前端动态渲染后原样回传,这里按 schema 的值类型透传,不替 OVH 做白名单
+		if cm, ok := body["customizations"].(map[string]interface{}); ok {
+			for k, v := range cm {
+				switch v.(type) {
+				case string, bool, float64, int:
+					if vs, isStr := v.(string); isStr && strings.TrimSpace(vs) == "" {
+						continue
+					}
+					customizations[k] = v
+				}
+			}
+		}
+		if len(customizations) > 0 {
+			installParams["customizations"] = customizations
 		}
 
 		useZFS, _ := body["useProxmox9Zfs"].(bool)

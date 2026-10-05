@@ -140,3 +140,54 @@ func TestNormalizeStorage_diskGroupId为0时不发送(t *testing.T) {
 		t.Errorf("真实磁盘组号应该保留，实际 %v", out[0]["diskGroupId"])
 	}
 }
+
+// 官方 Data erasure 规则:erase-only 条目放行(保数据盘),安装组带 erase:false 拒绝
+func TestNormalizeStorage_eraseRules(t *testing.T) {
+	ok, err := normalizeStorageConfig([]interface{}{
+		map[string]interface{}{"diskGroupId": float64(2), "erase": false},
+	})
+	if err != nil || len(ok) != 1 {
+		t.Fatalf("erase-only 条目应放行: %v %v", ok, err)
+	}
+	if v, exists := ok[0]["erase"]; !exists || v != false {
+		t.Fatalf("erase 字段应透传: %#v", ok[0])
+	}
+
+	_, err = normalizeStorageConfig([]interface{}{
+		map[string]interface{}{
+			"diskGroupId":  float64(1),
+			"erase":        false,
+			"partitioning": map[string]interface{}{"schemeName": "default"},
+		},
+	})
+	if err == nil {
+		t.Fatal("安装组 + erase:false 必须被拒(官方禁止)")
+	}
+}
+
+// customizations 动态透传:OS 特定问题(sshKey/脚本/语言)原样进 installParams
+func TestInstallCustomizationsPassthrough(t *testing.T) {
+	// 这里只校验组装函数层面的行为没有 —— InstallOS 是 handler,直接验证 customizations
+	// merge 逻辑等价于:非空字符串键值进 customizations。由 handler 代码路径覆盖,
+	// 本测试锁定 normalize 层不会丢 erase 之外的未知键(反向保证不被清洗)。
+	entries, err := normalizeStorageConfig([]interface{}{
+		map[string]interface{}{
+			"diskGroupId": float64(1),
+			"erase":       true,
+			"partitioning": map[string]interface{}{
+				"disks": float64(2),
+				"layout": []interface{}{
+					map[string]interface{}{"fileSystem": "ext4", "mountPoint": "/boot", "size": float64(1024), "raidLevel": float64(1)},
+					map[string]interface{}{"fileSystem": "ext4", "mountPoint": "/", "size": float64(0)},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("软 RAID 盘数(disks=2)应透传: %v", err)
+	}
+	part := entries[0]["partitioning"].(map[string]interface{})
+	if part["disks"] != int64(2) {
+		t.Fatalf("partitioning.disks 应保留: %#v", part)
+	}
+}

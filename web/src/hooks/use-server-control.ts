@@ -532,6 +532,17 @@ export interface OSTemplate {
   distribution: string;
   family: string;
   bitFormat: number;
+  /** 官方 installationTemplate 元数据(可选:详情拉失败时缺省) */
+  filesystems?: string[];
+  lvmReady?: boolean;
+  noPartitioning?: boolean;
+  softRaidOnlyMirroring?: boolean;
+  customizeQuestions?: Array<{
+    name: string;
+    description?: string;
+    required?: boolean;
+    type?: string;
+  }>;
 }
 
 /**
@@ -670,6 +681,10 @@ export interface CustomPartition {
   type: string;
   raid?: string; // raid0/raid1/...
   diskGroupId?: number;
+  /** 官方 extras.lv.name:LVM 逻辑卷名(同 RAID 的 LV 后端自动同 VG) */
+  lvName?: string;
+  /** 官方 extras.zp.name:ZFS zpool 名(同名数据集合并同一 zpool) */
+  zpoolName?: string;
 }
 
 /** 重装系统：完整版（template / hostname / Proxmox ZFS / 硬件 RAID / 软 RAID / 自定义分区 / 内置分区方案） */
@@ -677,6 +692,15 @@ export interface ReinstallArgs {
   serviceName: string;
   templateName: string;
   customHostname?: string;
+  /** OS 特定定制(官方 customizeQuestions 的答案:sshKey / postInstallationScript / language / enableLacpBonding…) */
+  customizations?: Record<string, string | boolean>;
+  /** 非安装盘组的保留声明(官方 Data erasure:erase:false 保留该组数据) */
+  keepDiskGroups?: number[];
+  /** 软 RAID 参与磁盘数(官方 partitioning.disks;空 = 全部盘) */
+  softwareRaidDisks?: number;
+  /** 硬件 RAID arrays(RAID10 阵列数)/ spares(热备盘数) */
+  hwRaidArrays?: number;
+  hwRaidSpares?: number;
   // Proxmox 9 + ZFS（仅当 templateName === 'proxmox9_64' 时）
   useProxmox9Zfs?: boolean;
   zfsRaidLevel?: 0 | 1;
@@ -709,6 +733,7 @@ export function useReinstallServer() {
       const installData: any = {
         templateName: args.templateName,
         customHostname: args.customHostname || undefined,
+        customizations: args.customizations && Object.keys(args.customizations).length > 0 ? args.customizations : undefined,
         useProxmox9Zfs: !!args.useProxmox9Zfs,
         zfsRaidLevel: args.useProxmox9Zfs ? args.zfsRaidLevel : undefined,
         zfsVzSize: args.useProxmox9Zfs ? args.zfsVzSize : undefined,
@@ -745,6 +770,13 @@ export function useReinstallServer() {
         // 用 undefined 当键表示「没选，交给 OVH 用默认组」，发送时也不带这个字段。
         const DEFAULT_GID = "default";
         const gidKey = (v?: number) => (v && v > 0 ? String(v) : DEFAULT_GID);
+        // 官方 partitioning.disks:软 RAID 只用前 N 块盘(不填 = 全部盘参与)。
+        // 单盘装系统、其余盘留给数据这类布局的唯一开关
+        if (args.useSoftwareRaid && args.softwareRaidDisks && args.softwareRaidDisks > 0) {
+          const dgid = groups.has(DEFAULT_GID) ? DEFAULT_GID : groups.keys().next().value as string;
+          const g0 = groups.get(dgid);
+          if (g0 && g0.partitioning) g0.partitioning.disks = args.softwareRaidDisks;
+        }
         partitions.forEach((p) => {
           const gid = gidKey(p.diskGroupId);
           if (!groups.has(gid)) {
@@ -757,6 +789,12 @@ export function useReinstallServer() {
           if (p.raid) {
             const m = p.raid.match(/raid(\d+)/);
             if (m) ovhP.raidLevel = parseInt(m[1]);
+          }
+          // 官方 extras:lv = LVM 逻辑卷名(后端自动把同 RAID 的 LV 归进同一 VG);
+          // zp = ZFS zpool 名(同名数据集同池,便于高级特性隔离 /boot)
+          if (p.lvName?.trim()) ovhP.extras = { ...(ovhP.extras || {}), lv: { name: p.lvName.trim() } };
+          if (p.filesystem === "zfs" && p.zpoolName?.trim()) {
+            ovhP.extras = { ...(ovhP.extras || {}), zp: { name: p.zpoolName.trim() } };
           }
           g.partitioning.layout.push(ovhP);
         });
@@ -787,13 +825,22 @@ export function useReinstallServer() {
             const level = parseInt(raidMode.replace("raid", ""), 10);
             if (Number.isNaN(level)) return;
             const diskCount = args.diskGroups?.[gidStr]?.disks?.length || 0;
-            const item: { raidLevel: number; disks?: number } = { raidLevel: level };
+            const item: { raidLevel: number; disks?: number; arrays?: number; spares?: number } = { raidLevel: level };
             // 0 表示「不知道这组有几块盘」，省略让 OVH 用默认值，别发 disks:0
             if (diskCount > 0) item.disks = diskCount;
+            // 官方 partitioning-ovh:arrays 用于 RAID10(如 12 盘 4 arrays = 4×RAID1 再 RAID0);
+            // spares 是热备盘数。都只在用户显式填了才发
+            if (args.hwRaidArrays && args.hwRaidArrays > 0 && level === 10) item.arrays = args.hwRaidArrays;
+            if (args.hwRaidSpares && args.hwRaidSpares > 0) item.spares = args.hwRaidSpares;
             g.hardwareRaid.push(item);
           });
         }
+        // 官方 Data erasure:非安装盘组只带 erase:false 即"保留该组数据"。
+        // 默认 OVH 会擦所有盘组 —— 混合盘机器想保住数据盘,这是唯一手段
         const storageArray = Array.from(groups.values());
+        for (const keepGid of args.keepDiskGroups ?? []) {
+          storageArray.push({ diskGroupId: keepGid, erase: false });
+        }
         if (storageArray.length > 0) installData.storageConfig = storageArray;
       } else if (args.partitionSchemeName) {
         installData.partitionSchemeName = args.partitionSchemeName;
