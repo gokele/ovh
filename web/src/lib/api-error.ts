@@ -13,13 +13,20 @@ import type { AxiosError } from "axios";
  * 文案本来就以后端为准。
  */
 export function apiMessage(e: unknown): string {
-  const err = e as AxiosError<{ error?: string; message?: string; code?: string }>;
+  const err = e as AxiosError<{ error?: string; message?: string; code?: string; params?: Record<string, unknown> }>;
   const data = err?.response?.data;
   const raw = data?.error || data?.message || err?.message || "";
 
   if (data?.code) {
     const key = `api.${data.code}`;
-    if (i18n.exists(key)) return i18n.t(key) as string;
+    if (i18n.exists(key)) {
+      // 结构化校验错误带 params:按当前语言插值出译文(值可能是数字)
+      const params = data.params as Record<string, string | number> | undefined;
+      if (params && Object.keys(params).length > 0) {
+        return i18n.t(key, params) as string;
+      }
+      return i18n.t(key) as string;
+    }
   }
   // 网络层错误(请求根本没到后端)原文是英文技术串,给可读的通用文案
   if (!data && err?.code === "ERR_NETWORK") {

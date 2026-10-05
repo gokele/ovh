@@ -373,6 +373,23 @@ func parseRaidLevelValue(v interface{}) (int64, bool) {
 	return 0, false
 }
 
+// storageError 带稳定错误码和插值参数的存储配置校验错误。
+// 前端按 code + params 出当前语言的译文(i18n 插值),error 字段保留中文完整句兜底
+type storageError struct {
+	msg    string
+	code   string
+	params map[string]interface{}
+}
+
+func (e *storageError) Error() string { return e.msg }
+
+func serr(code string, params map[string]interface{}, msg string) *storageError {
+	if params == nil {
+		params = map[string]interface{}{}
+	}
+	return &storageError{msg: msg, code: code, params: params}
+}
+
 // normalizeStorageConfig 把前端的 storageConfig 显式映射成 dedicated.server.reinstall.Storage[]。
 // 前端拼硬件 RAID 用的是旧 partitionScheme 的字段名(disks 磁盘编号数组 / mode / name / step)，
 // 而 schema 的 HardwareRaid 只有 arrays / disks(数量) / raidLevel / spares，字段名和类型都对不上。
@@ -414,7 +431,7 @@ func checkFSRaidCompat(fs string, level int64) string {
 func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 	groups, ok := raw.([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("自定义存储配置格式不正确，应为数组")
+		return nil, serr("STORAGE_NOT_ARRAY", nil, "自定义存储配置格式不正确，应为数组")
 	}
 	out := []map[string]interface{}{}
 	// size=0(占满剩余空间)的分区在整份配置里最多一个,跨磁盘组一起数
@@ -422,7 +439,7 @@ func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 	for _, gRaw := range groups {
 		g, ok := gRaw.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("自定义存储配置格式不正确，磁盘组应为对象")
+			return nil, serr("STORAGE_GROUP_NOT_OBJECT", nil, "自定义存储配置格式不正确，磁盘组应为对象")
 		}
 		entry := map[string]interface{}{}
 		// 磁盘组编号从 1 起 —— 官方分区文档:"By default, the OS will be installed
@@ -436,7 +453,7 @@ func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 			for _, hRaw := range hrRaw {
 				h, ok := hRaw.(map[string]interface{})
 				if !ok {
-					return nil, fmt.Errorf("硬件 RAID 配置格式不正确")
+					return nil, serr("HWRAID_BAD_SHAPE", nil, "硬件 RAID 配置格式不正确")
 				}
 				level, ok := parseRaidLevelValue(h["raidLevel"])
 				if !ok {
@@ -446,10 +463,10 @@ func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 					level, ok = parseRaidLevelValue(h["name"])
 				}
 				if !ok {
-					return nil, fmt.Errorf("硬件 RAID 缺少 raidLevel")
+					return nil, serr("HWRAID_MISSING_LEVEL", nil, "硬件 RAID 缺少 raidLevel")
 				}
 				if !reinstallHardRaidLevels[level] {
-					return nil, fmt.Errorf("硬件 RAID 级别 %d 不受支持，可选：0/1/5/6/10/50/60", level)
+					return nil, serr("HWRAID_LEVEL_UNSUPPORTED", map[string]interface{}{"level": level}, fmt.Sprintf("硬件 RAID 级别 %d 不受支持，可选：0/1/5/6/10/50/60", level))
 				}
 				item := map[string]interface{}{"raidLevel": level}
 				// schema 的 disks 是"参与阵列的磁盘数量"，前端给的是磁盘编号数组，这里换算成数量
@@ -486,33 +503,33 @@ func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 				for _, itRaw := range lRaw {
 					it, ok := itRaw.(map[string]interface{})
 					if !ok {
-						return nil, fmt.Errorf("分区配置格式不正确")
+						return nil, serr("PARTITION_BAD_SHAPE", nil, "分区配置格式不正确")
 					}
 					fs, _ := it["fileSystem"].(string)
 					fs = strings.ToLower(strings.TrimSpace(fs))
 					if !reinstallFileSystems[fs] {
-						return nil, fmt.Errorf("不支持的文件系统 %q", fs)
+						return nil, serr("FS_UNSUPPORTED", map[string]interface{}{"fs": fs}, fmt.Sprintf("不支持的文件系统 %q", fs))
 					}
 					mp, _ := it["mountPoint"].(string)
 					mp = strings.TrimSpace(mp)
 					if mp == "" {
-						return nil, fmt.Errorf("分区缺少挂载点")
+						return nil, serr("PARTITION_MISSING_MOUNTPOINT", nil, "分区缺少挂载点")
 					}
 					size, _ := numconv.ToInt64(it["size"])
 					if size < 0 {
-						return nil, fmt.Errorf("分区 %s 的大小不能为负数", mp)
+						return nil, serr("PARTITION_NEGATIVE_SIZE", map[string]interface{}{"mp": mp}, "分区 {{mp}} 的大小不能为负数")
 					}
 					// size=0 = 占满剩余空间。官方分区文档:
 					// "Up to 1 partition can be configured to fill the remaining space (size 0)"
 					if size == 0 {
 						fillCount++
 						if fillCount > 1 {
-							return nil, fmt.Errorf("最多只能有一个分区把大小留空(占满剩余空间),当前有多个,请给其余分区指定大小")
+							return nil, serr("PARTITION_MULTI_FILL", nil, "最多只能有一个分区把大小留空(占满剩余空间),当前有多个,请给其余分区指定大小")
 						}
 						// 同一份文档明确禁止 swap 占满磁盘:
 						// "You have chosen the swap partition to fill the disk ... we disallow this"
 						if fs == "swap" {
-							return nil, fmt.Errorf("swap 分区必须指定大小,不能留空占满磁盘(OVH 不允许)")
+							return nil, serr("SWAP_CANNOT_FILL", nil, "swap 分区必须指定大小,不能留空占满磁盘(OVH 不允许)")
 						}
 					}
 					// schema: size 是必填 long，0 表示用尽剩余空间
@@ -523,10 +540,10 @@ func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 					}
 					if rl, ok := parseRaidLevelValue(it["raidLevel"]); ok {
 						if !reinstallSoftRaidLevels[rl] {
-							return nil, fmt.Errorf("分区 %s 的软 RAID 级别 %d 不受支持，可选：0/1/5/6/7/10", mp, rl)
+							return nil, serr("PARTITION_RAID_UNSUPPORTED", map[string]interface{}{"mp": mp, "level": rl}, "分区 {{mp}} 的软 RAID 级别 {{level}} 不受支持，可选：0/1/5/6/7/10")
 						}
 						if msg := checkFSRaidCompat(fs, rl); msg != "" {
-							return nil, fmt.Errorf("分区 %s: %s", mp, msg)
+							return nil, serr("PARTITION_FS_RAID_INCOMPAT", map[string]interface{}{"mp": mp, "reason": msg}, "分区 {{mp}}: {{reason}}")
 						}
 						lay["raidLevel"] = rl
 					}
@@ -562,16 +579,16 @@ func normalizeStorageConfig(raw interface{}) ([]map[string]interface{}, error) {
 		if er, ok := g["erase"].(bool); ok {
 			entry["erase"] = er
 			if !er && (entry["partitioning"] != nil || entry["hardwareRaid"] != nil) {
-				return nil, fmt.Errorf("磁盘组 %v 同时带了存储配置和 erase:false —— 安装盘组必须擦除,erase:false 只能用于非安装盘组", g["diskGroupId"])
+				return nil, serr("ERASE_FALSE_ON_INSTALL_GROUP", map[string]interface{}{"gid": g["diskGroupId"]}, "磁盘组 {{gid}} 同时带了存储配置和 erase:false —— 安装盘组必须擦除,erase:false 只能用于非安装盘组")
 			}
 		}
 		if len(entry) == 0 || (entry["partitioning"] == nil && entry["hardwareRaid"] == nil && entry["erase"] == nil) {
-			return nil, fmt.Errorf("自定义存储配置里有磁盘组既没有分区也没有硬件 RAID")
+			return nil, serr("STORAGE_GROUP_EMPTY", nil, "自定义存储配置里有磁盘组既没有分区也没有硬件 RAID")
 		}
 		out = append(out, entry)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("自定义存储配置为空")
+		return nil, serr("STORAGE_EMPTY", nil, "自定义存储配置为空")
 	}
 	return out, nil
 }
@@ -678,6 +695,8 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"success": false,
 					"error":   fmt.Sprintf("RAID 级别 %d 不受支持，可选：0/1/5/6/7/10", raidLevel),
+					"code":    "ZFS_RAID_LEVEL_UNSUPPORTED",
+					"params":  map[string]interface{}{"level": raidLevel},
 				})
 				return
 			}
@@ -738,6 +757,8 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"success": false,
 					"error":   fmt.Sprintf("该服务器只有 %d 块磁盘，无法使用 RAID%d，请改用 RAID0", diskCount, raidLevel),
+					"code":    "ZFS_SINGLE_DISK_RAID",
+					"params":  map[string]interface{}{"count": diskCount, "level": raidLevel},
 				})
 				return
 			}
@@ -754,6 +775,11 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 					"success": false,
 					"error": fmt.Sprintf("/var/lib/vz 容量 %dMB 超出可用范围：本机 RAID%d 下可用约 %dMB，扣除 /boot %dMB 和 swap %dMB 后，该值必须小于 %dMB",
 						vzSizeMB, raidLevel, usableCapacityMB, bootSizeMB, swapSizeMB, usableCapacityMB-bootSwapMB),
+					"code":   "ZFS_VZ_OVER_LIMIT",
+					"params": map[string]interface{}{
+						"vz": vzSizeMB, "level": raidLevel, "usable": usableCapacityMB,
+						"boot": bootSizeMB, "swap": swapSizeMB, "max": usableCapacityMB - bootSwapMB,
+					},
 				})
 				return
 			}
@@ -810,9 +836,16 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 		} else if hasCustomStorage {
 			// 之前是把前端的 storageConfig 原样透传，字段名/类型跟 schema 对不上，
 			// 硬件 RAID 重装 100% 被 OVH 拒；现在显式映射成 schema 结构
-			storage, serr := normalizeStorageConfig(body["storageConfig"])
-			if serr != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": ovh.Explain(serr)})
+			storage, serr2 := normalizeStorageConfig(body["storageConfig"])
+			if serr2 != nil {
+				resp2 := gin.H{"success": false, "error": ovh.Explain(serr2)}
+				// 结构化校验错误带 code + params,前端按语言插值出译文
+				var se *storageError
+				if errors.As(serr2, &se) {
+					resp2["code"] = se.code
+					resp2["params"] = se.params
+				}
+				c.JSON(http.StatusBadRequest, resp2)
 				return
 			}
 			state.Logger.Info("使用自定义存储配置", "server_control")
