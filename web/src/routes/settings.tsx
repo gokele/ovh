@@ -6,6 +6,8 @@ import { AppPairingSection } from "@/components/settings/AppPairingSection";
 import { Smartphone } from "lucide-react";
 import type { ThemeMode } from "@/lib/theme";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { fmtDate, fmtDateTime } from "@/i18n/format";
 import { toast } from "sonner";
 import { LoadFailed, LoadFailedBanner } from "@/components/common/LoadFailed";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -29,7 +31,7 @@ import {
 import { getApiSecretKey, setApiSecretKey } from "@/lib/api";
 import { useNotifyChannels, useTestNotification } from "@/hooks/use-notify-channels";
 import { cn } from "@/lib/utils";
-import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
+import { OVH_SUBSIDIARIES, subsidiaryLabel } from "@/lib/ovh-subsidiaries";
 import { apiBaseUrlForEndpoint } from "@/lib/ovh-regions";
 import { OvhTokenGuide } from "@/components/common/OvhTokenGuide";
 import {
@@ -69,17 +71,18 @@ export const Route = createFileRoute("/settings")({
 });
 
 const SECTIONS = [
-  { id: "password", icon: KeyRound, label: "访问密码" },
-  { id: "appearance", icon: Palette, label: "外观" },
-  { id: "accounts", icon: Globe, label: "OVH 账户" },
-  { id: "purchase", icon: Timer, label: "抢购" },
-  { id: "telegram", icon: Send, label: "Telegram" },
-  { id: "notify", icon: BellRing, label: "通知通道" },
-  { id: "app", icon: Smartphone, label: "App 配对" },
-  { id: "cache", icon: Database, label: "缓存管理" },
+  { id: "password", icon: KeyRound, label: "settings.sections.password" },
+  { id: "appearance", icon: Palette, label: "settings.sections.appearance" },
+  { id: "accounts", icon: Globe, label: "settings.sections.accounts" },
+  { id: "purchase", icon: Timer, label: "settings.sections.purchase" },
+  { id: "telegram", icon: Send, label: "settings.sections.telegram" },
+  { id: "notify", icon: BellRing, label: "settings.sections.notify" },
+  { id: "app", icon: Smartphone, label: "settings.sections.app" },
+  { id: "cache", icon: Database, label: "settings.sections.cache" },
 ] as const;
 
 function SettingsPage() {
+  const { t } = useTranslation();
   const cfg = useSettings();
   const save = useSaveSettings();
   const [active, setActive] = useState<typeof SECTIONS[number]["id"]>("password");
@@ -111,7 +114,7 @@ function SettingsPage() {
     // 访问密码只写 localStorage,不经过后端配置,配置读失败也照存不误
     if (apiKey) setApiSecretKey(apiKey);
     if (!loaded) {
-      toast.error("配置还没读取成功，已跳过后端配置的保存（避免用空值覆盖）");
+      toast.error(t("settings.notLoadedToast"));
       return;
     }
     // 提交前根据 zone 自动同步 endpoint，避免两者不一致
@@ -126,16 +129,16 @@ function SettingsPage() {
     <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={SettingsIcon}
-        title="API 设置"
-        description="配置 OVH API 和通知设置"
+        title={t("settings.title")}
+        description={t("settings.description")}
         action={
           <Button
             onClick={onSave}
             disabled={save.isPending || !savableSection}
-            title={savableSection ? undefined : "配置尚未读取成功,现在保存会用空值覆盖后端已有的配置"}
+            title={savableSection ? undefined : t("settings.saveDisabledHint")}
           >
             <Save className="w-4 h-4" />
-            {save.isPending ? "保存中..." : "保存设置"}
+            {save.isPending ? t("settings.saving") : t("settings.saveButton")}
           </Button>
         }
       />
@@ -167,7 +170,7 @@ function SettingsPage() {
                 )}
               >
                 <Icon className="w-4 h-4" />
-                {s.label}
+                {t(s.label)}
               </button>
             );
           })}
@@ -185,19 +188,19 @@ function SettingsPage() {
               // 在这里直接换成失败态,顺便挡住"照着空表单点保存"这条把配置删干净的路。
               <LoadFailed
                 icon={SettingsIcon}
-                title="配置读取失败"
+                title={t("settings.loadFailedTitle")}
                 error={cfg.error}
                 onRetry={() => cfg.refetch()}
                 compact
               />
             ) : active === "password" ? (
-              <Section title="访问密码 / API Secret Key">
-                <Field label="访问密码 *" hint="后端 .env 中的 API_SECRET_KEY，本地仅保存在 localStorage">
+              <Section title={t("settings.passwordSection.title")}>
+                <Field label={t("settings.passwordSection.label")} hint={t("settings.passwordSection.hint")}>
                   <Input
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="输入访问密码"
+                    placeholder={t("settings.passwordSection.placeholder")}
                   />
                 </Field>
               </Section>
@@ -236,13 +239,14 @@ function PurchaseSection({
   form: SettingsConfig;
   set: <K extends keyof SettingsConfig>(k: K, v: SettingsConfig[K]) => void;
 }) {
+  const { t } = useTranslation();
   /** 秒数输入：允许中途空串（正在删改），失焦/提交时后端会把 0 夹回默认值 */
   const numField = (k: "defaultRetryInterval" | "quickOrderRetryInterval", fallback: number) => (
     <Input
       type="text"
       inputMode="numeric"
       value={form[k] === undefined ? "" : String(form[k])}
-      placeholder={`默认 ${fallback}`}
+      placeholder={t("settings.purchase.defaultPlaceholder", { value: fallback })}
       onChange={(e) => {
         const v = e.target.value;
         if (v === "") return set(k, undefined);
@@ -255,34 +259,37 @@ function PurchaseSection({
     v !== undefined && (v < RETRY_INTERVAL.min || v > RETRY_INTERVAL.max);
 
   return (
-    <Section title="抢购参数">
+    <Section title={t("settings.purchase.title")}>
       <Field
-        label="新任务默认重试间隔（秒）"
-        hint={`网页新建任务、Telegram /buy、上架通知里的一键下单按钮都用它。留空 = ${RETRY_INTERVAL.defaultTask} 秒。范围 ${RETRY_INTERVAL.min} ~ ${RETRY_INTERVAL.max}。`}
+        label={t("settings.purchase.defaultRetryLabel")}
+        hint={t("settings.purchase.defaultRetryHint", {
+          default: RETRY_INTERVAL.defaultTask,
+          min: RETRY_INTERVAL.min,
+          max: RETRY_INTERVAL.max,
+        })}
       >
         {numField("defaultRetryInterval", RETRY_INTERVAL.defaultTask)}
         {invalid(form.defaultRetryInterval) && (
           <p className="text-[11px] text-destructive mt-1">
-            要在 {RETRY_INTERVAL.min} ~ {RETRY_INTERVAL.max} 之间
+            {t("settings.purchase.rangeInvalid", { min: RETRY_INTERVAL.min, max: RETRY_INTERVAL.max })}
           </p>
         )}
       </Field>
 
       <Field
-        label="监控自动下单间隔（秒）"
-        hint={`/watch 自动抢触发的任务用这个。货刚出现那一刻窗口可能只有几十秒，所以默认比普通任务激进（${RETRY_INTERVAL.defaultQuick} 秒）；但太密会吃 OVH 的 429，自己权衡。`}
+        label={t("settings.purchase.quickRetryLabel")}
+        hint={t("settings.purchase.quickRetryHint", { default: RETRY_INTERVAL.defaultQuick })}
       >
         {numField("quickOrderRetryInterval", RETRY_INTERVAL.defaultQuick)}
         {invalid(form.quickOrderRetryInterval) && (
           <p className="text-[11px] text-destructive mt-1">
-            要在 {RETRY_INTERVAL.min} ~ {RETRY_INTERVAL.max} 之间
+            {t("settings.purchase.rangeInvalid", { min: RETRY_INTERVAL.min, max: RETRY_INTERVAL.max })}
           </p>
         )}
       </Field>
 
       <div className="rounded-2xl border border-border bg-secondary/30 px-4 py-3 text-[12px] text-muted-foreground">
-        只影响<b className="text-foreground">之后新建</b>的任务。已经在队列里跑的任务各自带着自己的间隔，
-        要改单个任务去「抢购队列」页点那条任务的秒数。
+        {t("settings.purchase.onlyNewPre")}<b className="text-foreground">{t("settings.purchase.onlyNewBold")}</b>{t("settings.purchase.onlyNewPost")}
       </div>
     </Section>
   );
@@ -293,14 +300,15 @@ function PurchaseSection({
 /** 外观:浅色 / 深色 / 跟随系统。纯前端偏好,存浏览器 localStorage,
  *  不走后端配置 —— 换个浏览器或设备要重选,但它也不该跟着后端走。 */
 function AppearanceSection() {
+  const { t } = useTranslation();
   const { mode, resolved, setMode } = useTheme();
   const options: { value: ThemeMode; label: string; desc: string; icon: React.ReactNode }[] = [
-    { value: "system", label: "跟随系统", desc: "跟随系统的浅色/深色设置自动切换", icon: <Monitor className="w-4 h-4" /> },
-    { value: "light", label: "浅色", desc: "始终使用浅色", icon: <Sun className="w-4 h-4" /> },
-    { value: "dark", label: "深色", desc: "始终使用深色(夜间)", icon: <Moon className="w-4 h-4" /> },
+    { value: "system", label: t("settings.appearance.system"), desc: t("settings.appearance.systemDesc"), icon: <Monitor className="w-4 h-4" /> },
+    { value: "light", label: t("settings.appearance.light"), desc: t("settings.appearance.lightDesc"), icon: <Sun className="w-4 h-4" /> },
+    { value: "dark", label: t("settings.appearance.dark"), desc: t("settings.appearance.darkDesc"), icon: <Moon className="w-4 h-4" /> },
   ];
   return (
-    <Section title="外观">
+    <Section title={t("settings.sections.appearance")}>
       <div className="space-y-2">
         {options.map((o) => (
           <button
@@ -322,15 +330,14 @@ function AppearanceSection() {
             </span>
             {mode === o.value && (
               <span className="text-[11px] text-accent-foreground/70 flex-shrink-0">
-                当前{resolved === "dark" ? "·深色生效中" : "·浅色生效中"}
+                {resolved === "dark" ? t("settings.appearance.currentDark") : t("settings.appearance.currentLight")}
               </span>
             )}
           </button>
         ))}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        顶栏右上角也有快捷切换(单击循环)。此选择只存在于此浏览器,
-        清除浏览器数据后会回到「跟随系统」。
+        {t("settings.appearance.footnote")}
       </p>
     </Section>
   );
@@ -360,14 +367,15 @@ function NotifySection({
   form: SettingsConfig;
   set: (k: keyof SettingsConfig, v: string) => void;
 }) {
+  const { t } = useTranslation();
   const channels = useNotifyChannels(true);
   const test = useTestNotification();
 
   return (
-    <Section title="通知通道">
+    <Section title={t("settings.notify.title")}>
       <div className="rounded-2xl border border-border p-4 space-y-2">
         <div className="flex items-center justify-between">
-          <h3 className="text-[13px] font-medium">当前状态</h3>
+          <h3 className="text-[13px] font-medium">{t("settings.notify.currentStatus")}</h3>
           <Button
             type="button"
             variant="outline"
@@ -376,17 +384,17 @@ function NotifySection({
             disabled={channels.isFetching}
           >
             <RefreshCw className={cn("w-3.5 h-3.5", channels.isFetching && "animate-spin")} />
-            重新检测
+            {t("settings.notify.recheck")}
           </Button>
         </div>
         {channels.isPending ? (
-          <p className="text-[12px] text-muted-foreground">检测中…</p>
+          <p className="text-[12px] text-muted-foreground">{t("settings.checking")}</p>
         ) : channels.isError ? (
           // 检测请求本身挂了。以前这里会渲染成一片空白 —— 既没有通道列表,
           // 下面那条"一条可用通道都没有"的警告也因为守卫里带了 channels.data 而不出现。
           // 用户看到的是"什么都没有",而不是"没检测成功"。
           <LoadFailedBanner
-            title="通道检测失败，下面的状态不代表通道真的不可用"
+            title={t("settings.notify.detectFailedTitle")}
             error={channels.error}
             onRetry={() => channels.refetch()}
           />
@@ -403,32 +411,31 @@ function NotifySection({
                 )}
                 <span className="font-medium w-20 flex-shrink-0">{c.name}</span>
                 <span className="text-muted-foreground break-all">
-                  {!c.configured ? "未配置" : c.ok ? "可用" : c.detail || "不可用"}
+                  {!c.configured ? t("settings.notify.notConfigured") : c.ok ? t("settings.notify.available") : c.detail || t("settings.notify.unavailable")}
                 </span>
               </div>
             ))}
             {channels.data && !channels.data.anyAvailable && (
               <p className="text-[11px] text-warning pt-1">
-                一条可用通道都没有 —— 监控会跑不起来，也发不出补货提醒
+                {t("settings.notify.noneAvailable")}
               </p>
             )}
           </div>
         )}
       </div>
 
-      <Field label="自定义 Webhook 地址（可选）">
+      <Field label={t("settings.notify.webhookLabel")}>
         <Input
           value={form.notifyWebhookUrl || ""}
           onChange={(e) => set("notifyWebhookUrl", e.target.value)}
-          placeholder="https://your.server/notify 或钉钉/飞书机器人地址"
+          placeholder={t("settings.notify.webhookPlaceholder")}
         />
         <p className="text-[11px] text-muted-foreground mt-1">
-          方向是 <b>本程序 → 这个地址</b>。发的是一个 JSON POST，同一条文本同时放进
+          {t("settings.notify.webhookHintPre")}<b>{t("settings.notify.webhookHintBold")}</b>{t("settings.notify.webhookHintMid")}
           <code className="mx-1 px-1 rounded bg-muted">text</code>
           <code className="mr-1 px-1 rounded bg-muted">message</code>
           <code className="mr-1 px-1 rounded bg-muted">text_content.text</code>
-          几个字段 —— 不猜你的接收端用哪个协议，钉钉/飞书/Bark/自建都能取到其中一个。
-          注意「一键下单」按钮只有 Telegram 有，webhook 收到的是纯文本。
+          {t("settings.notify.webhookHintPost")}
         </p>
       </Field>
 
@@ -441,10 +448,10 @@ function NotifySection({
           disabled={test.isPending}
         >
           <Send className={cn("w-3.5 h-3.5", test.isPending && "animate-pulse")} />
-          {test.isPending ? "发送中…" : "发一条测试通知"}
+          {test.isPending ? t("settings.notify.sending") : t("settings.notify.sendTest")}
         </Button>
         <p className="text-[11px] text-muted-foreground mt-1.5">
-          会往所有已配置的通道各发一条。先保存设置再测 —— 测的是已保存的配置，不是输入框里的
+          {t("settings.notify.testHint")}
         </p>
       </div>
     </Section>
@@ -466,6 +473,7 @@ function TelegramSection({
   form: SettingsConfig;
   set: (k: keyof SettingsConfig, v: string) => void;
 }) {
+  const { t } = useTranslation();
   const poll = useTelegramPoller();
 
   // poller 整个对象可能缺(后端还没初始化) —— 那是"没问到状态",不是"停了"。
@@ -474,7 +482,7 @@ function TelegramSection({
   const hasToken = poll.data?.hasToken === true;
 
   return (
-    <Section title="Telegram 通知">
+    <Section title={t("settings.telegram.title")}>
       {/* 收 update 只有长轮询一条路。webhook 那条已经删掉了:
           它要公网 HTTPS 域名 + 受信证书,还得把回调端点放进鉴权白名单,
           于是只能靠 secret_token 证明来源 —— 一整套只为解决"入站端点会被伪造"
@@ -483,7 +491,7 @@ function TelegramSection({
         <div className="flex items-center justify-between">
           <h3 className="text-[13px] font-medium flex items-center gap-1.5">
             <Radio className="w-3.5 h-3.5 text-muted-foreground" />
-            消息收取（长轮询）
+            {t("settings.telegram.pollerTitle")}
           </h3>
           <Button
             type="button"
@@ -493,95 +501,91 @@ function TelegramSection({
             disabled={poll.isFetching}
           >
             <RefreshCw className={cn("w-3.5 h-3.5", poll.isFetching && "animate-spin")} />
-            刷新
+            {t("common.refresh")}
           </Button>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          程序主动去 Telegram 拉消息，<b>不需要公网地址和证书</b>，只要这台机器能访问
-          api.telegram.org。家宽、NAT 后面、没域名的机器都能用一键下单。
+          {t("settings.telegram.pollerDescPre")}<b>{t("settings.telegram.pollerDescBold")}</b>{t("settings.telegram.pollerDescPost")}
         </p>
 
         {poll.isPending ? (
           <Skeleton className="h-20 rounded-xl" />
         ) : poll.isError ? (
           <LoadFailedBanner
-            title="长轮询状态没读到 —— 下面是空的不代表它停了"
+            title={t("settings.telegram.statusFailedTitle")}
             error={poll.error}
             onRetry={() => poll.refetch()}
           />
         ) : !hasToken ? (
           <p className="text-[12px] text-warning">
-            还没保存 Bot Token，收取器不会启动。填好下面的 Token 和 Chat ID 再点「保存设置」。
+            {t("settings.telegram.noTokenWarning")}
           </p>
         ) : !poller ? (
           // 后端没带 poller 回来 —— 看不到状态,不是停了
           <p className="text-[12px] text-muted-foreground">
-            后端没有返回收取器状态，这里看不出它是不是真的在收消息（一般是后端版本太老或刚启动）。
+            {t("settings.telegram.noPollerInfo")}
           </p>
         ) : (
           <>
             <InfoRow
-              label="运行状态"
+              label={t("settings.telegram.runningState")}
               value={
                 poller.running ? (
                   <Chip tone="success">
                     <CheckCircle2 className="w-3 h-3" />
-                    运行中
+                    {t("settings.telegram.running")}
                   </Chip>
                 ) : (
                   <Chip tone="danger">
                     <AlertTriangle className="w-3 h-3" />
-                    已停止
+                    {t("settings.telegram.stopped")}
                   </Chip>
                 )
               }
             />
             <InfoRow
-              label="最近一次拉取"
+              label={t("settings.telegram.lastPoll")}
               value={
                 poller.lastPollAt ? (
                   <span className="font-mono text-[12px]">
-                    {new Date(poller.lastPollAt).toLocaleString("zh-CN")}
+                    {fmtDateTime(poller.lastPollAt)}
                   </span>
                 ) : (
-                  <span className="text-muted-foreground">还没拉到过</span>
+                  <span className="text-muted-foreground">{t("settings.telegram.neverPolled")}</span>
                 )
               }
             />
             <InfoRow
-              label="已确认 update_id"
+              label={t("settings.telegram.confirmedOffset")}
               value={<span className="font-mono text-[12px]">{poller.offset}</span>}
             />
             {poller.lastError ? (
               <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12px] flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
                 <div className="min-w-0">
-                  <p className="font-semibold text-destructive">上次拉取报错</p>
+                  <p className="font-semibold text-destructive">{t("settings.telegram.lastErrorTitle")}</p>
                   <p className="mt-0.5 break-words">{poller.lastError}</p>
                   {isPollConflict(poller.lastError) && (
                     <p className="mt-1.5 text-destructive">
-                      这是<b>同一个 Bot Token 有另一个进程也在收</b>：两边会互相把对方踢下线，
-                      表现就是「一键下单」按钮时灵时不灵、消息随机丢。
-                      先停掉另一份程序（另一台机器 / 另一个容器 / 本地调试进程），
-                      或者给这一份换一个 Bot Token。
+                      {t("settings.telegram.conflictPre")}<b>{t("settings.telegram.conflictBold")}</b>{t("settings.telegram.conflictPost")}
                     </p>
                   )}
                 </div>
               </div>
             ) : (
               <InfoRow
-                label="错误状态"
+                label={t("settings.telegram.errorState")}
                 value={
                   <Chip tone="success">
                     <CheckCircle2 className="w-3 h-3" />
-                    正常
+                    {t("settings.telegram.normal")}
                   </Chip>
                 }
               />
             )}
             {!poller.running && (
               <p className="text-[11px] text-destructive">
-                收取器没在跑 —— 现在一条命令、一个按钮都收不到。看上面的报错，或者重启程序。
+                {t("settings.telegram.notRunningWarning")}
               </p>
             )}
           </>
@@ -618,13 +622,14 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function CacheSection() {
+  const { t } = useTranslation();
   const info = useCacheInfo();
   const clear = useClearCache();
   const sqliteUpdated = info.data?.sqlite?.updatedAtMs
-    ? new Date(info.data.sqlite.updatedAtMs).toLocaleString("zh-CN")
-    : "从未刷新";
+    ? fmtDateTime(info.data.sqlite.updatedAtMs)
+    : t("settings.cache.neverRefreshed");
   return (
-    <Section title="缓存管理">
+    <Section title={t("settings.cache.title")}>
       {info.isPending ? (
         <Skeleton className="h-32 rounded-2xl" />
       ) : info.isError ? (
@@ -632,19 +637,19 @@ function CacheSection() {
         // "从未刷新"、路径"—"。用户据此去点"清除全部",清的是一份他根本没看清的东西。
         <LoadFailed
           icon={Database}
-          title="缓存信息读取失败"
+          title={t("settings.cache.loadFailedTitle")}
           error={info.error}
           onRetry={() => info.refetch()}
           compact
         />
       ) : (
         <div className="border border-border rounded-2xl p-4 space-y-2.5 text-[13px]">
-          <Row label="内存缓存条数" value={info.data?.backend?.serverCount ?? 0} />
-          <Row label="内存缓存状态" value={info.data?.backend?.cacheValid ? "有效" : "已过期"} />
-          <Row label="SQLite 缓存条数" value={info.data?.sqlite?.serverCount ?? 0} />
-          <Row label="SQLite 最近刷新" value={<span className="text-[12px]">{sqliteUpdated}</span>} />
+          <Row label={t("settings.cache.memCount")} value={info.data?.backend?.serverCount ?? 0} />
+          <Row label={t("settings.cache.memState")} value={info.data?.backend?.cacheValid ? t("settings.cache.valid") : t("settings.cache.expired")} />
+          <Row label={t("settings.cache.sqliteCount")} value={info.data?.sqlite?.serverCount ?? 0} />
+          <Row label={t("settings.cache.sqliteRefreshed")} value={<span className="text-[12px]">{sqliteUpdated}</span>} />
           <Row
-            label="数据库位置"
+            label={t("settings.cache.dbLocation")}
             value={
               <code className="text-[11px] font-mono">
                 {info.data?.sqlite?.path || info.data?.storage?.dataDir || "—"}
@@ -654,17 +659,17 @@ function CacheSection() {
         </div>
       )}
       <p className="text-[11px] text-muted-foreground">
-        缓存只指 OVH 服务器目录。订阅 / 队列 / 历史 等业务数据不在此清理范围内。
+        {t("settings.cache.scopeNote")}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" onClick={() => clear.mutate("memory")} disabled={clear.isPending}>
-          清除内存缓存
+          {t("settings.cache.clearMemory")}
         </Button>
         <Button variant="outline" onClick={() => clear.mutate("sqlite")} disabled={clear.isPending}>
-          清除 SQLite 缓存
+          {t("settings.cache.clearSqlite")}
         </Button>
         <Button variant="destructive" onClick={() => clear.mutate("all")} disabled={clear.isPending}>
-          清除全部
+          {t("settings.cache.clearAll")}
         </Button>
       </div>
     </Section>
@@ -683,6 +688,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 // ─── 账户管理 ───────────────────────────────────────────────────────────────
 
 function AccountsSection() {
+  const { t } = useTranslation();
   const accounts = useAccounts();
   // 代理健康:30 秒一轮。跳闸的账户,它的抢购任务已经被后端停掉了 ——
   // 这件事不在界面上说,用户看到的现象只是"这个账户一直抢不到"。
@@ -708,14 +714,14 @@ function AccountsSection() {
   const proxiedCollision = collisions.some((c) => c.proxied);
 
   return (
-    <Section title="OVH 账户管理">
+    <Section title={t("settings.accounts.title")}>
       <div className="flex items-start justify-between gap-3">
         <p className="text-[12px] text-muted-foreground">
-          每个 OVH 账户(凭据)单独保存,抢购队列 / 狙击 / 订阅创建时各自指定账户。删账户会一并清除关联的 queue / history / sniper tasks。
+          {t("settings.accounts.intro")}
         </p>
         <Button onClick={() => setShowAdd(true)} size="sm" className="flex-shrink-0">
           <Plus className="w-4 h-4" />
-          添加账户
+          {t("settings.accounts.addAccount")}
         </Button>
       </div>
 
@@ -723,22 +729,20 @@ function AccountsSection() {
       <div className="rounded-xl border border-border bg-secondary/30 px-3 py-2.5 space-y-1.5 text-[11px] leading-relaxed">
         <p className="font-semibold flex items-center gap-1.5">
           <Network className="w-3.5 h-3.5" />
-          每个账户可以配自己的出站代理
+          {t("settings.accounts.proxyWhyTitle")}
         </p>
         <p className="text-muted-foreground">
-          OVH 的限流按来源 IP 算。多个账户共用一个出口时,一个账户被限流会把其它账户一起拖下水 ——
-          而这恰好发生在补货那一刻,也就是唯一要紧的时刻。
+          {t("settings.accounts.proxyWhyP1")}
         </p>
         <p className="text-muted-foreground">
-          代理配错或连不上时,后端<b className="text-warning">不会</b>退回直连,请求直接失败。这是故意的 ——
-          悄悄直连的表现是一切正常、隔离却已经没了,而你无从察觉。
+          {t("settings.accounts.proxyWhyP2Pre")}<b className="text-warning">{t("settings.accounts.proxyWhyP2Bold")}</b>{t("settings.accounts.proxyWhyP2Post")}
         </p>
       </div>
 
       {/* 健康状态没问到时,下面各卡片"没有告警"并不等于"没问题" */}
       {health.isError && (
         <LoadFailedBanner
-          title="代理健康状态读取失败 —— 各账户有没有因为代理故障被暂停,现在是未知"
+          title={t("settings.accounts.healthFailedTitle")}
           error={health.error}
           onRetry={() => health.refetch()}
         />
@@ -754,19 +758,17 @@ function AccountsSection() {
           <p className={cn("font-semibold flex items-center gap-1.5", proxiedCollision ? "text-destructive" : "text-warning")}>
             <AlertTriangle className="w-3.5 h-3.5" />
             {proxiedCollision
-              ? "配了代理的账户和别人撞在同一个出口 IP 上 —— 隔离没生效"
-              : "这些账户测出来是同一个出口 IP"}
+              ? t("settings.accounts.collisionProxiedTitle")
+              : t("settings.accounts.collisionSharedTitle")}
           </p>
           {collisions.map((c) => (
             <p key={c.ip} className="text-muted-foreground">
               <span className="font-mono font-semibold text-foreground">{c.ip}</span> ←{" "}
-              {c.xs.map((x) => `${x.name}${x.hasProxy ? "(配了代理)" : "(直连)"}`).join("、")}
+              {c.xs.map((x) => `${x.name}${x.hasProxy ? t("settings.accounts.proxiedSuffix") : t("settings.accounts.directSuffix")}`).join(t("settings.accounts.listSeparator"))}
             </p>
           ))}
           <p className="text-muted-foreground">
-            它们在 OVH 眼里是同一个来源,限流会互相拖累 —— 一个被限,其它一起被限。
-            都是直连的话这是正常的(直连本来就共用一个出口);配了代理却还撞在一起,说明那个代理没生效,
-            去编辑里确认代理地址保存上了、再测一次。
+            {t("settings.accounts.collisionNote")}
           </p>
         </div>
       )}
@@ -776,7 +778,7 @@ function AccountsSection() {
         // 而后端其实存着好好的 —— 重复添加只会多出一个重名账户。
         <LoadFailed
           icon={Globe}
-          title="账户列表读取失败"
+          title={t("settings.accounts.loadFailedTitle")}
           error={accounts.error}
           onRetry={() => accounts.refetch()}
           compact
@@ -790,7 +792,7 @@ function AccountsSection() {
       ) : list.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            还没有账户,点右上角"添加账户"创建一个
+            {t("settings.accounts.emptyHint")}
           </CardContent>
         </Card>
       ) : (
@@ -826,6 +828,7 @@ function AccountCard({
   /** 上面那条查询失败或还没回来 —— 此时这张卡上没有告警说明不了任何事 */
   healthUnknown?: boolean;
 }) {
+  const { t } = useTranslation();
   const setDefault = useSetDefaultAccount();
   const del = useDeleteAccount();
   const verify = useVerifyAccount();
@@ -854,7 +857,7 @@ function AccountCard({
           {acc.isDefault && (
             <Chip tone="success">
               <Star className="w-3 h-3" />
-              默认
+              {t("settings.accounts.defaultChip")}
             </Chip>
           )}
         </div>
@@ -863,7 +866,7 @@ function AccountCard({
           <span>·</span>
           <span>{acc.iam}</span>
           <span>·</span>
-          <span>建于 {new Date(acc.createdAt).toLocaleDateString("zh-CN")}</span>
+          <span>{t("settings.accounts.builtAt", { date: fmtDate(acc.createdAt) })}</span>
         </div>
         {/* 出站配置 + 最近测到的出口 IP。IP 放在这里就是为了几个账户之间横向比对 */}
         <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
@@ -873,20 +876,20 @@ function AccountCard({
               <span className="font-mono">{acc.proxyUrl}</span>
             </Chip>
           ) : (
-            <Chip>直连</Chip>
+            <Chip>{t("settings.accounts.direct")}</Chip>
           )}
           <Chip>
             <Fingerprint className="w-3 h-3" />
             {acc.fingerprint || "default"}
           </Chip>
           {lastTest && lastTest.success ? (
-            <Chip tone="success" title={`测于 ${new Date(lastTest.testedAt).toLocaleString("zh-CN")}`}>
-              出口 <span className="font-mono font-semibold">{lastTest.egressIP}</span>
+            <Chip tone="success" title={t("settings.accounts.testedAtTitle", { date: fmtDateTime(lastTest.testedAt) })}>
+              {t("settings.accounts.egressLabel")} <span className="font-mono font-semibold">{lastTest.egressIP}</span>
             </Chip>
           ) : lastTest ? (
-            <Chip tone="danger" title={lastTest.error}>出口测试失败 · 经由{lastTest.via}</Chip>
+            <Chip tone="danger" title={lastTest.error}>{t("settings.accounts.egressFailedVia", { via: lastTest.via })}</Chip>
           ) : (
-            <span className="text-[11px] text-muted-foreground">出口 IP 未测(编辑里点「测试出口 IP」)</span>
+            <span className="text-[11px] text-muted-foreground">{t("settings.accounts.egressUntested")}</span>
           )}
         </div>
       </div>
@@ -896,23 +899,23 @@ function AccountCard({
           variant="outline"
           size="sm"
           onClick={() => setChecking(true)}
-          title="实测这个账户到 OVH 的连通性与延迟"
+          title={t("settings.accounts.chainCheckTitle")}
         >
           <Activity className={cn("w-3.5 h-3.5", check.isPending && "animate-pulse")} />
-          {check.isPending ? "检测中…" : "链路检测"}
+          {check.isPending ? t("settings.checking") : t("settings.accounts.chainCheck")}
         </Button>
-        <Button variant="ghost" size="icon" onClick={() => verify.mutate(acc.id)} disabled={verify.isPending} title="重新验证凭据">
+        <Button variant="ghost" size="icon" onClick={() => verify.mutate(acc.id)} disabled={verify.isPending} title={t("settings.accounts.reverifyTitle")}>
           <RotateCw className={cn("w-4 h-4", verify.isPending && "animate-spin")} />
         </Button>
         {!acc.isDefault && (
-          <Button variant="ghost" size="icon" onClick={() => setDefault.mutate(acc.id)} disabled={setDefault.isPending} title="设为默认">
+          <Button variant="ghost" size="icon" onClick={() => setDefault.mutate(acc.id)} disabled={setDefault.isPending} title={t("settings.accounts.setDefaultTitle")}>
             <Star className="w-4 h-4" />
           </Button>
         )}
-        <Button variant="ghost" size="icon" onClick={onEdit} title="编辑">
+        <Button variant="ghost" size="icon" onClick={onEdit} title={t("common.edit")}>
           <Pencil className="w-4 h-4" />
         </Button>
-        <Button variant="ghost" size="icon" onClick={() => setConfirming(true)} title="删除" className="text-destructive hover:text-destructive">
+        <Button variant="ghost" size="icon" onClick={() => setConfirming(true)} title={t("common.delete")} className="text-destructive hover:text-destructive">
           <Trash2 className="w-4 h-4" />
         </Button>
       </div>
@@ -923,31 +926,34 @@ function AccountCard({
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-[11px] space-y-1">
           <p className="font-semibold text-destructive flex items-center gap-1.5">
             <ShieldAlert className="w-3.5 h-3.5" />
-            出站代理连续失败 {health.fails} 次 —— 该账户的抢购任务已被暂停
+            {t("settings.accounts.trippedTitle", { count: health.fails })}
           </p>
           <p className="text-muted-foreground">
-            订阅的自动下单也一并关掉了(订阅本身还在,补货通知照常发)。
-            {health.trippedAt ? ` 停于 ${new Date(health.trippedAt).toLocaleString("zh-CN")}。` : ""}
+            {t("settings.accounts.trippedSubsNote")}
+            {health.trippedAt ? t("settings.accounts.trippedAtNote", { date: fmtDateTime(health.trippedAt) }) : ""}
           </p>
           <p className="text-muted-foreground">
-            代理修好后任务<b>不会</b>自动恢复:去队列页把被暂停的任务改回运行,订阅的自动下单也要重新打开。
+            {t("settings.accounts.trippedRecoverPre")}<b>{t("settings.accounts.trippedRecoverBold")}</b>{t("settings.accounts.trippedRecoverPost")}
           </p>
         </div>
       ) : health && health.fails > 0 ? (
         <p className="text-[11px] text-warning border border-warning/40 bg-warning/5 rounded-xl px-3 py-2">
-          ⚠ 出站代理最近连续失败 {health.fails} 次
-          {health.lastFailAt ? `(最后一次 ${new Date(health.lastFailAt).toLocaleTimeString("zh-CN")})` : ""},
-          还没到停任务的阈值。再连着失败下去,这个账户的抢购任务就会被暂停 —— 现在去编辑里点一下「测试出口 IP」看代理还通不通。
+          {t("settings.accounts.proxyFailsWarning", {
+            count: health.fails,
+            lastFail: health.lastFailAt
+              ? t("settings.accounts.lastFailNote", { time: fmtDateTime(health.lastFailAt) })
+              : "",
+          })}
         </p>
       ) : healthUnknown && acc.proxyUrl ? (
         <p className="text-[11px] text-muted-foreground">
-          代理健康状态未问到,这里没有告警不代表代理正常。
+          {t("settings.accounts.healthUnknownNote")}
         </p>
       ) : null}
 
       {subsidiaryWarning && (
         <p className="text-[11px] text-warning border border-warning/40 bg-warning/5 rounded-xl px-3 py-2">
-          ⚠ 子公司配置与 OVH 实际归属不一致：{subsidiaryWarning}
+          {t("settings.accounts.subsidiaryWarning", { detail: subsidiaryWarning })}
         </p>
       )}
 
@@ -956,14 +962,13 @@ function AccountCard({
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent className="w-[95vw] sm:w-full sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>确认删除账户 {acc.name}?</DialogTitle>
+            <DialogTitle>{t("settings.accounts.deleteConfirmTitle", { name: acc.name })}</DialogTitle>
             <DialogDescription className="text-destructive">
-              将级联删除该账户的所有 queue 任务、history 历史、config_sniper 任务。
-              监控订阅的 auto_order 引用此账户的会清空。该操作不可逆。
+              {t("settings.accounts.deleteConfirmDesc")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirming(false)}>取消</Button>
+            <Button variant="outline" onClick={() => setConfirming(false)}>{t("common.cancel")}</Button>
             <Button
               variant="destructive"
               onClick={async () => {
@@ -972,7 +977,7 @@ function AccountCard({
               }}
               disabled={del.isPending}
             >
-              确认删除
+              {t("settings.accounts.deleteConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -995,9 +1000,9 @@ const latencyBox: Record<LatencyLevel, string> = {
 };
 
 const latencyLabel: Record<LatencyLevel, string> = {
-  fast: "正常",
-  slow: "偏慢",
-  bad: "太慢",
+  fast: "settings.accounts.latency.fast",
+  slow: "settings.accounts.latency.slow",
+  bad: "settings.accounts.latency.bad",
 };
 
 /**
@@ -1006,6 +1011,7 @@ const latencyLabel: Record<LatencyLevel, string> = {
  * 最小值按档位着色 —— 一屏里要能一眼扫出哪条链路拖后腿,而不是回头自己去比数字。
  */
 function ProbeRow({ t }: { t: ProxyProbeTarget }) {
+  const { t: tt } = useTranslation();
   const g = t.ok && typeof t.minMs === "number" ? gradeLatency(t.minMs) : null;
   return (
     <div className="space-y-0.5">
@@ -1017,11 +1023,11 @@ function ProbeRow({ t }: { t: ProxyProbeTarget }) {
         <span className="flex-1 min-w-[8px] border-b border-dashed border-border" />
         {t.ok ? (
           <span className="text-[11px] font-mono whitespace-nowrap">
-            最小 <b className={g ? latencyText[g.level] : undefined}>{t.minMs}ms</b>
-            <span className="text-muted-foreground"> / 平均 {t.avgMs}ms</span>
+            {tt("settings.accounts.probeMin")} <b className={g ? latencyText[g.level] : undefined}>{t.minMs}ms</b>
+            <span className="text-muted-foreground">{tt("settings.accounts.probeAvg")}{t.avgMs}ms</span>
           </span>
         ) : (
-          <span className="text-[11px] text-destructive whitespace-nowrap">没拿到响应</span>
+          <span className="text-[11px] text-destructive whitespace-nowrap">{tt("settings.accounts.probeNoResponse")}</span>
         )}
         {t.status ? (
           <Chip className="whitespace-nowrap">HTTP {t.status}</Chip>
@@ -1031,7 +1037,7 @@ function ProbeRow({ t }: { t: ProxyProbeTarget }) {
       {/* 通了却还带着 error:3 次采样里有失败的。既不是"通"也不是"不通",单独说清楚 */}
       {t.ok && t.error && (
         <p className="pl-4 text-[11px] text-warning break-all">
-          3 次采样里有失败的:{t.error} —— 这条链路会偶发抽风,补货那一刻正好撞上就没了。
+          {tt("settings.accounts.probeJitter", { error: t.error })}
         </p>
       )}
     </div>
@@ -1059,13 +1065,14 @@ function LinkCheckDialog({
   /** mutation 放在卡片那一层,中途关掉弹窗也不会把"正在检测"弄丢 */
   check: ReturnType<typeof useProxyCheck>;
 }) {
+  const { t } = useTranslation();
   const record = useLastProxyCheck(acc.id).data;
   // 三种状态必须分开:没测过 / 检测没做成(我们没问到) / 测完了(才有资格谈通不通、快不快)
   const done = record && record.success ? record : null;
   const run = () => check.mutate(acc.id);
 
   const targets = done?.targets || [];
-  const down = targets.filter((t) => !t.ok);
+  const down = targets.filter((tg) => !tg.ok);
   const worst = worstMinMs(targets);
   const grade = worst === undefined ? null : gradeLatency(worst);
   const jittery = targets.filter(isJittery);
@@ -1080,10 +1087,10 @@ function LinkCheckDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Activity className="w-4 h-4" />
-            链路检测 · {acc.name}
+            {t("settings.accounts.linkCheckTitle", { name: acc.name })}
           </DialogTitle>
           <DialogDescription>
-            用这个账户<b>已保存</b>的出站配置实测到 OVH 的连通性与延迟,每个目标采样 3 次。
+            {t("settings.accounts.linkCheckDescPre")}<b>{t("settings.accounts.linkCheckDescBold")}</b>{t("settings.accounts.linkCheckDescPost")}
           </DialogDescription>
         </DialogHeader>
 
@@ -1098,15 +1105,15 @@ function LinkCheckDialog({
                   accountChipColor(done ? done.region : acc.zone)
                 )}
               >
-                {done ? `大区 ${done.region}` : acc.zone}
+                {done ? t("settings.accounts.regionChip", { region: done.region }) : acc.zone}
               </span>
               {(done ? done.usingProxy : !!acc.proxyUrl) ? (
                 <Chip tone="info">
                   <Network className="w-3 h-3" />
-                  <span className="font-mono">{(done ? done.proxy : acc.proxyUrl) || "代理"}</span>
+                  <span className="font-mono">{(done ? done.proxy : acc.proxyUrl) || t("settings.accounts.proxyFallback")}</span>
                 </Chip>
               ) : (
-                <Chip>直连</Chip>
+                <Chip>{t("settings.accounts.direct")}</Chip>
               )}
               <Chip>
                 <Fingerprint className="w-3 h-3" />
@@ -1115,14 +1122,14 @@ function LinkCheckDialog({
             </div>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
               {done
-                ? `只测这个账户真正会打的那个大区(${done.region})。它根本不会去访问另外两个区,把那些也列出来只会让人对着不相干的红点发愁。`
-                : "走的是这个账户已保存的出站配置,和真实下单同一条链路。"}
+                ? t("settings.accounts.regionScopeNote", { region: done.region })
+                : t("settings.accounts.savedRouteNote")}
             </p>
             {staleCfg && (
               <p className="text-[11px] text-warning">
-                ⚠ 下面这份结果是用{" "}
-                <span className="font-mono">{done?.proxy || "直连"}</span>{" "}
-                跑的,跟这个账户现在的配置对不上了 —— 重新检测一次再下结论。
+                {t("settings.accounts.staleCfgPre")}
+                <span className="font-mono">{done?.proxy || t("settings.accounts.direct")}</span>
+                {t("settings.accounts.staleCfgPost")}
               </p>
             )}
           </div>
@@ -1130,7 +1137,7 @@ function LinkCheckDialog({
           {/* 请求没发出去 ≠ 链路不通:前者是我们什么都没测到,绝不能画成红点 */}
           {check.isError && (
             <LoadFailedBanner
-              title="链路检测请求没发出去 —— 这不代表链路有问题,是我们没问到"
+              title={t("settings.accounts.linkCheckReqFailedTitle")}
               error={check.error}
               onRetry={run}
             />
@@ -1140,7 +1147,7 @@ function LinkCheckDialog({
             <div className="space-y-2">
               <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                正在检测:每个目标真打 3 次再取最小 / 平均,要几秒。
+                {t("settings.accounts.linkCheckingNote")}
               </p>
               <Skeleton className="h-20 rounded-2xl" />
               <Skeleton className="h-24 rounded-2xl" />
@@ -1149,11 +1156,11 @@ function LinkCheckDialog({
             <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2.5 space-y-1 text-[11px]">
               <p className="font-semibold text-destructive flex items-center gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5" />
-                后端没做成这次检测
+                {t("settings.accounts.backendCheckFailedTitle")}
               </p>
               <p className="text-muted-foreground break-all">{record.error}</p>
               <p className="text-muted-foreground">
-                这不是"链路不通" —— 检测压根没跑起来,链路是好是坏现在仍然未知。
+                {t("settings.accounts.backendCheckFailedNote")}
               </p>
             </div>
           ) : done ? (
@@ -1165,23 +1172,23 @@ function LinkCheckDialog({
                   done.egressIP ? "border-success/40 bg-success/5" : "border-destructive/40 bg-destructive/5"
                 )}
               >
-                <p className="text-[11px] text-muted-foreground">这个账户实际用的出口 IP</p>
+                <p className="text-[11px] text-muted-foreground">{t("settings.accounts.egressIpLabel")}</p>
                 {done.egressIP ? (
                   <>
                     <p className="text-2xl font-mono font-semibold tracking-tight break-all">{done.egressIP}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      拿它跟别的账户比一比:两个账户测出同一个 IP,OVH 就把它们算作同一个来源,限流互相拖累。
+                      {t("settings.accounts.compareIpHintFull")}
                     </p>
                   </>
                 ) : (
                   <>
                     <p className="text-[13px] font-semibold text-destructive flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5" />
-                      没查到出口 IP
+                      {t("settings.accounts.noEgressIp")}
                     </p>
-                    <p className="text-[11px] text-destructive break-all">{done.egressError || "后端没给原因"}</p>
+                    <p className="text-[11px] text-destructive break-all">{done.egressError || t("settings.accounts.egressNoReason")}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      查出口 IP 用的是第三方站点,它自己挂掉不代表到 OVH 的链路有问题 —— 以下面的目标为准。
+                      {t("settings.accounts.egressIpProbeNote")}
                     </p>
                   </>
                 )}
@@ -1190,15 +1197,15 @@ function LinkCheckDialog({
 
               {/* 目标列表 + 结论。数字必须配结论:用户没法凭 620ms 这个数自己判断该不该换代理 */}
               <div className="space-y-2">
-                <p className="text-[12px] font-semibold">到 OVH 的连通性与延迟</p>
+                <p className="text-[12px] font-semibold">{t("settings.accounts.targetsTitle")}</p>
                 {targets.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">
-                    这次后端一个目标都没返回 —— 链路好坏无从判断,重测一次。
+                    {t("settings.accounts.noTargetsNote")}
                   </p>
                 ) : (
                   <div className="space-y-1.5">
-                    {targets.map((t) => (
-                      <ProbeRow key={t.name + t.url} t={t} />
+                    {targets.map((tg) => (
+                      <ProbeRow key={tg.name + tg.url} t={tg} />
                     ))}
                   </div>
                 )}
@@ -1206,12 +1213,12 @@ function LinkCheckDialog({
                 {down.length > 0 && (
                   <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-[11px] space-y-0.5">
                     <p className="font-semibold text-destructive">
-                      {down.length} 个目标连响应都没拿到 —— 这个账户现在下不出单
+                      {t("settings.accounts.downTitle", { count: down.length })}
                     </p>
                     <p className="text-muted-foreground">
                       {done.usingProxy
-                        ? "配了代理就不会退回直连,链路断着等于该账户此刻一单也下不出去。修代理,或者改回直连。"
-                        : "直连都打不到 OVH,说明是这台机器本身出不去网,跟代理无关。"}
+                        ? t("settings.accounts.downProxiedNote")
+                        : t("settings.accounts.downDirectNote")}
                     </p>
                   </div>
                 )}
@@ -1219,7 +1226,7 @@ function LinkCheckDialog({
                 {grade && (
                   <div className={cn("rounded-xl border px-3 py-2 text-[11px] space-y-0.5", latencyBox[grade.level])}>
                     <p className={cn("font-semibold", latencyText[grade.level])}>
-                      最慢的一条 {worst}ms · {latencyLabel[grade.level]}
+                      {t("settings.accounts.slowestLine", { ms: worst, label: t(latencyLabel[grade.level]) })}
                     </p>
                     <p className="text-muted-foreground">{grade.note}</p>
                   </div>
@@ -1229,11 +1236,10 @@ function LinkCheckDialog({
                 {jittery.length > 0 && (
                   <div className="rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-[11px] space-y-0.5">
                     <p className="font-semibold text-warning">
-                      抖动大:{jittery.map((t) => t.name).join("、")}
+                      {t("settings.accounts.jitterTitle")}{jittery.map((tg) => tg.name).join(t("settings.accounts.listSeparator"))}
                     </p>
                     <p className="text-muted-foreground">
-                      平均耗时是最小耗时的一倍以上 —— 这条链路会不定时慢一拍,而那一拍就决定抢不抢得到。
-                      平时看着快没有用,补货那一刻撞上就没了。
+                      {t("settings.accounts.jitterNote")}
                     </p>
                   </div>
                 )}
@@ -1241,22 +1247,21 @@ function LinkCheckDialog({
 
               {/* 读法:不写清楚的话,一个 404 会被当成"代理坏了"而去换一个好好的代理 */}
               <div className="rounded-xl border border-border bg-secondary/30 px-3 py-2.5 space-y-1 text-[11px] leading-relaxed text-muted-foreground">
-                <p className="font-semibold text-foreground">怎么看这几行</p>
+                <p className="font-semibold text-foreground">{t("settings.accounts.howToReadTitle")}</p>
                 <p>
-                  拿到<b>任何</b> HTTP 响应就算连通。上面的 HTTP 404 / 302 只说明那个路径不存在或者要跳转,
-                  <b>不代表代理有问题</b>。真正的不通是连响应都没有:红点 + 一条错误信息。
+                  {t("settings.accounts.howToReadPre")}<b>{t("settings.accounts.howToReadBold1")}</b>{t("settings.accounts.howToReadMid")}
+                  <b>{t("settings.accounts.howToReadBold2")}</b>{t("settings.accounts.howToReadPost")}
                 </p>
                 <p>
-                  延迟取 3 次采样的最小值和平均值。最小值是这条链路的最好情况,平均值比最小值大一倍以上就是抖动大。
+                  {t("settings.accounts.howToReadP2")}
                 </p>
               </div>
             </>
           ) : !check.isError ? (
             <div className="rounded-xl border border-border px-3 py-5 text-center space-y-1">
-              <p className="text-[12px] font-medium">还没检测过这个账户的链路</p>
+              <p className="text-[12px] font-medium">{t("settings.accounts.neverChecked")}</p>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                检测会真的去打 OVH,所以打开弹窗不会自动开始。点下面的「开始检测」,
-                结果会留着 —— 下次打开还看得到这一次的数字和时间。
+                {t("settings.accounts.neverCheckedNote")}
               </p>
             </div>
           ) : null}
@@ -1265,18 +1270,18 @@ function LinkCheckDialog({
         <DialogFooter className="flex-wrap gap-2 space-x-0 sm:justify-between items-center">
           <span className="text-[11px] text-muted-foreground">
             {check.isPending
-              ? "检测中…"
+              ? t("settings.checking")
               : record
-                ? `上次检测 ${proxyCheckTime(record).toLocaleString("zh-CN")}`
-                : "尚未检测"}
+                ? t("settings.accounts.lastCheckAt", { date: fmtDateTime(proxyCheckTime(record)) })
+                : t("settings.accounts.neverCheckedShort")}
           </span>
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
-              关闭
+              {t("common.close")}
             </Button>
             <Button onClick={run} disabled={check.isPending}>
               <RefreshCw className={cn("w-3.5 h-3.5", check.isPending && "animate-spin")} />
-              {check.isPending ? "检测中…" : record ? "立即重新检测" : "开始检测"}
+              {check.isPending ? t("settings.checking") : record ? t("settings.accounts.recheck") : t("settings.accounts.startCheck")}
             </Button>
           </div>
         </DialogFooter>
@@ -1289,26 +1294,27 @@ function LinkCheckDialog({
  * 代理地址的前置校验,规则跟后端 netfp.ValidateProxyURL 一致(协议 + 主机 + 端口)。
  * 后端才是权威,这里只是让用户在按保存之前就看见错在哪 ——
  * 代理写错的代价不是一句报错,是这个账户在补货那一刻一单都下不出去。
+ * 返回的是 i18n key,渲染处用 t() 取译文(带变量的错误在 key 里插值)。
  */
-function proxyInputError(raw: string): string {
+function proxyInputError(raw: string, t: (key: string, vars?: Record<string, string | number>) => string): string {
   const v = raw.trim();
   if (!v) return "";
   let u: URL;
   try {
     u = new URL(v);
   } catch {
-    return "解析不了。格式:socks5://用户名:密码@主机:端口";
+    return t("settings.accounts.proxyErr.parse");
   }
   const scheme = u.protocol.replace(":", "").toLowerCase();
   if (!["http", "https", "socks5", "socks5h"].includes(scheme)) {
-    return `不支持的协议 ${scheme}:只支持 http / https / socks5 / socks5h`;
+    return t("settings.accounts.proxyErr.scheme", { scheme });
   }
-  if (!u.hostname) return "缺少主机名";
+  if (!u.hostname) return t("settings.accounts.proxyErr.host");
   const authorityMatch = v.match(/^[^:]+:\/\/([^/?#]+)/);
   const authorityPart = authorityMatch ? authorityMatch[1] : "";
   const hasExplicitPort = Boolean(u.port) || /:\d+$/.test(authorityPart);
   if (!hasExplicitPort) {
-    return "缺少端口 —— 必须显式写出来,例如 :1080";
+    return t("settings.accounts.proxyErr.port");
   }
   return "";
 }
@@ -1334,66 +1340,67 @@ function EgressPanel({
   /** 已保存的配置里到底有没有代理,用来识别"配了代理却没生效" */
   expectProxy: boolean;
 }) {
+  const { t } = useTranslation();
   if (pending) return <Skeleton className="h-24 rounded-2xl" />;
   if (requestError) {
     return (
       <LoadFailedBanner
-        title="出口测试请求没发出去(这不代表代理有问题)"
+        title={t("settings.accounts.egressReqFailedTitle")}
         error={requestError}
         onRetry={onRetry}
       />
     );
   }
   if (!record) return null;
-  const at = new Date(record.testedAt).toLocaleString("zh-CN");
+  const at = fmtDateTime(record.testedAt);
 
   if (!record.success) {
     return (
       <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-3 py-2.5 space-y-1 text-[11px]">
         <p className="font-semibold text-destructive flex items-center gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5" />
-          出口测试失败 · 经由{record.via}
+          {t("settings.accounts.egressFailedVia", { via: record.via })}
         </p>
         <p className="text-muted-foreground break-all">{record.error}</p>
         <p className="text-muted-foreground">
           {record.usingProxy
-            ? "配了代理就不会退回直连 —— 这条失败等于该账户此刻一单也下不出去。修好代理,或者改回直连。"
-            : "直连都失败,说明是这台机器本身出不去网,跟代理无关。"}
+            ? t("settings.accounts.egressFailedProxyNote")
+            : t("settings.accounts.egressFailedDirectNote")}
         </p>
-        <p className="text-muted-foreground/70">{at} 测</p>
+        <p className="text-muted-foreground/70">{t("settings.accounts.testedAtShort", { date: at })}</p>
       </div>
     );
   }
 
   return (
     <div className="rounded-xl border border-success/40 bg-success/5 px-3 py-2.5 space-y-1.5">
-      <p className="text-[11px] text-muted-foreground">这个账户实际用的出口 IP</p>
+      <p className="text-[11px] text-muted-foreground">{t("settings.accounts.egressIpLabel")}</p>
       <p className="text-2xl font-mono font-semibold tracking-tight break-all">{record.egressIP}</p>
       <p className="text-[11px] text-muted-foreground">
-        经由 {record.usingProxy ? <span className="font-mono">{record.proxy || "代理"}</span> : "直连"}
-        {" · "}指纹 {record.fingerprint}
-        {" · "}{at} 测
+        {t("settings.accounts.viaLabel")} {record.usingProxy ? <span className="font-mono">{record.proxy || t("settings.accounts.proxyFallback")}</span> : t("settings.accounts.direct")}
+        {" · "}{t("settings.accounts.fingerprintShort")} {record.fingerprint}
+        {" · "}{t("settings.accounts.testedAtShort", { date: at })}
       </p>
       {expectProxy && !record.usingProxy && (
         <p className="text-[11px] text-destructive border border-destructive/40 bg-destructive/5 rounded-lg px-2 py-1.5">
-          这个账户配了代理,但后端这次是按<b>直连</b>发出去的 —— 上面这个 IP 是本机出口,代理没保存上。
-          回到上面重新填一次代理再保存。
+          {t("settings.accounts.proxyNotAppliedPre")}<b>{t("settings.accounts.proxyNotAppliedBold")}</b>{t("settings.accounts.proxyNotAppliedPost")}
         </p>
       )}
       {!record.usingProxy && !expectProxy && (
         <p className="text-[11px] text-muted-foreground">
-          这是直连出口:所有没配代理的账户都是这个 IP,OVH 会把它们算作同一个来源。
+          {t("settings.accounts.directEgressNote")}
         </p>
       )}
       {record.warning && <p className="text-[11px] text-warning">⚠ {record.warning}</p>}
       <p className="text-[11px] text-muted-foreground">
-        拿它跟别的账户比一比:两个账户测出同一个 IP,就说明隔离没生效。
+        {t("settings.accounts.compareIpHintShort")}
       </p>
     </div>
   );
 }
 
 function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void }) {
+  const { t } = useTranslation();
   const create = useCreateAccount();
   const update = useUpdateAccount();
   const test = useProxyTest();
@@ -1428,7 +1435,7 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
   const set = (k: keyof typeof form, v: string) => setForm((p) => ({ ...p, [k]: v }));
 
   const lastTest = useLastProxyTest(saved?.id || "").data;
-  const proxyErr = clearProxy ? "" : proxyInputError(form.proxyUrl);
+  const proxyErr = clearProxy ? "" : proxyInputError(form.proxyUrl, t);
   // 新建时三个凭据必填；编辑时可以全留空（只改名字/区域/出站配置）
   const canSubmit =
     !proxyErr &&
@@ -1528,30 +1535,32 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="w-[95vw] sm:w-full sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{isEdit ? `编辑账户 ${acc!.name}` : "添加 OVH 账户"}</DialogTitle>
-          <DialogDescription>填三个 OVH 密钥 + 选子公司,保存时会自动调 /me 验证凭据。</DialogDescription>
+          <DialogTitle>{isEdit ? t("settings.accounts.editAccountTitle", { name: acc!.name }) : t("settings.accounts.addAccountTitle")}</DialogTitle>
+          <DialogDescription>{t("settings.accounts.dialogDesc")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2 max-h-[65vh] overflow-y-auto -mx-6 px-6">
-          <Field label="账户名称 *">
-            <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="主号 / 小号 A" autoFocus />
+          <Field label={t("settings.accounts.nameLabel")}>
+            <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={t("settings.accounts.namePlaceholder")} autoFocus />
             {isEdit && (
               <p className="text-[11px] text-muted-foreground mt-1">
-                下面三个凭据留空即保持不变。出于安全考虑，后端不再把已保存的凭据发回浏览器
-                （只显示掩码），要更换请重新填写完整值。
+                {t("settings.accounts.keepCredentialsHint")}
               </p>
             )}
           </Field>
           {/* 顺序和首次录入页一致:子公司在前 —— token 申请地址跟着它变 */}
           <Field
-            label="OVH 子公司 (Zone) *"
-            hint={`你的 OVH 账号注册在哪个国家/地区。Endpoint ${endpointForZone(form.zone)} · IAM go-ovh-${form.zone.toLowerCase()} 由它自动派生`}
+            label={t("settings.accounts.zoneLabel")}
+            hint={t("settings.accounts.zoneHint", {
+              endpoint: endpointForZone(form.zone),
+              iam: `go-ovh-${form.zone.toLowerCase()}`,
+            })}
           >
             <Select value={form.zone} onValueChange={(v) => set("zone", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {OVH_SUBSIDIARIES.map((s) => (
                   <SelectItem key={s.code} value={s.code}>
-                    {s.code} · {s.label}
+                    {s.code} · {subsidiaryLabel(s.code)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1561,17 +1570,17 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
           {/* 改已有账户时不重复这块:那时用户手上早就有密钥了 */}
           {!isEdit && <OvhTokenGuide endpoint={endpointForZone(form.zone)} />}
 
-          <Field label="APP KEY *" hint={isEdit ? undefined : "OVH 申请页上的 Application Key"}>
+          <Field label="APP KEY *" hint={isEdit ? undefined : t("settings.accounts.appKeyHint")}>
             <Input type="password" value={form.appKey} onChange={(e) => set("appKey", e.target.value)}
-              placeholder={isEdit ? (acc?.appKey || "留空 = 不修改") : "从 OVH 申请页复制"} />
+              placeholder={isEdit ? (acc?.appKey || t("settings.accounts.keepUnchangedPlaceholder")) : t("settings.accounts.copyFromOvhPlaceholder")} />
           </Field>
-          <Field label="APP SECRET *" hint={isEdit ? undefined : "OVH 申请页上的 Application Secret"}>
+          <Field label="APP SECRET *" hint={isEdit ? undefined : t("settings.accounts.appSecretHint")}>
             <Input type="password" value={form.appSecret} onChange={(e) => set("appSecret", e.target.value)}
-              placeholder={isEdit ? (acc?.appSecret || "留空 = 不修改") : "从 OVH 申请页复制"} />
+              placeholder={isEdit ? (acc?.appSecret || t("settings.accounts.keepUnchangedPlaceholder")) : t("settings.accounts.copyFromOvhPlaceholder")} />
           </Field>
-          <Field label="CONSUMER KEY *" hint={isEdit ? undefined : "OVH 申请页上的 Consumer Key"}>
+          <Field label="CONSUMER KEY *" hint={isEdit ? undefined : t("settings.accounts.consumerKeyHint")}>
             <Input type="password" value={form.consumerKey} onChange={(e) => set("consumerKey", e.target.value)}
-              placeholder={isEdit ? (acc?.consumerKey || "留空 = 不修改") : "从 OVH 申请页复制"} />
+              placeholder={isEdit ? (acc?.consumerKey || t("settings.accounts.keepUnchangedPlaceholder")) : t("settings.accounts.copyFromOvhPlaceholder")} />
           </Field>
 
           {/* ── 出站配置 ───────────────────────────────────────────────── */}
@@ -1579,47 +1588,46 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
             <div>
               <p className="text-[13px] font-semibold flex items-center gap-1.5">
                 <Network className="w-3.5 h-3.5" />
-                出站代理与指纹
+                {t("settings.accounts.outboundTitle")}
               </p>
               <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                OVH 的限流按来源 IP 算,几个账户共用一个出口时会互相拖累,而这恰好发生在补货那一刻。
-                给这个账户配一个自己的出口,它就不会被别的账户连累。
+                {t("settings.accounts.outboundDesc")}
               </p>
             </div>
 
-            <Field label="出站代理地址">
+            <Field label={t("settings.accounts.proxyAddrLabel")}>
               <Input
                 value={form.proxyUrl}
                 onChange={(e) => set("proxyUrl", e.target.value)}
                 disabled={clearProxy}
                 placeholder={
                   clearProxy
-                    ? "已标记改回直连"
+                    ? t("settings.accounts.proxyPlaceholderMarked")
                     : saved
-                      ? "留空 = 保持不变"
-                      : "socks5://user:pass@1.2.3.4:1080(留空 = 直连)"
+                      ? t("settings.accounts.proxyPlaceholderKeep")
+                      : t("settings.accounts.proxyPlaceholderNew")
                 }
                 className="font-mono"
               />
-              {proxyErr && <p className="text-[11px] text-destructive mt-1">代理地址不合法:{proxyErr}</p>}
+              {proxyErr && <p className="text-[11px] text-destructive mt-1">{t("settings.accounts.proxyInvalid", { error: proxyErr })}</p>}
 
               {/* 已落库的账户:回显的是打过码的地址,绝不能预填进输入框;清代理要有明确动作 */}
               {saved && (
                 <div className="mt-2 space-y-1.5">
                   <p className="text-[11px] text-muted-foreground">
-                    当前:
+                    {t("settings.accounts.currentLabel")}
                     {saved?.proxyUrl ? (
                       <code className="ml-1 font-mono">{saved.proxyUrl}</code>
                     ) : (
-                      <span className="ml-1">直连(没配代理)</span>
+                      <span className="ml-1">{t("settings.accounts.directNoProxy")}</span>
                     )}
-                    {saved?.proxyUrl ? "(密码已打码,所以这里不预填 —— 把 *** 原样提交会把它存成真密码)" : ""}
+                    {saved?.proxyUrl ? t("settings.accounts.maskedNote") : ""}
                   </p>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] text-muted-foreground">留空 = 保持不变;要摘掉代理:</span>
+                    <span className="text-[11px] text-muted-foreground">{t("settings.accounts.removeProxyHint")}</span>
                     {clearProxy ? (
                       <Button variant="outline" size="sm" onClick={() => setClearProxy(false)}>
-                        撤销「改回直连」
+                        {t("settings.accounts.undoDirect")}
                       </Button>
                     ) : (
                       <Button
@@ -1632,13 +1640,13 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
                         }}
                       >
                         <Ban className="w-3.5 h-3.5" />
-                        改回直连
+                        {t("settings.accounts.backToDirect")}
                       </Button>
                     )}
                   </div>
                   {clearProxy && (
                     <p className="text-[11px] text-warning">
-                      保存后这个账户会清掉代理、改成直连出口 —— 它将和其它直连账户共用同一个出口 IP。
+                      {t("settings.accounts.clearProxyWarning")}
                     </p>
                   )}
                 </div>
@@ -1646,15 +1654,14 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
 
               <div className="mt-2 space-y-1 text-[11px] leading-relaxed">
                 <p className="text-muted-foreground">
-                  支持 <code className="font-mono">http://</code> <code className="font-mono">https://</code>{" "}
-                  <code className="font-mono">socks5://</code> <code className="font-mono">socks5h://</code>,
-                  <b>必须带端口</b>(例如 <code className="font-mono">socks5://user:pass@1.2.3.4:1080</code>)。
-                  {saved ? "留空 = 保持不变(要摘掉代理用上面的「改回直连」)。" : "留空 = 直连。"}
+                  {t("settings.accounts.proxyFormatPre")}<code className="font-mono">http://</code> <code className="font-mono">https://</code>{" "}
+                  <code className="font-mono">socks5://</code> <code className="font-mono">socks5h://</code>{t("settings.accounts.proxyFormatComma")}
+                  <b>{t("settings.accounts.proxyFormatMustPort")}</b>{t("settings.accounts.proxyFormatExample")}<code className="font-mono">socks5://user:pass@1.2.3.4:1080</code>{t("settings.accounts.proxyFormatEnd")}
+                  {saved ? t("settings.accounts.keepSavedNote") : t("settings.accounts.directNewNote")}
                 </p>
                 <p className="text-warning">
-                  代理配错或连不上时<b>不会</b>退回直连,该账户的请求直接失败;连续失败到阈值后,后端会
-                  <b>暂停这个账户的抢购任务</b>并关掉订阅的自动下单(修好也不自动恢复)。
-                  这是故意的 —— 悄悄直连的表现是一切正常、隔离却已经没了。
+                  {t("settings.accounts.proxyFailPre")}<b>{t("settings.accounts.proxyFailBold1")}</b>{t("settings.accounts.proxyFailMid")}
+                  <b>{t("settings.accounts.proxyFailBold2")}</b>{t("settings.accounts.proxyFailPost")}
                 </p>
               </div>
             </Field>
@@ -1669,14 +1676,14 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
                   disabled={!saved || outboundDirty || busy}
                 >
                   <Radar className={cn("w-3.5 h-3.5", test.isPending && "animate-pulse")} />
-                  {test.isPending ? "测试中…" : "测试出口 IP"}
+                  {test.isPending ? t("settings.accounts.testing") : t("settings.accounts.testEgress")}
                 </Button>
                 <span className="text-[11px] text-muted-foreground">
                   {!saved
-                    ? "新账户要先保存才能测 —— 测的是已保存的配置。用下面的「保存并测试出口」一步到位。"
+                    ? t("settings.accounts.testHintNew")
                     : outboundDirty
-                      ? "上面的代理/指纹改了还没保存,现在测到的是旧配置的出口 —— 用下面的「保存并测试出口」。"
-                      : "测的是这个账户已保存的配置,走的和真实下单同一条出站链路。"}
+                      ? t("settings.accounts.testHintDirty")
+                      : t("settings.accounts.testHintSaved")}
                 </span>
               </div>
               <EgressPanel
@@ -1688,7 +1695,7 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
               />
             </div>
 
-            <Field label="出站指纹">
+            <Field label={t("settings.accounts.outboundFingerprintLabel")}>
               <Select value={form.fingerprint} onValueChange={(v) => set("fingerprint", v)} disabled={fpLocked}>
                 <SelectTrigger><SelectValue placeholder="default" /></SelectTrigger>
                 <SelectContent>
@@ -1704,20 +1711,18 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
               {proxyStatus.isError && (
                 <div className="mt-2">
                   <LoadFailedBanner
-                    title="指纹配置清单读取失败 —— 暂时只能保持原值"
+                    title={t("settings.accounts.fingerprintListFailedTitle")}
                     error={proxyStatus.error}
                     onRetry={() => proxyStatus.refetch()}
                   />
                 </div>
               )}
               {proxyStatus.isPending && (
-                <p className="text-[11px] text-muted-foreground mt-1">正在读可选的指纹配置…</p>
+                <p className="text-[11px] text-muted-foreground mt-1">{t("settings.accounts.readingFingerprints")}</p>
               )}
               <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
-                <b>这不是完整的浏览器指纹模拟。</b>Go 标准库不允许控制 JA3 的主要构成要素
-                (套件顺序被忽略、TLS 1.3 套件不可配、扩展顺序固定),所以这个选项改的只是
-                TLS 版本区间、ALPN / 是否走 h2、User-Agent 这类。选 <code className="font-mono">chrome-like</code>{" "}
-                <b>不等于</b> Chrome 的 JA3 —— 要做到那个得换 uTLS 重写握手,这里做不到。
+                <b>{t("settings.accounts.fingerprintNoteBold")}</b>{t("settings.accounts.fingerprintNoteMid")}<code className="font-mono">chrome-like</code>{" "}
+                <b>{t("settings.accounts.fingerprintNoteNotEqual")}</b>{t("settings.accounts.fingerprintNotePost")}
               </p>
             </Field>
           </div>
@@ -1726,9 +1731,9 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
               日常加号 / 换号都走这个对话框,而"去哪申请、申请错站点会怎样"恰恰是
               这时候最容易踩的坑。链接必须跟着上面选的子公司走 —— 三站的 token 互不通用。 */}
           <div className="rounded-xl border border-border bg-secondary/30 px-3 py-2.5 space-y-1.5">
-            <p className="text-[11px] font-semibold">还没有密钥?</p>
+            <p className="text-[11px] font-semibold">{t("settings.accounts.noKeyTitle")}</p>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              去
+              {t("settings.accounts.keyGuideGo")}
               <a
                 href={`${apiBaseUrlForEndpoint(endpointForZone(form.zone))}/createToken/`}
                 target="_blank"
@@ -1737,26 +1742,26 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
               >
                 {apiBaseUrlForEndpoint(endpointForZone(form.zone)).replace("https://", "")}/createToken
               </a>
-              申请。<b>{form.zone}</b> 属于这个站点,
-              <span className="text-warning">在别的站点申请的密钥登不进去</span>(三站互不通用)。
+              {t("settings.accounts.keyGuideApply")}<b>{form.zone}</b>{t("settings.accounts.keyGuideBelongs")}
+              <span className="text-warning">{t("settings.accounts.keyGuideOtherSite")}</span>{t("settings.accounts.keyGuideNotShared")}
             </p>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              权限最省事是四条全给:
+              {t("settings.accounts.keyGuidePermsPre")}
               <code className="mx-1 px-1 py-0.5 rounded bg-background text-[10px]">GET POST PUT DELETE</code>
-              各配 <code className="px-1 py-0.5 rounded bg-background text-[10px]">/*</code>；
-              有效期选 <b>Unlimited</b> —— 到期后抢购和监控会静默失效。
+              {t("settings.accounts.keyGuidePermsMid")}<code className="px-1 py-0.5 rounded bg-background text-[10px]">/*</code>{t("settings.accounts.keyGuidePermsSep")}
+              <b>Unlimited</b>{t("settings.accounts.keyGuideUnlimitedPost")}
             </p>
           </div>
         </div>
         {/* 三个按钮在窄屏上要能换行,否则「保存并验证」会被挤出对话框 */}
         <DialogFooter className="flex-wrap gap-2 space-x-0">
-          <Button variant="outline" onClick={onClose}>取消</Button>
+          <Button variant="outline" onClick={onClose}>{t("common.cancel")}</Button>
           <Button variant="outline" onClick={saveAndTest} disabled={!canSubmit || busy}>
             <Radar className="w-3.5 h-3.5" />
-            {busy ? "处理中…" : "保存并测试出口"}
+            {busy ? t("settings.accounts.processing") : t("settings.accounts.saveAndTest")}
           </Button>
           <Button onClick={submit} disabled={!canSubmit || busy}>
-            {(create.isPending || update.isPending) ? "保存中…" : "保存并验证"}
+            {(create.isPending || update.isPending) ? t("settings.accounts.savingAccount") : t("settings.accounts.saveAndVerify")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -25,7 +25,7 @@ func VpsStart(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 启动任务已创建", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "启动任务已创建", "task": task})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "启动任务已创建", "code": "E0216440D", "task": task})
 	}
 }
 
@@ -45,7 +45,7 @@ func VpsStop(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 关机任务已创建", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "关机任务已创建", "task": task})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "关机任务已创建", "code": "E5E03AED1", "task": task})
 	}
 }
 
@@ -64,7 +64,7 @@ func VpsReboot(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 重启任务已创建", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "重启任务已创建", "task": task})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "重启任务已创建", "code": "E27941E94", "task": task})
 	}
 }
 
@@ -100,7 +100,7 @@ func VpsSetPassword(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusGone, gin.H{
 			"success": false,
-			"error":   "OVH 已下线 VPS 远程重置密码接口(2026-10-15 废弃,无替代)。请点「控制台」打开 noVNC,进系统后用 passwd 命令修改",
+			"error":   "OVH 已下线 VPS 远程重置密码接口(2026-10-15 废弃,无替代)。请点「控制台」打开 noVNC,进系统后用 passwd 命令修改", "code": "E2D28CDC9",
 		})
 	}
 }

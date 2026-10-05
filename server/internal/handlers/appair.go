@@ -77,7 +77,7 @@ func CreatePairingCode(state *app.State) gin.HandlerFunc {
 		code, expiresAt, err := state.DB.CreatePairingCode()
 		if err != nil {
 			state.Logger.Error("生成配对码失败: "+err.Error(), "app")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "生成配对码失败"})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "生成配对码失败", "code": "E57703499"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -108,7 +108,7 @@ func RedeemPairingCode(state *app.State) gin.HandlerFunc {
 		if !pairFailureLimiter.allow(ip) {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"success": false,
-				"error":   "尝试次数过多,请 5 分钟后再试(配对码 2 分钟就会过期,先去网页重新生成)",
+				"error":   "尝试次数过多,请 5 分钟后再试(配对码 2 分钟就会过期,先去网页重新生成)", "code": "EC57B85C6",
 			})
 			return
 		}
@@ -119,7 +119,7 @@ func RedeemPairingCode(state *app.State) gin.HandlerFunc {
 		_ = c.ShouldBindJSON(&body)
 		code := strings.ToUpper(strings.TrimSpace(body.Code))
 		if code == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少配对码"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少配对码", "code": "E6641AC88"})
 			return
 		}
 		name := strings.TrimSpace(body.DeviceName)
@@ -181,7 +181,7 @@ func RevokeAppDevice(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "设备 id 非法"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "设备 id 非法", "code": "E1703A9CF"})
 			return
 		}
 		if err := state.DB.RevokeDevice(id); err != nil {
@@ -189,6 +189,6 @@ func RevokeAppDevice(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("App 设备已吊销 #"+strconv.FormatInt(id, 10), "app")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "设备已吊销,该设备的令牌立即失效"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "设备已吊销,该设备的令牌立即失效", "code": "EB183A580"})
 	}
 }

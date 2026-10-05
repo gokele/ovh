@@ -8,6 +8,8 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { LoadFailed } from "@/components/common/LoadFailed";
 import { Chip } from "@/components/common/Chip";
 import { useVpsTasks, type VpsTask } from "@/hooks/use-vps-control";
+import { useTranslation } from "react-i18next";
+import { fmtDateTime } from "@/i18n/format";
 
 /** VPS 任务管理:显示最近 10 个任务(reboot/start/stop/reinstall/createSnapshot/revert 等)+ 状态 + 进度。
  *  打开时每 5 秒轮询一次,关闭时停止 —— 进行中的任务能实时看到进度。 */
@@ -21,6 +23,7 @@ export function VpsTasksDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const q = useVpsTasks(open ? serviceName : null);
+  const { t } = useTranslation();
   // refetchInterval 在 q 选项里设不上,简单做法:用户点刷新
 
   return (
@@ -29,9 +32,9 @@ export function VpsTasksDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ListTodo className="w-5 h-5" />
-            任务历史
+            {t("vps.tasks.title")}
           </DialogTitle>
-          <DialogDescription>最近 10 个任务(重启 / 装系统 / 快照 / 改密 等)+ 实时状态</DialogDescription>
+          <DialogDescription>{t("vps.tasks.desc")}</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto -mx-6 px-6">
@@ -42,17 +45,17 @@ export function VpsTasksDialog({
             // 于是回去再点一次 —— 破坏性操作被重复下发。失败必须说成失败。
             <LoadFailed
               icon={ListTodo}
-              title="任务历史读取失败"
+              title={t("vps.tasks.loadFailed")}
               error={q.error}
               onRetry={() => q.refetch()}
               compact
             />
           ) : (q.data || []).length === 0 ? (
-            <EmptyState icon={ListTodo} title="暂无任务历史" />
+            <EmptyState icon={ListTodo} title={t("vps.tasks.empty")} />
           ) : (
             <div className="space-y-2 py-1">
-              {(q.data || []).slice().reverse().map((t) => (
-                <TaskRow key={t.id} task={t} />
+              {(q.data || []).slice().reverse().map((task) => (
+                <TaskRow key={task.id} task={task} />
               ))}
             </div>
           )}
@@ -61,10 +64,10 @@ export function VpsTasksDialog({
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => q.refetch()} disabled={q.isFetching}>
             <RefreshCw className={"w-3.5 h-3.5 mr-1" + (q.isFetching ? " animate-spin" : "")} />
-            刷新
+            {t("common.refresh")}
           </Button>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            关闭
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -73,18 +76,19 @@ export function VpsTasksDialog({
 }
 
 function TaskRow({ task }: { task: VpsTask }) {
+  const { t } = useTranslation();
   const tone = taskTone(task.state);
   return (
     <div className="border border-border rounded-xl p-3 space-y-1.5">
       <div className="flex items-center gap-2 flex-wrap">
         <code className="text-[11px] font-mono text-muted-foreground">#{task.id}</code>
-        <span className="text-[13px] font-semibold">{translateTaskType(task.type)}</span>
-        <Chip tone={tone}>{translateTaskState(task.state)}</Chip>
+        <span className="text-[13px] font-semibold">{t(translateTaskType(task.type))}</span>
+        <Chip tone={tone}>{t(translateTaskState(task.state))}</Chip>
         {task.progress > 0 && task.progress < 100 && (
           <span className="text-[11px] text-muted-foreground">{task.progress}%</span>
         )}
         <span className="ml-auto text-[11px] text-muted-foreground">
-          {task.date ? new Date(task.date).toLocaleString("zh-CN") : "—"}
+          {task.date ? fmtDateTime(task.date) : "—"}
         </span>
       </div>
       {/* 进度条 */}
@@ -119,46 +123,48 @@ function taskTone(state: string): "default" | "success" | "warning" | "danger" |
   }
 }
 
-/** OVH vps.TaskStateEnum: blocked / cancelled / doing / done / error / paused / todo / waitingAck */
+/** OVH vps.TaskStateEnum: blocked / cancelled / doing / done / error / paused / todo / waitingAck。
+ *  表里存 i18n key(vps.tasks.state.*),渲染处统一 t();没收录的枚举原样透传。 */
 function translateTaskState(s: string): string {
   return ({
-    blocked: "已阻塞",
-    cancelled: "已取消",
-    doing: "进行中",
-    done: "完成",
-    error: "失败",
-    paused: "已暂停",
-    todo: "排队中",
-    waitingack: "待确认",
+    blocked: "vps.tasks.state.blocked",
+    cancelled: "vps.tasks.state.cancelled",
+    doing: "vps.tasks.state.doing",
+    done: "vps.tasks.state.done",
+    error: "vps.tasks.state.error",
+    paused: "vps.tasks.state.paused",
+    todo: "vps.tasks.state.todo",
+    waitingack: "vps.tasks.state.waitingack",
   } as Record<string, string>)[s.toLowerCase()] || s;
 }
 
-/** OVH vps.TaskTypeEnum 全集 —— 注意 OVH 命名大多带 Vm 后缀(rebootVm 不是 reboot) */
+/** OVH vps.TaskTypeEnum 全集 —— 注意 OVH 命名大多带 Vm 后缀(rebootVm 不是 reboot)。
+ *  表里存 i18n key(vps.tasks.type.*),渲染处统一 t();没收录的枚举原样透传。 */
 function translateTaskType(t: string): string {
   return ({
-    addVeeamBackupJob: "添加 Veeam 备份",
-    changeRootPassword: "重置 root 密码",
-    createSnapshot: "创建快照",
-    deleteSnapshot: "删除快照",
-    deliverVm: "交付 VM",
-    getConsoleUrl: "生成控制台链接",
-    internalTask: "内部任务",
-    migrate: "迁移",
-    openConsoleAccess: "打开控制台",
-    provisioningAdditionalIp: "分配额外 IP",
-    reOpenVm: "重新开机",
-    rebootVm: "重启",
-    reinstallVm: "重装系统",
-    removeVeeamBackup: "移除 Veeam 备份",
-    rescheduleAutoBackup: "调整自动备份",
-    restoreFullVeeamBackup: "Veeam 完整还原",
-    restoreVeeamBackup: "Veeam 还原",
-    restoreVm: "还原 VM",
-    revertSnapshot: "回滚快照",
-    setMonitoring: "设置监控",
-    setNetboot: "设置网络启动",
-    startVm: "启动",
-    stopVm: "关机",
-    upgradeVm: "升级 VM",
+    addVeeamBackupJob: "vps.tasks.type.addVeeamBackupJob",
+    changeRootPassword: "vps.tasks.type.changeRootPassword",
+    createSnapshot: "vps.tasks.type.createSnapshot",
+    deleteSnapshot: "vps.tasks.type.deleteSnapshot",
+    deliverVm: "vps.tasks.type.deliverVm",
+    getConsoleUrl: "vps.tasks.type.getConsoleUrl",
+    internalTask: "vps.tasks.type.internalTask",
+    migrate: "vps.tasks.type.migrate",
+    openConsoleAccess: "vps.tasks.type.openConsoleAccess",
+    provisioningAdditionalIp: "vps.tasks.type.provisioningAdditionalIp",
+    reOpenVm: "vps.tasks.type.reOpenVm",
+    rebootVm: "vps.tasks.type.rebootVm",
+    reinstallVm: "vps.tasks.type.reinstallVm",
+    removeVeeamBackup: "vps.tasks.type.removeVeeamBackup",
+    rescheduleAutoBackup: "vps.tasks.type.rescheduleAutoBackup",
+    restoreFullVeeamBackup: "vps.tasks.type.restoreFullVeeamBackup",
+    restoreVeeamBackup: "vps.tasks.type.restoreVeeamBackup",
+    restoreVm: "vps.tasks.type.restoreVm",
+    revertSnapshot: "vps.tasks.type.revertSnapshot",
+    setMonitoring: "vps.tasks.type.setMonitoring",
+    setNetboot: "vps.tasks.type.setNetboot",
+    startVm: "vps.tasks.type.startVm",
+    stopVm: "vps.tasks.type.stopVm",
+    upgradeVm: "vps.tasks.type.upgradeVm",
   } as Record<string, string>)[t] || t;
 }

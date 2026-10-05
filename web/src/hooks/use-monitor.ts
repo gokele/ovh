@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { toast } from "sonner";
+import i18n from "@/i18n";
+import { apiMessage, bodyMessage } from "@/lib/api-error";
 
 export interface MonitorSubscription {
   planCode: string;
@@ -90,9 +92,9 @@ export function useUpsertMonitorSubscription() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.monitor.list() });
       qc.invalidateQueries({ queryKey: qk.monitor.status() });
-      toast.success("订阅已保存");
+      toast.success(i18n.t("hooksMsg.monitor.saved"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "保存失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.monitor.saveFailed")),
   });
 }
 
@@ -116,10 +118,10 @@ export function useUpdateMonitorSubscription() {
       qc.invalidateQueries({ queryKey: qk.monitor.list() });
       qc.invalidateQueries({ queryKey: qk.monitor.status() });
       if (data?.regionWarning) toast.warning(data.regionWarning);
-      else toast.success(data?.message || "订阅已更新");
+      else toast.success(bodyMessage(data) || i18n.t("hooksMsg.monitor.updated"));
     },
     onError: (e: any) =>
-      toast.error(e.response?.data?.message || e.response?.data?.error || "更新失败"),
+      toast.error(apiMessage(e) || i18n.t("hooksMsg.monitor.updateFailed")),
   });
 }
 
@@ -135,9 +137,9 @@ export function useRemoveMonitorSubscription() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.monitor.list() });
       qc.invalidateQueries({ queryKey: qk.monitor.status() });
-      toast.success("已删除订阅");
+      toast.success(i18n.t("hooksMsg.monitor.deleted"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "删除失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.monitor.deleteFailed")),
   });
 }
 
@@ -149,9 +151,9 @@ export function useClearMonitor() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.monitor.list() });
       qc.invalidateQueries({ queryKey: qk.monitor.status() });
-      toast.success("已清空全部订阅");
+      toast.success(i18n.t("hooksMsg.monitor.cleared"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "清空失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.monitor.clearFailed")),
   });
 }
 
@@ -167,8 +169,8 @@ export function useSetMonitorInterval() {
       },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: qk.monitor.status() });
-      toast.success(data.message || "检查间隔已更新");
+      toast.success(bodyMessage(data) || i18n.t("hooksMsg.monitor.intervalUpdated"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.message || "设置失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.monitor.intervalSetFailed")),
   });
 }

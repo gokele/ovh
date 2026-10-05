@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useTranslation, Trans } from "react-i18next";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ import {
   buildVariantIndex,
   hasStockWithOption,
 } from "@/hooks/use-availability";
+import { fmtDateTime } from "@/i18n/format";
 
 /** 抢购队列：列表 + 暂停/恢复/删除/清空 + 新建抢购任务 */
 export const Route = createFileRoute("/queue")({
@@ -83,6 +85,7 @@ const FALLBACK_RETRY_INTERVAL = RETRY_INTERVAL.defaultTask;
  * 处理器每轮都读任务上的值，所以下一轮就生效，不用重建任务。
  */
 function IntervalEditor({ id, value }: { id: string; value: number }) {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(value));
   const update = useUpdateQueueInterval();
@@ -92,7 +95,9 @@ function IntervalEditor({ id, value }: { id: string; value: number }) {
     const n = Number(draft);
     if (!n || n === value) return setDraft(String(value));
     if (n < RETRY_INTERVAL.min || n > RETRY_INTERVAL.max) {
-      toast.error(`重试间隔要在 ${RETRY_INTERVAL.min} ~ ${RETRY_INTERVAL.max} 秒之间`);
+      toast.error(
+        t("queue.intervalRangeError", { min: RETRY_INTERVAL.min, max: RETRY_INTERVAL.max })
+      );
       return setDraft(String(value));
     }
     update.mutate({ id, retryInterval: n });
@@ -107,7 +112,7 @@ function IntervalEditor({ id, value }: { id: string; value: number }) {
           setEditing(true);
         }}
         className="font-medium text-foreground underline decoration-dotted underline-offset-2 hover:text-primary"
-        title="点击修改这条任务的重试间隔"
+        title={t("queue.intervalEditTitle")}
       >
         {value}
       </button>
@@ -138,6 +143,7 @@ function IntervalEditor({ id, value }: { id: string; value: number }) {
 }
 
 function QueuePage() {
+  const { t } = useTranslation();
   const queue = useQueueList();
   // 每条链路上一轮的耗时,用来回答"我到底卡在哪一步"
   const timings = usePurchaseTimings();
@@ -190,7 +196,7 @@ function QueuePage() {
     });
   const allSelected = items.length > 0 && selected.size === items.length;
 
-  /** 逐条执行并汇总成一条结果,不要弹 N 个 toast */
+  /** 逐条执行并汇总成一条结果,不要弹 N 个 toast。label 传已翻译的动词 */
   const runBatch = async (
     label: string,
     targets: QueueItem[],
@@ -211,8 +217,8 @@ function QueuePage() {
     setBatchRunning(false);
     setSelected(new Set());
     const failed = targets.length - ok;
-    if (failed === 0) toast.success(`已${label} ${ok} 个任务`);
-    else toast.error(`${label}:成功 ${ok} 个,失败 ${failed} 个。${firstError}`);
+    if (failed === 0) toast.success(t("queue.batchDone", { label, n: ok }));
+    else toast.error(t("queue.batchPartial", { label, ok, failed, error: firstError }));
     queue.refetch();
   };
 
@@ -220,26 +226,26 @@ function QueuePage() {
     <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={ClipboardList}
-        title="抢购队列"
-        description="管理自动抢购服务器的队列"
+        title={t("queue.title")}
+        description={t("queue.description")}
         action={
           // 必须 flex-wrap:PageHeader 外层允许换行,内层不换的话整排按钮保持
           // max-content 宽度,在 390px 上会被挤出左边界(实测 left=-19px)。
           <div className="flex flex-wrap justify-end gap-2">
             <Button onClick={() => setShowCreateDialog(true)}>
               <Plus className="w-4 h-4" />
-              新建抢购任务
+              {t("queue.createTask")}
             </Button>
             <Button variant="outline" onClick={() => queue.refetch()} disabled={queue.isFetching}>
               <RefreshCw className={`w-4 h-4 ${queue.isFetching ? "animate-spin" : ""}`} />
-              刷新
+              {t("queue.refresh")}
             </Button>
             <Button
               variant="outline"
               onClick={() => setSelected(allSelected ? new Set() : new Set(items.map((i) => i.id)))}
               disabled={items.length === 0}
             >
-              {allSelected ? "取消全选" : "全选"}
+              {allSelected ? t("queue.unselectAll") : t("queue.selectAll")}
             </Button>
             <Button
               variant="outline"
@@ -247,7 +253,7 @@ function QueuePage() {
               disabled={items.length === 0}
             >
               <Trash2 className="w-4 h-4" />
-              清空
+              {t("queue.clear")}
             </Button>
           </div>
         }
@@ -258,7 +264,7 @@ function QueuePage() {
           给一条提示、别让用户误读那片空白就够。 */}
       {timings.isError && items.length > 0 && (
         <LoadFailedBanner
-          title="上一轮耗时/结果读取失败,任务照常在跑"
+          title={t("queue.timingsFailedTitle")}
           error={timings.error}
           onRetry={() => timings.refetch()}
         />
@@ -277,7 +283,7 @@ function QueuePage() {
         <Card>
           <LoadFailed
             icon={ClipboardList}
-            title="队列读取失败,不代表队列是空的"
+            title={t("queue.loadFailedTitle")}
             error={queue.error}
             onRetry={() => queue.refetch()}
           />
@@ -286,8 +292,8 @@ function QueuePage() {
         <Card>
           <EmptyState
             icon={ClipboardList}
-            title="暂无任务"
-            description="点击右上角“新建抢购任务”开始抢购"
+            title={t("queue.emptyTitle")}
+            description={t("queue.emptyDesc")}
           />
         </Card>
       ) : (
@@ -295,31 +301,31 @@ function QueuePage() {
           {selected.size > 0 && (
             // 贴在列表顶部而不是浮在底部:手机上底部有 tab 栏,浮层会盖住它
             <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-background/95 backdrop-blur px-3 py-2 shadow-sm">
-              <span className="text-[13px] font-medium">已选 {selected.size} 个</span>
+              <span className="text-[13px] font-medium">{t("queue.selectedCount", { n: selected.size })}</span>
               <div className="flex flex-wrap gap-1.5 ml-auto">
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={batchRunning}
                   onClick={() =>
-                    runBatch("暂停", selectedItems.filter((i) => i.status === "running"), (it) =>
+                    runBatch(t("queue.verbPause"), selectedItems.filter((i) => i.status === "running"), (it) =>
                       toggle.mutateAsync({ id: it.id, action: "pause" })
                     )
                   }
                 >
-                  <PauseCircle className="w-3.5 h-3.5" />暂停
+                  <PauseCircle className="w-3.5 h-3.5" />{t("queue.pause")}
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={batchRunning}
                   onClick={() =>
-                    runBatch("恢复", selectedItems.filter((i) => i.status === "paused"), (it) =>
+                    runBatch(t("queue.verbResume"), selectedItems.filter((i) => i.status === "paused"), (it) =>
                       toggle.mutateAsync({ id: it.id, action: "resume" })
                     )
                   }
                 >
-                  <PlayCircle className="w-3.5 h-3.5" />恢复
+                  <PlayCircle className="w-3.5 h-3.5" />{t("queue.resume")}
                 </Button>
                 {/* 删除是不可逆的,单独走二次确认,不能和暂停放同一个手势层级 */}
                 <Button
@@ -329,10 +335,10 @@ function QueuePage() {
                   onClick={() => setShowBatchDelete(true)}
                 >
                   {batchRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  删除
+                  {t("queue.delete")}
                 </Button>
                 <Button size="sm" variant="ghost" disabled={batchRunning} onClick={() => setSelected(new Set())}>
-                  取消选择
+                  {t("queue.deselect")}
                 </Button>
               </div>
             </div>
@@ -359,24 +365,24 @@ function QueuePage() {
       <Dialog open={showBatchDelete} onOpenChange={setShowBatchDelete}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>删除选中的 {selected.size} 个任务？</DialogTitle>
+            <DialogTitle>{t("queue.batchDeleteTitle", { n: selected.size })}</DialogTitle>
             <DialogDescription>
-              此操作不可撤销。正在执行中的下单（已走到结账那几秒的）可能仍会完成并产生真实订单。
+              {t("queue.batchDeleteDesc")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBatchDelete(false)} disabled={batchRunning}>
-              取消
+              {t("queue.cancel")}
             </Button>
             <Button
               variant="destructive"
               disabled={batchRunning}
               onClick={() => {
                 setShowBatchDelete(false);
-                void runBatch("删除", selectedItems, (it) => remove.mutateAsync(it.id));
+                void runBatch(t("queue.verbDelete"), selectedItems, (it) => remove.mutateAsync(it.id));
               }}
             >
-              确认删除
+              {t("queue.confirmDelete")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -385,12 +391,12 @@ function QueuePage() {
       <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>确认清空队列？</DialogTitle>
-            <DialogDescription>所有任务将被删除，此操作不可撤销。正在执行中的下单(已走到结账那几秒的)可能仍会完成并产生真实订单。</DialogDescription>
+            <DialogTitle>{t("queue.clearTitle")}</DialogTitle>
+            <DialogDescription>{t("queue.clearDesc")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowClearDialog(false)}>
-              取消
+              {t("queue.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -399,7 +405,7 @@ function QueuePage() {
                 setShowClearDialog(false);
               }}
             >
-              确认清空
+              {t("queue.confirmClear")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -435,6 +441,7 @@ function CreateQueueDialog({
   initialPlanCode?: string;
   initialOptions?: string;
 }) {
+  const { t } = useTranslation();
   const servers = useServers();
   const create = useCreateQueueItem();
   // 下单账户 = 左侧菜单栏(手机端在顶栏)选的全局账户,本页不再单独选
@@ -588,7 +595,7 @@ function CreateQueueDialog({
 
   const handleSubmit = async () => {
     if (!canSubmit) {
-      toast.error("请填写计划代码并至少选择一个数据中心");
+      toast.error(t("queue.toast.fillForm"));
       return;
     }
     const result = await create.mutateAsync({
@@ -601,10 +608,10 @@ function CreateQueueDialog({
       autoPay,
     });
     if (result.success > 0) {
-      toast.success(`已创建 ${result.success}/${result.total} 个抢购任务`);
+      toast.success(t("queue.toast.created", { success: result.success, total: result.total }));
     }
     if (result.failed > 0) {
-      toast.error(`${result.failed} 个任务创建失败`);
+      toast.error(t("queue.toast.failedCount", { n: result.failed }));
     }
     if (result.success > 0) {
       reset();
@@ -616,9 +623,9 @@ function CreateQueueDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>新建抢购任务</DialogTitle>
+          <DialogTitle>{t("queue.createTitle")}</DialogTitle>
           <DialogDescription>
-            为每个数据中心创建指定数量的独立任务，每台服务器单独成单。
+            {t("queue.createDesc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -629,14 +636,13 @@ function CreateQueueDialog({
               一条是提交会被拦掉的理由,都不是"当前账户是谁"的重复。 */}
           <div>
             <p className="text-[11px] text-muted-foreground">
-              下单用当前账户的凭据,购物车 subsidiary 跟随账户 zone。planCode 也要是这个站点的 ——
-              三区目录互不相通
+              {t("queue.accountRule")}
             </p>
             {/* 没有账户就没法下单,底下的创建按钮会一直灰着 —— 必须讲清是"没读到"还是"真没有" */}
             {accountsQ.isError && (
               <div className="mt-2">
                 <LoadFailedBanner
-                  title="账户列表读取失败,创建按钮会一直灰着"
+                  title={t("queue.accountsFailedTitle")}
                   error={accountsQ.error}
                   onRetry={() => accountsQ.refetch()}
                 />
@@ -644,19 +650,19 @@ function CreateQueueDialog({
             )}
             {!accountsQ.isPending && !accountsQ.isError && !accountId && (
               <p className="text-[11px] text-destructive mt-1">
-                还没有任何 OVH 账户,先到「设置 → OVH 账户」添加一个才能建任务。
+                {t("queue.noAccounts")}
               </p>
             )}
           </div>
 
           {/* 服务器计划代码 */}
           <div>
-            <label className="block text-[13px] font-medium mb-1.5">服务器计划代码</label>
+            <label className="block text-[13px] font-medium mb-1.5">{t("queue.planCodeLabel")}</label>
             <PlanCodeCombobox
               value={planCode}
               onChange={setPlanCode}
               servers={servers.data || []}
-              placeholder="选择或搜索服务器型号"
+              placeholder={t("queue.planCodePlaceholder")}
             />
             {matchedServer && (
               <p className="text-[11px] text-muted-foreground mt-1 truncate">
@@ -669,7 +675,7 @@ function CreateQueueDialog({
             {servers.isError && (
               <div className="mt-2">
                 <LoadFailedBanner
-                  title="机型目录读取失败,下拉列表是空的(不是这个站点没有机型)"
+                  title={t("queue.catalogFailedTitle")}
                   error={servers.error}
                   onRetry={() => servers.refetch()}
                 />
@@ -681,10 +687,10 @@ function CreateQueueDialog({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-[13px] font-medium">
-                选择数据中心
+                {t("queue.dcLabel")}
                 {datacenters.length > 0 && (
                   <span className="text-muted-foreground ml-2 font-normal">
-                    （已选 {datacenters.length}）
+                    {t("queue.dcSelected", { n: datacenters.length })}
                   </span>
                 )}
               </label>
@@ -694,7 +700,7 @@ function CreateQueueDialog({
                   onClick={selectAllDC}
                   className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  全选
+                  {t("queue.selectAll")}
                 </button>
                 <span className="text-muted-foreground text-[11px]">/</span>
                 <button
@@ -702,7 +708,7 @@ function CreateQueueDialog({
                   onClick={clearAllDC}
                   className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  清空
+                  {t("queue.clear")}
                 </button>
               </div>
             </div>
@@ -718,9 +724,9 @@ function CreateQueueDialog({
                       checked={checked}
                       onCheckedChange={() => toggleDC(dc.code)}
                     />
-                    <span className="truncate" title={`${dc.name} (${dc.code})`}>
+                    <span className="truncate" title={`${t(`commons.dc.${dc.code}`, { defaultValue: dc.name })} (${dc.code})`}>
                       <span className="font-mono uppercase">{dc.code}</span>
-                      <span className="text-muted-foreground ml-1">{dc.name}</span>
+                      <span className="text-muted-foreground ml-1">{t(`commons.dc.${dc.code}`, { defaultValue: dc.name })}</span>
                     </span>
                   </label>
                 );
@@ -732,7 +738,7 @@ function CreateQueueDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-[13px] font-medium mb-1.5">
-                每个数据中心数量
+                {t("queue.qtyPerDc")}
               </label>
               <Input
                 type="text"
@@ -742,15 +748,15 @@ function CreateQueueDialog({
                   const v = e.target.value;
                   if (v === "" || /^\d*$/.test(v)) setQuantity(v);
                 }}
-                placeholder="默认: 1"
+                placeholder={t("queue.qtyDefault")}
               />
               <p className="text-[11px] text-muted-foreground mt-1">
-                每台服务器单独成单（每机房最多 {MAX_ORDER_QUANTITY} 台，单次最多 {MAX_ORDER_FANOUT} 个任务）
+                {t("queue.qtyHint", { perDc: MAX_ORDER_QUANTITY, perRun: MAX_ORDER_FANOUT })}
               </p>
             </div>
             <div>
               <label className="block text-[13px] font-medium mb-1.5">
-                重试间隔（秒）
+                {t("queue.retryInterval")}
               </label>
               <Input
                 type="text"
@@ -761,41 +767,39 @@ function CreateQueueDialog({
                   touchedRef.current = true;
                   if (v === "" || /^\d*$/.test(v)) setRetryInterval(v);
                 }}
-                placeholder={`默认: ${cfgDefault}`}
+                placeholder={t("queue.retryDefault", { n: cfgDefault })}
               />
               <p className="text-[11px] text-muted-foreground mt-1">
-                抢购失败后等待秒数再重试（默认值在「设置 → 抢购」里改）
+                {t("queue.retryHint")}
               </p>
             </div>
           </div>
 
           <label className="flex items-center gap-2 cursor-pointer text-[13px]">
             <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
-            抢到后自动付款
+            {t("queue.autoPay")}
           </label>
           <p className="text-[11px] text-muted-foreground -mt-2">
-            {autoPay
-              ? "下单成功后用 OVH 默认支付方式自动扣款（需先在 OVH 设置好）"
-              : "不勾则只下单：需在订单过期前自己付款"}
+            {autoPay ? t("queue.autoPayOn") : t("queue.autoPayOff")}
           </p>
 
           {/* 可选配置:planCode 在 catalog 里 → 走 chip 选择;
                 planCode 自定义不在 catalog → 走手填。两者互斥不同时存在。 */}
           <div>
             <label className="block text-[13px] font-medium mb-1.5">
-              可选配置
+              {t("queue.optionsLabel")}
               <span className="text-muted-foreground ml-2 font-normal">
                 {/* "catalog 里没找到这个型号"是个结论,只有目录确实读到了才下得了。
                     目录还没到手 / 读失败时照说这句,用户会以为是自己型号填错了。 */}
                 {grouped
-                  ? "（点击 chip 选择,留空走 OVH 默认下单）"
+                  ? t("queue.optionsChipHint")
                   : !planCode.trim()
-                    ? "（先选个型号,再挑可选配置）"
+                    ? t("queue.optionsPickFirst")
                     : servers.isError
-                      ? "（机型目录没读到,列不出可选配置;可重试目录,或直接手填 addon planCode）"
+                      ? t("queue.optionsCatalogFailed")
                       : servers.isPending
-                        ? "（机型目录读取中…）"
-                        : "（catalog 里没找到这个型号,需要手填 addon planCode）"}
+                        ? t("queue.optionsCatalogLoading")
+                        : t("queue.optionsNotFound")}
               </span>
             </label>
             {grouped ? (
@@ -822,7 +826,7 @@ function CreateQueueDialog({
             ) : (
               // planCode 不在 catalog 里(用户手填了自定义型号) → 走手动输入
               <Input
-                placeholder="addon planCode,逗号分隔。例如:ram-64g-ecc-2400, softraid-2x450nvme-24sk50"
+                placeholder={t("queue.extraOptionsPlaceholder")}
                 value={extraInput}
                 onChange={(e) => setExtraInput(e.target.value)}
               />
@@ -830,7 +834,7 @@ function CreateQueueDialog({
 
             {parsedOptions.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-border">
-                <span className="text-[11px] text-muted-foreground">已选:</span>
+                <span className="text-[11px] text-muted-foreground">{t("queue.optionsSelected")}</span>
                 {parsedOptions.map((opt, i) => (
                   <Chip key={`${opt}-${i}`} tone="default" className="font-mono">
                     {opt}
@@ -844,27 +848,38 @@ function CreateQueueDialog({
           {/* 汇总提示 */}
           {datacenters.length > 0 && (
             <div className="border border-border rounded-2xl p-3 text-[12px] text-muted-foreground">
-              将创建 <span className="font-semibold text-foreground">{totalTasks}</span> 个独立任务
-              （{datacenters.length} 个数据中心 × {qty} 台
-              {parsedOptions.length > 0 ? ` · 含 ${parsedOptions.length} 个可选配置` : ""}）
+              <Trans
+                i18nKey="queue.summary"
+                values={{
+                  tasks: totalTasks,
+                  dcs: datacenters.length,
+                  qty,
+                  extra:
+                    parsedOptions.length > 0
+                      ? t("queue.summaryExtra", { n: parsedOptions.length })
+                      : "",
+                }}
+                components={{ b: <span className="font-semibold text-foreground" /> }}
+                t={t}
+              />
             </div>
           )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={create.isPending}>
-            取消
+            {t("queue.cancel")}
           </Button>
           <Button onClick={handleSubmit} disabled={!canSubmit || create.isPending}>
             {create.isPending ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                创建中...
+                {t("queue.creating")}
               </>
             ) : (
               <>
                 <Plus className="w-4 h-4" />
-                {datacenters.length > 0 ? `创建 ${totalTasks} 个任务` : "创建任务"}
+                {datacenters.length > 0 ? t("queue.createN", { n: totalTasks }) : t("queue.createAction")}
               </>
             )}
           </Button>
@@ -889,34 +904,35 @@ function QueueRow({
   onToggle: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   const chip = (() => {
     if (item.status === "running")
       return (
         <Chip tone="success">
-          <StatusDot tone="success" pulse size="xs" />运行中
+          <StatusDot tone="success" pulse size="xs" />{t("queue.status.running")}
         </Chip>
       );
     if (item.status === "pending")
       return (
         <Chip tone="warning">
-          <StatusDot tone="warning" size="xs" />等待中
+          <StatusDot tone="warning" size="xs" />{t("queue.status.pending")}
         </Chip>
       );
     if (item.status === "paused")
       return (
         <Chip tone="default">
-          <StatusDot tone="muted" size="xs" />已暂停
+          <StatusDot tone="muted" size="xs" />{t("queue.status.paused")}
         </Chip>
       );
     if (item.status === "completed")
       return (
         <Chip tone="info">
-          <StatusDot tone="info" size="xs" />已完成
+          <StatusDot tone="info" size="xs" />{t("queue.status.completed")}
         </Chip>
       );
     return (
       <Chip tone="danger">
-        <StatusDot tone="danger" size="xs" />失败
+        <StatusDot tone="danger" size="xs" />{t("queue.status.failed")}
       </Chip>
     );
   })();
@@ -929,7 +945,7 @@ function QueueRow({
           <Checkbox
             checked={selected}
             onCheckedChange={onSelect}
-            aria-label={`选择任务 ${item.planCode} @ ${item.datacenter}`}
+            aria-label={t("queue.selectTaskAria", { plan: item.planCode, dc: item.datacenter })}
             className="mt-0.5 flex-shrink-0"
           />
           <div className="flex-1 min-w-0">
@@ -948,8 +964,8 @@ function QueueRow({
               </Chip>
             )}
             {item.autoPay && (
-              <Chip tone="warning" title="下单成功后会用 OVH 默认支付方式自动扣款">
-                自动付款
+              <Chip tone="warning" title={t("queue.autoPayChipTitle")}>
+                {t("queue.autoPayChip")}
               </Chip>
             )}
             <TimingChip totalMs={timing?.totalMs} phases={timing?.phases} />
@@ -959,19 +975,19 @@ function QueueRow({
             {/* failed / completed 是终态,不会再重试 —— 再显示"下次尝试"会让用户以为还在排队。
                 失败原因写在抢购历史里,这里给一句指引。 */}
             {item.status === "failed" ? (
-              <span>已停止重试（原因见抢购历史）</span>
+              <span>{t("queue.stoppedRetrying")}</span>
             ) : item.status === "completed" ? (
-              <span>已完成</span>
+              <span>{t("queue.status.completed")}</span>
             ) : (
               <span className="inline-flex items-center gap-1">
-                下次尝试
+                {t("queue.nextAttempt")}
                 {item.retryCount > 0 ? (
                   <>
                     <IntervalEditor id={item.id} value={item.retryInterval} />
-                    秒后（第 {item.retryCount + 1} 次）
+                    {t("queue.retryInSec", { n: item.retryCount + 1 })}
                   </>
                 ) : (
-                  "即将开始"
+                  t("queue.startingSoon")
                 )}
               </span>
             )}
@@ -981,34 +997,34 @@ function QueueRow({
                 {/* 上一轮的结论。"没货"和"下单失败"是两件事:前者说明这台机器
                     OVH 就是没放货,后者说明我们这边有问题,该看历史里的错误信息 */}
                 <span>
-                  上一轮
+                  {t("queue.lastRound")}
                   {timing.outcome === "unavailable"
-                    ? "无货"
+                    ? t("queue.outcome.unavailable")
                     : timing.outcome === "ordered"
-                      ? "已下单"
-                      : "出错"}
+                      ? t("queue.outcome.ordered")
+                      : t("queue.outcome.error")}
                 </span>
               </>
             )}
             {typeof item.failureCount === "number" && item.failureCount > 0 && (
               <>
                 <span>·</span>
-                <span>下单失败 {item.failureCount} 次</span>
+                <span>{t("queue.failureCount", { n: item.failureCount })}</span>
               </>
             )}
             <span>·</span>
-            <span>{new Date(item.createdAt).toLocaleString()}</span>
+            <span>{fmtDateTime(item.createdAt)}</span>
           </div>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {chip}
           {item.status !== "completed" && item.status !== "failed" && (
-            <Button variant="ghost" size="icon" onClick={onToggle} aria-label={item.status === "running" ? "暂停" : "恢复"}>
+            <Button variant="ghost" size="icon" onClick={onToggle} aria-label={item.status === "running" ? t("queue.pause") : t("queue.resume")}>
               {item.status === "running" ? <PauseCircle className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
             </Button>
           )}
-          <Button variant="ghost" size="icon" onClick={onDelete} aria-label="删除">
+          <Button variant="ghost" size="icon" onClick={onDelete} aria-label={t("queue.delete")}>
             <X className="w-4 h-4" />
           </Button>
         </div>

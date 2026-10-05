@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { toast } from "sonner";
+import i18n from "@/i18n";
+import { apiMessage } from "@/lib/api-error";
 import { clampOrderPlan, MAX_ORDER_QUANTITY, MAX_ORDER_FANOUT } from "@/lib/order-limits";
 import { errorMessage } from "@/components/common/LoadFailed";
 
@@ -96,8 +98,12 @@ export function useCreateQueueItem() {
       const qty = plan.quantity;
       if (plan.clamped) {
         toast.warning(
-          `每个机房最多 ${MAX_ORDER_QUANTITY} 台、单次最多 ${MAX_ORDER_FANOUT} 个任务，` +
-            `已按 ${qty} 台/机房（共 ${plan.total} 个任务）创建`
+          i18n.t("hooksMsg.queue.clampedWarning", {
+            maxQty: MAX_ORDER_QUANTITY,
+            maxTasks: MAX_ORDER_FANOUT,
+            qty,
+            total: plan.total,
+          })
         );
       }
       let success = 0;
@@ -123,14 +129,14 @@ export function useCreateQueueItem() {
           }
         }
       }
-      if (failed > 0 && firstError) toast.error(`有任务没能创建：${firstError}`);
+      if (failed > 0 && firstError) toast.error(i18n.t("hooksMsg.queue.someFailed", { reason: firstError }));
       return { success, failed, total: dcs.length * qty, firstError };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.queue.list() });
       qc.invalidateQueries({ queryKey: qk.stats() });
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "添加任务失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.queue.addFailed")),
   });
 }
 
@@ -141,7 +147,7 @@ export function useToggleQueueItem() {
     mutationFn: async ({ id, action }: { id: string; action: "pause" | "resume" }) =>
       (await api.put(`/queue/${id}/status`, { status: action === "pause" ? "paused" : "running" })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.queue.list() }),
-    onError: (e: any) => toast.error(e.response?.data?.error || "操作失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.queue.actionFailed")),
   });
 }
 
@@ -154,9 +160,9 @@ export function useUpdateQueueInterval() {
       (await api.put(`/queue/${id}/interval`, { retryInterval })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.queue.list() });
-      toast.success("重试间隔已更新");
+      toast.success(i18n.t("hooksMsg.queue.intervalUpdated"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "修改失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.queue.intervalSetFailed")),
   });
 }
 
@@ -168,7 +174,7 @@ export function useRemoveQueueItem() {
       qc.invalidateQueries({ queryKey: qk.queue.list() });
       qc.invalidateQueries({ queryKey: qk.stats() });
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "删除失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.queue.removeFailed")),
   });
 }
 
@@ -180,8 +186,8 @@ export function useClearQueue() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.queue.list() });
       qc.invalidateQueries({ queryKey: qk.stats() });
-      toast.success("已清空队列");
+      toast.success(i18n.t("hooksMsg.queue.cleared"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "清空失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.queue.clearFailed")),
   });
 }

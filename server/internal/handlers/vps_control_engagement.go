@@ -129,7 +129,7 @@ func CreateVpsEngagementRequest(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.PricingMode == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 pricingMode 参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 pricingMode 参数", "code": "EA4F2905C"})
 			return
 		}
 		serviceID, err := serviceIDForVps(client, svc)
@@ -144,7 +144,7 @@ func CreateVpsEngagementRequest(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("VPS %s engagement 请求已提交: %s", svc, body.PricingMode), "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "合同期变更请求已提交", "request": result})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "合同期变更请求已提交", "code": "E02A9E774", "request": result})
 	}
 }
 
@@ -167,7 +167,7 @@ func DeleteVpsEngagementRequest(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("VPS %s engagement 请求已撤销", svc), "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "合同期变更请求已撤销"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "合同期变更请求已撤销", "code": "EB9374300"})
 	}
 }
 
@@ -186,7 +186,7 @@ func UpdateVpsEngagementEndRule(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Strategy == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 strategy 参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 strategy 参数", "code": "E8537A991"})
 			return
 		}
 		// 与专用服务器侧同一套闸门:枚举白名单 + 销毁类操作强制二次确认。
@@ -196,7 +196,7 @@ func UpdateVpsEngagementEndRule(state *app.State) gin.HandlerFunc {
 			return
 		}
 		if body.Strategy == "CANCEL_SERVICE" && !body.Confirm {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "到期自动销毁服务属于不可撤销操作,请二次确认后重试(需带 confirm:true)"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "到期自动销毁服务属于不可撤销操作,请二次确认后重试(需带 confirm:true)", "code": "EAFF9E887"})
 			return
 		}
 		if body.Strategy == "CANCEL_SERVICE" {
@@ -213,6 +213,6 @@ func UpdateVpsEngagementEndRule(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("VPS %s engagement endRule 已改为 %s", svc, body.Strategy), "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "到期策略已更新"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "到期策略已更新", "code": "E55ACDD1F"})
 	}
 }

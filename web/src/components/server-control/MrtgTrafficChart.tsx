@@ -17,14 +17,22 @@ import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadFailed } from "@/components/common/LoadFailed";
 import { useMrtgTraffic, type MrtgPeriod, type MrtgInterface } from "@/hooks/use-mrtg";
+import { Trans, useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { fmtPattern } from "@/i18n/format";
 
-const PERIOD_LABEL: Record<MrtgPeriod, string> = {
-  hourly: "过去 1 小时",
-  daily: "过去 24 小时",
-  weekly: "过去 7 天",
-  monthly: "过去 30 天",
-  yearly: "过去 1 年",
+/** 周期选项表:存文案 key,渲染处 t() */
+const PERIOD_KEYS: Record<MrtgPeriod, string> = {
+  hourly: "maint.mrtg.period.hourly",
+  daily: "maint.mrtg.period.daily",
+  weekly: "maint.mrtg.period.weekly",
+  monthly: "maint.mrtg.period.monthly",
+  yearly: "maint.mrtg.period.yearly",
 };
+
+function periodLabel(t: TFunction, p: MrtgPeriod): string {
+  return t(PERIOD_KEYS[p]);
+}
 
 /** bps → 友好显示（Kbps / Mbps / Gbps） */
 function formatBandwidth(bps: number): string {
@@ -41,6 +49,7 @@ function formatBandwidth(bps: number): string {
  * - 图上方有"当前 / 平均 / 峰值"统计栏
  */
 export function MrtgTrafficChart({ serviceName }: { serviceName: string }) {
+  const { t } = useTranslation();
   const [period, setPeriod] = useState<MrtgPeriod>("daily");
   // isError / error 以前漏解构了,拉失败时 merged 是空数组,界面就一路滑到「暂无流量数据」
   const { download, upload, isPending, isFetching, isError, error, refetch } = useMrtgTraffic(serviceName, period);
@@ -63,7 +72,7 @@ export function MrtgTrafficChart({ serviceName }: { serviceName: string }) {
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <Wifi className="w-4 h-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">流量监控</h3>
+            <h3 className="text-sm font-semibold">{t("maint.mrtg.title")}</h3>
           </div>
           <div className="flex items-center gap-2">
             <Select value={period} onValueChange={(v) => setPeriod(v as MrtgPeriod)}>
@@ -71,16 +80,16 @@ export function MrtgTrafficChart({ serviceName }: { serviceName: string }) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(PERIOD_LABEL) as MrtgPeriod[]).map((p) => (
+                {(Object.keys(PERIOD_KEYS) as MrtgPeriod[]).map((p) => (
                   <SelectItem key={p} value={p}>
-                    {PERIOD_LABEL[p]}
+                    {periodLabel(t, p)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
               <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
-              刷新
+              {t("common.refresh")}
             </Button>
           </div>
         </div>
@@ -90,9 +99,9 @@ export function MrtgTrafficChart({ serviceName }: { serviceName: string }) {
         ) : isError ? (
           // 请求挂了 ≠ 机器没流量。空态那句「该服务器尚未上报 MRTG 数据,或周期内没有流量」
           // 会被读成"这机器没在跑 / 网卡没通",足以让人去重启甚至重装一台其实好好的机器。
-          <LoadFailed icon={Wifi} title="流量数据读取失败" error={error} onRetry={() => refetch()} />
+          <LoadFailed icon={Wifi} title={t("maint.mrtg.loadFailed")} error={error} onRetry={() => refetch()} />
         ) : merged.length === 0 ? (
-          <EmptyState icon={Wifi} title="暂无流量数据" description="该服务器尚未上报 MRTG 数据，或周期内没有流量。" />
+          <EmptyState icon={Wifi} title={t("maint.mrtg.emptyTitle")} description={t("maint.mrtg.emptyDesc")} />
         ) : (
           <div className="space-y-6">
             {merged.map(({ mac, download: d, upload: u }) => (
@@ -117,18 +126,14 @@ function InterfaceChart({
   upload: MrtgInterface;
   period: MrtgPeriod;
 }) {
+  const { t } = useTranslation();
   // 合并双线：按下载的时间序列对齐
   const chartData = useMemo(
     () =>
       download.data.map((dp, i) => {
         const up = upload.data[i];
         return {
-          time: new Date(dp.timestamp * 1000).toLocaleString("zh-CN", {
-            month: "2-digit",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
+          time: fmtPattern(dp.timestamp * 1000, "MM/dd HH:mm"),
           download: dp.value?.value || 0,
           upload: up?.value?.value || 0,
         };
@@ -154,13 +159,19 @@ function InterfaceChart({
     };
   }, [chartData]);
 
-  const summary = `${PERIOD_LABEL[period]}，平均 ${formatBandwidth(stats.dlAvg + stats.ulAvg)}（↓${formatBandwidth(stats.dlAvg)} ↑${formatBandwidth(stats.ulAvg)}），峰值 ${formatBandwidth(stats.totMax)}`;
+  const summary = t("maint.mrtg.summary", {
+    period: periodLabel(t, period),
+    avg: formatBandwidth(stats.dlAvg + stats.ulAvg),
+    down: formatBandwidth(stats.dlAvg),
+    up: formatBandwidth(stats.ulAvg),
+    peak: formatBandwidth(stats.totMax),
+  });
 
   return (
     <div className="border border-border rounded-2xl p-4">
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <Wifi className="w-4 h-4 text-muted-foreground" />
-        <span className="text-[13px] font-semibold">网卡</span>
+        <span className="text-[13px] font-semibold">{t("maint.mrtg.nicLabel")}</span>
         <code className="font-mono text-[12px] bg-secondary px-2 py-0.5 rounded-full">{mac}</code>
       </div>
 
@@ -169,8 +180,8 @@ function InterfaceChart({
 
       {/* 双向统计卡 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-        <StatBlock label="下载" tone="success" icon={<ArrowDown className="w-3.5 h-3.5" />} cur={stats.dlCur} avg={stats.dlAvg} max={stats.dlMax} />
-        <StatBlock label="上传" tone="warning" icon={<ArrowUp className="w-3.5 h-3.5" />} cur={stats.ulCur} avg={stats.ulAvg} max={stats.ulMax} />
+        <StatBlock label={t("maint.mrtg.downloadBandwidth")} tone="success" icon={<ArrowDown className="w-3.5 h-3.5" />} cur={stats.dlCur} avg={stats.dlAvg} max={stats.dlMax} />
+        <StatBlock label={t("maint.mrtg.uploadBandwidth")} tone="warning" icon={<ArrowUp className="w-3.5 h-3.5" />} cur={stats.ulCur} avg={stats.ulAvg} max={stats.ulMax} />
       </div>
 
       {/* 图表 */}
@@ -204,12 +215,12 @@ function InterfaceChart({
               }}
               formatter={(value: any, name: string) => [
                 formatBandwidth(Number(value)),
-                name === "download" ? "↓ 下载" : "↑ 上传",
+                name === "download" ? t("maint.mrtg.tooltipDl") : t("maint.mrtg.tooltipUl"),
               ]}
             />
             <Legend
               wrapperStyle={{ paddingTop: 8, fontSize: 12 }}
-              formatter={(value) => (value === "download" ? "↓ 下载带宽" : "↑ 上传带宽")}
+              formatter={(value) => (value === "download" ? t("maint.mrtg.legendDl") : t("maint.mrtg.legendUl"))}
             />
             <Line
               type="monotone"
@@ -234,7 +245,11 @@ function InterfaceChart({
       </div>
 
       <div className="mt-3 text-[11px] text-muted-foreground text-center">
-        数据点 <span className="font-semibold text-foreground">{stats.points}</span> · 周期 {PERIOD_LABEL[period]}
+        <Trans
+          i18nKey="maint.mrtg.pointsLine"
+          values={{ n: stats.points, period: periodLabel(t, period) }}
+          components={{ b: <span className="font-semibold text-foreground" /> }}
+        />
       </div>
     </div>
   );
@@ -255,17 +270,18 @@ function StatBlock({
   avg: number;
   max: number;
 }) {
+  const { t } = useTranslation();
   const toneText = tone === "success" ? "text-success" : "text-warning";
   return (
     <div className={`border border-border rounded-xl p-3 ${toneText}`}>
       <div className="flex items-center gap-1.5 text-[12px] font-semibold mb-2">
         {icon}
-        {label}带宽
+        {label}
       </div>
       <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-[11px]">
-        <Slot label="当前" value={formatBandwidth(cur)} />
-        <Slot label="平均" value={formatBandwidth(avg)} bold />
-        <Slot label="峰值" value={formatBandwidth(max)} />
+        <Slot label={t("maint.mrtg.slot.current")} value={formatBandwidth(cur)} />
+        <Slot label={t("maint.mrtg.slot.avg")} value={formatBandwidth(avg)} bold />
+        <Slot label={t("maint.mrtg.slot.max")} value={formatBandwidth(max)} />
       </div>
     </div>
   );

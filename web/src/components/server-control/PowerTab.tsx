@@ -15,9 +15,12 @@ import { InstallProgressDialog } from "./InstallProgressDialog";
 import { IpmiDialog } from "./IpmiDialog";
 import { SplaDialog } from "./SplaDialog";
 import { RescueDialog } from "./RescueDialog";
+import { useTranslation } from "react-i18next";
+import { errorMessage } from "@/components/common/LoadFailed";
 
 /** 电源与系统 Tab：重启 / 重装 / IPMI / 启动模式 / 解锁 Windows / 任务 / BIOS / 安装进度 */
 export function PowerTab({ server }: { server: OwnedServer }) {
+  const { t } = useTranslation();
   const [bootOpen, setBootOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [reinstallOpen, setReinstallOpen] = useState(false);
@@ -34,10 +37,10 @@ export function PowerTab({ server }: { server: OwnedServer }) {
     setRebooting(true);
     try {
       await api.post(`/server-control/${server.serviceName}/reboot`);
-      toast.success("重启已发起");
+      toast.success(t("maint.power.toast.rebootSent"));
       setRebootOpen(false);
     } catch (e: any) {
-      toast.error(e.response?.data?.error || "重启失败");
+      toast.error(errorMessage(e));
     } finally {
       setRebooting(false);
     }
@@ -48,8 +51,8 @@ export function PowerTab({ server }: { server: OwnedServer }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <ActionCard
           icon={Power}
-          title="重启服务器"
-          description="硬重启(相当于按电源键,未落盘的数据会丢)"
+          title={t("maint.power.cards.rebootTitle")}
+          description={t("maint.power.cards.rebootDesc")}
           onClick={() => setRebootOpen(true)}
           tone="warning"
         />
@@ -57,54 +60,54 @@ export function PowerTab({ server }: { server: OwnedServer }) {
             而不是直接重装把数据抹掉。顺序本身就是一种引导。 */}
         <ActionCard
           icon={LifeBuoy}
-          title="一键救援系统"
-          description="进救援模式修系统(不动硬盘数据),自动改启动项+重启"
+          title={t("maint.power.cards.rescueTitle")}
+          description={t("maint.power.cards.rescueDesc")}
           onClick={() => setRescueOpen(true)}
           tone="warning"
         />
         <ActionCard
           icon={HardDrive}
-          title="重装系统"
-          description="选择 OS 模板 + ZFS / RAID / 自定义分区"
+          title={t("maint.power.cards.reinstallTitle")}
+          description={t("maint.power.cards.reinstallDesc")}
           onClick={() => setReinstallOpen(true)}
           tone="danger"
         />
         <ActionCard
           icon={Monitor}
-          title="IPMI 控制台"
-          description="远程 KVM 控制台（20s 倒计时获取链接）"
+          title={t("maint.power.cards.ipmiTitle")}
+          description={t("maint.power.cards.ipmiDesc")}
           onClick={() => setIpmiOpen(true)}
         />
         <ActionCard
           icon={Server}
-          title="启动模式"
-          description="切换硬盘 / 救援 / 网络启动"
+          title={t("maint.power.cards.bootTitle")}
+          description={t("maint.power.cards.bootDesc")}
           onClick={() => setBootOpen(true)}
           tone="warning"
         />
         <ActionCard
           icon={Zap}
-          title="Windows 授权 / 解锁安装"
-          description="一键解锁 Windows 模板,或登记你自己的 SPLA 授权"
+          title={t("maint.power.cards.splaTitle")}
+          description={t("maint.power.cards.splaDesc")}
           onClick={() => setSplaOpen(true)}
         />
         <ActionCard
           icon={RotateCw}
-          title="查看任务"
-          description="近期所有运维任务（含可用时间段查询）"
+          title={t("maint.power.cards.tasksTitle")}
+          description={t("maint.power.cards.tasksDesc")}
           onClick={() => setTasksOpen(true)}
         />
         <ActionCard
           icon={Cog}
-          title="BIOS 设置"
-          description="查看 BIOS / SGX 当前配置"
+          title={t("maint.power.cards.biosTitle")}
+          description={t("maint.power.cards.biosDesc")}
           onClick={() => setBiosOpen(true)}
           tone="warning"
         />
         <ActionCard
           icon={Activity}
-          title="安装进度"
-          description="实时查看当前重装任务进度"
+          title={t("maint.power.cards.progressTitle")}
+          description={t("maint.power.cards.progressDesc")}
           onClick={() => setProgressOpen(true)}
         />
       </div>
@@ -130,18 +133,15 @@ export function PowerTab({ server }: { server: OwnedServer }) {
       <Dialog open={rebootOpen} onOpenChange={(v) => !rebooting && setRebootOpen(v)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>确认硬重启 {server.serviceName}？</DialogTitle>
-            <DialogDescription>
-              这相当于按下电源键，不是操作系统里的正常重启：内存和磁盘缓存里还没落盘的数据会丢，
-              正在跑的服务会被直接切断。确认前请先在系统里停好业务。
-            </DialogDescription>
+            <DialogTitle>{t("maint.power.rebootTitle", { name: server.serviceName })}</DialogTitle>
+            <DialogDescription>{t("maint.power.rebootDesc")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRebootOpen(false)} disabled={rebooting}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button variant="destructive" onClick={doReboot} disabled={rebooting}>
-              {rebooting ? "正在发起…" : "确认重启"}
+              {rebooting ? t("maint.power.rebooting") : t("maint.power.confirmReboot")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -163,6 +163,7 @@ function ActionCard({
   onClick: () => void;
   tone?: "default" | "danger" | "warning";
 }) {
+  const { t } = useTranslation();
   const iconColor = tone === "danger" ? "text-destructive" : tone === "warning" ? "text-warning" : "text-foreground";
   return (
     <div className="border border-border rounded-2xl p-5 flex flex-col gap-3">
@@ -172,7 +173,7 @@ function ActionCard({
       </div>
       <p className="text-[12px] text-muted-foreground flex-1">{description}</p>
       <Button variant="outline" size="sm" onClick={onClick} className="self-start">
-        执行
+        {t("maint.power.runBtn")}
       </Button>
     </div>
   );

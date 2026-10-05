@@ -152,13 +152,13 @@ func EnableVpsMitigation(state *app.State) gin.HandlerFunc {
 		ip := c.Param("ip")
 		ipBlock := c.Query("block")
 		if ipBlock == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 block 参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 block 参数", "code": "E4079B204"})
 			return
 		}
 		if !isIPv4(ip) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"error":   "OVH anti-DDoS Mitigation 只支持 IPv4。IPv6 地址在 OVH 网络层默认免疫常见 volumetric 攻击,无需手动配置",
+				"error":   "OVH anti-DDoS Mitigation 只支持 IPv4。IPv6 地址在 OVH 网络层默认免疫常见 volumetric 攻击,无需手动配置", "code": "E94F05C58",
 			})
 			return
 		}
@@ -177,7 +177,7 @@ func EnableVpsMitigation(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS IP "+ip+" 启用永久 DDoS 缓解", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "DDoS 缓解已启用", "mitigation": result})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "DDoS 缓解已启用", "code": "ED793E10A", "mitigation": result})
 	}
 }
 
@@ -187,11 +187,11 @@ func DisableVpsMitigation(state *app.State) gin.HandlerFunc {
 		ip := c.Param("ip")
 		ipBlock := c.Query("block")
 		if ipBlock == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 block 参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 block 参数", "code": "E4079B204"})
 			return
 		}
 		if !isIPv4(ip) {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "IPv6 不支持 anti-DDoS Mitigation"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "IPv6 不支持 anti-DDoS Mitigation", "code": "ED5483A75"})
 			return
 		}
 		client, err := ovhClientFor(state, c)
@@ -205,6 +205,6 @@ func DisableVpsMitigation(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS IP "+ip+" 关闭永久 DDoS 缓解", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "DDoS 缓解已关闭"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "DDoS 缓解已关闭", "code": "E3830D769"})
 	}
 }

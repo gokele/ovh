@@ -129,7 +129,7 @@ func respondTemplates(state *app.State, c *gin.Context, cacheKey, svc string, li
 		state.Logger.Error(fmt.Sprintf("VPS %s 模板详情全部拉取失败(%d 个)", svc, total), "vps_control")
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"error":   "读取系统模板详情失败(可能被 OVH 限流),请稍后重试",
+			"error":   "读取系统模板详情失败(可能被 OVH 限流),请稍后重试", "code": "E0A5160F2",
 		})
 		return
 	}
@@ -282,7 +282,7 @@ func ReinstallVps(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.TemplateID == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 templateId"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 templateId", "code": "EBC5B68EC"})
 			return
 		}
 
@@ -296,7 +296,7 @@ func ReinstallVps(state *app.State) gin.HandlerFunc {
 			}
 		}
 		if imageID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "templateId 不能为空"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "templateId 不能为空", "code": "E15AC7F4B"})
 			return
 		}
 		// sshKey 在 vps.rebuild.post 里是单个 string(key 名),不是数组;language /
@@ -316,7 +316,7 @@ func ReinstallVps(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("VPS %s rebuild 任务已创建: imageId=%s (endpoint=%s)", svc, imageID, acc.Endpoint), "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "重装任务已创建", "task": task})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "重装任务已创建", "code": "E2CF344EE", "task": task})
 	}
 }
 

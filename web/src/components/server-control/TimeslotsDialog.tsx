@@ -7,6 +7,9 @@ import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { useTaskTimeslots, useScheduleTask, type ServerTask } from "@/hooks/use-server-control";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+import { fmtDateTime } from "@/i18n/format";
+import { errorMessage } from "@/components/common/LoadFailed";
 
 /** Date → YYYY-MM-DD（按本地时区取"那一天"，跟后端 normalizeAPIDate 的取法一致） */
 function toDateInput(d: Date): string {
@@ -42,6 +45,7 @@ export function TimeslotsDialog({
   const [end, setEnd] = useState(defaultRange.end);
   const q = useTaskTimeslots(serviceName, task?.taskId ?? null, start, end, open);
   const schedule = useScheduleTask();
+  const { t } = useTranslation();
 
   /** 选中的时段起始时间（RFC3339，直接取 OVH 给的原值） */
   const [picked, setPicked] = useState<string | null>(null);
@@ -50,7 +54,7 @@ export function TimeslotsDialog({
 
   const handleSchedule = async () => {
     if (!task || !picked) {
-      toast.error("请先选择一个时间段");
+      toast.error(t("ctrl.tasks.toast.pickFirst"));
       return;
     }
     try {
@@ -60,12 +64,12 @@ export function TimeslotsDialog({
         wantedBeginingDate: picked,
         hasPerformedBackup: hasBackup,
       });
-      toast.success("已提交预约，OVH 将按该时段安排任务");
+      toast.success(t("ctrl.tasks.toast.scheduled"));
       onOpenChange(false);
       setPicked(null);
       setHasBackup(false);
     } catch (e: any) {
-      toast.error(e?.response?.data?.error || "预约失败");
+      toast.error(errorMessage(e));
     }
   };
 
@@ -75,43 +79,45 @@ export function TimeslotsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="w-5 h-5" />
-            可用时间段
+            {t("ctrl.tasks.slotsTitle")}
           </DialogTitle>
           <DialogDescription>
-            任务 #{task?.taskId} · {task?.function}。OVH 会按你选定的时间窗给出可执行时段。
+            {t("ctrl.tasks.slotsDesc", { id: task?.taskId, fn: task?.function })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
-              <label className="text-[11px] text-muted-foreground block mb-1">开始日期</label>
+              <label className="text-[11px] text-muted-foreground block mb-1">{t("ctrl.tasks.startDate")}</label>
               <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="text-base sm:text-[12px]" />
             </div>
             <div>
-              <label className="text-[11px] text-muted-foreground block mb-1">结束日期</label>
+              <label className="text-[11px] text-muted-foreground block mb-1">{t("ctrl.tasks.endDate")}</label>
               <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="text-base sm:text-[12px]" />
             </div>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            时间窗按天计算（OVH 只接受 YYYY-MM-DD），具体到几点由下方可选时段决定。
+            {t("ctrl.tasks.rangeHint")}
           </p>
 
           {q.isPending ? (
             <Skeleton className="h-40 rounded-2xl" />
           ) : q.isError ? (
             <div className="border border-destructive/40 bg-destructive/5 rounded-2xl p-4 text-[13px] space-y-2">
-              <p className="text-destructive">时间段查询失败</p>
-              <p className="text-[12px] text-muted-foreground">
-                {(q.error as any)?.response?.data?.error || (q.error as any)?.message || "请检查日期格式后重试"}
-              </p>
+              <p className="text-destructive">{t("ctrl.tasks.queryFailed")}</p>
+              <p className="text-[12px] text-muted-foreground">{errorMessage(q.error)}</p>
             </div>
           ) : q.data?.scheduleNotRequired ? (
             <div className="border border-info/40 bg-info/5 rounded-2xl p-4 text-[13px] text-foreground/80">
-              该任务无需预约时间段。
+              {t("ctrl.tasks.noScheduleNeeded")}
             </div>
           ) : (q.data?.timeslots || []).length === 0 ? (
-            <EmptyState icon={Calendar} title="无可用时间段" description="尝试扩大时间窗口或晚些再试。" />
+            <EmptyState
+              icon={Calendar}
+              title={t("ctrl.tasks.noSlots")}
+              description={t("ctrl.tasks.noSlotsDesc")}
+            />
           ) : (
             <>
               <div className="border border-border rounded-2xl max-h-[40vh] overflow-y-auto divide-y divide-border">
@@ -130,11 +136,11 @@ export function TimeslotsDialog({
                       }
                     >
                       <code className="font-mono text-[12px]">
-                        {startDate ? new Date(startDate).toLocaleString("zh-CN") : "—"}
+                        {startDate ? fmtDateTime(startDate) : "—"}
                       </code>
                       <span className="text-muted-foreground">→</span>
                       <code className="font-mono text-[12px]">
-                        {ts.endDate ? new Date(ts.endDate).toLocaleString("zh-CN") : "—"}
+                        {ts.endDate ? fmtDateTime(ts.endDate) : "—"}
                       </code>
                       {active && <CheckCircle2 className="w-4 h-4 text-success flex-shrink-0" />}
                     </button>
@@ -145,7 +151,7 @@ export function TimeslotsDialog({
               <div className="border border-warning/40 bg-warning/5 rounded-2xl p-3 space-y-2 text-[12px]">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
-                  <span>干预类任务可能导致数据丢失。OVH 会记录你是否已完成备份，请如实勾选。</span>
+                  <span>{t("ctrl.tasks.backupWarn")}</span>
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer pl-6">
                   <input
@@ -154,7 +160,7 @@ export function TimeslotsDialog({
                     onChange={(e) => setHasBackup(e.target.checked)}
                     className="w-4 h-4"
                   />
-                  我已完成数据备份
+                  {t("ctrl.tasks.backupDone")}
                 </label>
               </div>
             </>
@@ -164,15 +170,15 @@ export function TimeslotsDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => q.refetch()} disabled={q.isFetching}>
             <RefreshCw className={`w-3.5 h-3.5 mr-1 ${q.isFetching ? "animate-spin" : ""}`} />
-            查询
+            {t("ctrl.tasks.query")}
           </Button>
           {!q.data?.scheduleNotRequired && (q.data?.timeslots || []).length > 0 && (
             <Button onClick={handleSchedule} disabled={!picked || schedule.isPending}>
-              {schedule.isPending ? "提交中…" : "预约此时段"}
+              {schedule.isPending ? t("ctrl.tasks.submitting") : t("ctrl.tasks.schedule")}
             </Button>
           )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            关闭
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

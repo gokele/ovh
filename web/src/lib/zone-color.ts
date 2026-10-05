@@ -1,4 +1,5 @@
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
+import i18n from "@/i18n";
 
 /**
  * 按 OVH 的三个 API endpoint 给账户配色。
@@ -21,20 +22,14 @@ interface RegionStyle {
    * 不能为了给徽章腾地方而被截断。
    */
   badge: string;
-  /** 中文区域名，用于下拉里的分组标题 */
+  /** 区域名(跟随语言)，用于下拉里的分组标题 */
   label: string;
 }
 
-const REGION: Record<ZoneRegion, RegionStyle> = {
-  eu: { badge: "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300", label: "欧洲区" },
-  us: { badge: "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300", label: "美国区" },
-  ca: { badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300", label: "加拿大区" },
-};
-
-/** 未知子公司的兜底：中性灰。不要猜成欧区 —— 猜错的代价是下单打在错误的站点上 */
-const UNKNOWN: RegionStyle = {
-  badge: "bg-secondary text-muted-foreground",
-  label: "未知区",
+const REGION_BADGE: Record<ZoneRegion, string> = {
+  eu: "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  us: "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  ca: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
 };
 
 /** 子公司代码 → 所属 API endpoint 区域。认不出来返回 null（不猜） */
@@ -47,13 +42,21 @@ export function regionOf(zone: string): ZoneRegion | null {
   return null;
 }
 
-/** 子公司代码 → 配色与区域名 */
+/** 未知子公司的兜底：中性灰。不要猜成欧区 —— 猜错的代价是下单打在错误的站点上 */
+const UNKNOWN_BADGE = "bg-secondary text-muted-foreground";
+
+/** 子公司代码 → 配色与区域名(label 每次调用时现取,跟随语言切换) */
 export function zoneStyle(zone: string): RegionStyle {
   const r = regionOf(zone);
-  return r ? REGION[r] : UNKNOWN;
+  if (!r) {
+    return { badge: UNKNOWN_BADGE, label: i18n.t("commons.zoneRegion.unknown") };
+  }
+  const label = i18n.t(`commons.zoneRegion.${r}`) as string;
+  return { badge: REGION_BADGE[r], label };
 }
 
-/** 子公司代码 → 中文地区名（"IE" → "爱尔兰"），认不出就原样返回代码 */
+/** 子公司代码 → 地区名（"IE" → "爱尔兰"，跟随语言），认不出就原样返回代码 */
 export function zoneName(zone: string): string {
-  return OVH_SUBSIDIARIES.find((s) => s.code === zone)?.label?.split(" · ")[0] || zone;
+  if (!OVH_SUBSIDIARIES.some((s) => s.code === zone)) return zone;
+  return i18n.t(`commons.country.${zone.toLowerCase()}`, { defaultValue: zone }) as string;
 }

@@ -128,7 +128,7 @@ func EnterRescue(state *app.State) gin.HandlerFunc {
 		if !body.Confirm {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"error":   "进入救援模式会立刻重启服务器,请在请求里带 confirm:true 确认",
+				"error":   "进入救援模式会立刻重启服务器,请在请求里带 confirm:true 确认", "code": "E0DA171AC",
 			})
 			return
 		}
@@ -161,7 +161,7 @@ func EnterRescue(state *app.State) gin.HandlerFunc {
 			if !ok {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"success": false,
-					"error":   "这台服务器没有可用的救援启动项(OVH 返回的 bootType=rescue 列表是空的)",
+					"error":   "这台服务器没有可用的救援启动项(OVH 返回的 bootType=rescue 列表是空的)", "code": "EF8C25932",
 				})
 				return
 			}
@@ -225,7 +225,7 @@ func ExitRescue(state *app.State) gin.HandlerFunc {
 		if !body.Confirm {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"error":   "退出救援模式会立刻重启服务器,请在请求里带 confirm:true 确认",
+				"error":   "退出救援模式会立刻重启服务器,请在请求里带 confirm:true 确认", "code": "E4F860E38",
 			})
 			return
 		}
@@ -242,13 +242,13 @@ func ExitRescue(state *app.State) gin.HandlerFunc {
 		if len(boots) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"error":   "OVH 没有返回硬盘启动项(bootType=harddisk),无法自动切回,请到启动模式页手动选择",
+				"error":   "OVH 没有返回硬盘启动项(bootType=harddisk),无法自动切回,请到启动模式页手动选择", "code": "E46BFD00A",
 			})
 			return
 		}
 		bootID, ok := numconv.ToInt64(boots[0]["bootId"])
 		if !ok {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "硬盘启动项的 bootId 解析失败"})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "硬盘启动项的 bootId 解析失败", "code": "EC659066B"})
 			return
 		}
 		if err := client.Put("/dedicated/server/"+svc, map[string]interface{}{"bootId": bootID}, nil); err != nil {
@@ -266,7 +266,7 @@ func ExitRescue(state *app.State) gin.HandlerFunc {
 		state.Logger.Info(fmt.Sprintf("服务器 %s 已退出救援模式并重启(bootId=%d)", svc, bootID), "server_control")
 		c.JSON(http.StatusOK, gin.H{
 			"success": true, "bootId": bootID, "task": task,
-			"message": "已切回硬盘启动并重启,约 3~5 分钟后恢复正常系统",
+			"message": "已切回硬盘启动并重启,约 3~5 分钟后恢复正常系统", "code": "E9F35BA62",
 		})
 	}
 }

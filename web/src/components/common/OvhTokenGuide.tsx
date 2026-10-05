@@ -1,4 +1,5 @@
 import { ExternalLink } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { apiBaseUrlForEndpoint } from "@/lib/ovh-regions";
 
 /**
@@ -20,14 +21,15 @@ import { apiBaseUrlForEndpoint } from "@/lib/ovh-regions";
  * 只给链接 + 明确告诉用户要手动加哪四条。
  */
 export function OvhTokenGuide({ endpoint }: { endpoint: string }) {
+  const { t } = useTranslation();
   const site = apiBaseUrlForEndpoint(endpoint);
   const host = site.replace("https://", "");
   return (
     <div className="rounded-xl border border-border bg-muted/40 px-3.5 py-3 space-y-2">
-      <p className="text-[12px] font-medium">还没有这三个值?按这三步拿:</p>
+      <p className="text-[12px] font-medium">{t("commons.tokenGuide.title")}</p>
       <ol className="text-[11px] text-muted-foreground leading-relaxed space-y-1.5 list-decimal pl-4">
         <li>
-          打开
+          {t("commons.tokenGuide.step1Open")}
           <a
             href={`${site}/createToken/`}
             target="_blank"
@@ -37,13 +39,14 @@ export function OvhTokenGuide({ endpoint }: { endpoint: string }) {
             {host}/createToken
             <ExternalLink className="w-3 h-3" />
           </a>
-          用 OVH 账号登录。
+          {t("commons.tokenGuide.step1Login")}
           <span className="block">
-            这个地址跟着上面选的子公司走 —— 三个站点的 token 互不通用,在别的站点申请的登不进去。
+            {t("commons.tokenGuide.step1Note")}
           </span>
         </li>
         <li>
-          <b className="text-foreground">Rights(权限)填四条</b>,这一步最容易漏:
+          <b className="text-foreground">{t("commons.tokenGuide.step2Bold")}</b>
+          {t("commons.tokenGuide.step2Tail")}
           <div className="mt-1 font-mono text-[11px] bg-background border border-border rounded-lg px-2 py-1.5 leading-relaxed">
             GET&nbsp;&nbsp;&nbsp;&nbsp;/*
             <br />
@@ -54,22 +57,26 @@ export function OvhTokenGuide({ endpoint }: { endpoint: string }) {
             DELETE&nbsp;/*
           </div>
           <span className="block mt-1">
-            只给 GET 的话能看不能买:下单、改配置、重装全部会失败,OVH 只回一句
-            <code className="px-1 bg-background rounded">not been granted</code>。
-            「有效期 / Validity」建议选<b className="text-foreground">不限(Unlimited)</b>,
-            选了期限到期后要重来一遍。
+            {t("commons.tokenGuide.step2RightsPre")}
+            <code className="px-1 bg-background rounded">not been granted</code>
+            {t("commons.tokenGuide.step2RightsMid")}
+            <b className="text-foreground">{t("commons.tokenGuide.step2ValidityBold")}</b>
+            {t("commons.tokenGuide.step2ValidityTail")}
           </span>
         </li>
         <li>
-          提交后页面会显示三个值:
-          <b className="text-foreground">Application Key</b> → APP KEY、
-          <b className="text-foreground">Application Secret</b> → APP SECRET、
-          <b className="text-foreground">Consumer Key</b> → CONSUMER KEY。
-          <span className="block">页面关掉就看不到了,先复制过来再关。</span>
+          {t("commons.tokenGuide.step3Pre")}
+          <b className="text-foreground">Application Key</b>
+          {t("commons.tokenGuide.step3Map1")}
+          <b className="text-foreground">Application Secret</b>
+          {t("commons.tokenGuide.step3Map2")}
+          <b className="text-foreground">Consumer Key</b>
+          {t("commons.tokenGuide.step3Map3")}
+          <span className="block">{t("commons.tokenGuide.step3Note")}</span>
         </li>
       </ol>
       <p className="text-[10px] text-muted-foreground">
-        这三个值加密保存在本机的 SQLite 里,不会上传到任何地方;界面和日志里也只会显示前几位。
+        {t("commons.tokenGuide.storageNote")}
       </p>
     </div>
   );

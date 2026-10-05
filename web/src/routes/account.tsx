@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { User, Mail, RefreshCw, FileText, Inbox, ShieldCheck, type LucideIcon } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { fmtDateTime } from "@/i18n/format";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,13 +20,14 @@ export const Route = createFileRoute("/account")({
 });
 
 function AccountPage() {
+  const { t } = useTranslation();
   const q = useAccountInfo();
   // 后端把 OVH /me 原样透传在 body 里,错配标记只能放响应头,所以 hook 返回 { info, subsidiaryMismatch }
   const me = q.data?.info;
   const loading = q.isPending;
   return (
     <div className="space-y-3 sm:space-y-6">
-      <PageHeader icon={User} title="账户管理" description="查看和管理您的 OVH 账户信息" />
+      <PageHeader icon={User} title={t("account.title")} description={t("account.description")} />
 
       {/* 后端在 /me 响应上打的 X-Subsidiary-Mismatch:账户里配的 zone 与 OVH 认定的
           ovhSubsidiary 不在一起。凭据是有效的,所以别的地方一切正常,只有目录/价格/下单
@@ -33,12 +36,9 @@ function AccountPage() {
         <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-[12px]">
           <ShieldCheck className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold">账户子公司配置与 OVH 实际归属不一致</p>
+            <p className="font-semibold">{t("account.mismatchTitle")}</p>
             <p className="text-muted-foreground mt-0.5">
-              OVH 返回的 ovhSubsidiary 是 <code className="font-mono">{q.data.info.ovhSubsidiary || "—"}</code>，
-              与设置页里给这个账户填的子公司(zone)不同。EU / US / CA 是三套互不相通的系统，
-              目录、价格、币种、库存、下单 region 全部由子公司决定 —— 请到「设置 → OVH 账户」把 zone 改成
-              上面这个值(endpoint 会跟着自动切)。详细原因见日志页。
+              {t("account.mismatchDetailPre")}<code className="font-mono">{q.data.info.ovhSubsidiary || "—"}</code>{t("account.mismatchDetailPost")}
             </p>
           </div>
         </div>
@@ -49,7 +49,7 @@ function AccountPage() {
           —— 用户照着这页判断自己的验证状态,两个方向都可能判错。所以整页必须先说一句"没读到"。 */}
       {q.isError && (
         <LoadFailedBanner
-          title="账户信息读取失败,下面的「—」不代表账户里没有这些信息"
+          title={t("account.loadFailedTitle")}
           error={q.error}
           onRetry={() => q.refetch()}
         />
@@ -58,7 +58,7 @@ function AccountPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KpiCard
           icon={User}
-          label="客户代码"
+          label={t("account.customerCode")}
           value={me?.customerCode}
           sub={me?.nichandle}
           loading={loading}
@@ -66,15 +66,15 @@ function AccountPage() {
             me && (
               <Chip tone={me.kycValidated ? "success" : "warning"}>
                 <ShieldCheck className="w-3 h-3" />
-                {me.kycValidated ? "已验证" : "未验证"}
+                {me.kycValidated ? t("account.kycValidated") : t("account.kycNotValidated")}
               </Chip>
             )
           }
         />
-        <KpiCard icon={Mail} label="邮箱" value={me?.email} loading={loading} />
+        <KpiCard icon={Mail} label={t("account.email")} value={me?.email} loading={loading} />
         <KpiCard
           icon={User}
-          label="账户持有人"
+          label={t("account.holder")}
           value={me ? `${me.firstname ?? ""} ${me.name ?? ""}`.trim() : undefined}
           sub={me?.city && me?.country ? `${me.city}, ${me.country}` : undefined}
           loading={loading}
@@ -83,8 +83,8 @@ function AccountPage() {
 
       <Tabs defaultValue="emails">
         <TabsList>
-          <TabsTrigger value="emails">邮件历史</TabsTrigger>
-          <TabsTrigger value="refunds">退款记录</TabsTrigger>
+          <TabsTrigger value="emails">{t("account.emailsTab")}</TabsTrigger>
+          <TabsTrigger value="refunds">{t("account.refundsTab")}</TabsTrigger>
         </TabsList>
         <TabsContent value="emails">
           <EmailsTab />
@@ -136,6 +136,7 @@ function KpiCard({
 }
 
 function EmailsTab() {
+  const { t } = useTranslation();
   const emails = useEmails();
   const [selected, setSelected] = useState<EmailHistoryEntry | null>(null);
 
@@ -143,10 +144,10 @@ function EmailsTab() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card className="overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <span className="text-sm font-semibold">邮件列表</span>
+          <span className="text-sm font-semibold">{t("account.emailList")}</span>
           <Button variant="outline" size="sm" onClick={() => emails.refetch()} disabled={emails.isFetching}>
             <RefreshCw className={`w-3.5 h-3.5 ${emails.isFetching ? "animate-spin" : ""}`} />
-            刷新
+            {t("common.refresh")}
           </Button>
         </div>
         {emails.isPending ? (
@@ -161,7 +162,7 @@ function EmailsTab() {
           <div className="p-4">
             <LoadFailed
               icon={Inbox}
-              title="邮件历史读取失败,不是账户里没有邮件"
+              title={t("account.emailsFailedTitle")}
               error={emails.error}
               onRetry={() => emails.refetch()}
               compact
@@ -172,15 +173,15 @@ function EmailsTab() {
           (emails.data?.failedCount || 0) > 0 ? (
             <EmptyState
               icon={Inbox}
-              title="邮件历史读取失败"
-              description={`有 ${emails.data?.failedCount} 条邮件详情未能获取，请点刷新重试。`}
+              title={t("account.emailsPartialTitle")}
+              description={t("account.emailsPartialDesc", { count: emails.data?.failedCount || 0 })}
             />
           ) : (
-            <EmptyState icon={Inbox} title="暂无邮件" />
+            <EmptyState icon={Inbox} title={t("account.noEmails")} />
           )
         ) : (
           <div className="max-h-[500px] overflow-y-auto">
-            <PartialNotice failedCount={emails.data?.failedCount || 0} what="邮件历史" className="m-3" />
+            <PartialNotice failedCount={emails.data?.failedCount || 0} what={t("account.emailsTab")} className="m-3" />
             <div className="divide-y divide-border">
             {(emails.data?.items || []).map((e) => (
               <button
@@ -196,7 +197,7 @@ function EmailsTab() {
                   <Mail className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                   <p className="text-[13px] font-medium truncate">{e.subject}</p>
                 </div>
-                <p className="text-[11px] text-muted-foreground">{new Date(e.date).toLocaleString("zh-CN")}</p>
+                <p className="text-[11px] text-muted-foreground">{fmtDateTime(e.date)}</p>
               </button>
             ))}
             </div>
@@ -208,18 +209,18 @@ function EmailsTab() {
         <CardContent className="p-5">
           <div className="flex items-center gap-2 mb-4">
             <FileText className="w-4 h-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">邮件详情</h3>
+            <h3 className="text-sm font-semibold">{t("account.emailDetail")}</h3>
           </div>
           {selected ? (
             <>
               <p className="text-[15px] font-semibold mb-1">{selected.subject}</p>
-              <p className="text-[12px] text-muted-foreground mb-4">{new Date(selected.date).toLocaleString("zh-CN")}</p>
+              <p className="text-[12px] text-muted-foreground mb-4">{fmtDateTime(selected.date)}</p>
               <pre className="text-[12px] font-mono whitespace-pre-wrap text-foreground bg-secondary rounded-lg p-3 max-h-[400px] overflow-y-auto">
                 {selected.body}
               </pre>
             </>
           ) : (
-            <EmptyState icon={Mail} title="请选择一封邮件" />
+            <EmptyState icon={Mail} title={t("account.selectEmail")} />
           )}
         </CardContent>
       </Card>
@@ -228,15 +229,16 @@ function EmailsTab() {
 }
 
 function RefundsTab() {
+  const { t } = useTranslation();
   const refunds = useRefunds();
   return (
     <Card>
       <CardContent className="p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold">退款记录</h3>
+          <h3 className="text-sm font-semibold">{t("account.refundsTab")}</h3>
           <Button variant="outline" size="sm" onClick={() => refunds.refetch()} disabled={refunds.isFetching}>
             <RefreshCw className={`w-3.5 h-3.5 ${refunds.isFetching ? "animate-spin" : ""}`} />
-            刷新
+            {t("common.refresh")}
           </Button>
         </div>
         {refunds.isPending ? (
@@ -249,7 +251,7 @@ function RefundsTab() {
              而实际上我们只是没问到。失败就老实说失败。 */
           <LoadFailed
             icon={Inbox}
-            title="退款记录读取失败,不代表没有退款"
+            title={t("account.refundsFailedTitle")}
             error={refunds.error}
             onRetry={() => refunds.refetch()}
             compact
@@ -258,30 +260,30 @@ function RefundsTab() {
           (refunds.data?.failedCount || 0) > 0 ? (
             <EmptyState
               icon={Inbox}
-              title="退款记录读取失败"
-              description={`有 ${refunds.data?.failedCount} 条退款详情未能获取，请点刷新重试。`}
+              title={t("account.refundsPartialTitle")}
+              description={t("account.refundsPartialDesc", { count: refunds.data?.failedCount || 0 })}
             />
           ) : (
-            <EmptyState icon={Inbox} title="暂无退款记录" />
+            <EmptyState icon={Inbox} title={t("account.noRefunds")} />
           )
         ) : (
           <div>
-            <PartialNotice failedCount={refunds.data?.failedCount || 0} what="退款记录" className="mb-3" />
+            <PartialNotice failedCount={refunds.data?.failedCount || 0} what={t("account.refundsTab")} className="mb-3" />
             <div className="divide-y divide-border">
             {(refunds.data?.items || []).map((r) => (
               <div key={r.refundId} className="py-3 flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-mono text-sm font-semibold">#{r.refundId}</span>
-                    <Chip tone="default">订单 {r.orderId}</Chip>
+                    <Chip tone="default">{t("account.orderChip", { orderId: r.orderId })}</Chip>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">{new Date(r.date).toLocaleString("zh-CN")}</p>
+                  <p className="text-[11px] text-muted-foreground">{fmtDateTime(r.date)}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-lg font-bold text-success">{r.priceWithTax.text}</p>
                   {r.pdfUrl && (
                     <a href={r.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-foreground hover:underline">
-                      下载 PDF
+                      {t("account.downloadPdf")}
                     </a>
                   )}
                 </div>

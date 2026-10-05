@@ -32,17 +32,17 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.AccountID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "缺少 account_id"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "缺少 account_id", "code": "E34CBF1D4"})
 			return
 		}
 		if _, ok := state.FindAccount(body.AccountID); !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "account_id 不存在"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "account_id 不存在", "code": "E7B315B13"})
 			return
 		}
 		body.PlanCode = strings.TrimSpace(body.PlanCode)
 		body.Datacenter = strings.TrimSpace(body.Datacenter)
 		if body.PlanCode == "" || body.Datacenter == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "缺少 planCode 或 datacenter"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "缺少 planCode 或 datacenter", "code": "E75DA4B08"})
 			return
 		}
 		// 入队前挡住"这个账户根本买不到这台机器"的任务(跨区 / 非 Eco / planCode 不存在)。
@@ -155,7 +155,7 @@ func UpdateQueueInterval(state *app.State) gin.HandlerFunc {
 		}
 		state.QueueMu.Unlock()
 		if !found {
-			c.JSON(http.StatusNotFound, gin.H{"status": "error", "error": "任务不存在"})
+			c.JSON(http.StatusNotFound, gin.H{"status": "error", "error": "任务不存在", "code": "E10FEEC40"})
 			return
 		}
 		if err := state.SaveQueue(); err != nil {

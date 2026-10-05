@@ -11,6 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { NAV_GROUPS } from "./Sidebar";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 interface Tab {
@@ -30,10 +31,10 @@ interface Tab {
  * 而那里恰好是汉堡按钮。底部这条带正好落在拇指自然扫过的弧线上。
  */
 const TABS: Tab[] = [
-  { to: "/", icon: BarChart3, label: "仪表盘" },
-  { to: "/servers", icon: Server, label: "服务器" },
-  { to: "/queue", icon: ClipboardList, label: "队列" },
-  { to: "/monitor", icon: Bell, label: "监控" },
+  { to: "/", icon: BarChart3, label: "nav.dashboard" },
+  { to: "/servers", icon: Server, label: "nav.serversShort" },
+  { to: "/queue", icon: ClipboardList, label: "nav.queueShort" },
+  { to: "/monitor", icon: Bell, label: "nav.monitorShort" },
 ];
 
 /** TABS 里已有的路由，「更多」面板要把它们排除掉 */
@@ -46,6 +47,7 @@ const TAB_PATHS = new Set(TABS.map((t) => t.to));
  * 否则最后一个标签的点击区会被系统手势条吃掉一半。
  */
 export function BottomTabs() {
+  const { t: tt } = useTranslation();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -63,16 +65,16 @@ export function BottomTabs() {
       <nav
         className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-background/95 backdrop-blur-sm border-t border-border"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-        aria-label="主导航"
+        aria-label={tt("commons.aria.mainNav")}
       >
         <div className="grid grid-cols-5">
           {TABS.map((t) => (
-            <TabButton key={t.to} to={t.to} icon={t.icon} label={t.label} active={isActive(t.to)} />
+            <TabButton key={t.to} to={t.to} icon={t.icon} label={tt(t.label)} active={isActive(t.to)} />
           ))}
           <button
             type="button"
             onClick={() => setMoreOpen(true)}
-            aria-label="更多页面"
+            aria-label={tt("commons.aria.more")}
             aria-expanded={moreOpen}
             className={cn(
               // min-h-[52px] 保证点击区不低于 44px 的可达性下限
@@ -120,6 +122,7 @@ function TabButton({
  * 手指不用跨过整个屏幕去够刚打开的东西。
  */
 function MoreSheet({ onClose }: { onClose: () => void }) {
+  const { t: tt } = useTranslation();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   // 打开时锁 body 滚动 + Esc 关闭
@@ -147,7 +150,7 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="更多页面"
+        aria-label={tt("commons.aria.more")}
         className="fixed inset-x-0 bottom-0 z-[61] max-h-[80vh] overflow-y-auto rounded-t-2xl bg-background border-t border-border animate-in slide-in-from-bottom duration-200"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
       >
@@ -174,7 +177,7 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
             return (
               <div key={g.title} className="mb-1.5">
                 <div className="px-2 pt-2.5 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground">
-                  {g.title}
+                  {tt(g.title)}
                 </div>
                 {items.map(({ to, icon: Icon, label }) => {
                   const active = pathname.startsWith(to);
@@ -191,7 +194,7 @@ function MoreSheet({ onClose }: { onClose: () => void }) {
                       aria-current={active ? "page" : undefined}
                     >
                       <Icon className="w-[18px] h-[18px] flex-shrink-0" strokeWidth={1.9} />
-                      <span className="text-[14px]">{label}</span>
+                      <span className="text-[14px]">{tt(label)}</span>
                     </Link>
                   );
                 })}

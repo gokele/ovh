@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useTranslation, Trans } from "react-i18next";
 import {
   Cloud,
   Bell,
@@ -40,6 +41,7 @@ import { StatusDot } from "@/components/common/StatusDot";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Skeleton } from "@/components/common/Skeleton";
 import { LoadFailed, errorMessage } from "@/components/common/LoadFailed";
+import { fmtDateTime } from "@/i18n/format";
 import {
   Dialog,
   DialogContent,
@@ -89,6 +91,7 @@ function modelLabel(code: string, models?: VPSModel[]): string {
 }
 
 function VPSMonitorPage() {
+  const { t } = useTranslation();
   const list = useVPSMonitorList();
   const status = useVPSMonitorStatus();
   const toggle = useToggleVPSMonitor();
@@ -118,17 +121,17 @@ function VPSMonitorPage() {
     <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={Cloud}
-        title="VPS 补货通知"
-        description="选择 VPS 型号，自动监控所有数据中心的库存变化"
+        title={t("vpsMonitor.title")}
+        description={t("vpsMonitor.description")}
         action={
           <div className="flex gap-2 flex-wrap">
             <Button variant="outline" onClick={() => list.refetch()} disabled={list.isFetching}>
               <RefreshCw className={`w-4 h-4 ${list.isFetching ? "animate-spin" : ""}`} />
-              刷新
+              {t("common.refresh")}
             </Button>
             <Button onClick={() => setOpenAdd(true)}>
               <Plus className="w-4 h-4" />
-              添加订阅
+              {t("vpsMonitor.addAction")}
             </Button>
             {/* 状态未知时这颗按钮只负责"把状态读回来",不做启停:
                 它的文案和它实际发的请求都是从 running 猜出来的,猜错就是误操作 */}
@@ -138,9 +141,9 @@ function VPSMonitorPage() {
               disabled={toggle.isPending || (statusUnknown && status.isFetching)}
               title={
                 status.isError
-                  ? `监控状态读取失败：${errorMessage(status.error)}。读不到状态就不知道该启还是该停,先重试`
+                  ? t("vpsMonitor.toggle.errorTitle", { err: errorMessage(status.error) })
                   : status.isPending
-                    ? "正在读取监控状态…"
+                    ? t("vpsMonitor.toggle.pendingTitle")
                     : undefined
               }
             >
@@ -151,7 +154,13 @@ function VPSMonitorPage() {
               ) : (
                 <Bell className="w-4 h-4" />
               )}
-              {status.isPending ? "读取状态…" : status.isError ? "状态未知 · 重试" : running ? "停止监控" : "启动监控"}
+              {status.isPending
+                ? t("vpsMonitor.toggle.reading")
+                : status.isError
+                  ? t("vpsMonitor.toggle.unknownRetry")
+                  : running
+                    ? t("vpsMonitor.toggle.stop")
+                    : t("vpsMonitor.toggle.start")}
             </Button>
             <Button
               variant="outline"
@@ -159,7 +168,7 @@ function VPSMonitorPage() {
               disabled={subs.length === 0}
             >
               <Trash2 className="w-4 h-4" />
-              清空
+              {t("vpsMonitor.clear")}
             </Button>
           </div>
         }
@@ -180,31 +189,37 @@ function VPSMonitorPage() {
               )}
             </div>
             <div>
-              <div className="text-sm font-semibold">VPS 监控状态</div>
+              <div className="text-sm font-semibold">{t("vpsMonitor.status.title")}</div>
               <div className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
                 <StatusDot
                   tone={status.isError ? "warning" : running ? "success" : "muted"}
                   pulse={running && !statusUnknown}
                   size="xs"
                 />
-                {status.isPending ? "读取中…" : status.isError ? "状态未知" : running ? "运行中" : "已停止"}
+                {status.isPending
+                  ? t("vpsMonitor.status.loading")
+                  : status.isError
+                    ? t("vpsMonitor.status.unknown")
+                    : running
+                      ? t("vpsMonitor.status.running")
+                      : t("vpsMonitor.status.stopped")}
               </div>
               {status.isError && (
                 <button
                   type="button"
                   className="block text-left text-[11px] text-destructive underline underline-offset-2 mt-0.5 max-w-xs"
                   onClick={() => status.refetch()}
-                  title="重新读取监控状态"
+                  title={t("vpsMonitor.status.retryTitle")}
                 >
-                  读不到监控状态：{errorMessage(status.error)} · 点此重试
+                  {t("vpsMonitor.status.readFailedRetry", { err: errorMessage(status.error) })}
                 </button>
               )}
             </div>
           </div>
           <div className="flex gap-6 text-sm">
-            <Stat label="订阅数" value={statNum(status.data?.subscriptions_count)} />
+            <Stat label={t("vpsMonitor.status.subsCount")} value={statNum(status.data?.subscriptions_count)} />
             <Stat
-              label="检查间隔"
+              label={t("vpsMonitor.status.interval")}
               value={
                 statusUnknown
                   ? statNum(status.data?.check_interval)
@@ -228,7 +243,7 @@ function VPSMonitorPage() {
         <Card>
           <LoadFailed
             icon={Cloud}
-            title="VPS 订阅列表读取失败"
+            title={t("vpsMonitor.list.failed")}
             error={list.error}
             onRetry={() => list.refetch()}
           />
@@ -237,8 +252,8 @@ function VPSMonitorPage() {
         <Card>
           <EmptyState
             icon={Cloud}
-            title="暂无 VPS 订阅"
-            description='点击"添加订阅"按钮，选择 VPS 型号开始监控'
+            title={t("vpsMonitor.list.empty")}
+            description={t("vpsMonitor.list.emptyDesc")}
           />
         </Card>
       ) : (
@@ -273,16 +288,19 @@ function VPSMonitorPage() {
       <Dialog open={!!confirmRemove} onOpenChange={(v) => !v && setConfirmRemove(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>取消订阅</DialogTitle>
+            <DialogTitle>{t("vpsMonitor.remove.title")}</DialogTitle>
             <DialogDescription>
-              确定要取消订阅{" "}
-              <span className="font-mono">{confirmRemove && modelLabel(confirmRemove.planCode)}</span>{" "}
-              吗？
+              <Trans
+                i18nKey="vpsMonitor.remove.desc"
+                values={{ model: (confirmRemove && modelLabel(confirmRemove.planCode)) || "" }}
+                components={{ code: <span className="font-mono" /> }}
+                t={t}
+              />
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmRemove(null)}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -291,7 +309,7 @@ function VPSMonitorPage() {
                 setConfirmRemove(null);
               }}
             >
-              确定
+              {t("vpsMonitor.remove.confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -301,12 +319,12 @@ function VPSMonitorPage() {
       <Dialog open={confirmClear} onOpenChange={setConfirmClear}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>确认清空所有 VPS 订阅？</DialogTitle>
-            <DialogDescription>此操作不可撤销。</DialogDescription>
+            <DialogTitle>{t("vpsMonitor.clearDialog.title")}</DialogTitle>
+            <DialogDescription>{t("vpsMonitor.clearDialog.desc")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmClear(false)}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -315,7 +333,7 @@ function VPSMonitorPage() {
                 setConfirmClear(false);
               }}
             >
-              确认清空
+              {t("vpsMonitor.clearDialog.confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -339,6 +357,7 @@ function VPSRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Card>
       <CardContent className="p-5">
@@ -349,38 +368,42 @@ function VPSRow({
               <span className="font-mono text-[11px] text-muted-foreground">{sub.planCode}</span>
               <Chip tone="default">{sub.ovhSubsidiary}</Chip>
               {sub.retired && (
-                <Chip tone="danger" title="OVH 已经不卖这个型号了，这条订阅永远不会有货">
-                  已停售
+                <Chip tone="danger" title={t("vpsMonitor.row.retiredTitle")}>
+                  {t("vpsMonitor.row.retired")}
                 </Chip>
               )}
               {sub.autoOrder && sub.autoOrderAccountId && (
-                <Chip tone="solid" title={sub.autoPay ? "下单成功后自动付款" : "只下单,需自己付款"}>
-                  自动下单{sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
-                  {sub.autoPay ? " · 自动付款" : ""}
+                <Chip
+                  tone="solid"
+                  title={sub.autoPay ? t("vpsMonitor.row.autoPayTitle") : t("vpsMonitor.row.manualPayTitle")}
+                >
+                  {t("vpsMonitor.row.autoOrder")}
+                  {sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
+                  {sub.autoPay ? t("vpsMonitor.row.autoPaySuffix") : ""}
                 </Chip>
               )}
             </div>
             <p className="text-xs text-muted-foreground mb-1.5">
               {sub.datacenters.length > 0
-                ? `监控数据中心: ${sub.datacenters.join(", ")}`
-                : "监控所有数据中心"}
+                ? t("vpsMonitor.row.dcs", { dcs: sub.datacenters.join(", ") })
+                : t("vpsMonitor.row.allDcs")}
             </p>
             <div className="flex gap-1.5 flex-wrap items-center">
               {sub.monitorLinux && <Chip tone="info">Linux</Chip>}
               {sub.monitorWindows && <Chip tone="info">Windows</Chip>}
-              {sub.notifyAvailable && <Chip tone="success">有货提醒</Chip>}
-              {sub.notifyUnavailable && <Chip tone="warning">无货提醒</Chip>}
+              {sub.notifyAvailable && <Chip tone="success">{t("vpsMonitor.row.notifyAvailable")}</Chip>}
+              {sub.notifyUnavailable && <Chip tone="warning">{t("vpsMonitor.row.notifyUnavailable")}</Chip>}
               {sub.autoOrder && sub.autoOrderAccountId ? (
                 <>
                   <Chip tone="solid">
-                    自动下单
+                    {t("vpsMonitor.row.autoOrder")}
                     {sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
                   </Chip>
                   <span className="text-[11px] text-muted-foreground">→</span>
                   <AccountChip accountId={sub.autoOrderAccountId} />
                 </>
               ) : sub.autoOrder ? (
-                <Chip tone="warning">已勾自动下单但未选账户(只通知)</Chip>
+                <Chip tone="warning">{t("vpsMonitor.row.autoNoAccount")}</Chip>
               ) : null}
             </div>
           </div>
@@ -389,7 +412,7 @@ function VPSRow({
               variant="ghost"
               size="icon"
               onClick={onToggleExpand}
-              aria-label="查看历史"
+              aria-label={t("vpsMonitor.row.historyAria")}
             >
               {expanded ? (
                 <ChevronUp className="w-4 h-4" />
@@ -397,10 +420,16 @@ function VPSRow({
                 <HistoryIcon className="w-4 h-4" />
               )}
             </Button>
-            <Button variant="ghost" size="icon" onClick={onEdit} aria-label="编辑订阅" title="改站点 / 机房 / 提醒方式">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onEdit}
+              aria-label={t("vpsMonitor.row.editAria")}
+              title={t("vpsMonitor.row.editTitle")}
+            >
               <Pencil className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={onDelete} aria-label="删除">
+            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={t("common.delete")}>
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -417,6 +446,7 @@ function VPSRow({
 }
 
 function VPSHistoryPanel({ id }: { id: string }) {
+  const { t } = useTranslation();
   const history = useVPSMonitorHistory(id);
 
   if (history.isPending) {
@@ -435,7 +465,7 @@ function VPSHistoryPanel({ id }: { id: string }) {
     return (
       <LoadFailed
         icon={HistoryIcon}
-        title="变化历史读取失败"
+        title={t("vpsMonitor.history.failed")}
         error={history.error}
         onRetry={() => history.refetch()}
         compact
@@ -449,10 +479,10 @@ function VPSHistoryPanel({ id }: { id: string }) {
     <div>
       <div className="flex items-center gap-2 mb-3">
         <HistoryIcon className="w-4 h-4 text-muted-foreground" />
-        <span className="text-sm font-medium">变化历史</span>
+        <span className="text-sm font-medium">{t("vpsMonitor.history.title")}</span>
       </div>
       {entries.length === 0 ? (
-        <p className="text-xs text-muted-foreground text-center py-4">暂无历史记录</p>
+        <p className="text-xs text-muted-foreground text-center py-4">{t("vpsMonitor.history.empty")}</p>
       ) : (
         <div className="space-y-2 max-h-64 overflow-y-auto">
           {entries.map((e, i) => (
@@ -469,10 +499,12 @@ function VPSHistoryPanel({ id }: { id: string }) {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">{e.datacenter}</span>
                   <Chip tone={e.changeType === "available" ? "success" : "danger"}>
-                    {e.changeType === "available" ? "有货" : "无货"}
+                    {e.changeType === "available"
+                      ? t("vpsMonitor.history.available")
+                      : t("vpsMonitor.history.unavailable")}
                   </Chip>
                 </div>
-                <p className="text-muted-foreground mt-1">{formatTime(e.timestamp)}</p>
+                <p className="text-muted-foreground mt-1">{fmtDateTime(e.timestamp)}</p>
               </div>
             </div>
           ))}
@@ -480,15 +512,6 @@ function VPSHistoryPanel({ id }: { id: string }) {
       )}
     </div>
   );
-}
-
-function formatTime(ts: string): string {
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return ts;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
-    d.getHours()
-  )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 /* ---------------------------- 添加 VPS Dialog ---------------------------- */
@@ -507,6 +530,7 @@ function AddVPSDialog({
   onOpenChange: (v: boolean) => void;
   editing?: VPSSubscription | null;
 }) {
+  const { t } = useTranslation();
   const create = useCreateVPSMonitorSubscription();
   const update = useUpdateVPSSubscription();
   const isEdit = !!editing;
@@ -607,8 +631,8 @@ function AddVPSDialog({
       // 读失败和"真的没账户"要给不同的话:前者该重试,后者该去加账户
       toast.error(
         accountsFailed
-          ? `账户列表读取失败(${errorMessage(accountsQ.error)}),先重试再开自动下单`
-          : "开启自动下单时必须选 OVH 账户"
+          ? t("vpsMonitor.toast.accountFailed", { err: errorMessage(accountsQ.error) })
+          : t("vpsMonitor.toast.needAccount")
       );
       return;
     }
@@ -646,9 +670,11 @@ function AddVPSDialog({
     >
       <DialogContent className="w-[95vw] sm:w-full sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "编辑 VPS 订阅" : "添加 VPS 订阅"}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? t("vpsMonitor.dialog.editTitle") : t("vpsMonitor.dialog.addTitle")}
+          </DialogTitle>
           <DialogDescription>
-            {isEdit ? "只改配置，历史记录不会重置" : "选择 VPS 型号与可选条件"}
+            {isEdit ? t("vpsMonitor.dialog.editDesc") : t("vpsMonitor.dialog.addDesc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -658,16 +684,16 @@ function AddVPSDialog({
               <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
               <div className="text-xs flex-1 min-w-0">
                 <div className="font-medium text-foreground">
-                  没有可用的通知通道
+                  {t("vpsMonitor.notify.noChannel")}
                 </div>
                 <div className="text-muted-foreground mt-0.5 break-words">
-                  {notifyReason || "请先在设置页配置 Telegram 或自定义 Webhook,至少一条"}
+                  {notifyReason || t("vpsMonitor.notify.hint")}
                 </div>
                 <Link
                   to="/settings"
                   className="inline-block mt-1 text-foreground underline underline-offset-2"
                 >
-                  去配置 →
+                  {t("vpsMonitor.notify.goConfig")}
                 </Link>
               </div>
             </div>
@@ -676,31 +702,37 @@ function AddVPSDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                VPS 型号 <span className="text-destructive">*</span>
+                {t("vpsMonitor.dialog.modelLabel")} <span className="text-destructive">*</span>
               </label>
               <Select value={vpsModel} onValueChange={setVpsModel} disabled={isEdit}>
                 <SelectTrigger>
-                  <SelectValue placeholder={models.isPending ? "读取 OVH 目录…" : "选择型号"} />
+                  <SelectValue
+                    placeholder={
+                      models.isPending
+                        ? t("vpsMonitor.dialog.modelLoading")
+                        : t("vpsMonitor.dialog.modelPlaceholder")
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {modelList.map((m) => (
                     <SelectItem key={m.planCode} value={m.planCode}>
                       {m.name}
                       {m.location ? ` · ${m.location}` : ""}
-                      {m.price ? ` · ${m.price}/月` : ""}
+                      {m.price ? ` · ${t("vpsMonitor.dialog.modelPerMonth", { price: m.price })}` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground mt-1">
                 {models.isError
-                  ? "读不到 OVH 目录，下面是兜底列表，可能不是最新在售型号"
-                  : `${ovhSubsidiary} 当前在售 ${modelList.length} 款`}
+                  ? t("vpsMonitor.dialog.catalogError")
+                  : t("vpsMonitor.dialog.modelOnSale", { sub: ovhSubsidiary, n: modelList.length })}
               </p>
             </div>
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                OVH 子公司
+                {t("vpsMonitor.dialog.subsidiaryLabel")}
               </label>
               <Select value={ovhSubsidiary} onValueChange={setOvhSubsidiary}>
                 <SelectTrigger>
@@ -709,7 +741,7 @@ function AddVPSDialog({
                 <SelectContent>
                   {allowedSubsidiaries.map((s) => (
                     <SelectItem key={s.code} value={s.code}>
-                      {s.code} · {s.label}
+                      {s.code} · {t(`vpsMonitor.subsidiary.${s.code}`, { defaultValue: s.label })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -718,31 +750,35 @@ function AddVPSDialog({
                   只是默认值,不是"你这个账户能用的站点" —— 选错站点的症状是
                   永远无货,必须提前说,不能让它看起来像已经按账户过滤过了 */}
               {accountsFailed && (
-                <p className="text-[11px] text-destructive mt-1">
-                  账户读取失败,下面的站点没按账户过滤,可能选到当前账户买不了的站点
-                </p>
+                <p className="text-[11px] text-destructive mt-1">{t("vpsMonitor.regionWarning")}</p>
               )}
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              数据中心代码（可选，多个用逗号分隔）
+              {t("vpsMonitor.dialog.dcLabel")}
             </label>
             <Input
               value={datacenters}
               onChange={(e) => setDatacenters(e.target.value)}
-              placeholder="留空 = 监控所有机房"
+              placeholder={t("vpsMonitor.dialog.dcPlaceholder")}
             />
             {selected?.datacenters?.length ? (
               <p className="text-[11px] text-muted-foreground mt-1 break-all">
-                {selected.name} 在 {ovhSubsidiary} 可选：{selected.datacenters.join("、")}
+                {t("vpsMonitor.dialog.dcAvailable", {
+                  name: selected.name,
+                  sub: ovhSubsidiary,
+                  dcs: selected.datacenters.join(t("vpsMonitor.dialog.dcSep")),
+                })}
               </p>
             ) : null}
           </div>
 
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">监控系统</p>
+            <p className="text-xs font-medium text-muted-foreground mb-2">
+              {t("vpsMonitor.dialog.osLabel")}
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-border px-3.5 py-2.5 hover:bg-muted/40 transition-colors">
                 <Checkbox
@@ -762,25 +798,27 @@ function AddVPSDialog({
           </div>
 
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">通知与下单</p>
+            <p className="text-xs font-medium text-muted-foreground mb-2">
+              {t("vpsMonitor.dialog.notifySection")}
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-border px-3.5 py-2.5 hover:bg-muted/40 transition-colors">
                 <Checkbox
                   checked={notifyAvailable}
                   onCheckedChange={(v) => setNotifyAvailable(!!v)}
                 />
-                <span className="text-sm">有货时提醒</span>
+                <span className="text-sm">{t("vpsMonitor.dialog.notifyAvailable")}</span>
               </label>
               <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-border px-3.5 py-2.5 hover:bg-muted/40 transition-colors">
                 <Checkbox
                   checked={notifyUnavailable}
                   onCheckedChange={(v) => setNotifyUnavailable(!!v)}
                 />
-                <span className="text-sm">无货时提醒</span>
+                <span className="text-sm">{t("vpsMonitor.dialog.notifyUnavailable")}</span>
               </label>
               <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-border px-3.5 py-2.5 hover:bg-muted/40 transition-colors sm:col-span-2">
                 <Checkbox checked={autoOrder} onCheckedChange={(v) => setAutoOrder(!!v)} />
-                <span className="text-sm">有货时自动下单</span>
+                <span className="text-sm">{t("vpsMonitor.dialog.autoOrder")}</span>
               </label>
             </div>
           </div>
@@ -789,7 +827,7 @@ function AddVPSDialog({
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                  下单账户
+                  {t("vpsMonitor.dialog.accountLabel")}
                 </label>
                 {/* 订阅的下单账户就绑当前账户 —— 页面上再放一个选择器,
                     就会出现"用 A 账户看库存、订阅却绑到 B 账户"的错配,
@@ -798,7 +836,7 @@ function AddVPSDialog({
                   <div className="flex items-start gap-2 px-3 py-2 rounded-xl border border-destructive/40 bg-destructive/5">
                     <AlertTriangle className="w-3.5 h-3.5 text-destructive flex-shrink-0 mt-0.5" />
                     <span className="text-[12px] min-w-0 break-words">
-                      账户列表读取失败：{errorMessage(accountsQ.error)}
+                      {t("vpsMonitor.dialog.accountFailed", { err: errorMessage(accountsQ.error) })}
                     </span>
                     <Button
                       type="button"
@@ -807,36 +845,40 @@ function AddVPSDialog({
                       className="ml-auto flex-shrink-0"
                       onClick={() => accountsQ.refetch()}
                     >
-                      重试
+                      {t("common.retry")}
                     </Button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-secondary/30">
                     <User className="w-3.5 h-3.5 text-muted-foreground" />
                     <span className="text-[13px] font-medium">
-                      {accountsQ.isPending ? "读取账户…" : activeAcc?.name || "未选择账户"}
+                      {accountsQ.isPending
+                        ? t("vpsMonitor.dialog.accountReading")
+                        : activeAcc?.name || t("vpsMonitor.dialog.noAccountSelected")}
                     </span>
                     {activeAcc && <span className="text-[11px] text-muted-foreground">{activeAcc.zone}</span>}
-                    <span className="ml-auto text-[10px] text-muted-foreground">在左侧菜单切换</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {t("vpsMonitor.dialog.switchHint")}
+                    </span>
                   </div>
                 )}
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  触发时用这个账户下单;关掉上面的开关 = 只通知不下单
+                  {t("vpsMonitor.dialog.accountHint")}
                 </p>
                 {/* 提交会被拦掉的两种理由写在这里,别让用户点了才知道 */}
                 {accountsFailed ? (
                   <p className="text-[11px] text-destructive mt-1">
-                    账户没读出来之前不能配自动下单 —— 提交了也只会变成"只通知"
+                    {t("vpsMonitor.dialog.accountFailedHint")}
                   </p>
                 ) : !accountsQ.isPending && !autoOrderAccountId ? (
                   <p className="text-[11px] text-destructive mt-1">
-                    还没有可用的 OVH 账户,自动下单会被拒绝。先去设置页添加账户
+                    {t("vpsMonitor.dialog.noAccountHint")}
                   </p>
                 ) : null}
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                  下单数量
+                  {t("vpsMonitor.dialog.qtyLabel")}
                 </label>
                 <Input
                   type="number"
@@ -853,14 +895,14 @@ function AddVPSDialog({
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                  安装系统
+                  {t("vpsMonitor.dialog.osSectionLabel")}
                 </label>
                 <Select value={os || "__default__"} onValueChange={(v) => setOs(v === "__default__" ? "" : v)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__default__">用 OVH 默认镜像</SelectItem>
+                    <SelectItem value="__default__">{t("vpsMonitor.dialog.osDefault")}</SelectItem>
                     {(selected?.osChoices || []).map((o) => (
                       <SelectItem key={o} value={o}>
                         {o}
@@ -869,16 +911,14 @@ function AddVPSDialog({
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  VPS 和独服不同：系统是**下单时**就要定的，买完再换要重装。
-                  不确定就留默认
+                  {t("vpsMonitor.dialog.osHint")}
                 </p>
                 <label className="flex items-center gap-2 mt-2 cursor-pointer text-[12px]">
                   <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
-                  下单成功后自动付款
+                  {t("vpsMonitor.dialog.autoPay")}
                 </label>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  用 OVH 账户的默认支付方式扣款（需先在 OVH 设置好）。不勾则只下单，
-                  需要在订单过期前自己付款
+                  {t("vpsMonitor.dialog.autoPayHint")}
                 </p>
               </div>
             </div>
@@ -893,18 +933,22 @@ function AddVPSDialog({
                 onOpenChange(false);
               }}
             >
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
               disabled={create.isPending || notifyBlocked || notifyChecking}
               title={
                 notifyBlocked
-                  ? notifyReason || "没有可用的通知通道,无法添加订阅"
+                  ? notifyReason || t("vpsMonitor.dialog.blockedTitle")
                   : undefined
               }
             >
-              {create.isPending ? "提交中…" : notifyChecking ? "校验通知…" : "确认添加"}
+              {create.isPending
+                ? t("vpsMonitor.dialog.submitting")
+                : notifyChecking
+                  ? t("vpsMonitor.dialog.checking")
+                  : t("vpsMonitor.dialog.confirmAdd")}
             </Button>
           </DialogFooter>
         </form>

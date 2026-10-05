@@ -207,7 +207,7 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 		}
 		svc := strings.TrimSpace(c.Param("service_name"))
 		if svc == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 service_name"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 service_name", "code": "E6803C9EF"})
 			return
 		}
 
@@ -217,7 +217,7 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 				"success":  true,
 				"eligible": false,
 				"reason":   "region_unsupported",
-				"message":  "美区（OVHcloud US）的 API 没有撤单接口，这台机器不能从这里申请撤单。如需退款请联系 OVH 美区客服",
+				"message":  "美区（OVHcloud US）的 API 没有撤单接口，这台机器不能从这里申请撤单。如需退款请联系 OVH 美区客服", "code": "E2D18BF55",
 				"reasons":  retractionReasons,
 			})
 			return
@@ -360,7 +360,7 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 			// 而打过去的结果是 OVH 404,报错会很难懂
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"error":   "美区（OVHcloud US）的 API 没有撤单接口，无法从这里申请撤单",
+				"error":   "美区（OVHcloud US）的 API 没有撤单接口，无法从这里申请撤单", "code": "EA4C8E05B",
 			})
 			return
 		}
@@ -379,14 +379,14 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 			// 少一个 confirm 就少一次"手滑把在跑的机器退掉"的可能。
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"error":   "撤单不可逆（订单退款 + 服务器注销），必须带 confirm:true",
+				"error":   "撤单不可逆（订单退款 + 服务器注销），必须带 confirm:true", "code": "E40730223",
 			})
 			return
 		}
 		if !isValidRetractionReason(body.Reason) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"error":   "reason 必须是 OVH 的合法取值之一，见 GET 同路径返回的 reasons",
+				"error":   "reason 必须是 OVH 的合法取值之一，见 GET 同路径返回的 reasons", "code": "E7BA5859C",
 				"reasons": retractionReasons,
 			})
 			return
@@ -418,7 +418,7 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"orderId": orderID,
-			"message": "撤单申请已提交。OVH 会审核并退款，服务器随之注销；进度可在控制面板的订单页查看",
+			"message": "撤单申请已提交。OVH 会审核并退款，服务器随之注销；进度可在控制面板的订单页查看", "code": "E8CF966E6",
 		})
 	}
 }

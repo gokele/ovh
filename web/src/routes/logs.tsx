@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useHideIp } from "@/hooks/use-hide-ip";
+import { useTranslation } from "react-i18next";
+import { fmtPattern } from "@/i18n/format";
 import { FileText, RefreshCw, Trash2, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -40,6 +42,7 @@ function maskLogLine(text: string, hidden: boolean): string {
 }
 
 function LogsPage() {
+  const { t } = useTranslation();
   const { hidden } = useHideIp();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const logs = useLogs(autoRefresh);
@@ -70,17 +73,17 @@ function LogsPage() {
     <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={FileText}
-        title="详细日志"
-        description="查看系统运行日志记录"
+        title={t("logs.title")}
+        description={t("logs.description")}
         action={
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={() => logs.refetch()} disabled={logs.isFetching}>
               <RefreshCw className={`w-4 h-4 ${logs.isFetching ? "animate-spin" : ""}`} />
-              刷新
+              {t("common.refresh")}
             </Button>
             <Button variant="outline" onClick={() => setConfirmClear(true)} disabled={items.length === 0}>
               <Trash2 className="w-4 h-4" />
-              清空
+              {t("logs.clear")}
             </Button>
           </div>
         }
@@ -94,7 +97,7 @@ function LogsPage() {
             <div className="relative col-span-2 sm:col-span-1">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
               <Input
-                placeholder="搜索日志内容..."
+                placeholder={t("logs.searchPlaceholder")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9 rounded-full"
@@ -105,7 +108,7 @@ function LogsPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">所有级别</SelectItem>
+                <SelectItem value="all">{t("logs.allLevels")}</SelectItem>
                 <SelectItem value="INFO">INFO</SelectItem>
                 <SelectItem value="WARNING">WARNING</SelectItem>
                 <SelectItem value="ERROR">ERROR</SelectItem>
@@ -114,7 +117,7 @@ function LogsPage() {
             </Select>
             <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
               <Checkbox checked={autoRefresh} onCheckedChange={(c) => setAutoRefresh(c === true)} />
-              <span>自动刷新（5 秒）</span>
+              <span>{t("logs.autoRefresh")}</span>
             </label>
           </div>
         </CardContent>
@@ -122,8 +125,8 @@ function LogsPage() {
 
       <Card>
         <div className="px-4 py-2.5 border-b border-border flex items-center justify-between text-[12px]">
-          <span className="font-semibold">系统日志</span>
-          <span className="text-muted-foreground">{filtered.length} 条</span>
+          <span className="font-semibold">{t("logs.systemLogs")}</span>
+          <span className="text-muted-foreground">{t("logs.count", { count: filtered.length })}</span>
         </div>
         {/* 拉取失败但手里还有上一轮的日志:列表照常显示,顶上说清楚"这些是旧的"。
             自动刷新开着的时候后端挂掉,页面表现是日志停止增长 —— 跟"系统很安静"
@@ -131,7 +134,7 @@ function LogsPage() {
         {logs.isError && items.length > 0 && (
           <div className="p-3 pb-0">
             <LoadFailedBanner
-              title="日志刷新失败,以下是上一次拉到的内容"
+              title={t("logs.refreshFailedTitle")}
               error={logs.error}
               onRetry={() => logs.refetch()}
             />
@@ -148,7 +151,7 @@ function LogsPage() {
           <div className="p-4">
             <LoadFailed
               icon={FileText}
-              title="日志读取失败"
+              title={t("logs.loadFailedTitle")}
               error={logs.error}
               onRetry={() => logs.refetch()}
               compact
@@ -158,8 +161,8 @@ function LogsPage() {
           /* 到这儿才是真空态。再分一次:后端确实没日志,还是被搜索/级别筛掉了 */
           <EmptyState
             icon={FileText}
-            title={items.length === 0 ? "没有日志" : "没有匹配的日志"}
-            description={items.length === 0 ? undefined : `共 ${items.length} 条,当前筛选条件下一条都没命中`}
+            title={items.length === 0 ? t("logs.emptyNoLogs") : t("logs.emptyFiltered")}
+            description={items.length === 0 ? undefined : t("logs.emptyFilteredDesc", { total: items.length })}
           />
         ) : (
           <div className="max-h-[calc(100vh-340px)] overflow-y-auto divide-y divide-border">
@@ -172,13 +175,13 @@ function LogsPage() {
       <Dialog open={confirmClear} onOpenChange={setConfirmClear}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>确认清空日志？</DialogTitle>
-            <DialogDescription>此操作不可撤销。</DialogDescription>
+            <DialogTitle>{t("logs.clearConfirmTitle")}</DialogTitle>
+            <DialogDescription>{t("logs.clearConfirmDesc")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmClear(false)}>取消</Button>
+            <Button variant="outline" onClick={() => setConfirmClear(false)}>{t("common.cancel")}</Button>
             <Button variant="destructive" onClick={() => { clear.mutate(); setConfirmClear(false); }}>
-              确认清空
+              {t("logs.clearConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -196,13 +199,7 @@ function LogRow({ log }: { log: LogEntry }) {
   return (
     <div className="px-4 py-2 flex items-start gap-3 text-[12px] hover:bg-muted">
       <span className="font-mono text-muted-foreground w-32 flex-shrink-0">
-        {new Date(log.timestamp).toLocaleString("zh-CN", {
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        })}
+        {fmtPattern(log.timestamp, "MM/dd HH:mm:ss")}
       </span>
       <Chip tone={tone as any} className="font-mono w-16 justify-center">{log.level}</Chip>
       <span className="font-mono text-muted-foreground w-28 truncate flex-shrink-0">[{log.source}]</span>

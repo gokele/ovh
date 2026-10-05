@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { UpdateButton } from "@/components/common/UpdateButton";
+import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ export const Route = createFileRoute("/")({
 });
 
 function DashboardPage() {
+  const { t } = useTranslation();
   const stats = useStats();
   const queue = useQueueList();
   const sys = useSystemMetrics();
@@ -52,19 +54,21 @@ function DashboardPage() {
   // "一台机器都没抢到"),而请求失败的真实含义是"我们不知道"。用户照着假 0
   // 会得出"抢购停了,再建一单"的结论,于是重复下单。
   const statsUnknown = stats.isPending || stats.isError;
-  const statsUnknownText = stats.isError ? "读取失败" : "读取中…";
+  const statsUnknownText = stats.isError ? t("dashboard.readFailed") : t("dashboard.reading");
 
   // 系统监控同理:没读到就别画环。0% CPU 是个具体读数,看起来像"机器很闲"。
-  const metricsHint = sys.isError ? "读取失败" : "读取中…";
-  const metricsTitle = sys.isError ? `系统监控读取失败:${errorMessage(sys.error)}` : "正在读取系统监控";
+  const metricsHint = sys.isError ? t("dashboard.readFailed") : t("dashboard.reading");
+  const metricsTitle = sys.isError
+    ? t("dashboard.metricsFailedTitle", { error: errorMessage(sys.error) })
+    : t("dashboard.metricsReadingTitle");
 
   return (
     <div className="space-y-3 sm:space-y-6">
-      <PageHeader icon={BarChart3} title="仪表盘" description="OVH 服务器抢购平台状态概览" />
+      <PageHeader icon={BarChart3} title={t("dashboard.title")} description={t("dashboard.description")} />
 
       {stats.isError && (
         <LoadFailedBanner
-          title="仪表盘统计读取失败"
+          title={t("dashboard.statsFailedTitle")}
           error={stats.error}
           onRetry={() => stats.refetch()}
         />
@@ -74,36 +78,36 @@ function DashboardPage() {
           占掉 844px 首屏的三分之二,而它们一共只有三个数字。 */}
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <KpiCard
-          label="活跃队列"
+          label={t("dashboard.kpi.activeQueues")}
           value={stats.data?.activeQueues}
           icon={ClipboardList}
           linkTo="/queue"
-          linkText="查看队列"
+          linkText={t("dashboard.kpi.viewQueue")}
           loading={stats.isPending}
           failed={stats.isError}
         />
         <KpiCard
-          label="服务器总数"
+          label={t("dashboard.kpi.totalServers")}
           value={stats.data?.totalServers}
           extra={
             stats.data && (
               <span className="text-[12px] text-muted-foreground ml-2">
-                可用 <span className="font-semibold text-success">{stats.data.availableServers}</span>
+                {t("dashboard.kpi.available")} <span className="font-semibold text-success">{stats.data.availableServers}</span>
               </span>
             )
           }
           icon={Server}
           linkTo="/servers"
-          linkText="查看服务"
+          linkText={t("dashboard.kpi.viewServers")}
           loading={stats.isPending}
           failed={stats.isError}
         />
         <KpiCard
-          label="下单成功(待付款)"
+          label={t("dashboard.kpi.purchaseSuccess")}
           value={stats.data?.purchaseSuccess}
           icon={CheckCircle2}
           linkTo="/history"
-          linkText="查看历史"
+          linkText={t("dashboard.kpi.viewHistory")}
           loading={stats.isPending}
           failed={stats.isError}
         />
@@ -116,10 +120,10 @@ function DashboardPage() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <ClipboardList className="w-4 h-4 text-muted-foreground" />
-                <h2 className="text-[15px] font-semibold">活跃队列</h2>
+                <h2 className="text-[15px] font-semibold">{t("dashboard.activeQueueTitle")}</h2>
               </div>
               <Link to="/queue" className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-                查看全部
+                {t("dashboard.viewAll")}
                 <ChevronRight className="w-3 h-3" />
               </Link>
             </div>
@@ -135,7 +139,7 @@ function DashboardPage() {
                  抢两遍,后端拒不掉的那部分就是重复下单。 */
               <LoadFailed
                 icon={ClipboardList}
-                title="活跃队列读取失败"
+                title={t("dashboard.queueFailedTitle")}
                 error={queue.error}
                 onRetry={() => queue.refetch()}
                 compact
@@ -143,12 +147,12 @@ function DashboardPage() {
             ) : activeQueue.length === 0 ? (
               <EmptyState
                 icon={Calendar}
-                title="暂无活跃任务"
+                title={t("dashboard.noActiveTasks")}
                 action={
                   <Button asChild>
                     <Link to="/queue">
                       <Plus className="w-4 h-4" />
-                      创建抢购任务
+                      {t("dashboard.createTask")}
                     </Link>
                   </Button>
                 }
@@ -168,7 +172,7 @@ function DashboardPage() {
                           {q.datacenter.toUpperCase()}
                         </span>
                         <span className="text-muted-foreground/50">·</span>
-                        <span>第 {q.retryCount + 1} 次尝试</span>
+                        <span>{t("dashboard.attemptN", { n: q.retryCount + 1 })}</span>
                       </div>
                     </div>
                     <QueueStatusChip status={q.status} />
@@ -183,39 +187,39 @@ function DashboardPage() {
           <CardContent className="p-3.5 sm:p-6">
             <div className="flex items-center gap-2 mb-4">
               <CheckCheck className="w-4 h-4 text-muted-foreground" />
-              <h2 className="text-[15px] font-semibold">系统状态</h2>
+              <h2 className="text-[15px] font-semibold">{t("dashboard.systemStatus")}</h2>
             </div>
             <div className="space-y-1">
               {/* 这一行是真的在测连通性:/stats 请求失败 = 后端这条路不通,
                   "未连接"就是它本来的意思,所以只需要把"还在问"的加载态摘出去。 */}
               <SystemRow
                 icon={<Link2 className="w-3.5 h-3.5" />}
-                label="API 连接"
+                label={t("dashboard.apiConn")}
                 ok={!!stats.data && !stats.isError}
-                onText="已连接"
-                offText="未连接"
+                onText={t("dashboard.connected")}
+                offText={t("dashboard.disconnected")}
                 unknown={stats.isPending}
-                unknownText="检测中…"
+                unknownText={t("dashboard.detecting")}
               />
               {/* 下面两行读的是 /stats 里的业务字段,请求没成功就等于这两个字段没拿到。
                   写成"暂无任务" / "待启用",是把"我们没问到"包装成了"后台确实闲着 /
                   监控确实没开" —— 用户会据此去手动重开监控、或者以为抢购已经停了。 */}
               <SystemRow
                 icon={<Bot className="w-3.5 h-3.5" />}
-                label="自动抢购"
+                label={t("dashboard.autoSnipe")}
                 ok={(stats.data?.activeQueues || 0) > 0}
-                onText="运行中"
-                offText="暂无任务"
+                onText={t("dashboard.running")}
+                offText={t("dashboard.noTasks")}
                 neutralOff
                 unknown={statsUnknown}
                 unknownText={statsUnknownText}
               />
               <SystemRow
                 icon={<Bell className="w-3.5 h-3.5" />}
-                label="服务器监控"
+                label={t("dashboard.serverMonitor")}
                 ok={!!stats.data?.monitorRunning}
-                onText="运行中"
-                offText="待启用"
+                onText={t("dashboard.running")}
+                offText={t("dashboard.standby")}
                 warnOff
                 unknown={statsUnknown}
                 unknownText={statsUnknownText}
@@ -223,14 +227,14 @@ function DashboardPage() {
               <div className="flex justify-between items-center px-3 py-2.5 mt-1 border-t border-border pt-3">
                 <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                   <Info className="w-3.5 h-3.5" />
-                  系统版本
+                  {t("dashboard.systemVersion")}
                 </div>
                 <div className="inline-flex items-center gap-2">
                   <span
                     className="text-xs font-mono font-semibold"
                     title={
                       version.isError
-                        ? `版本号读取失败:${errorMessage(version.error)}`
+                        ? t("dashboard.versionFailedTitle", { error: errorMessage(version.error) })
                         : undefined
                     }
                   >
@@ -245,10 +249,10 @@ function DashboardPage() {
                       type="button"
                       onClick={() => update.refetch()}
                       className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                      title={`更新检查失败:${errorMessage(update.error)}(点击重试)`}
+                      title={t("dashboard.updateFailedTitle", { error: errorMessage(update.error) })}
                     >
                       <AlertTriangle className="w-3 h-3" />
-                      更新检查失败
+                      {t("dashboard.updateFailed")}
                     </button>
                   ) : (
                     <UpdateButton check={update.data} />
@@ -270,7 +274,7 @@ function DashboardPage() {
             {sys.data ? (
               <MetricRing
                 label="CPU"
-                subLabel={`${sys.data.cpu.cores} 核心`}
+                subLabel={t("dashboard.cores", { n: sys.data.cpu.cores })}
                 percent={sys.data.cpu.percent}
               />
             ) : (
@@ -282,12 +286,12 @@ function DashboardPage() {
           <CardContent className="p-0">
             {sys.data ? (
               <MetricRing
-                label="内存"
+                label={t("dashboard.memory")}
                 subLabel={`${formatBytesShort(sys.data.memory.usedBytes)} / ${formatBytesShort(sys.data.memory.totalBytes)}`}
                 percent={sys.data.memory.percent}
               />
             ) : (
-              <MetricRingUnknown label="内存" hint={metricsHint} title={metricsTitle} failed={sys.isError} />
+              <MetricRingUnknown label={t("dashboard.memory")} hint={metricsHint} title={metricsTitle} failed={sys.isError} />
             )}
           </CardContent>
         </Card>
@@ -295,12 +299,12 @@ function DashboardPage() {
           <CardContent className="p-0">
             {sys.data ? (
               <MetricRing
-                label={sys.data.disk.path || "磁盘"}
+                label={sys.data.disk.path || t("dashboard.disk")}
                 subLabel={`${formatBytesShort(sys.data.disk.usedBytes)} / ${formatBytesShort(sys.data.disk.totalBytes)}`}
                 percent={sys.data.disk.percent}
               />
             ) : (
-              <MetricRingUnknown label="磁盘" hint={metricsHint} title={metricsTitle} failed={sys.isError} />
+              <MetricRingUnknown label={t("dashboard.disk")} hint={metricsHint} title={metricsTitle} failed={sys.isError} />
             )}
           </CardContent>
         </Card>
@@ -353,6 +357,7 @@ function KpiCard({
   /** 请求失败(区别于"还在加载"和"后端真的返回 0") */
   failed?: boolean;
 }) {
+  const { t } = useTranslation();
   const valueUnknown = value === undefined;
   return (
     <Card>
@@ -374,7 +379,7 @@ function KpiCard({
           ) : (
             <span
               className={`text-[24px] sm:text-[32px] font-bold leading-none ${valueUnknown ? "text-muted-foreground" : ""}`}
-              title={valueUnknown ? "当前数值未知" : undefined}
+              title={valueUnknown ? t("dashboard.valueUnknown") : undefined}
             >
               {valueUnknown ? "—" : value}
             </span>
@@ -384,7 +389,7 @@ function KpiCard({
         {failed && (
           <p className="mt-1 inline-flex items-center gap-1 text-[10px] sm:text-[11px] text-destructive">
             <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-            读取失败
+            {t("dashboard.readFailed")}
           </p>
         )}
         <Link to={linkTo} className="hidden sm:inline-flex mt-3 items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
@@ -397,24 +402,25 @@ function KpiCard({
 }
 
 function QueueStatusChip({ status }: { status: string }) {
+  const { t } = useTranslation();
   if (status === "running")
     return (
       <Chip tone="success">
         <StatusDot tone="success" pulse size="xs" />
-        运行中
+        {t("dashboard.running")}
       </Chip>
     );
   if (status === "pending")
     return (
       <Chip tone="warning">
         <StatusDot tone="warning" size="xs" />
-        等待中
+        {t("dashboard.pending")}
       </Chip>
     );
   return (
     <Chip tone="default">
       <StatusDot tone="muted" size="xs" />
-      已暂停
+      {t("dashboard.paused")}
     </Chip>
   );
 }
@@ -435,7 +441,7 @@ function SystemRow({
   neutralOff,
   warnOff,
   unknown,
-  unknownText = "读取失败",
+  unknownText,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -448,6 +454,7 @@ function SystemRow({
   unknown?: boolean;
   unknownText?: string;
 }) {
+  const { t } = useTranslation();
   const dotTone = unknown
     ? "muted"
     : ok
@@ -457,7 +464,7 @@ function SystemRow({
         : neutralOff
           ? "muted"
           : "danger";
-  const text = unknown ? unknownText : ok ? onText : offText;
+  const text = unknown ? (unknownText ?? t("dashboard.readFailed")) : ok ? onText : offText;
   return (
     <div className="flex justify-between items-center px-3 py-2.5 rounded-lg hover:bg-secondary transition-colors">
       <div className="inline-flex items-center gap-2 text-[13px]">

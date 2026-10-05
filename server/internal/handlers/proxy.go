@@ -28,7 +28,7 @@ func TestAccountProxy(state *app.State) gin.HandlerFunc {
 		id := c.Param("id")
 		acc, ok := state.FindAccount(id)
 		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "账户不存在"})
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "账户不存在", "code": "EE72C3716"})
 			return
 		}
 		prof, warn := netfp.LookupProfile(acc.Fingerprint)
@@ -133,7 +133,7 @@ func CheckAccountProxy(state *app.State) gin.HandlerFunc {
 		id := c.Param("id")
 		acc, ok := state.FindAccount(id)
 		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "账户不存在"})
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "账户不存在", "code": "EE72C3716"})
 			return
 		}
 		prof, warn := netfp.LookupProfile(acc.Fingerprint)

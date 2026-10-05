@@ -1,5 +1,6 @@
 import { Timer } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 export interface PhaseTiming {
   name: string;
@@ -24,6 +25,7 @@ export function TimingChip({
   phases?: PhaseTiming[];
   className?: string;
 }) {
+  const { t } = useTranslation();
   if (!totalMs) return null;
 
   const slowest = (phases || []).reduce<PhaseTiming | null>(
@@ -33,11 +35,14 @@ export function TimingChip({
 
   const detail = () => {
     if (!phases?.length) {
-      toast.info(`这一单总共花了 ${fmtMs(totalMs)}`);
+      toast.info(t("commons.timing.totalToast", { total: fmtMs(totalMs) }));
       return;
     }
     toast.info(
-      `总 ${fmtMs(totalMs)}\n` + phases.map((p) => `${p.name} ${fmtMs(p.ms)}`).join("\n"),
+      t("commons.timing.detailToast", {
+        total: fmtMs(totalMs),
+        breakdown: phases.map((p) => `${p.name} ${fmtMs(p.ms)}`).join("\n"),
+      }),
       { duration: 8000, style: { whiteSpace: "pre-line" } }
     );
   };
@@ -48,8 +53,8 @@ export function TimingChip({
       onClick={detail}
       title={
         slowest
-          ? `点击查看各阶段耗时（最慢：${slowest.name} ${fmtMs(slowest.ms)}）`
-          : "点击查看各阶段耗时"
+          ? t("commons.timing.titleSlowest", { name: slowest.name, ms: fmtMs(slowest.ms) })
+          : t("commons.timing.title")
       }
       className={
         "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono " +

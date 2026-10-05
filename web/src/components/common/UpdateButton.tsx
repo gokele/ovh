@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useSelfUpdate, useUpdateProgress, type UpdateCheck } from "@/hooks/use-system-metrics";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 /**
  * 在线更新按钮。
@@ -17,6 +18,7 @@ import { toast } from "sonner";
  * （二进制换了，内嵌的前端资源也跟着换了，不刷新会继续跑旧页面）。
  */
 export function UpdateButton({ check }: { check?: UpdateCheck }) {
+  const { t } = useTranslation();
   const mut = useSelfUpdate();
   const [started, setStarted] = useState(false);
   const [waitingRestart, setWaitingRestart] = useState(false);
@@ -30,7 +32,7 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
     const phase = progress.data?.phase;
     if (phase === "restarting") setWaitingRestart(true);
     if (phase === "failed") {
-      setFailed(progress.data?.error || "更新失败");
+      setFailed(progress.data?.error || t("commons.update.failed"));
       setStarted(false);
     }
   }, [progress.data?.phase, progress.data?.error]);
@@ -48,7 +50,7 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
         // 版本号变成目标值 = 新进程已经起来了
         if (now && (!target || now === target)) {
           window.clearInterval(timer);
-          toast.success(`已更新到 v${now}，正在刷新页面`);
+          toast.success(t("commons.update.updatedTo", { version: now }));
           setTimeout(() => window.location.reload(), 800);
         } else if (now && target && now !== target && tries > 3) {
           // 服务回来了但版本不是目标值 = 新版本没起来、回滚保护把旧版换回来了。
@@ -58,9 +60,7 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
           window.clearInterval(timer);
           setWaitingRestart(false);
           setStarted(false);
-          setFailed(
-            `更新到 v${target} 失败，已自动回滚到 v${now}。服务正常运行，详情见后端日志`
-          );
+          setFailed(t("commons.update.rollback", { target, current: now }));
         }
       } catch {
         // 连不上是预期内的：进程正在被替换。继续等。
@@ -70,7 +70,7 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
         window.clearInterval(timer);
         setWaitingRestart(false);
         setStarted(false);
-        setFailed("服务重启超时。二进制可能已经替换成功，请手动确认进程是否在跑（若用 systemd/docker 托管，它通常会自行拉起）");
+        setFailed(t("commons.update.restartTimeout"));
       }
     }, 1000);
     pollRef.current = timer;
@@ -82,13 +82,13 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
     try {
       const res = await mut.mutateAsync();
       if (!res.success) {
-        setFailed(res.error || "无法开始更新");
+        setFailed(res.error || t("commons.update.cannotStart"));
         return;
       }
       setStarted(true);
-      toast.info(res.message || "已开始更新");
+      toast.info(res.message || t("commons.update.started"));
     } catch (e: any) {
-      setFailed(e?.response?.data?.error || "无法开始更新");
+      setFailed(e?.response?.data?.error || t("commons.update.cannotStart"));
     }
   };
 
@@ -105,10 +105,10 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
     return (
       <span
         className="inline-flex items-center gap-1.5 text-[11px] text-primary cursor-help"
-        title={check.updateHint || "容器里请用 docker compose pull && docker compose up -d 更新"}
+        title={check.updateHint || t("commons.update.containerHint")}
       >
         <Sparkles className="w-3 h-3" />
-        有新版 v{check.latest} · 容器请用 docker pull 更新
+        {t("commons.update.containerBadge", { version: check.latest })}
       </span>
     );
   }
@@ -117,7 +117,7 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
     return (
       <span className="inline-flex items-center gap-1.5 text-[11px] text-primary">
         <Loader2 className="w-3 h-3 animate-spin" />
-        正在重启并加载新版本…
+        {t("commons.update.restarting")}
       </span>
     );
   }
@@ -129,10 +129,10 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
       <span className="inline-flex items-center gap-2 text-[11px] text-muted-foreground" title={p?.message}>
         <Loader2 className="w-3 h-3 animate-spin" />
         {p?.phase === "installing" ? (
-          <span>校验通过，正在替换…</span>
+          <span>{t("commons.update.installing")}</span>
         ) : (
           <span className="inline-flex items-center gap-1.5">
-            下载中
+            {t("commons.update.downloading")}
             <span className="inline-block w-16 h-1 rounded bg-secondary overflow-hidden align-middle">
               <span className="block h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
             </span>
@@ -149,7 +149,7 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
         <AlertTriangle className="w-3 h-3" />
         <span className="max-w-[220px] truncate">{failed}</span>
         <button className="underline hover:no-underline" onClick={start}>
-          重试
+          {t("commons.update.retry")}
         </button>
       </span>
     );
@@ -162,14 +162,14 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
         target="_blank"
         rel="noreferrer noopener"
         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-        title={`有新版本 v${check!.latest}，点击查看更新说明`}
+        title={t("commons.update.latestTitle", { version: check!.latest })}
       >
         <Sparkles className="w-3 h-3" />
         v{check!.latest}
       </a>
       <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={start} disabled={mut.isPending}>
         {mut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
-        立即更新
+        {t("commons.update.updateNow")}
       </Button>
     </span>
   );
@@ -177,10 +177,11 @@ export function UpdateButton({ check }: { check?: UpdateCheck }) {
 
 /** 更新完成后的提示（重启回来那一下用得上，目前留给将来扩展） */
 export function UpdatedBadge({ version }: { version: string }) {
+  const { t } = useTranslation();
   return (
     <span className="inline-flex items-center gap-1 text-[11px] text-success">
       <CheckCircle2 className="w-3 h-3" />
-      已是最新 v{version}
+      {t("commons.update.upToDate", { version })}
     </span>
   );
 }

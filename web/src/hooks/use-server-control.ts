@@ -1,7 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import i18n from "@/i18n";
 import { qk } from "@/lib/query";
+import { apiMessage, bodyMessage } from "@/lib/api-error";
 import type { PartialList } from "./partial-list";
 import { useActiveAccount } from "@/hooks/use-active-account";
 
@@ -153,9 +155,9 @@ export function terminationLabel(info: {
   // 读失败:不要用没验证过的旧字段冒充真相。销毁级状态宁可说"不知道"
   if (info.terminationStateUnknown) {
     return {
-      text: "终止状态未知",
+      text: i18n.t("hooksMsg.server.termination.unknownText"),
       danger: true,
-      title: "读取 OVH 服务生命周期失败,无法确认是否已安排终止。请刷新重试",
+      title: i18n.t("hooksMsg.server.termination.unknownTitle"),
     };
   }
   const on = info.terminationScheduled ?? info.renewalDeleteAtExpiration;
@@ -163,18 +165,30 @@ export function terminationLabel(info: {
   switch (info.terminationAction) {
     case "terminate":
       return {
-        text: "终止处理中(立即)",
+        text: i18n.t("hooksMsg.server.termination.immediateText"),
         danger: true,
-        title: "这是【立即终止】,不是到期终止 —— OVH 会当场暂停服务器,并在数日内清除硬盘数据",
+        title: i18n.t("hooksMsg.server.termination.immediateTitle"),
       };
     case "terminateAtEngagementDate":
-      return { text: "合同期结束终止", danger: false, title: "承诺期结束时终止服务" };
+      return {
+        text: i18n.t("hooksMsg.server.termination.engagementText"),
+        danger: false,
+        title: i18n.t("hooksMsg.server.termination.engagementTitle"),
+      };
     case "terminateAtExpirationDate":
     case "deleteAtExpiration":
-      return { text: "到期终止", danger: false, title: "到期日之前照常使用,到期后销毁" };
+      return {
+        text: i18n.t("hooksMsg.server.termination.expirationText"),
+        danger: false,
+        title: i18n.t("hooksMsg.server.termination.expirationTitle"),
+      };
     default:
       // scheduled=true 但拿不到具体 action(比如走了旧字段兜底)
-      return { text: "已安排终止", danger: false, title: "已安排终止,但未能读到具体类型" };
+      return {
+        text: i18n.t("hooksMsg.server.termination.scheduledText"),
+        danger: false,
+        title: i18n.t("hooksMsg.server.termination.scheduledTitle"),
+      };
   }
 }
 
@@ -1014,7 +1028,7 @@ export function useServerBackupFtp(serviceName: string | null) {
           accessFailedCount = Number(accRes.data?.failedCount) || 0;
         } catch (e: any) {
           // 访问列表拿不到不算整体失败，但要说明「列表为空是没查到」而不是「没配过 IP」
-          accessError = e?.response?.data?.error || e?.message || "访问控制列表获取失败";
+          accessError = e?.response?.data?.error || e?.message || i18n.t("hooksMsg.server.backupAclLoadFailed");
         }
         return { backupFtp: res.data?.backupFtp || null, accessList, accessFailedCount, accessError };
       } catch (e: any) {
@@ -1342,7 +1356,7 @@ export function useContactChangeRequests(enabled = true) {
           return {
             requests: [],
             unsupported: true,
-            message: e?.response?.data?.message || "当前账户所在区域不支持联系人变更请求",
+            message: e?.response?.data?.message || i18n.t("hooksMsg.server.contactUnsupported"),
             failedCount: 0,
           };
         }
@@ -1486,9 +1500,9 @@ export function useRequestRetraction(serviceName: string) {
     onSuccess: (d: any) => {
       qc.invalidateQueries({ queryKey: ["server-control", "retraction"] });
       qc.invalidateQueries({ queryKey: ["server-control", "list"] });
-      toast.success(d?.message || "撤单申请已提交");
+      toast.success(bodyMessage(d) || i18n.t("hooksMsg.server.retractionSubmitted"));
     },
-    onError: (e: any) => toast.error(e?.response?.data?.error || "撤单申请失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.server.retractionFailed")),
   });
 }
 
@@ -1532,10 +1546,10 @@ export function useEnterRescue(serviceName: string) {
     mutationFn: async (v: { email?: string; sshKey?: string; bootId?: number }) =>
       (await api.post(`/server-control/${serviceName}/rescue`, { ...v, confirm: true })).data,
     onSuccess: (d: any) => {
-      toast.success(d?.message || "已切到救援模式并重启");
+      toast.success(bodyMessage(d) || i18n.t("hooksMsg.server.rescueEntered"));
       qc.invalidateQueries({ queryKey: qk.serverControl.rescue(serviceName) });
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "进入救援模式失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.server.rescueEnterFailed")),
   });
 }
 
@@ -1546,10 +1560,10 @@ export function useExitRescue(serviceName: string) {
     mutationFn: async () =>
       (await api.post(`/server-control/${serviceName}/rescue/exit`, { confirm: true })).data,
     onSuccess: (d: any) => {
-      toast.success(d?.message || "已切回硬盘启动并重启");
+      toast.success(bodyMessage(d) || i18n.t("hooksMsg.server.rescueExited"));
       qc.invalidateQueries({ queryKey: qk.serverControl.rescue(serviceName) });
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "退出救援模式失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.server.rescueExitFailed")),
   });
 }
 

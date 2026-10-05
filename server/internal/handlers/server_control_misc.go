@@ -137,7 +137,7 @@ func AddSecondaryDNS(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Domain == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少domain参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少domain参数", "code": "E5BE84C8C"})
 			return
 		}
 		if err := client.Post("/dedicated/server/"+svc+"/secondaryDnsDomains", map[string]interface{}{"domain": body.Domain}, nil); err != nil {
@@ -145,7 +145,7 @@ func AddSecondaryDNS(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("添加从DNS域名 "+body.Domain+" 成功", "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "从DNS域名已添加"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "从DNS域名已添加", "code": "E10077A28"})
 	}
 }
 
@@ -163,7 +163,7 @@ func DeleteSecondaryDNS(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("删除从DNS域名 "+domain+" 成功", "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "从DNS域名已删除"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "从DNS域名已删除", "code": "E3163802E"})
 	}
 }
 
@@ -209,7 +209,7 @@ func CreateVirtualMAC(state *app.State) gin.HandlerFunc {
 		// schema 里 ipAddress / type / virtualMachineName 三个 body 参数都是必填,
 		// 少了名字只会换回 OVH 的英文参数错误,不如本地先说清楚缺哪个
 		if body.IPAddress == "" || body.Type == "" || body.VirtualMachineName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少必需参数: ipAddress、type、virtualMachineName 都必须提供"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少必需参数: ipAddress、type、virtualMachineName 都必须提供", "code": "EF8671908"})
 			return
 		}
 		// dedicated.server.VmacTypeEnum 只有这两个取值
@@ -227,7 +227,7 @@ func CreateVirtualMAC(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("创建虚拟MAC成功: "+body.IPAddress, "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "虚拟MAC已创建", "result": result})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "虚拟MAC已创建", "code": "EE9B16619", "result": result})
 	}
 }
 
@@ -300,7 +300,7 @@ func RemoveFromVRack(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("从vRack "+vrack+" 移除服务器成功", "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "服务器已从vRack移除"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "服务器已从vRack移除", "code": "EAC9B25F0"})
 	}
 }
 
@@ -411,7 +411,7 @@ func GetIPCanBeMovedTo(state *app.State) gin.HandlerFunc {
 		// 不拼这个 query 的话 OVH 必定以缺参拒绝
 		ip := c.Query("ip")
 		if ip == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少ip参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少ip参数", "code": "EB7965AF4"})
 			return
 		}
 		// 该端点返回 void:它只做"这个 IP 能不能搬到本机"的校验,不返回任何目标列表,
@@ -458,7 +458,7 @@ func MoveIP(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.IP == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少ip参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少ip参数", "code": "EB7965AF4"})
 			return
 		}
 		var result map[string]interface{}
@@ -469,7 +469,7 @@ func MoveIP(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("IP迁移任务已创建: "+body.IP+" -> "+svc, "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "IP迁移任务已创建", "result": result})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "IP迁移任务已创建", "code": "E26999A49", "result": result})
 	}
 }
 
@@ -587,7 +587,7 @@ func TerminateService(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Warn("服务器 "+svc+" 终止请求已提交, token 已发送至管理员邮箱", "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "终止请求已提交,token 已发送至管理员邮箱,请查收邮件后再确认终止", "response": resp})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "终止请求已提交,token 已发送至管理员邮箱,请查收邮件后再确认终止", "code": "E1A39F5C5", "response": resp})
 	}
 }
 
@@ -607,7 +607,7 @@ func ConfirmTermination(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Token == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少token参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少token参数", "code": "ED4D892CA"})
 			return
 		}
 		// reason / futureUse / commentary 是 schema 里的可选参数;枚举值先本地校验,
@@ -638,7 +638,7 @@ func ConfirmTermination(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Warn("服务器 "+svc+" 终止已确认", "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "终止已确认"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "终止已确认", "code": "EC265A0A4"})
 	}
 }
 
@@ -682,7 +682,7 @@ func CreateSPLA(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Type == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少type参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少type参数", "code": "E47BAC7E6"})
 			return
 		}
 		// dedicated.server.SplaTypeEnum 只有这三个取值
@@ -693,7 +693,7 @@ func CreateSPLA(state *app.State) gin.HandlerFunc {
 		// serialNumber 在 schema 里是必填 string,发 JSON null 会被 OVH 拒,
 		// 不如本地挡下并给出中文提示
 		if body.SerialNumber == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少serialNumber参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少serialNumber参数", "code": "E9AF18D58"})
 			return
 		}
 		payload := map[string]interface{}{"type": body.Type, "serialNumber": body.SerialNumber}
@@ -705,7 +705,7 @@ func CreateSPLA(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("创建SPLA许可证成功: %s, id=%d", body.Type, newID), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "SPLA许可证已创建", "id": newID})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "SPLA许可证已创建", "code": "E7229383E", "id": newID})
 	}
 }
 
@@ -726,7 +726,7 @@ func GetBIOSSettings(state *app.State) gin.HandlerFunc {
 			// 会把 403(无权限)、锁定等临时错误也说成"不支持",用户会以为硬件不支持而放弃
 			if ovhIsNotFound(err) {
 				state.Logger.Warn("[BIOS] 服务器 "+svc+" 不支持 BIOS 设置: "+msg, "server_control")
-				c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "BIOS 设置不可用"})
+				c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "BIOS 设置不可用", "code": "E2995BE84"})
 				return
 			}
 			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": msg})
@@ -751,7 +751,7 @@ func GetBIOSSettingsSGX(state *app.State) gin.HandlerFunc {
 			// 同上:只认 404,别把权限/锁定错误误报成"SGX 不可用"
 			if ovhIsNotFound(err) {
 				state.Logger.Warn("[BIOS] 服务器 "+svc+" 不支持 SGX: "+msg, "server_control")
-				c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "SGX 不可用"})
+				c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "SGX 不可用", "code": "EACCA3920"})
 				return
 			}
 			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": msg})

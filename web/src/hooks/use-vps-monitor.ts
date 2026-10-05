@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { toast } from "sonner";
+import i18n from "@/i18n";
+import { apiMessage } from "@/lib/api-error";
 
 export interface VPSSubscription {
   id: string;
@@ -70,9 +72,9 @@ export function useToggleVPSMonitor() {
       (await api.post(`/vps-monitor/${running ? "stop" : "start"}`)).data,
     onSuccess: (_, running) => {
       qc.invalidateQueries({ queryKey: qk.vpsMonitor.status() });
-      toast.success(running ? "VPS 监控已停止" : "VPS 监控已启动");
+      toast.success(i18n.t(running ? "hooksMsg.vpsMonitor.stopped" : "hooksMsg.vpsMonitor.started"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "操作失败"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }
 

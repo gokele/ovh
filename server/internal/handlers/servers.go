@@ -61,7 +61,7 @@ func GetServers(state *app.State) gin.HandlerFunc {
 		reqAccount := c.Query("account")
 		if reqAccount != "" {
 			if _, ok := state.FindAccount(reqAccount); !ok {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "account 不存在"})
+				c.JSON(http.StatusBadRequest, gin.H{"error": "account 不存在", "code": "E402DEEE0"})
 				return
 			}
 		}
@@ -137,7 +137,7 @@ func GetServers(state *app.State) gin.HandlerFunc {
 						state.Logger.Error("❌ OVH API 调用失败且没有缓存数据可用！", "")
 						c.JSON(http.StatusServiceUnavailable, gin.H{
 							"error":   "No data available",
-							"message": "无法获取服务器列表：OVH API 调用失败且没有缓存数据",
+							"message": "无法获取服务器列表：OVH API 调用失败且没有缓存数据", "code": "E2AFB933B",
 						})
 						return
 					}
@@ -145,7 +145,7 @@ func GetServers(state *app.State) gin.HandlerFunc {
 					state.Logger.Error("❌ OVH API 调用失败且该账户视角没有缓存数据可用！", "")
 					c.JSON(http.StatusServiceUnavailable, gin.H{
 						"error":   "No data available",
-						"message": "无法获取该账户的服务器列表：OVH API 调用失败且该账户暂无缓存",
+						"message": "无法获取该账户的服务器列表：OVH API 调用失败且该账户暂无缓存", "code": "E829272C0",
 					})
 					return
 				}
@@ -163,7 +163,7 @@ func GetServers(state *app.State) gin.HandlerFunc {
 			if !hasOVH {
 				c.JSON(http.StatusServiceUnavailable, gin.H{
 					"error":   "No data available",
-					"message": "尚未配置任何 OVH 账户，无法获取服务器列表",
+					"message": "尚未配置任何 OVH 账户，无法获取服务器列表", "code": "EA6AD10BC",
 				})
 				return
 			}
@@ -173,7 +173,7 @@ func GetServers(state *app.State) gin.HandlerFunc {
 				state.Logger.Error("❌ 现拉目录失败，且该账户视角无任何缓存可用", "")
 				c.JSON(http.StatusServiceUnavailable, gin.H{
 					"error":   "No data available",
-					"message": "无法获取该账户的服务器列表：OVH API 调用失败且暂无缓存",
+					"message": "无法获取该账户的服务器列表：OVH API 调用失败且暂无缓存", "code": "EBFA8B0F1",
 				})
 				return
 			}
@@ -290,7 +290,7 @@ func GetAvailability(state *app.State) gin.HandlerFunc {
 		reqAccount := c.Query("account")
 		if reqAccount != "" {
 			if _, ok := state.FindAccount(reqAccount); !ok {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "account 不存在"})
+				c.JSON(http.StatusBadRequest, gin.H{"error": "account 不存在", "code": "E402DEEE0"})
 				return
 			}
 		}
@@ -302,20 +302,20 @@ func GetAvailability(state *app.State) gin.HandlerFunc {
 				// 和"所有机房都没货"长得一模一样。这里明确告诉调用方是拿错区了。
 				state.Logger.Warn("查询 "+planCode+" 可用性: "+err.Error(), "availability")
 				c.JSON(http.StatusNotFound, gin.H{
-					"error":   "planCode 不属于该账户所在站点",
+					"error":   "planCode 不属于该账户所在站点", "code": "E5F67A422",
 					"message": err.Error(),
 				})
 			case errors.Is(err, catalog.ErrConfigNotMatched):
 				state.Logger.Warn("查询 "+planCode+" 可用性: "+err.Error(), "availability")
 				c.JSON(http.StatusNotFound, gin.H{
-					"error":   "该 plan 没有这套配置组合",
+					"error":   "该 plan 没有这套配置组合", "code": "E8B5F5226",
 					"message": err.Error(),
 				})
 			default:
 				// OVH 的 429 限流 / 403 凭据失效 / 404 不存在,以前全被折叠成 404 空对象,
 				// 用户只会以为"全线下架"。原样把 OVH 错误交给前端,才能看出该去查密钥还是等限流。
 				state.Logger.Error("查询 "+planCode+" 可用性失败: "+err.Error(), "availability")
-				c.JSON(http.StatusBadGateway, gin.H{"error": "查询可用性失败", "message": err.Error()})
+				c.JSON(http.StatusBadGateway, gin.H{"error": "查询可用性失败", "code": "E7480C06F", "message": err.Error()})
 			}
 			return
 		}
@@ -334,7 +334,7 @@ func MonitorPrice(state *app.State) gin.HandlerFunc {
 		clientIP := c.ClientIP()
 		if clientIP != "127.0.0.1" && clientIP != "::1" && clientIP != "localhost" {
 			state.Logger.Warn("[monitor price API] 拒绝非本地请求: "+clientIP, "price")
-			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "此API仅限本地访问"})
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "此API仅限本地访问", "code": "E72C96123"})
 			return
 		}
 		var body struct {
@@ -345,7 +345,7 @@ func MonitorPrice(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.PlanCode == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 plan_code 参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 plan_code 参数", "code": "E036D6AFA"})
 			return
 		}
 		if body.Datacenter == "" {
@@ -370,7 +370,7 @@ func ServerPrice(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		planCode := strings.TrimPrefix(c.Param("planCode"), "/")
 		if planCode == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 planCode"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 planCode", "code": "EB7F98F0C"})
 			return
 		}
 		var body struct {
@@ -386,12 +386,12 @@ func ServerPrice(state *app.State) gin.HandlerFunc {
 		}
 		if accountID != "" {
 			if _, ok := state.FindAccount(accountID); !ok {
-				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "account 不存在"})
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "account 不存在", "code": "E402DEEE0"})
 				return
 			}
 		}
 		if !state.HasAnyAccount() {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "未配置任何 OVH 账户"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "未配置任何 OVH 账户", "code": "EB4F255CD"})
 			return
 		}
 		datacenter := body.Datacenter

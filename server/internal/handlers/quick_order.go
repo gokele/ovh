@@ -36,15 +36,15 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.PlanCode == "" || body.Datacenter == "" {
-			c.JSON(http.StatusOK, gin.H{"success": false, "error": "缺少 planCode 或 datacenter"})
+			c.JSON(http.StatusOK, gin.H{"success": false, "error": "缺少 planCode 或 datacenter", "code": "E75DA4B08"})
 			return
 		}
 		if body.AccountID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 account_id"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 account_id", "code": "E34CBF1D4"})
 			return
 		}
 		if _, ok := state.FindAccount(body.AccountID); !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "account_id 不存在"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "account_id 不存在", "code": "E7B315B13"})
 			return
 		}
 		options := body.Options
@@ -134,18 +134,18 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 		}
 		if priceResult.Price == nil {
 			state.Logger.Warn("快速下单前价格校验失败: price字段缺失", "quick_order")
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "价格查询返回数据格式异常：缺少price字段"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "价格查询返回数据格式异常：缺少price字段", "code": "EBCF58A32"})
 			return
 		}
 		withTaxRaw, _ := priceResult.Price.Prices["withTax"]
 		if withTaxRaw == nil {
 			state.Logger.Warn("快速下单前价格缺失或无效: "+body.PlanCode+"@"+body.Datacenter, "quick_order")
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "该组合暂无有效价格，暂不支持下单"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "该组合暂无有效价格，暂不支持下单", "code": "EE94F16EB"})
 			return
 		}
 		if f, ok := numconv.ToFloat64(withTaxRaw); ok && f == 0 {
 			state.Logger.Warn("快速下单前价格缺失或无效: "+body.PlanCode+"@"+body.Datacenter, "quick_order")
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "该组合暂无有效价格，暂不支持下单"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "该组合暂无有效价格，暂不支持下单", "code": "EE94F16EB"})
 			return
 		}
 
@@ -161,7 +161,7 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 					fingerprint(it.Options) == fp {
 					state.QueueMu.Unlock()
 					state.Logger.Info("检测到重复的队列任务（含配置），拒绝再次入队", "quick_order")
-					c.JSON(http.StatusTooManyRequests, gin.H{"success": false, "error": "已存在相同配置的购买任务，稍后再试"})
+					c.JSON(http.StatusTooManyRequests, gin.H{"success": false, "error": "已存在相同配置的购买任务，稍后再试", "code": "EE77AF09E"})
 					return
 				}
 			}
@@ -180,7 +180,7 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 						if nowTS-t.Unix() < 120 {
 							state.HistoryMu.Unlock()
 							state.Logger.Info("检测到近期成功订单，拒绝再次入队", "quick_order")
-							c.JSON(http.StatusTooManyRequests, gin.H{"success": false, "error": "刚刚已成功下过同配置订单，稍后再试"})
+							c.JSON(http.StatusTooManyRequests, gin.H{"success": false, "error": "刚刚已成功下过同配置订单，稍后再试", "code": "EF4FA206C"})
 							return
 						}
 					}

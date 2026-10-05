@@ -226,7 +226,7 @@ func GetVpsServiceStatus(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true, "status": nil, "removed": true,
-			"message": "OVH 已下线 VPS 端口探测接口(2026-10-15 废弃,无替代)。想看端口存活请自行用外部监控",
+			"message": "OVH 已下线 VPS 端口探测接口(2026-10-15 废弃,无替代)。想看端口存活请自行用外部监控", "code": "ECC15035A",
 		})
 	}
 }
@@ -316,7 +316,7 @@ func UpdateVpsRenewal(state *app.State) gin.HandlerFunc {
 			renew = map[string]interface{}{}
 		}
 		if f, ok := renew["forced"].(bool); ok && f {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "该 VPS 处于 OVH 合同期内,续费策略由 OVH 锁定"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "该 VPS 处于 OVH 合同期内,续费策略由 OVH 锁定", "code": "E552F23C1"})
 			return
 		}
 		// 同独服:service.RenewType 的 automatic / deleteAtExpiration / forced
@@ -341,10 +341,10 @@ func UpdateVpsRenewal(state *app.State) gin.HandlerFunc {
 			// 也**不能**指向 POST /terminate——那是立即终止,提交即暂停服务器,真实踩过。
 			// 唯一正确的路是 PUT /services/{serviceId} 的 terminationPolicy。
 			c.JSON(http.StatusBadRequest, gin.H{"success": false,
-				"error": "到期终止请用 PUT termination-policy 接口(terminationPolicy=terminateAtExpirationDate);不要调 /terminate——那是立即终止,提交即暂停服务"})
+				"error": "到期终止请用 PUT termination-policy 接口(terminationPolicy=terminateAtExpirationDate);不要调 /terminate——那是立即终止,提交即暂停服务", "code": "ECBAA0559"})
 			return
 		default:
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "mode 必须是 auto / manual / delete 之一"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "mode 必须是 auto / manual / delete 之一", "code": "EA464F1AF"})
 			return
 		}
 		if body.Period > 0 {
@@ -359,7 +359,7 @@ func UpdateVpsRenewal(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 续费策略已更新: "+body.Mode, "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "续费策略已更新"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "续费策略已更新", "code": "ED101FDC4"})
 	}
 }
 
@@ -428,7 +428,7 @@ func SetVpsIpReverse(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS "+svc+" IP "+ip+" 反向 DNS 设为 "+body.Reverse, "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "反向 DNS 已更新"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "反向 DNS 已更新", "code": "E79027532"})
 	}
 }
 

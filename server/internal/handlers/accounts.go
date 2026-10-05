@@ -178,7 +178,7 @@ func GetAccountByID(state *app.State) gin.HandlerFunc {
 			return
 		}
 		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "账户不存在"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "账户不存在", "code": "EE72C3716"})
 			return
 		}
 		c.JSON(http.StatusOK, sanitizeAccount(acc))
@@ -260,7 +260,7 @@ func UpdateAccount(state *app.State) gin.HandlerFunc {
 			return
 		}
 		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "账户不存在"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "账户不存在", "code": "EE72C3716"})
 			return
 		}
 		var in accountInput

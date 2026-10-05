@@ -43,7 +43,7 @@ func ChangeVpsContact(state *app.State) gin.HandlerFunc {
 			params["contactBilling"] = v
 		}
 		if len(params) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "至少需要指定一个联系人"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "至少需要指定一个联系人", "code": "EA60C93FC"})
 			return
 		}
 		var taskIDs []int64
@@ -52,7 +52,7 @@ func ChangeVpsContact(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("VPS %s 联系人变更已提交: %v, tasks=%v", svc, params, taskIDs), "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "联系人变更请求已提交", "taskIds": taskIDs})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "联系人变更请求已提交", "code": "EA0AA106E", "taskIds": taskIDs})
 	}
 }
 
@@ -72,7 +72,7 @@ func TerminateVps(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Warn("VPS "+svc+" 终止请求已提交,等邮件 token", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "终止请求已提交,请查邮件获取 token", "token": token})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "终止请求已提交,请查邮件获取 token", "code": "E83B1CF34", "token": token})
 	}
 }
 
@@ -93,7 +93,7 @@ func ConfirmVpsTermination(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Token == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 token"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 token", "code": "E7C3C8E46"})
 			return
 		}
 		params := map[string]interface{}{"token": body.Token}
@@ -109,7 +109,7 @@ func ConfirmVpsTermination(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Warn("VPS "+svc+" 终止已确认", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "终止已确认"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "终止已确认", "code": "EC265A0A4"})
 	}
 }
 
@@ -163,14 +163,14 @@ func AddVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Domain == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "domain 必填"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "domain 必填", "code": "E19126073"})
 			return
 		}
 		params := map[string]interface{}{"domain": body.Domain}
 		if body.IP != "" {
 			// schema 里该字段类型是 ipv4,先在本地挡掉 IPv6/乱填,避免把 OVH 的英文类型错误甩给用户
 			if parsed := net.ParseIP(body.IP); parsed == nil || parsed.To4() == nil {
-				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "ip 必须是合法的 IPv4 地址(OVH 二级 DNS 只接受 IPv4)"})
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "ip 必须是合法的 IPv4 地址(OVH 二级 DNS 只接受 IPv4)", "code": "E85BDAAE9"})
 				return
 			}
 			params["ip"] = body.IP
@@ -180,7 +180,7 @@ func AddVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 添加二级 DNS "+body.Domain, "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "二级 DNS 域名已添加"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "二级 DNS 域名已添加", "code": "E82EE9B65"})
 	}
 }
 
@@ -199,7 +199,7 @@ func DeleteVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 删除二级 DNS "+domain, "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "二级 DNS 域名已删除"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "二级 DNS 域名已删除", "code": "E019C85A4"})
 	}
 }
 
@@ -277,7 +277,7 @@ func DeleteVpsOption(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusGone, gin.H{
 			"success": false,
-			"error":   "OVH 已移除「取消 VPS 附加选项」接口(2026-10 从 API 下线,无替代)。请到 OVH 控制台(My services → 该 VPS → 选项)取消",
+			"error":   "OVH 已移除「取消 VPS 附加选项」接口(2026-10 从 API 下线,无替代)。请到 OVH 控制台(My services → 该 VPS → 选项)取消", "code": "ED28E63E8",
 		})
 	}
 }

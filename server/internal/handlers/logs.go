@@ -20,7 +20,7 @@ func GetLogs(state *app.State) gin.HandlerFunc {
 func FlushLogs(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state.Logger.Flush()
-		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "日志已刷新"})
+		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "日志已刷新", "code": "ECEA0FB83"})
 	}
 }
 

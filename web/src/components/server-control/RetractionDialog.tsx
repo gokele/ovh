@@ -11,6 +11,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRequestRetraction, type RetractionInfo } from "@/hooks/use-server-control";
+import { useTranslation } from "react-i18next";
+import { Trans } from "react-i18next";
+import { fmtDate, fmtDateTime } from "@/i18n/format";
 
 /**
  * 14 天无理由撤单。
@@ -31,6 +34,7 @@ export function RetractionDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const request = useRequestRetraction(serviceName);
   const [reason, setReason] = useState("");
   const [comment, setComment] = useState("");
@@ -45,9 +49,7 @@ export function RetractionDialog({
     setConfirming(false);
   }, [open]);
 
-  const deadline = info.retractionDate
-    ? new Date(info.retractionDate).toLocaleString("zh-CN")
-    : "";
+  const deadline = info.retractionDate ? fmtDateTime(info.retractionDate) : "";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -55,7 +57,7 @@ export function RetractionDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Undo2 className="w-4 h-4" />
-            申请无理由撤单
+            {t("maint.retraction.title")}
           </DialogTitle>
           <DialogDescription className="mt-0.5">
             <span className="font-mono">{displayName}</span>
@@ -68,17 +70,15 @@ export function RetractionDialog({
           <div className="flex items-start gap-2.5 rounded-xl border border-destructive/40 bg-destructive/5 px-3.5 py-3">
             <AlertTriangle className="w-4 h-4 text-destructive mt-0.5 flex-shrink-0" />
             <div className="text-[12px] leading-relaxed">
-              提交后 OVH 会退掉这张订单并<b>注销这台服务器</b>，上面的数据一并消失。
-              这个操作不可撤销。
+              <Trans i18nKey="maint.retraction.warn" components={{ b: <b /> }} />
               {deadline && (
                 <div className="mt-1 text-muted-foreground">
-                  撤回期截止：{deadline}
+                  {t("maint.retraction.deadline", { date: deadline })}
                   {info.orderDate && (
                     // 起算点要写出来:用户会拿剩余天数去对「开通日 + 14 天」,
                     // 而撤回期是从下单起算的,机器常常下单后几天才交付
                     <span className="block mt-0.5">
-                      从下单（{new Date(info.orderDate).toLocaleDateString("zh-CN")}）起算，
-                      不是从服务器开通日起算
+                      {t("maint.retraction.deadlineNote", { date: fmtDate(info.orderDate) })}
                     </span>
                   )}
                 </div>
@@ -88,11 +88,11 @@ export function RetractionDialog({
 
           <div>
             <label className="block text-[13px] font-medium mb-1.5">
-              撤单理由 <span className="text-destructive">*</span>
+              {t("maint.retraction.reasonLabel")} <span className="text-destructive">*</span>
             </label>
             <Select value={reason} onValueChange={(v) => { setReason(v); setConfirming(false); }}>
               <SelectTrigger>
-                <SelectValue placeholder="选一个理由（OVH 必填）" />
+                <SelectValue placeholder={t("maint.retraction.reasonPlaceholder")} />
               </SelectTrigger>
               <SelectContent>
                 {(info.reasons || []).map((r) => (
@@ -105,26 +105,24 @@ export function RetractionDialog({
           </div>
 
           <div>
-            <label className="block text-[13px] font-medium mb-1.5">补充说明（可选）</label>
+            <label className="block text-[13px] font-medium mb-1.5">{t("maint.retraction.commentLabel")}</label>
             <textarea
               rows={3}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="想跟 OVH 多说两句就写在这里"
+              placeholder={t("maint.retraction.commentPlaceholder")}
               className="w-full px-3 py-2 border border-border rounded-xl text-base sm:text-[13px] bg-background focus:outline-none focus:ring-1 focus:ring-ring resize-none"
             />
           </div>
 
           {confirming && (
-            <p className="text-[12px] text-destructive">
-              再点一次「确认撤单」提交。提交后服务器会被注销。
-            </p>
+            <p className="text-[12px] text-destructive">{t("maint.retraction.confirmHint")}</p>
           )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={request.isPending}>
-            取消
+            {t("common.cancel")}
           </Button>
           <Button
             variant="destructive"
@@ -137,7 +135,11 @@ export function RetractionDialog({
               request.mutate({ reason, comment }, { onSuccess: () => onOpenChange(false) });
             }}
           >
-            {request.isPending ? "提交中…" : confirming ? "确认撤单（不可逆）" : "申请撤单"}
+            {request.isPending
+              ? t("maint.retraction.submitting")
+              : confirming
+                ? t("maint.retraction.confirmBtn")
+                : t("maint.retraction.applyBtn")}
           </Button>
         </DialogFooter>
       </DialogContent>

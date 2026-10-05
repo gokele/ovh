@@ -7,6 +7,8 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { LoadFailed } from "@/components/common/LoadFailed";
 import { Chip } from "@/components/common/Chip";
 import { useServerNetworkSpecs } from "@/hooks/use-server-control";
+import { useTranslation } from "react-i18next";
+import { fmtDate } from "@/i18n/format";
 
 /**
  * Network specs：完全按 OVH 实际字段渲染
@@ -28,6 +30,7 @@ export function NetworkSpecsDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const { hidden } = useHideIp();
   // 路由信息里有 CIDR 和 IPv6,maskSensitive 的精确正则接不住,统一宽松打码:
   // 保留首段,其余遮掉。开关关着时原样返回。
@@ -49,9 +52,9 @@ export function NetworkSpecsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Network className="w-5 h-5" />
-            网络规格
+            {t("maint.networkSpecs.title")}
           </DialogTitle>
-          <DialogDescription>带宽 / 端口速率 / IPv4-v6 路由 / 流量配额 / 交换机 / vMAC / vRack。</DialogDescription>
+          <DialogDescription>{t("maint.networkSpecs.desc")}</DialogDescription>
         </DialogHeader>
 
         <div className="overflow-y-auto -mx-6 px-6 space-y-4 flex-1">
@@ -60,31 +63,31 @@ export function NetworkSpecsDialog({
           ) : q.isError ? (
             // 「无网络规格数据」等于替 OVH 承认"这机器没带宽 / 没流量配额信息",
             // 用户会照着这个结论去开工单或改用途。请求挂了就说请求挂了。
-            <LoadFailed icon={Network} title="网络规格读取失败" error={q.error} onRetry={() => q.refetch()} />
+            <LoadFailed icon={Network} title={t("maint.networkSpecs.loadFailed")} error={q.error} onRetry={() => q.refetch()} />
           ) : !data ? (
-            <EmptyState icon={Network} title="无网络规格数据" />
+            <EmptyState icon={Network} title={t("maint.networkSpecs.empty")} />
           ) : (
             <>
               {/* 带宽四档 */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <BwCard
                   icon={<ArrowUp className="w-3.5 h-3.5" />}
-                  label="出向 (OVH → 互联网)"
+                  label={t("maint.networkSpecs.bw.out")}
                   value={fmtBandwidth(data.bandwidth?.OvhToInternet)}
                 />
                 <BwCard
                   icon={<ArrowDown className="w-3.5 h-3.5" />}
-                  label="入向 (互联网 → OVH)"
+                  label={t("maint.networkSpecs.bw.in")}
                   value={fmtBandwidth(data.bandwidth?.InternetToOvh)}
                 />
                 <BwCard
                   icon={<ArrowLeftRight className="w-3.5 h-3.5" />}
-                  label="内部 (OVH → OVH)"
+                  label={t("maint.networkSpecs.bw.internal")}
                   value={fmtBandwidth(data.bandwidth?.OvhToOvh)}
                 />
                 <BwCard
                   icon={<Cable className="w-3.5 h-3.5" />}
-                  label="端口速率"
+                  label={t("maint.networkSpecs.bw.port")}
                   value={fmtBandwidth(data.connection)}
                 />
               </div>
@@ -92,19 +95,22 @@ export function NetworkSpecsDialog({
               {/* 带宽类型 */}
               {data.bandwidth?.type && (
                 <p className="text-[11px] text-muted-foreground">
-                  带宽类型：<span className="font-mono">{data.bandwidth.type}</span>
+                  {t("maint.networkSpecs.bwType")}
+                  <span className="font-mono">{data.bandwidth.type}</span>
                 </p>
               )}
 
               {/* 路由 IPv4 */}
               {data.routing?.ipv4 && (
                 <div className="border border-border rounded-2xl overflow-hidden">
-                  <div className="px-4 py-2 bg-secondary/50 text-[12px] font-semibold">IPv4 路由</div>
+                  <div className="px-4 py-2 bg-secondary/50 text-[12px] font-semibold">
+                    {t("maint.networkSpecs.ipv4Routing")}
+                  </div>
                   <KvRows
                     rows={[
-                      ["IP 地址", maskAny(data.routing.ipv4.ip)],
-                      ["网关", maskAny(data.routing.ipv4.gateway)],
-                      ["网段", maskAny(data.routing.ipv4.network)],
+                      [t("maint.networkSpecs.kv.ip"), maskAny(data.routing.ipv4.ip)],
+                      [t("maint.networkSpecs.kv.gateway"), maskAny(data.routing.ipv4.gateway)],
+                      [t("maint.networkSpecs.kv.network"), maskAny(data.routing.ipv4.network)],
                     ]}
                   />
                 </div>
@@ -113,12 +119,14 @@ export function NetworkSpecsDialog({
               {/* 路由 IPv6 */}
               {data.routing?.ipv6 && (
                 <div className="border border-border rounded-2xl overflow-hidden">
-                  <div className="px-4 py-2 bg-secondary/50 text-[12px] font-semibold">IPv6 路由</div>
+                  <div className="px-4 py-2 bg-secondary/50 text-[12px] font-semibold">
+                    {t("maint.networkSpecs.ipv6Routing")}
+                  </div>
                   <KvRows
                     rows={[
-                      ["IP 地址", maskAny(data.routing.ipv6.ip)],
-                      ["网关", maskAny(data.routing.ipv6.gateway)],
-                      ["网段", maskAny(data.routing.ipv6.network)],
+                      [t("maint.networkSpecs.kv.ip"), maskAny(data.routing.ipv6.ip)],
+                      [t("maint.networkSpecs.kv.gateway"), maskAny(data.routing.ipv6.gateway)],
+                      [t("maint.networkSpecs.kv.network"), maskAny(data.routing.ipv6.network)],
                     ]}
                   />
                 </div>
@@ -127,36 +135,39 @@ export function NetworkSpecsDialog({
               {/* 交换机 / vMAC / vRack / 流量 / OLA */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {data.switching?.name && (
-                  <InfoBlock title="交换机">
+                  <InfoBlock title={t("maint.networkSpecs.switching")}>
                     <code className="font-mono text-[12px]">{data.switching.name}</code>
                   </InfoBlock>
                 )}
 
                 {data.vmac && (
-                  <InfoBlock title="虚拟 MAC (vMAC)">
+                  <InfoBlock title={t("maint.networkSpecs.vmacTitle")}>
                     <div className="flex items-center gap-2 text-[13px]">
                       <Chip tone={data.vmac.supported ? "success" : "default"}>
-                        {data.vmac.supported ? "支持" : "不支持"}
+                        {data.vmac.supported ? t("maint.networkSpecs.supported") : t("maint.networkSpecs.unsupported")}
                       </Chip>
                       {data.vmac.quota != null && (
-                        <span className="text-muted-foreground">配额：{data.vmac.quota}</span>
+                        <span className="text-muted-foreground">
+                          {t("maint.networkSpecs.quotaLabel")}
+                          {data.vmac.quota}
+                        </span>
                       )}
                     </div>
                   </InfoBlock>
                 )}
 
                 {data.vrack && (data.vrack.bandwidth != null || data.vrack.type) && (
-                  <InfoBlock title="vRack 私有网络">
+                  <InfoBlock title={t("maint.networkSpecs.vrackTitle")}>
                     <div className="text-[13px] space-y-0.5">
                       {data.vrack.type && (
                         <div>
-                          <span className="text-muted-foreground">类型：</span>
+                          <span className="text-muted-foreground">{t("maint.networkSpecs.typeLabel")}</span>
                           <span className="font-mono">{data.vrack.type}</span>
                         </div>
                       )}
                       {data.vrack.bandwidth != null && (
                         <div>
-                          <span className="text-muted-foreground">带宽：</span>
+                          <span className="text-muted-foreground">{t("maint.networkSpecs.bwLabel")}</span>
                           <span className="font-mono">{fmtBandwidth(data.vrack.bandwidth)}</span>
                         </div>
                       )}
@@ -165,34 +176,41 @@ export function NetworkSpecsDialog({
                 )}
 
                 {data.traffic && (
-                  <InfoBlock title="流量配额">
+                  <InfoBlock title={t("maint.networkSpecs.trafficTitle")}>
                     <div className="text-[13px] space-y-0.5">
-                      <Row label="入向配额" value={data.traffic.inputQuotaSize ? fmtBytes(data.traffic.inputQuotaSize) : "无限"} />
-                      <Row label="出向配额" value={data.traffic.outputQuotaSize ? fmtBytes(data.traffic.outputQuotaSize) : "无限"} />
                       <Row
-                        label="限速状态"
+                        label={t("maint.networkSpecs.inQuota")}
+                        value={data.traffic.inputQuotaSize ? fmtBytes(data.traffic.inputQuotaSize) : t("maint.networkSpecs.unlimited")}
+                      />
+                      <Row
+                        label={t("maint.networkSpecs.outQuota")}
+                        value={data.traffic.outputQuotaSize ? fmtBytes(data.traffic.outputQuotaSize) : t("maint.networkSpecs.unlimited")}
+                      />
+                      <Row
+                        label={t("maint.networkSpecs.throttleLabel")}
                         value={
                           <Chip tone={data.traffic.isThrottled ? "warning" : "success"}>
-                            {data.traffic.isThrottled ? "已限速" : "正常"}
+                            {data.traffic.isThrottled ? t("maint.networkSpecs.throttled") : t("maint.networkSpecs.normal")}
                           </Chip>
                         }
                       />
                       {data.traffic.resetQuotaDate && (
-                        <Row label="重置日期" value={new Date(data.traffic.resetQuotaDate).toLocaleDateString("zh-CN")} />
+                        <Row label={t("maint.networkSpecs.resetDate")} value={fmtDate(data.traffic.resetQuotaDate)} />
                       )}
                     </div>
                   </InfoBlock>
                 )}
 
                 {data.ola && (
-                  <InfoBlock title="OLA (OVH Link Aggregation)">
+                  <InfoBlock title={t("maint.networkSpecs.olaTitle")}>
                     <div className="text-[13px] space-y-0.5">
                       <Chip tone={data.ola.available ? "success" : "default"}>
-                        {data.ola.available ? "可用" : "不可用"}
+                        {data.ola.available ? t("maint.networkSpecs.available") : t("maint.networkSpecs.unavailable")}
                       </Chip>
                       {Array.isArray(data.ola.supportedModes) && data.ola.supportedModes.length > 0 && (
                         <p className="text-[11px] text-muted-foreground">
-                          支持模式：{data.ola.supportedModes.join(", ")}
+                          {t("maint.networkSpecs.olaModes")}
+                          {data.ola.supportedModes.join(", ")}
                         </p>
                       )}
                     </div>
@@ -206,10 +224,10 @@ export function NetworkSpecsDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => q.refetch()} disabled={q.isFetching}>
             <RefreshCw className={`w-3.5 h-3.5 mr-1 ${q.isFetching ? "animate-spin" : ""}`} />
-            刷新
+            {t("common.refresh")}
           </Button>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            关闭
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

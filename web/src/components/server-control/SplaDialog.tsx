@@ -11,6 +11,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { qk } from "@/lib/query";
 import { useSplaList, hasActiveSpla } from "@/hooks/use-server-control";
 import { toast } from "sonner";
+import { Trans, useTranslation } from "react-i18next";
+import { errorMessage } from "@/components/common/LoadFailed";
 
 /**
  * 登记 SPLA 许可证 + 一键解锁 Windows 安装。
@@ -37,11 +39,11 @@ import { toast } from "sonner";
  */
 const WINDOWS_GVLK = "W269N-WFGWX-YVC9B-4J6C9-T83GX";
 
-/** schema 的 SplaTypeEnum 全集,手填表单用 */
+/** schema 的 SplaTypeEnum 全集,手填表单用(文案 key,渲染处 t()) */
 const SPLA_TYPES = [
-  { value: "os", label: "操作系统 (Windows Server)" },
-  { value: "sqlstd", label: "SQL Server 标准版" },
-  { value: "sqlweb", label: "SQL Server 网页版" },
+  { value: "os", labelKey: "maint.spla.type.os" },
+  { value: "sqlstd", labelKey: "maint.spla.type.sqlstd" },
+  { value: "sqlweb", labelKey: "maint.spla.type.sqlweb" },
 ];
 
 export function SplaDialog({
@@ -53,6 +55,7 @@ export function SplaDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [type, setType] = useState("os");
   const [serial, setSerial] = useState("");
   const [busy, setBusy] = useState(false);
@@ -74,10 +77,10 @@ export function SplaDialog({
         type: "os",
         serialNumber: WINDOWS_GVLK,
       });
-      toast.success("已登记，刷新后重装列表里就会出现 Windows 模板", { duration: 7000 });
+      toast.success(t("maint.spla.toast.unlocked"), { duration: 7000 });
       qc.invalidateQueries({ queryKey: qk.serverControl.spla(serviceName) });
     } catch (e: any) {
-      toast.error(e?.response?.data?.error || e?.message || "解锁失败", { duration: 8000 });
+      toast.error(errorMessage(e), { duration: 8000 });
     } finally {
       setUnlocking(false);
     }
@@ -87,18 +90,18 @@ export function SplaDialog({
   const submit = async () => {
     const sn = serial.trim();
     if (!sn) {
-      toast.error("请填写你的 SPLA 许可证序列号");
+      toast.error(t("maint.spla.toast.needSerial"));
       return;
     }
     setBusy(true);
     try {
       await api.post(`/server-control/${serviceName}/spla`, { type, serialNumber: sn });
-      toast.success("许可证已提交");
+      toast.success(t("maint.spla.toast.submitted"));
       setSerial("");
       qc.invalidateQueries({ queryKey: qk.serverControl.spla(serviceName) });
       onOpenChange(false);
     } catch (e: any) {
-      toast.error(e?.response?.data?.error || e?.message || "提交失败", { duration: 8000 });
+      toast.error(errorMessage(e), { duration: 8000 });
     } finally {
       setBusy(false);
     }
@@ -110,7 +113,7 @@ export function SplaDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Zap className="w-5 h-5" />
-            登记 SPLA 许可证
+            {t("maint.spla.title")}
           </DialogTitle>
           <DialogDescription>{serviceName}</DialogDescription>
         </DialogHeader>
@@ -120,24 +123,18 @@ export function SplaDialog({
               只会多一条重复记录或换来 OVH 的报错。 */}
           <div className="rounded-xl border border-border bg-muted/40 px-3.5 py-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[12px] font-semibold">解锁 Windows 安装</p>
+              <p className="text-[12px] font-semibold">{t("maint.spla.unlockTitle")}</p>
               {unlocked && !unknown && (
                 <span className="inline-flex items-center gap-1 text-[11px] text-success">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  已解锁
+                  {t("maint.spla.unlocked")}
                 </span>
               )}
             </div>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              OVH 把 Windows 模板锁在「这台机器名下有<b>操作系统</b>授权记录」后面。
-              点一下只登记这一类，用的是微软<b>公开发布</b>的 Windows KMS 客户端密钥 ——
-              它只让 OVH 的检查通过，<b>不代表你持有 Windows Server 授权</b>，
-              系统装好后仍需能连上 KMS 服务器才会真正激活。
+              <Trans i18nKey="maint.spla.unlockDesc" components={{ b: <b /> }} />
             </p>
-            <p className="text-[11px] text-muted-foreground">
-              SQL Server 的两类授权不在这里 —— 那要你真的买了 SQL 授权才谈得上登记，
-              请用下面的表单填自己的序列号。
-            </p>
+            <p className="text-[11px] text-muted-foreground">{t("maint.spla.sqlNote")}</p>
             <Button
               className="w-full"
               variant={unlocked && !unknown ? "outline" : "default"}
@@ -146,29 +143,26 @@ export function SplaDialog({
             >
               {unlocking && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
               {spla.isPending
-                ? "检查中…"
+                ? t("maint.spla.checking")
                 : unlocked && !unknown
-                  ? "已解锁，无需重复登记"
-                  : "一键解锁 Windows 安装"}
+                  ? t("maint.spla.alreadyUnlocked")
+                  : t("maint.spla.unlockBtn")}
             </Button>
             {spla.isError && (
-              <p className="text-[11px] text-warning">
-                没读到这台机器已有的授权记录，无法判断是否已解锁 —— 按钮仍可点，
-                如果之前登记过，OVH 会直接拒绝，不会重复计费。
-              </p>
+              <p className="text-[11px] text-warning">{t("maint.spla.unknownWarn")}</p>
             )}
           </div>
 
           <div className="border-t border-border pt-3">
-            <label className="text-[12px] font-semibold block mb-1.5">授权类型</label>
+            <label className="text-[12px] font-semibold block mb-1.5">{t("maint.spla.typeLabel")}</label>
             <Select value={type} onValueChange={setType}>
               <SelectTrigger className="h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SPLA_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    {t.label}
+                {SPLA_TYPES.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {t(opt.labelKey)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -176,11 +170,11 @@ export function SplaDialog({
           </div>
 
           <div>
-            <label className="text-[12px] font-semibold block mb-1.5">许可证序列号</label>
+            <label className="text-[12px] font-semibold block mb-1.5">{t("maint.spla.serialLabel")}</label>
             <Input
               value={serial}
               onChange={(e) => setSerial(e.target.value)}
-              placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+              placeholder={t("maint.spla.serialPlaceholder")}
               autoFocus
             />
           </div>
@@ -188,19 +182,17 @@ export function SplaDialog({
           <div className="border border-warning/40 bg-warning/10 rounded-xl p-2.5 flex gap-2">
             <AlertCircle className="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" />
             <p className="text-[11px] text-muted-foreground">
-              这里填你自己购买的 SPLA 授权序列号（SQL Server 的两类只能走这里）。
-              这一步是把授权<b>登记</b>到 OVH 名下，不是申请或生成授权 ——
-              登记本身不会让你凭空拥有授权。
+              <Trans i18nKey="maint.spla.manualNote" components={{ b: <b /> }} />
             </p>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
+            {t("common.cancel")}
           </Button>
           <Button onClick={submit} disabled={busy}>
-            {busy ? "提交中…" : "提交"}
+            {busy ? t("maint.spla.submitting") : t("maint.spla.submit")}
           </Button>
         </DialogFooter>
       </DialogContent>

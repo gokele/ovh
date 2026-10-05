@@ -128,7 +128,7 @@ func GetNetworkInterfaces(state *app.State) gin.HandlerFunc {
 					"success":    true,
 					"interfaces": []interface{}{},
 					"count":      0,
-					"message":    "该服务器暂无网卡信息",
+					"message":    "该服务器暂无网卡信息", "code": "EF0DDE9F4",
 					"detail":     netOVHMessage(err),
 				})
 				return
@@ -212,7 +212,7 @@ func GetMRTGData(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{
 				"success": true, "period": period, "type": trafficType,
 				"interfaces": []gin.H{},
-				"message":    "OVH 未返回任何网卡(可能是极老机型未接入 networkInterfaceController),因此没有流量图数据",
+				"message":    "OVH 未返回任何网卡(可能是极老机型未接入 networkInterfaceController),因此没有流量图数据", "code": "E65DF8BAB",
 			})
 			return
 		}
@@ -253,11 +253,11 @@ func ConfigureOLAAggregation(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少聚合名称(name)参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少聚合名称(name)参数", "code": "E5DFC8606"})
 			return
 		}
 		if len(body.VirtualNetworkInterfaces) < 2 {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "至少需要2个网络接口进行聚合"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "至少需要2个网络接口进行聚合", "code": "E0A44E5AC"})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[OLA] 配置网络聚合: %s - %s - %d个接口", svc, body.Name, len(body.VirtualNetworkInterfaces)), "server_control")
@@ -270,7 +270,7 @@ func ConfigureOLAAggregation(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[OLA] 网络聚合配置任务已创建: Task#%v", result["taskId"]), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "网络聚合配置任务已创建", "task": result})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "网络聚合配置任务已创建", "code": "E5FFCBB25", "task": result})
 	}
 }
 
@@ -288,7 +288,7 @@ func ResetOLAConfiguration(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.VirtualNetworkInterface == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少虚拟网络接口UUID(virtualNetworkInterface)参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少虚拟网络接口UUID(virtualNetworkInterface)参数", "code": "EAD1397D5"})
 			return
 		}
 		state.Logger.Info("[OLA] 重置网络接口: "+svc+" - "+body.VirtualNetworkInterface, "server_control")
@@ -300,7 +300,7 @@ func ResetOLAConfiguration(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[OLA] 网络接口重置任务已创建: Task#%v", result["taskId"]), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "网络接口重置任务已创建", "task": result})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "网络接口重置任务已创建", "code": "E44BE3AA0", "task": result})
 	}
 }
 
@@ -326,11 +326,11 @@ func OLAGroup(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少聚合名称(name)参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少聚合名称(name)参数", "code": "E5DFC8606"})
 			return
 		}
 		if len(body.VirtualNetworkInterfaces) < 2 {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "至少需要2个网络接口进行聚合"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "至少需要2个网络接口进行聚合", "code": "E0A44E5AC"})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[OLA] 创建OLA组(走 ola/aggregation): %s - %s - %d个接口", svc, body.Name, len(body.VirtualNetworkInterfaces)), "server_control")
@@ -343,7 +343,7 @@ func OLAGroup(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("创建OLA组成功: %s, Task#%v", svc, result["taskId"]), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "OLA组已创建", "result": result, "task": result})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "OLA组已创建", "code": "E72EBD409", "result": result, "task": result})
 	}
 }
 
@@ -367,7 +367,7 @@ func OLAUngroup(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.VirtualNetworkInterface == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少虚拟网络接口UUID(virtualNetworkInterface)参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少虚拟网络接口UUID(virtualNetworkInterface)参数", "code": "EAD1397D5"})
 			return
 		}
 		state.Logger.Info("[OLA] 解散OLA组(走 ola/reset): "+svc+" - "+body.VirtualNetworkInterface, "server_control")
@@ -380,7 +380,7 @@ func OLAUngroup(state *app.State) gin.HandlerFunc {
 		}
 		tasks := []map[string]interface{}{task}
 		state.Logger.Info(fmt.Sprintf("解散OLA组成功: %s, Task#%v", svc, task["taskId"]), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "OLA组已解散", "tasks": tasks, "task": task})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "OLA组已解散", "code": "EF6B3CAF6", "tasks": tasks, "task": task})
 	}
 }
 
@@ -421,7 +421,7 @@ func GetIPMIAccessTypes(state *app.State) gin.HandlerFunc {
 				c.JSON(http.StatusOK, gin.H{
 					"success":        true,
 					"supportedTypes": []string{},
-					"message":        "该服务器没有 IPMI 功能",
+					"message":        "该服务器没有 IPMI 功能", "code": "E5A05B624",
 				})
 				return
 			}
@@ -527,7 +527,7 @@ func GetIPMIConsole(state *app.State) gin.HandlerFunc {
 			}
 		}
 		if accessType == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "服务器不支持KVM控制台访问"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "服务器不支持KVM控制台访问", "code": "EF2514B25"})
 			return
 		}
 		state.Logger.Info("[IPMI] 请求KVM控制台访问，类型: "+accessType, "server_control")
@@ -598,7 +598,7 @@ func GetIPMIConsole(state *app.State) gin.HandlerFunc {
 			}
 		}
 		if !taskCompleted {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "IPMI访问任务超时"})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "IPMI访问任务超时", "code": "E8953934A"})
 			return
 		}
 		var consoleAccess map[string]interface{}
@@ -611,7 +611,7 @@ func GetIPMIConsole(state *app.State) gin.HandlerFunc {
 		// dedicated.server.IpmiAccessValue.value 是「可空」string：任务 done 了 OVH 也可能还没生成地址
 		if v, _ := consoleAccess["value"].(string); v == "" {
 			state.Logger.Error(fmt.Sprintf("[IPMI] OVH 返回空控制台地址: type=%s, resp=%v", accessType, consoleAccess), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "OVH 未返回控制台地址，请稍后重试"})
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "OVH 未返回控制台地址，请稍后重试", "code": "E35CB5452"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -667,7 +667,7 @@ func GetTrafficStatistics(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{
 				"success": true, "period": period, "type": typeParam,
 				"statistics": []gin.H{},
-				"message":    "OVH 未返回任何网卡(可能是极老机型未接入 networkInterfaceController),因此没有流量统计数据",
+				"message":    "OVH 未返回任何网卡(可能是极老机型未接入 networkInterfaceController),因此没有流量统计数据", "code": "EFB67AACB",
 			})
 			return
 		}

@@ -4,6 +4,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+import { errorMessage } from "@/components/common/LoadFailed";
 
 /**
  * IPMI / KVM 控制台对话框：
@@ -34,6 +36,7 @@ export function IpmiDialog({
   const [types, setTypes] = useState<{ supportedTypes: string[]; typeLabels: Record<string, string>; activated: boolean } | null>(null);
   const [chosen, setChosen] = useState<string>("");
   const [typesLoading, setTypesLoading] = useState(false);
+  const { t } = useTranslation();
 
   // 打开对话框:先查支持哪几种(秒回),不自动申请会话
   useEffect(() => {
@@ -58,7 +61,7 @@ export function IpmiDialog({
         });
         setChosen(res.data?.defaultType || "");
       } catch (e: any) {
-        setError(e?.response?.data?.error || "查询控制台类型失败");
+        setError(errorMessage(e));
       } finally {
         setTypesLoading(false);
       }
@@ -68,7 +71,7 @@ export function IpmiDialog({
   // 申请控制台会话(要轮询 OVH 任务,约 20 秒)
   const openConsole = () => {
     if (!chosen) {
-      toast.error("请先选择接入方式");
+      toast.error(t("ctrl.ipmi.toast.pickType"));
       return;
     }
     startedRef.current = true;
@@ -88,7 +91,7 @@ export function IpmiDialog({
         const value = res.data?.console?.value;
         const accessType = res.data?.accessType;
         if (!value) {
-          setError("控制台返回为空");
+          setError(t("ctrl.ipmi.emptyResult"));
           return;
         }
         if (accessType === "kvmipJnlp") {
@@ -102,7 +105,7 @@ export function IpmiDialog({
           a.click();
           document.body.removeChild(a);
           window.URL.revokeObjectURL(url);
-          toast.success("JNLP 文件已下载");
+          toast.success(t("ctrl.ipmi.toast.jnlpDownloaded"));
           setResult({ accessType });
         } else {
           setResult({ url: value, accessType });
@@ -110,7 +113,7 @@ export function IpmiDialog({
       } catch (e: any) {
         clearInterval(interval);
         setLoading(false);
-        setError(e?.response?.data?.error || "打开控制台失败");
+        setError(errorMessage(e));
       }
     })();
   };
@@ -121,10 +124,10 @@ export function IpmiDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Monitor className="w-5 h-5" />
-            IPMI / KVM 控制台
+            {t("ctrl.ipmi.title")}
           </DialogTitle>
           <DialogDescription>
-            选择接入方式后申请远程控制台。申请要向 OVH 提交任务并轮询，约 20 秒。
+            {t("ctrl.ipmi.desc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -134,36 +137,36 @@ export function IpmiDialog({
             {typesLoading ? (
               <p className="text-[13px] text-muted-foreground flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                正在查询该服务器支持的接入方式…
+                {t("ctrl.ipmi.typesLoading")}
               </p>
             ) : types && types.supportedTypes.length > 0 ? (
               <>
-                <label className="text-[12px] font-semibold block">接入方式</label>
+                <label className="text-[12px] font-semibold block">{t("ctrl.ipmi.typeLabel")}</label>
                 <div className="space-y-1.5">
-                  {types.supportedTypes.map((t) => (
+                  {types.supportedTypes.map((type) => (
                     <label
-                      key={t}
+                      key={type}
                       className={`flex items-start gap-2 px-3 py-2 border rounded-xl cursor-pointer text-[13px] transition-colors ${
-                        chosen === t ? "border-primary bg-primary/5" : "border-border hover:bg-secondary/40"
+                        chosen === type ? "border-primary bg-primary/5" : "border-border hover:bg-secondary/40"
                       }`}
                     >
                       <input
                         type="radio"
                         name="ipmi-type"
                         className="mt-0.5"
-                        checked={chosen === t}
-                        onChange={() => setChosen(t)}
+                        checked={chosen === type}
+                        onChange={() => setChosen(type)}
                       />
                       <span>
-                        {types.typeLabels[t] || t}
-                        {t === "kvmipJnlp" && (
+                        {types.typeLabels[type] || type}
+                        {type === "kvmipJnlp" && (
                           <span className="block text-[11px] text-muted-foreground mt-0.5">
-                            需要本机装 Java Web Start。新版 JDK 已移除它，可用 OpenWebStart 打开 .jnlp
+                            {t("ctrl.ipmi.jnlpHint")}
                           </span>
                         )}
-                        {t === "serialOverLanSshKey" && (
+                        {type === "serialOverLanSshKey" && (
                           <span className="block text-[11px] text-muted-foreground mt-0.5">
-                            用 OVH 账户里已登记的 SSH 公钥连接
+                            {t("ctrl.ipmi.solHint")}
                           </span>
                         )}
                       </span>
@@ -172,12 +175,12 @@ export function IpmiDialog({
                 </div>
                 {!types.activated && (
                   <p className="text-[11px] text-warning">
-                    该服务器 IPMI 显示未激活，申请可能失败；如失败请先到 OVH 后台启用 IPMI。
+                    {t("ctrl.ipmi.notActivated")}
                   </p>
                 )}
               </>
             ) : (
-              <p className="text-[13px] text-muted-foreground">该服务器不支持 KVM / SOL 控制台。</p>
+              <p className="text-[13px] text-muted-foreground">{t("ctrl.ipmi.noConsole")}</p>
             )}
           </div>
         )}
@@ -187,14 +190,15 @@ export function IpmiDialog({
             <>
               <Loader2 className="w-12 h-12 animate-spin text-muted-foreground" />
               <p className="text-[13px] text-muted-foreground">
-                正在获取控制台访问… {countdown > 0 && `约 ${countdown}s`}
+                {t("ctrl.ipmi.fetching")}
+                {countdown > 0 && ` ${t("ctrl.ipmi.countdown", { n: countdown })}`}
               </p>
             </>
           ) : error ? (
             <p className="text-[13px] text-destructive">{error}</p>
           ) : result ? (
             <div className="w-full space-y-3">
-              <p className="text-[13px] text-success font-semibold text-center">控制台访问已就绪</p>
+              <p className="text-[13px] text-success font-semibold text-center">{t("ctrl.ipmi.ready")}</p>
               {result.url ? (
                 <a
                   href={result.url}
@@ -203,16 +207,16 @@ export function IpmiDialog({
                   className="flex items-center justify-center gap-2 w-full px-4 py-3 border border-border rounded-2xl hover:bg-secondary/50 transition-colors text-[13px] font-semibold"
                 >
                   <ExternalLink className="w-4 h-4" />
-                  在新标签页打开控制台
+                  {t("ctrl.ipmi.openInNewTab")}
                 </a>
               ) : (
                 <div className="flex items-center justify-center gap-2 w-full px-4 py-3 border border-border rounded-2xl text-[13px] text-muted-foreground">
                   <Download className="w-4 h-4" />
-                  JNLP 文件已下载，请用 Java 打开
+                  {t("ctrl.ipmi.jnlpOpenHint")}
                 </div>
               )}
               <p className="text-[11px] text-muted-foreground text-center">
-                链接仅当次有效。访问类型：{result.accessType}
+                {t("ctrl.ipmi.linkHint", { type: result.accessType })}
               </p>
             </div>
           ) : null}
@@ -220,15 +224,15 @@ export function IpmiDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            关闭
+            {t("common.close")}
           </Button>
           {result ? (
             <Button onClick={openConsole} disabled={loading}>
-              换一种方式重开
+              {t("ctrl.ipmi.retryOther")}
             </Button>
           ) : (
             <Button onClick={openConsole} disabled={loading || typesLoading || !chosen}>
-              {loading ? "申请中…" : "打开控制台"}
+              {loading ? t("ctrl.ipmi.requesting") : t("ctrl.ipmi.openConsole")}
             </Button>
           )}
         </DialogFooter>

@@ -1,9 +1,10 @@
 import { Cpu, MemoryStick, HardDrive, HardDriveDownload, Wifi, Network, Server } from "lucide-react";
 import {
-  OPTION_GROUP_LABELS,
+  optionGroupLabel,
   formatOptionDisplay,
   type OptionGroupKey,
 } from "@/lib/option-groups";
+import { useTranslation } from "react-i18next";
 import type { ServerOption } from "@/hooks/use-servers";
 
 /** option 组 → 图标映射 */
@@ -37,12 +38,13 @@ export function OptionGroupSection({
   hasStock?: (value: string) => boolean;
   onPick: (value: string) => void;
 }) {
+  const { t } = useTranslation();
   const Icon = ICON_MAP[groupKey];
   return (
     <div>
       <h3 className="text-[13px] font-semibold mb-2.5 flex items-center gap-1.5">
         <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-        {OPTION_GROUP_LABELS[groupKey]}
+        {optionGroupLabel(groupKey)}
       </h3>
       <div className="flex flex-wrap gap-2">
         {options.map((opt) => {
@@ -60,7 +62,7 @@ export function OptionGroupSection({
                   ? "border-foreground bg-foreground text-background"
                   : "border-border bg-secondary/40 hover:bg-secondary text-foreground")
               }
-              title={inStock === false ? `${opt.value} (当前组合在所有 DC 缺货)` : opt.value}
+              title={inStock === false ? t("commons.optionGroup.outOfStockTitle", { value: opt.value }) : opt.value}
             >
               {inStock !== undefined && (
                 <span
@@ -68,13 +70,13 @@ export function OptionGroupSection({
                     "inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 " +
                     (inStock ? "bg-success" : "bg-destructive")
                   }
-                  aria-label={inStock ? "有货" : "缺货"}
+                  aria-label={inStock ? t("commons.optionGroup.inStock") : t("commons.optionGroup.outOfStock")}
                 />
               )}
               <span className="font-semibold">{formatOptionDisplay(opt, groupKey)}</span>
               {isDefault && (
                 <span className={"text-[9px] px-1.5 py-0.5 rounded-full " + (active ? "bg-background/20" : "bg-foreground/10")}>
-                  默认
+                  {t("commons.optionGroup.defaultBadge")}
                 </span>
               )}
             </button>

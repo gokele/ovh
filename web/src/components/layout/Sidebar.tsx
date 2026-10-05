@@ -14,6 +14,7 @@ import {
   Github,
   type LucideIcon,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { AccountSwitcher } from "@/components/layout/AccountSwitcher";
 
@@ -31,40 +32,42 @@ interface NavGroup {
 /**
  * 侧栏导航分组：概览 / 抢购 / 监控 / 实例 / 系统
  * VPS 控制台风格，每组之间留呼吸空间，active 用浅灰底 + 黑色左 2px border
+ * 多语言:文案从 i18n 取 —— NAV_GROUPS 在模块加载时求值一次,语言切换后
+ * 由渲染处的 t() 重新读取(这里 title/label 存 key,渲染时翻译)
  */
 const NAV_GROUPS: NavGroup[] = [
   {
-    title: "概览",
-    items: [{ to: "/", icon: BarChart3, label: "仪表盘" }],
+    title: "nav.group.overview",
+    items: [{ to: "/", icon: BarChart3, label: "nav.dashboard" }],
   },
   {
-    title: "抢购",
+    title: "nav.group.sniping",
     items: [
-      { to: "/servers", icon: Server, label: "服务器列表" },
-      { to: "/queue", icon: ClipboardList, label: "抢购队列" },
+      { to: "/servers", icon: Server, label: "nav.servers" },
+      { to: "/queue", icon: ClipboardList, label: "nav.queue" },
     ],
   },
   {
-    title: "监控",
+    title: "nav.group.monitor",
     items: [
-      { to: "/monitor", icon: Bell, label: "服务器监控" },
-      { to: "/vps-monitor", icon: Cloud, label: "VPS 补货" },
+      { to: "/monitor", icon: Bell, label: "nav.serverMonitor" },
+      { to: "/vps-monitor", icon: Cloud, label: "nav.vpsMonitor" },
     ],
   },
   {
-    title: "实例",
+    title: "nav.group.instances",
     items: [
-      { to: "/server-control", icon: Terminal, label: "服务器控制" },
-      { to: "/vps-control", icon: Cloud, label: "VPS 控制" },
-      { to: "/account", icon: User, label: "账户管理" },
+      { to: "/server-control", icon: Terminal, label: "nav.serverControl" },
+      { to: "/vps-control", icon: Cloud, label: "nav.vpsControl" },
+      { to: "/account", icon: User, label: "nav.account" },
     ],
   },
   {
-    title: "系统",
+    title: "nav.group.system",
     items: [
-      { to: "/history", icon: Clock, label: "抢购历史" },
-      { to: "/logs", icon: FileText, label: "详细日志" },
-      { to: "/settings", icon: Settings, label: "API 设置" },
+      { to: "/history", icon: Clock, label: "nav.history" },
+      { to: "/logs", icon: FileText, label: "nav.logs" },
+      { to: "/settings", icon: Settings, label: "nav.settings" },
     ],
   },
 ];
@@ -75,6 +78,7 @@ export { NAV_GROUPS };
  *  - onItemClick:移动抽屉里点条目要关抽屉,桌面端不传就 noop。
  */
 export function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
+  const { t } = useTranslation();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isActive = (to: string) => {
     if (to === "/") return pathname === "/";
@@ -92,7 +96,7 @@ export function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
           <Shield className="w-4 h-4" />
         </div>
         <div className="min-w-0">
-          <div className="text-[15px] font-semibold text-foreground leading-tight truncate">OVH 控制台</div>
+          <div className="text-[15px] font-semibold text-foreground leading-tight truncate">{t("nav.appName")}</div>
         </div>
       </Link>
 
@@ -104,7 +108,7 @@ export function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
         {NAV_GROUPS.map((group) => (
           <div key={group.title}>
             <div className="px-2 mb-1.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-              {group.title}
+              {t(group.title)}
             </div>
             <div className="space-y-0.5">
               {group.items.map((item) => {
@@ -129,7 +133,7 @@ export function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
                       )}
                       strokeWidth={active ? 2.25 : 1.75}
                     />
-                    <span className="truncate">{item.label}</span>
+                    <span className="truncate">{t(item.label)}</span>
                   </Link>
                 );
               })}

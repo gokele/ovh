@@ -45,7 +45,7 @@ func SaveSettings(state *app.State) gin.HandlerFunc {
 			u, err := url.Parse(newCfg.NotifyWebhookURL)
 			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 				c.JSON(http.StatusBadRequest, gin.H{"status": "error",
-					"message": "通知 Webhook 地址不合法,必须是完整的 http:// 或 https:// 地址"})
+					"message": "通知 Webhook 地址不合法,必须是完整的 http:// 或 https:// 地址", "code": "E3CAC8031"})
 				return
 			}
 		}

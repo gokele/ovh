@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Menu, X } from "lucide-react";
 import { useRouterState } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { SidebarContent } from "./Sidebar";
 
 /**
@@ -14,6 +15,7 @@ import { SidebarContent } from "./Sidebar";
  * - 打开时锁住 body 滚动
  */
 export function MobileMenu() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -42,7 +44,7 @@ export function MobileMenu() {
       {/* 汉堡按钮:固定左上,只在 lg 以下显示。z-index 高于 TopBar 但低于抽屉 */}
       <button
         type="button"
-        aria-label="打开菜单"
+        aria-label={t("shell.menu.open")}
         onClick={() => setOpen(true)}
         className="hidden sm:inline-flex lg:hidden items-center justify-center w-11 h-11 -ml-2 rounded-md hover:bg-muted transition-colors flex-shrink-0"
       >
@@ -62,7 +64,7 @@ export function MobileMenu() {
           <aside className="fixed inset-y-0 left-0 z-[70] w-64 max-w-[85vw] bg-background border-r border-border flex flex-col animate-in slide-in-from-left duration-200 shadow-2xl">
             <button
               type="button"
-              aria-label="关闭菜单"
+              aria-label={t("shell.menu.close")}
               onClick={() => setOpen(false)}
               className="absolute top-3 right-3 inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted transition-colors z-10"
             >

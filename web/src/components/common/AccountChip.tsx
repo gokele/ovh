@@ -1,5 +1,6 @@
 import { useAccounts, accountChipColor, findAccountByID } from "@/hooks/use-accounts";
 import { errorMessage } from "@/components/common/LoadFailed";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 /** 显示某个账户的小 chip:`主号 · IE`。多账户场景所有任务行尾都用它。
@@ -13,6 +14,7 @@ import { cn } from "@/lib/utils";
  */
 export function AccountChip({ accountId, className }: { accountId: string; className?: string }) {
   const { data: accounts, isPending, isError, error } = useAccounts();
+  const { t } = useTranslation();
   const acc = findAccountByID(accounts, accountId);
 
   if (!acc) {
@@ -26,21 +28,21 @@ export function AccountChip({ accountId, className }: { accountId: string; class
 
     const label =
       state === "unset"
-        ? "未指定账户"
+        ? t("commons.accountChip.unsetLabel")
         : state === "failed"
-          ? "账户信息读取失败"
+          ? t("commons.accountChip.failedLabel")
           : state === "loading"
-            ? "账户加载中"
-            : "未知账户";
+            ? t("commons.accountChip.loadingLabel")
+            : t("commons.accountChip.missingLabel");
 
     const title =
       state === "unset"
-        ? "这条记录没有关联 OVH 账户"
+        ? t("commons.accountChip.unsetTitle")
         : state === "failed"
-          ? `账户列表读取失败,无法确认账户 ${accountId}:${errorMessage(error)}`
+          ? t("commons.accountChip.failedTitle", { id: accountId, reason: errorMessage(error) })
           : state === "loading"
-            ? "正在读取账户列表"
-            : `账户 ${accountId} 不在列表里(多半已被删除)`;
+            ? t("commons.accountChip.loadingTitle")
+            : t("commons.accountChip.missingTitle", { id: accountId });
 
     return (
       <span
@@ -66,7 +68,7 @@ export function AccountChip({ accountId, className }: { accountId: string; class
         accountChipColor(acc.zone),
         className
       )}
-      title={`OVH 账户:${acc.name}(${acc.zone},${acc.endpoint})`}
+      title={t("commons.accountChip.knownTitle", { name: acc.name, zone: acc.zone, endpoint: acc.endpoint })}
     >
       {acc.name} · {acc.zone}
     </span>

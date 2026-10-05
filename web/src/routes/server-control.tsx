@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -12,6 +13,7 @@ import { StatusDot } from "@/components/common/StatusDot";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadFailed, errorMessage } from "@/components/common/LoadFailed";
+import { fmtDate, fmtDateTime } from "@/i18n/format";
 import {
   useOwnedServers,
   useServerServiceInfo,
@@ -38,12 +40,16 @@ import { RetractionDialog } from "@/components/server-control/RetractionDialog";
 import { ReinstallDialog } from "@/components/server-control/ReinstallDialog";
 import { toast } from "sonner";
 
+/** 模块级文案助手共用的翻译函数类型 */
+type TFn = ReturnType<typeof useTranslation>["t"];
+
 /** 服务器控制中心：顶部下拉切换服务器 + 4 tab 详情 */
 export const Route = createFileRoute("/server-control")({
   component: ServerControlPage,
 });
 
 function ServerControlPage() {
+  const { t } = useTranslation();
   const q = useOwnedServers();
   const { hidden, toggle } = useHideIp();
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -85,23 +91,30 @@ function ServerControlPage() {
     <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={Terminal}
-        title="服务器控制"
+        title={t("serverList.title")}
         // 当前账户不在这里重复 —— 顶栏(手机)/侧栏(桌面)的切换器是全站唯一的账户显示位,
         // 它同时也负责把"账户列表读取失败"这件事说出来,所以这里不必再挂一份。
-        description="管理 OVH 独立服务器"
+        description={t("serverList.description")}
         action={
           <div className="flex flex-wrap items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={toggle} aria-label={hidden ? "显示 IP / MAC" : "隐藏 IP"}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={toggle}
+                  aria-label={hidden ? t("serverList.showSensitive") : t("serverList.hideIp")}
+                >
                   {hidden ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{hidden ? "已隐藏敏感信息 · 点击显示" : "隐藏 IP"}</TooltipContent>
+              <TooltipContent>
+                {hidden ? t("serverList.hiddenTip") : t("serverList.hideIp")}
+              </TooltipContent>
             </Tooltip>
             <Button variant="outline" onClick={() => q.refetch()} disabled={q.isFetching}>
               <RefreshCw className={`w-4 h-4 ${q.isFetching ? "animate-spin" : ""}`} />
-              刷新
+              {t("common.refresh")}
             </Button>
           </div>
         }
@@ -116,7 +129,7 @@ function ServerControlPage() {
           <div className="p-4 sm:p-6">
             <LoadFailed
               icon={Server}
-              title="服务器列表读取失败"
+              title={t("serverList.list.failed")}
               error={q.error}
               onRetry={() => q.refetch()}
             />
@@ -126,8 +139,8 @@ function ServerControlPage() {
         <Card>
           <EmptyState
             icon={Server}
-            title="暂无服务器"
-            description="您的 OVH 账户下还没有独立服务器，或 API 没拿到数据"
+            title={t("serverList.list.empty")}
+            description={t("serverList.list.emptyDesc")}
           />
         </Card>
       ) : (
@@ -184,6 +197,7 @@ function ServerSelector({
   onChange: (serviceName: string) => void;
   hidden: boolean;
 }) {
+  const { t } = useTranslation();
   // 别名读失败是这里唯一可以"静默降级"的一项:aliasOf 拿不到别名就回退显示原始名字
   // (service_name / OVH 的 display name),显示出来的东西依然真实,只是少了自定义标签,
   // 不会让用户对机器本身产生误判。所以不做失败提示,但下面重命名对话框要提醒一句 ——
@@ -227,9 +241,9 @@ function ServerSelector({
           e.stopPropagation();
           setCtxMenu({ server: selected, x: e.clientX, y: e.clientY });
         }}
-        title="左键打开列表;右键给当前服务器设别名"
+        title={t("serverList.selector.title")}
       >
-        <SelectValue placeholder="选择服务器">
+        <SelectValue placeholder={t("serverList.selector.placeholder")}>
           {selected && (
             <div className="flex items-center gap-2">
               <StatusDot tone={selected.state === "ok" ? "success" : "warning"} size="xs" />
@@ -284,7 +298,7 @@ function ServerSelector({
             setCtxMenu(null);
           }}
         >
-          设置别名
+          {t("serverList.ctx.setAlias")}
         </button>
         {aliases?.[ctxMenu.server.serviceName] && (
           <button
@@ -295,7 +309,7 @@ function ServerSelector({
               setCtxMenu(null);
             }}
           >
-            清除别名…
+            {t("serverList.ctx.clearAlias")}
           </button>
         )}
       </div>
@@ -324,6 +338,7 @@ function RenameDialog({
   aliasesUnavailable?: boolean;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const set = useSetServerAlias();
   const [value, setValue] = useState(currentAlias);
   useEffect(() => {
@@ -341,7 +356,7 @@ function RenameDialog({
     <Dialog open={!!server} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>设置别名</DialogTitle>
+          <DialogTitle>{t("serverList.rename.title")}</DialogTitle>
           <DialogDescription className="font-mono text-[11px]">
             {server.serviceName}
           </DialogDescription>
@@ -350,25 +365,28 @@ function RenameDialog({
           <Input
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="例如:kele(留空清除别名)"
+            placeholder={t("serverList.rename.placeholder")}
             autoFocus
             maxLength={64}
           />
           <p className="text-[11px] text-muted-foreground">
-            别名仅在本程序里显示,不会下发到 OVH。
+            {t("serverList.rename.hint")}
           </p>
           {aliasesUnavailable && (
             <p className="text-[11px] text-warning border border-warning/40 bg-warning/5 rounded-xl px-3 py-2">
-              别名列表这次没读到,上面的输入框是空的并不代表这台机器原本没有别名。
-              现在直接保存空值会把已有别名删掉,建议先刷新页面。
+              {t("serverList.rename.unavailableWarn")}
             </p>
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={set.isPending}>
-              {set.isPending ? "保存中…" : value.trim() === "" ? "清除并保存" : "保存"}
+              {set.isPending
+                ? t("serverList.rename.saving")
+                : value.trim() === ""
+                  ? t("serverList.rename.clearSave")
+                  : t("common.save")}
             </Button>
           </DialogFooter>
         </form>
@@ -378,6 +396,7 @@ function RenameDialog({
 }
 
 function ServerTabs({ server }: { server: OwnedServer }) {
+  const { t } = useTranslation();
   const info = useServerServiceInfo(server.serviceName);
   // 14 天无理由撤单的资格。只有 OVH 明确说还在窗口内才会渲染入口 ——
   // 判据是它返回的 retractionDate,不是自己算"开通不到 14 天":
@@ -403,9 +422,9 @@ function ServerTabs({ server }: { server: OwnedServer }) {
     }
     try {
       await toggleMon.mutateAsync({ serviceName: server.serviceName, enabled: !monitoring.data });
-      toast.success(monitoring.data ? "OVH 监控已关闭" : "OVH 监控已开启");
+      toast.success(monitoring.data ? t("serverList.monitor.disabledToast") : t("serverList.monitor.enabledToast"));
     } catch (e: any) {
-      toast.error(e?.response?.data?.error || "操作失败");
+      toast.error(errorMessage(e));
     }
   };
 
@@ -414,10 +433,10 @@ function ServerTabs({ server }: { server: OwnedServer }) {
       <Tabs defaultValue="overview">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <TabsList className="grid grid-cols-4 sm:flex h-auto gap-1 p-1">
-            <TabsTrigger value="overview" className="text-[12px] sm:text-sm px-2 sm:px-3">概览</TabsTrigger>
-            <TabsTrigger value="power" className="text-[12px] sm:text-sm px-2 sm:px-3">电源</TabsTrigger>
-            <TabsTrigger value="maintenance" className="text-[12px] sm:text-sm px-2 sm:px-3">维护</TabsTrigger>
-            <TabsTrigger value="advanced" className="text-[12px] sm:text-sm px-2 sm:px-3">高级</TabsTrigger>
+            <TabsTrigger value="overview" className="text-[12px] sm:text-sm px-2 sm:px-3">{t("serverList.tabs.overview")}</TabsTrigger>
+            <TabsTrigger value="power" className="text-[12px] sm:text-sm px-2 sm:px-3">{t("serverList.tabs.power")}</TabsTrigger>
+            <TabsTrigger value="maintenance" className="text-[12px] sm:text-sm px-2 sm:px-3">{t("serverList.tabs.maintenance")}</TabsTrigger>
+            <TabsTrigger value="advanced" className="text-[12px] sm:text-sm px-2 sm:px-3">{t("serverList.tabs.advanced")}</TabsTrigger>
           </TabsList>
 
           {/* 服务信息胶囊条 + 全局开关 */}
@@ -442,17 +461,17 @@ function ServerTabs({ server }: { server: OwnedServer }) {
                   {retraction.data?.eligible && (
                     <InfoPill
                       icon={<Undo2 className="w-3.5 h-3.5" />}
-                      label="可撤单"
+                      label={t("serverList.pill.retractable")}
                       tone="urgent"
                       value={
                         typeof retraction.data.hoursLeft === "number"
                           ? retraction.data.hoursLeft >= 24
-                            ? `${Math.floor(retraction.data.hoursLeft / 24)} 天`
-                            : `${retraction.data.hoursLeft} 小时`
-                          : "窗口内"
+                            ? t("serverList.pill.daysLeft", { n: Math.floor(retraction.data.hoursLeft / 24) })
+                            : t("serverList.pill.hoursLeft", { n: retraction.data.hoursLeft })
+                          : t("serverList.pill.inWindow")
                       }
                       onClick={() => setRetractOpen(true)}
-                      title={retractionWindowText(retraction.data)}
+                      title={retractionWindowText(t, retraction.data)}
                     />
                   )}
                   {/* 能点的排前面(续费改策略、OS 开重装),纯展示的排后面。
@@ -461,13 +480,13 @@ function ServerTabs({ server }: { server: OwnedServer }) {
                       鼠标不悬停上去根本看不出来,能改的设置就这么被当成了标签。 */}
                   <InfoPill
                     icon={<Repeat className="w-3.5 h-3.5" />}
-                    label="续费"
-                    value={formatRenewal(info.data)}
+                    label={t("serverList.pill.renewal")}
+                    value={formatRenewal(t, info.data)}
                     onClick={() => setRenewalOpen(true)}
                   />
                   <InfoPill
                     icon={<Terminal className="w-3.5 h-3.5" />}
-                    label="OS"
+                    label={t("serverList.pill.os")}
                     value={server.os || "—"}
                     onClick={() => setReinstallOpen(true)}
                   />
@@ -479,8 +498,8 @@ function ServerTabs({ server }: { server: OwnedServer }) {
                       到期日不一样:不续费就没了,是要盯的。 */}
                   <InfoPill
                     icon={<CalendarClock className="w-3.5 h-3.5" />}
-                    label="到期"
-                    value={info.data.expiration ? new Date(info.data.expiration).toLocaleDateString("zh-CN") : "—"}
+                    label={t("serverList.pill.expiration")}
+                    value={info.data.expiration ? fmtDate(info.data.expiration) : "—"}
                   />
                 </>
               )}
@@ -505,18 +524,18 @@ function ServerTabs({ server }: { server: OwnedServer }) {
                     />
                     {/* 三态分开写:读取中 / 读不到 / 真实开关状态。绝不能把"没读到"画成"已关" */}
                     {monitoring.isPending
-                      ? "监控 读取中…"
+                      ? t("serverList.monitor.loading")
                       : monitoringUnknown
-                        ? "监控 状态未知 · 重试"
+                        ? t("serverList.monitor.unknown")
                         : monitoring.data
-                          ? "监控 已开"
-                          : "监控 已关"}
+                          ? t("serverList.monitor.on")
+                          : t("serverList.monitor.off")}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
                   {monitoringUnknown
-                    ? `监控状态读取失败,点击重试：${errorMessage(monitoring.error)}`
-                    : "OVH 自动监控（异常会邮件通知）"}
+                    ? t("serverList.monitor.unknownTip", { err: errorMessage(monitoring.error) })
+                    : t("serverList.monitor.tip")}
                 </TooltipContent>
               </Tooltip>
 
@@ -645,13 +664,16 @@ function InfoPill({
  * 对不上就以为程序算错了。而撤回期是从**下单**起算的,机器常常下单后
  * 几天才交付,两个日期差好几天,对不上才是正常的。
  */
-function retractionWindowText(r: { orderDate?: string; retractionDate?: string }): string {
-  const fmt = (v?: string) => (v ? new Date(v).toLocaleString("zh-CN") : "");
+function retractionWindowText(
+  t: TFn,
+  r: { orderDate?: string; retractionDate?: string }
+): string {
+  const fmt = (v?: string) => (v ? fmtDateTime(v) : "");
   const end = fmt(r.retractionDate);
   const start = fmt(r.orderDate);
-  if (!end) return "在撤回期内";
-  if (!start) return `撤回期截止 ${end}（OVH 给的日期）`;
-  return `撤回期 ${start} → ${end}\n从下单起算，不是从服务器开通起算`;
+  if (!end) return t("serverList.retraction.inWindow");
+  if (!start) return t("serverList.retraction.endOnly", { end });
+  return t("serverList.retraction.window", { start, end });
 }
 
 /** 续费状态友好文案。OVH 在 manager 后台标的 "Cancellation scheduled"
@@ -661,20 +683,23 @@ function retractionWindowText(r: { orderDate?: string; retractionDate?: string }
  *  - 强制自动续费     forced=true (OVH 套餐限制,用户改不了)
  *  - 自动 / 手动      根据 automatic 显示,带 N 月周期
  */
-function formatRenewal(info: {
-  renewalType: boolean;
-  renewalPeriod: number;
-  renewalDeleteAtExpiration: boolean;
-  renewalForced: boolean;
-  terminationScheduled?: boolean;
-  terminationAction?: string;
-  terminationStateUnknown?: boolean;
-}): string {
+function formatRenewal(
+  t: TFn,
+  info: {
+    renewalType: boolean;
+    renewalPeriod: number;
+    renewalDeleteAtExpiration: boolean;
+    renewalForced: boolean;
+    terminationScheduled?: boolean;
+    terminationAction?: string;
+    terminationStateUnknown?: boolean;
+  }
+): string {
   // 终止状态以 lifecycle.pendingActions 为准,并且要区分是哪一种 ——
   // 「立即终止」和「到期终止」后果天差地别
   const term = terminationLabel(info);
   if (term) return term.text;
-  const period = info.renewalPeriod > 0 ? ` · ${info.renewalPeriod}月` : "";
-  if (info.renewalForced) return `强制自动${period}`;
-  return (info.renewalType ? "自动" : "手动") + period;
+  const period = info.renewalPeriod > 0 ? t("serverList.renewal.period", { n: info.renewalPeriod }) : "";
+  if (info.renewalForced) return t("serverList.renewal.forced") + period;
+  return (info.renewalType ? t("serverList.renewal.auto") : t("serverList.renewal.manual")) + period;
 }

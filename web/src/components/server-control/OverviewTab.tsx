@@ -5,9 +5,11 @@ import { useHideIp, maskSensitive } from "@/hooks/use-hide-ip";
 import { Skeleton } from "@/components/common/Skeleton";
 import { PartialNotice, DetailErrorTag } from "@/components/common/PartialNotice";
 import { MrtgTrafficChart } from "./MrtgTrafficChart";
+import { useTranslation } from "react-i18next";
 
 /** 概览 Tab：硬件 + 网络（IP / 接口 / MRTG 流量）。服务信息胶囊条已上提到 ServerTabs 同行 */
 export function OverviewTab({ server }: { server: OwnedServer }) {
+  const { t } = useTranslation();
   const hw = useServerHardware(server.serviceName);
   const ips = useServerIps(server.serviceName);
   const interfaces = useServerNetworkInterfaces(server.serviceName);
@@ -21,7 +23,11 @@ export function OverviewTab({ server }: { server: OwnedServer }) {
   // CPU 字段：processorName + 核线（旧前端写法照搬）
   const cpuText = hw.data?.processorName
     ? hw.data.coresPerProcessor && hw.data.threadsPerProcessor
-      ? `${hw.data.processorName} (${hw.data.coresPerProcessor}核/${hw.data.threadsPerProcessor}线程)`
+      ? t("maint.overview.cpuCoresThreads", {
+          name: hw.data.processorName,
+          cores: hw.data.coresPerProcessor,
+          threads: hw.data.threadsPerProcessor,
+        })
       : hw.data.processorName
     : "—";
 
@@ -47,17 +53,17 @@ export function OverviewTab({ server }: { server: OwnedServer }) {
           <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" />
           <span>
             {server.error
-              ? `该服务器的详情未能获取（${server.error}），下方信息可能不完整。`
-              : `该服务器的续费/计费信息未能获取（${server.svcInfoError}），续费状态显示为「未知」而非「手动」，可刷新重试。`}
+              ? t("maint.overview.detailError", { err: server.error })
+              : t("maint.overview.svcInfoError", { err: server.svcInfoError })}
           </span>
         </div>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
-        <InfoCard icon={<Cpu className="w-4 h-4" />} label="处理器" value={cpuText} loading={hw.isPending} />
-        <InfoCard icon={<MemoryStick className="w-4 h-4" />} label="内存" value={memText} loading={hw.isPending} />
-        <InfoCard icon={<HardDrive className="w-4 h-4" />} label="磁盘" value={diskText} loading={hw.isPending} />
-        <InfoCard icon={<MapPin className="w-4 h-4" />} label="数据中心" value={(server.datacenter || "—").toUpperCase()} />
+        <InfoCard icon={<Cpu className="w-4 h-4" />} label={t("maint.overview.info.cpu")} value={cpuText} loading={hw.isPending} />
+        <InfoCard icon={<MemoryStick className="w-4 h-4" />} label={t("maint.overview.info.mem")} value={memText} loading={hw.isPending} />
+        <InfoCard icon={<HardDrive className="w-4 h-4" />} label={t("maint.overview.info.disk")} value={diskText} loading={hw.isPending} />
+        <InfoCard icon={<MapPin className="w-4 h-4" />} label={t("maint.overview.info.dc")} value={(server.datacenter || "—").toUpperCase()} />
       </div>
 
       {/* 网络：IP 列表 + 接口 + MRTG 流量 */}
@@ -66,7 +72,7 @@ export function OverviewTab({ server }: { server: OwnedServer }) {
         <div className="border border-border rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-border flex items-center gap-2">
             <Globe className="w-4 h-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">IP 地址</h3>
+            <h3 className="text-sm font-semibold">{t("maint.overview.ipTitle")}</h3>
           </div>
           {ips.isPending ? (
             <div className="p-4">
@@ -88,7 +94,7 @@ export function OverviewTab({ server }: { server: OwnedServer }) {
         <div className="border border-border rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-border flex items-center gap-2">
             <Wifi className="w-4 h-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">网卡接口</h3>
+            <h3 className="text-sm font-semibold">{t("maint.overview.nicTitle")}</h3>
           </div>
           {interfaces.isPending ? (
             <div className="p-4">
@@ -96,14 +102,14 @@ export function OverviewTab({ server }: { server: OwnedServer }) {
             </div>
           ) : interfaces.isError ? (
             // 「读取失败」和「这台机器没网卡」是两回事，混成同一句会让用户放弃重试
-            <p className="px-4 py-6 text-sm text-destructive text-center">网卡接口读取失败，请刷新重试</p>
+            <p className="px-4 py-6 text-sm text-destructive text-center">{t("maint.overview.nicLoadFailed")}</p>
           ) : (interfaces.data?.items || []).length === 0 ? (
-            <p className="px-4 py-6 text-sm text-muted-foreground text-center">未发现网卡</p>
+            <p className="px-4 py-6 text-sm text-muted-foreground text-center">{t("maint.overview.nicEmpty")}</p>
           ) : (
             <>
               <PartialNotice
                 failedCount={interfaces.data?.failedCount || 0}
-                what="网卡接口"
+                what={t("maint.overview.nicPartialWhat")}
                 className="mx-4 mt-3"
               />
               <div className="divide-y divide-border">
@@ -155,4 +161,3 @@ function InfoCard({
     </div>
   );
 }
-

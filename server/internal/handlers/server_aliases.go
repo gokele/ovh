@@ -43,7 +43,7 @@ func SetServerAlias(state *app.State) gin.HandlerFunc {
 		}
 		svc := strings.TrimSpace(c.Param("service_name"))
 		if svc == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 service_name"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 service_name", "code": "E6803C9EF"})
 			return
 		}
 		var body struct {
@@ -70,7 +70,7 @@ func DeleteServerAlias(state *app.State) gin.HandlerFunc {
 		}
 		svc := strings.TrimSpace(c.Param("service_name"))
 		if svc == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 service_name"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 service_name", "code": "E6803C9EF"})
 			return
 		}
 		if err := state.DB.DeleteAlias(acc.ID, svc); err != nil {

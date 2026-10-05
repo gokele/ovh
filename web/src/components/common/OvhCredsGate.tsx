@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
+import { apiMessage } from "@/lib/api-error";
 import { qk } from "@/lib/query";
-import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
+import { OVH_SUBSIDIARIES, subsidiaryLabel } from "@/lib/ovh-subsidiaries";
 import { apiBaseUrlForEndpoint, endpointRegion } from "@/lib/ovh-regions";
 import { OvhTokenGuide } from "@/components/common/OvhTokenGuide";
 
@@ -62,8 +64,8 @@ interface AccountForm {
   zone: string;
 }
 
-const DEFAULT_FORM: AccountForm = {
-  name: "默认账户",
+/** 默认账户名跟随语言;放在 useState 惰性初始化里取,避免模块加载时冻结语言 */
+const DEFAULT_FORM: Omit<AccountForm, "name"> = {
   appKey: "",
   appSecret: "",
   consumerKey: "",
@@ -118,7 +120,11 @@ export function OvhCredsGate({ children }: { children: ReactNode }) {
 
 function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState<AccountForm>(DEFAULT_FORM);
+  const { t } = useTranslation();
+  const [form, setForm] = useState<AccountForm>(() => ({
+    ...DEFAULT_FORM,
+    name: t("commons.credsGate.defaultAccountName"),
+  }));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
 
@@ -156,8 +162,7 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
       const warning: string = res.data?.subsidiaryWarning || "";
       if (res.data?.valid === false) {
         setError(
-          "账户已保存,但 OVH 验证失败。检查 APP KEY / APP SECRET / CONSUMER KEY 是否匹配所选子公司。可以先进入再到设置页修复。" +
-            (warning ? " " + warning : "")
+          t("commons.credsGate.savedButInvalid") + (warning ? " " + warning : "")
         );
         // 验证失败也放行,不强卡用户
         prefetchAfterCredsSaved(qc, zone);
@@ -172,7 +177,7 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
       prefetchAfterCredsSaved(qc, zone);
       onSuccess();
     } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || "保存失败");
+      setError(apiMessage(e) || t("commons.credsGate.saveFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -186,26 +191,26 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
             <Globe className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold leading-tight">添加第一个 OVH 账户</h2>
+            <h2 className="text-lg font-semibold leading-tight">{t("commons.credsGate.title")}</h2>
             <p className="text-[12px] text-muted-foreground mt-0.5">
-              系统支持多账户,先添加一个用起来,后续可以在"设置 → 账户"加更多
+              {t("commons.credsGate.subtitle")}
             </p>
           </div>
         </div>
 
         <div className="space-y-3.5">
-          <Field label="账户名称 *" hint="用户起的别名,比如 主号 / 小号 A,只用于本地区分">
+          <Field label={t("commons.credsGate.nameLabel")} hint={t("commons.credsGate.nameHint")}>
             <Input
               autoFocus
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
-              placeholder="主号"
+              placeholder={t("commons.credsGate.namePlaceholder")}
             />
           </Field>
           {/* 子公司必须排在密钥前面:token 申请地址跟着它变,
               先填密钥再选站点的话,用户很可能已经在错误的站点申请过一遍了。 */}
           {/* 大白话说明放在前面,Endpoint / IAM 这种只有开发者关心的排后面 */}
-          <Field label="OVH 子公司 (Zone) *">
+          <Field label={t("commons.credsGate.zoneLabel")}>
             <Select value={form.zone} onValueChange={(v) => set("zone", v)}>
               <SelectTrigger>
                 <SelectValue />
@@ -213,31 +218,31 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
               <SelectContent>
                 {OVH_SUBSIDIARIES.map((s) => (
                   <SelectItem key={s.code} value={s.code}>
-                    {s.code} · {s.label}
+                    {s.code} · {subsidiaryLabel(s.code)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground mt-1.5">
-              你的 OVH 账号注册在哪个国家/地区。它决定去哪个站点申请密钥,选错了密钥用不了。
+              {t("commons.credsGate.zoneHelp")}
             </p>
             <p className="text-[10px] text-muted-foreground/80 mt-1">
               Endpoint <code className="px-1 py-0.5 bg-muted rounded">{endpointForZone(form.zone)}</code>
               {" · "}IAM <code className="px-1 py-0.5 bg-muted rounded">go-ovh-{form.zone.toLowerCase()}</code>
-              {" 由它自动派生,不用管"}
+              {t("commons.credsGate.endpointDerived")}
             </p>
           </Field>
 
           <OvhTokenGuide endpoint={endpointForZone(form.zone || "IE")} />
 
-          <Field label="APP KEY *" hint="OVH 申请页上的 Application Key">
-            <PasswordInput value={form.appKey} onChange={(v) => set("appKey", v)} placeholder="从 OVH 申请页复制" />
+          <Field label={t("commons.credsGate.appKeyLabel")} hint={t("commons.credsGate.appKeyHint")}>
+            <PasswordInput value={form.appKey} onChange={(v) => set("appKey", v)} placeholder={t("commons.credsGate.credPlaceholder")} />
           </Field>
-          <Field label="APP SECRET *" hint="OVH 申请页上的 Application Secret">
-            <PasswordInput value={form.appSecret} onChange={(v) => set("appSecret", v)} placeholder="从 OVH 申请页复制" />
+          <Field label={t("commons.credsGate.appSecretLabel")} hint={t("commons.credsGate.appSecretHint")}>
+            <PasswordInput value={form.appSecret} onChange={(v) => set("appSecret", v)} placeholder={t("commons.credsGate.credPlaceholder")} />
           </Field>
-          <Field label="CONSUMER KEY *" hint="OVH 申请页上的 Consumer Key">
-            <PasswordInput value={form.consumerKey} onChange={(v) => set("consumerKey", v)} placeholder="从 OVH 申请页复制" />
+          <Field label={t("commons.credsGate.consumerKeyLabel")} hint={t("commons.credsGate.consumerKeyHint")}>
+            <PasswordInput value={form.consumerKey} onChange={(v) => set("consumerKey", v)} placeholder={t("commons.credsGate.credPlaceholder")} />
           </Field>
 
 
@@ -248,12 +253,12 @@ function AccountOverlay({ onSuccess }: { onSuccess: () => void }) {
           {submitting ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
-              验证并创建…
+              {t("commons.credsGate.verifying")}
             </>
           ) : (
             <>
               <SettingsIcon className="w-4 h-4 mr-1.5" />
-              创建并进入
+              {t("commons.credsGate.createAndEnter")}
             </>
           )}
         </Button>

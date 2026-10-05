@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LoadFailed } from "@/components/common/LoadFailed";
 import { useRescueStatus, useEnterRescue, useExitRescue } from "@/hooks/use-server-control";
+import { Trans, useTranslation } from "react-i18next";
 
 /**
  * 一键救援系统。
@@ -30,6 +31,7 @@ export function RescueDialog({
   const status = useRescueStatus(serviceName, open);
   const enter = useEnterRescue(serviceName);
   const exit = useExitRescue(serviceName);
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [confirming, setConfirming] = useState(false);
 
@@ -51,7 +53,7 @@ export function RescueDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <LifeBuoy className="w-4 h-4" />
-            救援系统
+            {t("ctrl.rescue.title")}
           </DialogTitle>
           <DialogDescription>
             {displayName ? <span className="font-mono">{displayName}</span> : serviceName}
@@ -62,7 +64,7 @@ export function RescueDialog({
           <LoadFailed
             compact
             icon={LifeBuoy}
-            title="救援状态读取失败"
+            title={t("ctrl.rescue.loadFailed")}
             error={status.error}
             onRetry={() => status.refetch()}
           />
@@ -70,45 +72,44 @@ export function RescueDialog({
           <div className="space-y-4">
             <div className="rounded-xl border border-border bg-muted/40 px-3.5 py-3">
               <p className="text-[12px]">
-                当前状态：
+                {t("ctrl.rescue.currentStatus")}
                 {status.isPending ? (
-                  <span className="text-muted-foreground">读取中…</span>
+                  <span className="text-muted-foreground">{t("ctrl.rescue.statusLoading")}</span>
                 ) : inRescue ? (
-                  <b className="text-warning">救援模式</b>
+                  <b className="text-warning">{t("ctrl.rescue.modeRescue")}</b>
                 ) : (
-                  <b>正常系统</b>
+                  <b>{t("ctrl.rescue.modeNormal")}</b>
                 )}
               </p>
               <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                救援系统是一个独立的临时 Linux，从网络启动，<b>不会动你硬盘上的数据</b>。
-                进去之后可以挂载硬盘修配置、改密码、拷数据。
+                <Trans i18nKey="ctrl.rescue.whatIsRescue" components={{ b: <b /> }} />
               </p>
             </div>
 
             {inRescue ? (
               <div className="rounded-xl border border-border px-3.5 py-3 text-[12px] leading-relaxed">
-                机器已经在救援模式里。修完之后点下面的「退出救援模式」切回正常系统 ——
-                <b>不切回去的话，每次重启都会再进救援</b>。
+                <Trans i18nKey="ctrl.rescue.alreadyInRescue" components={{ b: <b /> }} />
               </div>
             ) : (
               <>
                 <div>
                   <label className="block text-[13px] font-medium mb-1.5">
-                    接收登录密码的邮箱<span className="text-muted-foreground font-normal">（可选）</span>
+                    {t("ctrl.rescue.mailLabel")}
+                    <span className="text-muted-foreground font-normal">{t("ctrl.rescue.optional")}</span>
                   </label>
                   <Input
                     value={email}
                     onChange={(e) => { setEmail(e.target.value); setConfirming(false); }}
-                    placeholder="留空 = 发到 OVH 账户的联系邮箱"
+                    placeholder={t("ctrl.rescue.mailPlaceholder")}
                     inputMode="email"
                   />
                   {emailBad ? (
                     <p className="text-[11px] text-destructive mt-1">
-                      这个邮箱格式不对。救援系统的 root 密码会发到这里，填错就收不到。
+                      {t("ctrl.rescue.mailBad")}
                     </p>
                   ) : (
                     <p className="text-[11px] text-muted-foreground mt-1">
-                      进入救援后 OVH 会把 root 密码发到这个邮箱，约 3~5 分钟后可以 SSH 登录。
+                      {t("ctrl.rescue.mailHint")}
                     </p>
                   )}
                 </div>
@@ -116,14 +117,13 @@ export function RescueDialog({
                 <div className="flex items-start gap-2.5 rounded-xl border border-warning/40 bg-warning/5 px-3.5 py-3">
                   <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
                   <div className="text-[12px] leading-relaxed">
-                    点下去会<b>立刻重启服务器</b>，上面正在跑的服务会中断。
-                    硬盘数据不受影响。
+                    <Trans i18nKey="ctrl.rescue.rebootWarn" components={{ b: <b /> }} />
                   </div>
                 </div>
 
                 {confirming && (
                   <p className="text-[12px] text-warning">
-                    再点一次「确认进入救援」就会重启。
+                    {t("ctrl.rescue.confirmHint")}
                   </p>
                 )}
               </>
@@ -133,7 +133,7 @@ export function RescueDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
-            关闭
+            {t("common.close")}
           </Button>
           {inRescue ? (
             <Button
@@ -142,7 +142,7 @@ export function RescueDialog({
               onClick={() => exit.mutate(undefined, { onSuccess: () => onOpenChange(false) })}
             >
               {exit.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
-              退出救援模式（会重启）
+              {t("ctrl.rescue.exitBtn")}
             </Button>
           ) : (
             <Button
@@ -156,7 +156,7 @@ export function RescueDialog({
               }}
             >
               {enter.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
-              {confirming ? "确认进入救援（会重启）" : "进入救援模式"}
+              {confirming ? t("ctrl.rescue.confirmBtn") : t("ctrl.rescue.enterBtn")}
             </Button>
           )}
         </DialogFooter>

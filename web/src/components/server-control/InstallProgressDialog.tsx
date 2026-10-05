@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadFailed } from "@/components/common/LoadFailed";
 import { useInstallStatus, type InstallStep } from "@/hooks/use-server-control";
+import { useTranslation } from "react-i18next";
 
 /** 安装进度面板：每 5s 轮询 /install/status，展示 step 列表和整体进度（对齐旧前端） */
 export function InstallProgressDialog({
@@ -17,6 +18,7 @@ export function InstallProgressDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const q = useInstallStatus(serviceName, open);
+  const { t } = useTranslation();
   const data = q.data;
   const status = data?.status;
 
@@ -26,10 +28,10 @@ export function InstallProgressDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Activity className="w-5 h-5" />
-            安装进度
+            {t("ctrl.progress.title")}
           </DialogTitle>
           <DialogDescription>
-            实时跟踪当前重装任务进度（每 5 秒刷新）。完成后可手动关闭。
+            {t("ctrl.progress.desc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -43,12 +45,12 @@ export function InstallProgressDialog({
             // (查询本身每 5s 自动重试,重试按钮只是给用户一个立刻再试的入口)
             <LoadFailed
               icon={Activity}
-              title="安装进度读取失败"
+              title={t("ctrl.progress.loadFailed")}
               error={q.error}
               onRetry={() => q.refetch()}
             />
           ) : !data?.hasInstallation || !status ? (
-            <EmptyState icon={Activity} title="当前无安装任务" />
+            <EmptyState icon={Activity} title={t("ctrl.progress.empty")} />
           ) : (
             <>
               {/* 整体进度条。
@@ -58,19 +60,21 @@ export function InstallProgressDialog({
               <div className="border border-border rounded-2xl p-4 space-y-2">
                 {status.progressUnknown ? (
                   <>
-                    <div className="text-[12px] font-semibold">进度暂不可用</div>
+                    <div className="text-[12px] font-semibold">{t("ctrl.progress.unavailable")}</div>
                     <p className="text-[11px] text-muted-foreground">
-                      OVH 本次没有返回安装进度，这不代表安装没有推进。稍等几秒会自动重试，也可查看下方步骤或任务列表。
+                      {t("ctrl.progress.unavailableDesc")}
                     </p>
                     {status.elapsedTime ? (
-                      <div className="text-[11px] text-muted-foreground">已耗时 {Math.floor(status.elapsedTime)}s</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {t("ctrl.progress.elapsed", { n: Math.floor(status.elapsedTime) })}
+                      </div>
                     ) : null}
                   </>
                 ) : (
                   <>
                     <div className="flex justify-between text-[12px]">
                       <span className="text-muted-foreground">
-                        {status.completedSteps ?? 0} / {status.totalSteps ?? 0} 步
+                        {t("ctrl.progress.steps", { done: status.completedSteps ?? 0, total: status.totalSteps ?? 0 })}
                       </span>
                       <span className="font-semibold">{Math.floor(status.progressPercentage || 0)}%</span>
                     </div>
@@ -83,14 +87,16 @@ export function InstallProgressDialog({
                     <div className="flex justify-between text-[11px] text-muted-foreground">
                       <span>
                         {status.allDone
-                          ? "已完成"
+                          ? t("ctrl.progress.statusDone")
                           : status.hasError
-                            ? "出错"
+                            ? t("ctrl.progress.statusError")
                             : status.stopping
-                              ? "正在中止"
-                              : "进行中"}
+                              ? t("ctrl.progress.statusStopping")
+                              : t("ctrl.progress.statusRunning")}
                       </span>
-                      {status.elapsedTime ? <span>耗时 {Math.floor(status.elapsedTime)}s</span> : null}
+                      {status.elapsedTime ? (
+                        <span>{t("ctrl.progress.took", { n: Math.floor(status.elapsedTime) })}</span>
+                      ) : null}
                     </div>
                   </>
                 )}
@@ -110,7 +116,7 @@ export function InstallProgressDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            关闭
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -54,18 +54,18 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 		if strings.ContainsAny(body.PlanCode, ",，、 \t\r\n") {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  "error",
-				"message": "每条订阅只能填写一个 planCode,多个型号请分别添加",
+				"message": "每条订阅只能填写一个 planCode,多个型号请分别添加", "code": "EBDD2AF46",
 			})
 			return
 		}
 		if body.PlanCode == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少planCode参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少planCode参数", "code": "E2E02A4EA"})
 			return
 		}
 		// 校验 auto_order_account_id 引用的账户真的存在
 		if body.AutoOrderAccountID != "" {
 			if _, ok := state.FindAccount(body.AutoOrderAccountID); !ok {
-				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "autoOrderAccountId 不存在"})
+				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "autoOrderAccountId 不存在", "code": "EB5C2D1BB"})
 				return
 			}
 		}
@@ -141,7 +141,7 @@ func BatchAddAll(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 		hasServers := len(state.ServerPlans) > 0
 		state.ServerPlansMu.RUnlock()
 		if !hasServers {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "服务器列表为空，请先刷新服务器列表"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "服务器列表为空，请先刷新服务器列表", "code": "E83B2AEC7"})
 			return
 		}
 
@@ -154,7 +154,7 @@ func BatchAddAll(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 		_ = c.ShouldBindJSON(&body)
 		if body.AutoOrderAccountID != "" {
 			if _, ok := state.FindAccount(body.AutoOrderAccountID); !ok {
-				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "autoOrderAccountId 不存在"})
+				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "autoOrderAccountId 不存在", "code": "EB5C2D1BB"})
 				return
 			}
 		}
@@ -228,7 +228,7 @@ func RemoveSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "已取消订阅 " + planCode})
 			return
 		}
-		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "订阅不存在"})
+		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "订阅不存在", "code": "E9E5CC314"})
 	}
 }
 
@@ -249,7 +249,7 @@ func GetSubscriptionHistory(state *app.State, mon *monitor.Monitor) gin.HandlerF
 		planCode := c.Param("planCode")
 		sub := mon.FindSubscription(planCode)
 		if sub == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "订阅不存在"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "订阅不存在", "code": "E9E5CC314"})
 			return
 		}
 		history := sub.History
@@ -274,9 +274,9 @@ func StartMonitor(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 		}
 		if mon.Start() {
 			state.Logger.Info("用户启动服务器监控", "")
-			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "监控已启动"})
+			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "监控已启动", "code": "EE907CE94"})
 		} else {
-			c.JSON(http.StatusOK, gin.H{"status": "info", "message": "监控已在运行中"})
+			c.JSON(http.StatusOK, gin.H{"status": "info", "message": "监控已在运行中", "code": "EF366B077"})
 		}
 	}
 }
@@ -296,9 +296,9 @@ func StopMonitor(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if mon.Stop() {
 			state.Logger.Info("用户停止服务器监控", "")
-			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "监控已停止"})
+			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "监控已停止", "code": "E2B37887D"})
 		} else {
-			c.JSON(http.StatusOK, gin.H{"status": "info", "message": "监控未运行"})
+			c.JSON(http.StatusOK, gin.H{"status": "info", "message": "监控未运行", "code": "EE2744033"})
 		}
 	}
 }
@@ -318,7 +318,7 @@ func SetMonitorInterval(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 			CheckInterval *int `json:"check_interval"` // 前端历史字段名,一并收
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "请求体格式错误"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "请求体格式错误", "code": "E289C1A13"})
 			return
 		}
 		v := body.Interval
@@ -326,7 +326,7 @@ func SetMonitorInterval(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 			v = body.CheckInterval
 		}
 		if v == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少 interval 参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少 interval 参数", "code": "E28D89A23"})
 			return
 		}
 		applied := mon.SetCheckInterval(*v)
@@ -358,7 +358,7 @@ func TestNotification(state *app.State) gin.HandlerFunc {
 		state.Logger.Warn("测试通知一个通道都没送达", "monitor")
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status": "error", "delivered": 0, "channels": chans,
-			"message": "没有任何通道送达。请在设置页配置 Telegram 或 Webhook",
+			"message": "没有任何通道送达。请在设置页配置 Telegram 或 Webhook", "code": "EDCB29851",
 		})
 	}
 }

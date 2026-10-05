@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { Command } from "cmdk";
+import { useTranslation } from "react-i18next";
 import { Check, ChevronsUpDown, Search, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ export function PlanCodeCombobox({
   placeholder?: string;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -63,7 +65,7 @@ export function PlanCodeCombobox({
               )}
             </span>
           ) : (
-            <span>{placeholder || "选择或搜索服务器型号"}</span>
+            <span>{placeholder || t("commons.planCode.placeholder")}</span>
           )}
           <div className="flex items-center gap-1">
             {value && (
@@ -74,7 +76,7 @@ export function PlanCodeCombobox({
                   onChange("");
                 }}
                 className="rounded hover:bg-muted p-0.5"
-                aria-label="清空"
+                aria-label={t("commons.planCode.clear")}
               >
                 <X className="w-3.5 h-3.5 text-muted-foreground" />
               </button>
@@ -97,7 +99,7 @@ export function PlanCodeCombobox({
             <Command.Input
               value={query}
               onValueChange={setQuery}
-              placeholder="搜索 planCode / 型号 / CPU / 内存..."
+              placeholder={t("commons.planCode.searchPlaceholder")}
               className="flex h-10 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               autoFocus
             />
@@ -108,7 +110,7 @@ export function PlanCodeCombobox({
             onWheel={(e) => e.stopPropagation()}
           >
             <Command.Empty className="py-6 text-center text-[12px] text-muted-foreground">
-              没有匹配的服务器
+              {t("commons.planCode.noMatch")}
             </Command.Empty>
             {filtered.map((s) => {
               const selected = s.planCode === value;

@@ -1,4 +1,5 @@
 import { endpointRegion } from "@/lib/ovh-regions";
+import i18n from "@/i18n";
 
 /**
  * OVH 子公司列表（每个 subsidiary 对应独立目录 + 独立币种 + 独立税率）。
@@ -52,6 +53,14 @@ export const OVH_SUBSIDIARIES: OvhSubsidiary[] = [
   { code: "WE", endpoint: "ovh-ca", label: "西欧(WE) · USD", currency: "USD" },
   { code: "WS", endpoint: "ovh-ca", label: "南欧(WS) · USD", currency: "USD" },
 ];
+
+/** 子公司标签（国家 + 币种，跟随语言），用于下拉框等展示位。
+ *  静态的 label 字段仍是中文默认值,给没接 i18n 的旧调用方兜底。 */
+export function subsidiaryLabel(code: string): string {
+  const hit = OVH_SUBSIDIARIES.find((s) => s.code === code);
+  if (!hit) return code;
+  return i18n.t(`commons.subsidiary.${code.toLowerCase()}`, { defaultValue: hit.label }) as string;
+}
 
 /** 根据当前 endpoint 推断默认 subsidiary。
  *  对齐后端 ovh.DefaultSubsidiaryForEndpoint;大区判定走 lib/ovh-regions,

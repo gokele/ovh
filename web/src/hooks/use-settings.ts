@@ -3,6 +3,8 @@ import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { errorMessage } from "@/components/common/LoadFailed";
 import { toast } from "sonner";
+import i18n from "@/i18n";
+import { apiMessage } from "@/lib/api-error";
 
 export interface SettingsConfig {
   appKey?: string;
@@ -47,9 +49,9 @@ export function useSaveSettings() {
       qc.invalidateQueries({ queryKey: qk.settings.config() });
       // TG 配置可能变了,让监控对话框下次打开重新 verify
       qc.invalidateQueries({ queryKey: ["telegram", "verify"] });
-      toast.success("设置已保存");
+      toast.success(i18n.t("hooksMsg.settings.saved"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "保存失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.settings.saveFailed")),
   });
 }
 
@@ -68,9 +70,9 @@ export function useClearCache() {
       (await api.post("/cache/clear", { type })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.settings.cacheInfo() });
-      toast.success("已清除缓存");
+      toast.success(i18n.t("hooksMsg.settings.cacheCleared"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "清除失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.settings.cacheClearFailed")),
   });
 }
 
@@ -109,7 +111,7 @@ export function useTelegramPoller() {
       const res = await api.get<{ success: boolean; error?: string } & TelegramPollerInfo>(
         "/telegram/poller"
       );
-      if (!res.data?.success) throw new Error(res.data?.error || "读取长轮询状态失败");
+      if (!res.data?.success) throw new Error(res.data?.error || i18n.t("hooksMsg.settings.pollerStatusFailed"));
       return res.data as TelegramPollerInfo;
     },
     refetchInterval: 10_000,

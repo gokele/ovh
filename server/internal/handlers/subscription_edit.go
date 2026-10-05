@@ -88,7 +88,7 @@ func UpdateSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 			// 空串是合法值:表示「触发时只通知、不下单」
 			if accountID != "" {
 				if _, ok := state.FindAccount(accountID); !ok {
-					c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "autoOrderAccountId 不存在"})
+					c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "autoOrderAccountId 不存在", "code": "EB5C2D1BB"})
 					return
 				}
 			}
@@ -226,7 +226,7 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		if next.AutoOrderAccountID != "" {
 			acc, ok := state.FindAccount(next.AutoOrderAccountID)
 			if !ok {
-				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "autoOrderAccountId 不存在"})
+				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "autoOrderAccountId 不存在", "code": "EB5C2D1BB"})
 				return
 			}
 			accRegion := ovh.EndpointRegion(acc.Endpoint)

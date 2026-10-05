@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useTranslation, Trans } from "react-i18next";
 import {
   Bell,
   BellOff,
@@ -26,6 +27,7 @@ import { StatusDot } from "@/components/common/StatusDot";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Skeleton } from "@/components/common/Skeleton";
 import { LoadFailed, errorMessage } from "@/components/common/LoadFailed";
+import { fmtDateTime } from "@/i18n/format";
 import {
   Dialog,
   DialogContent,
@@ -58,6 +60,7 @@ export const Route = createFileRoute("/monitor")({
 });
 
 function MonitorPage() {
+  const { t } = useTranslation();
   const list = useMonitorList();
   const status = useMonitorStatus();
   const remove = useRemoveMonitorSubscription();
@@ -86,17 +89,17 @@ function MonitorPage() {
     <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={Bell}
-        title="服务器监控"
-        description="自动监控服务器可用性变化并推送通知"
+        title={t("monitor.title")}
+        description={t("monitor.description")}
         action={
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={() => list.refetch()} disabled={list.isFetching}>
               <RefreshCw className={`w-4 h-4 ${list.isFetching ? "animate-spin" : ""}`} />
-              刷新
+              {t("common.refresh")}
             </Button>
             <Button onClick={() => setOpenAdd(true)}>
               <Plus className="w-4 h-4" />
-              添加订阅
+              {t("monitor.addAction")}
             </Button>
             <Button
               variant="outline"
@@ -104,7 +107,7 @@ function MonitorPage() {
               disabled={subs.length === 0}
             >
               <Trash2 className="w-4 h-4" />
-              清空全部
+              {t("monitor.clearAll")}
             </Button>
           </div>
         }
@@ -126,34 +129,43 @@ function MonitorPage() {
               )}
             </div>
             <div>
-              <div className="text-sm font-semibold">监控状态</div>
+              <div className="text-sm font-semibold">{t("monitor.status.title")}</div>
               <div className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
                 <StatusDot
                   tone={status.isError ? "warning" : running ? "success" : "muted"}
                   pulse={running && !statusUnknown}
                   size="xs"
                 />
-                {status.isPending ? "读取中…" : status.isError ? "状态未知" : running ? "运行中" : "已停止"}
+                {status.isPending
+                  ? t("monitor.status.loading")
+                  : status.isError
+                    ? t("monitor.status.unknown")
+                    : running
+                      ? t("monitor.status.running")
+                      : t("monitor.status.stopped")}
               </div>
               {status.isError && (
                 <button
                   type="button"
                   className="block text-left text-[11px] text-destructive underline underline-offset-2 mt-0.5 max-w-xs"
                   onClick={() => status.refetch()}
-                  title="重新读取监控状态"
+                  title={t("monitor.status.retryTitle")}
                 >
-                  读不到监控状态：{errorMessage(status.error)} · 点此重试
+                  {t("monitor.status.readFailedRetry", { err: errorMessage(status.error) })}
                 </button>
               )}
             </div>
           </div>
           <div className="flex gap-6 text-sm">
-            <Stat label="订阅数" value={statNum(status.data?.subscriptions_count)} />
+            <Stat label={t("monitor.status.subsCount")} value={statNum(status.data?.subscriptions_count)} />
             <IntervalStat
               current={status.isError ? undefined : status.data?.check_interval}
               unknownLabel={status.isPending ? "…" : "—"}
             />
-            <Stat label="已知服务器" value={statNum(status.data?.known_servers_count)} />
+            <Stat
+              label={t("monitor.status.knownServers")}
+              value={statNum(status.data?.known_servers_count)}
+            />
           </div>
         </CardContent>
       </Card>
@@ -172,7 +184,7 @@ function MonitorPage() {
         <Card>
           <LoadFailed
             icon={Bell}
-            title="订阅列表读取失败"
+            title={t("monitor.list.failed")}
             error={list.error}
             onRetry={() => list.refetch()}
           />
@@ -181,8 +193,8 @@ function MonitorPage() {
         <Card>
           <EmptyState
             icon={Bell}
-            title="暂无订阅"
-            description='点击"添加订阅"按钮开始监控服务器'
+            title={t("monitor.list.empty")}
+            description={t("monitor.list.emptyDesc")}
           />
         </Card>
       ) : (
@@ -220,14 +232,19 @@ function MonitorPage() {
       <Dialog open={!!confirmRemove} onOpenChange={(v) => !v && setConfirmRemove(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>取消订阅</DialogTitle>
+            <DialogTitle>{t("monitor.remove.title")}</DialogTitle>
             <DialogDescription>
-              确定要取消订阅 <span className="font-mono">{confirmRemove}</span> 吗？
+              <Trans
+                i18nKey="monitor.remove.desc"
+                values={{ code: confirmRemove || "" }}
+                components={{ code: <span className="font-mono" /> }}
+                t={t}
+              />
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmRemove(null)}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -236,7 +253,7 @@ function MonitorPage() {
                 setConfirmRemove(null);
               }}
             >
-              确定
+              {t("monitor.remove.confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -246,12 +263,12 @@ function MonitorPage() {
       <Dialog open={confirmClear} onOpenChange={setConfirmClear}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>确认清空所有订阅？</DialogTitle>
-            <DialogDescription>所有监控订阅将被删除，此操作不可撤销。</DialogDescription>
+            <DialogTitle>{t("monitor.clear.title")}</DialogTitle>
+            <DialogDescription>{t("monitor.clear.desc")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmClear(false)}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -260,7 +277,7 @@ function MonitorPage() {
                 setConfirmClear(false);
               }}
             >
-              确认清空
+              {t("monitor.clear.confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -284,6 +301,7 @@ function SubRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Card>
       <CardContent className="p-5">
@@ -297,35 +315,38 @@ function SubRow({
             </div>
             <p className="text-xs text-muted-foreground mb-1.5">
               {sub.datacenters.length > 0
-                ? `监控数据中心: ${sub.datacenters.join(", ")}`
-                : "监控所有数据中心"}
+                ? t("monitor.row.dcs", { dcs: sub.datacenters.join(", ") })
+                : t("monitor.row.allDcs")}
             </p>
             <div className="flex gap-1.5 flex-wrap items-center">
               {/* 盯全部配置 vs 只盯一套,是「会不会一次触发好几单」的分水岭,
                   必须在列表上一眼看得出来 */}
               {sub.options && sub.options.length > 0 ? (
                 <Chip tone="default" title={sub.options.join("\n")}>
-                  只盯 {describeOptionCodes(sub.options)}
+                  {t("monitor.row.watchOnly", { options: describeOptionCodes(sub.options) })}
                 </Chip>
               ) : (
-                <Chip tone="default" title="该型号的每套内存/存储组合都会各自触发通知与自动下单">
-                  盯全部配置
+                <Chip tone="default" title={t("monitor.row.watchAllTitle")}>
+                  {t("monitor.row.watchAll")}
                 </Chip>
               )}
-              {sub.notifyAvailable && <Chip tone="success">有货提醒</Chip>}
-              {sub.notifyUnavailable && <Chip tone="warning">无货提醒</Chip>}
+              {sub.notifyAvailable && <Chip tone="success">{t("monitor.row.notifyAvailable")}</Chip>}
+              {sub.notifyUnavailable && <Chip tone="warning">{t("monitor.row.notifyUnavailable")}</Chip>}
               {sub.autoOrder && sub.autoOrderAccountId ? (
                 <>
-                  <Chip tone="solid" title={sub.autoPay ? "下单成功后自动付款" : "只下单,需自己付款"}>
-                    自动下单
+                  <Chip
+                    tone="solid"
+                    title={sub.autoPay ? t("monitor.row.autoPayTitle") : t("monitor.row.manualPayTitle")}
+                  >
+                    {t("monitor.row.autoOrder")}
                     {sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
-                    {sub.autoPay ? " · 自动付款" : ""}
+                    {sub.autoPay ? t("monitor.row.autoPaySuffix") : ""}
                   </Chip>
                   <span className="text-[11px] text-muted-foreground">→</span>
                   <AccountChip accountId={sub.autoOrderAccountId} />
                 </>
               ) : sub.autoOrder ? (
-                <Chip tone="warning">已勾自动下单但未选账户(只通知)</Chip>
+                <Chip tone="warning">{t("monitor.row.autoNoAccount")}</Chip>
               ) : null}
             </div>
           </div>
@@ -333,7 +354,7 @@ function SubRow({
             <Button
               variant="ghost"
               size="icon"
-              aria-label="查看历史"
+              aria-label={t("monitor.row.historyAria")}
               onClick={onToggleExpand}
             >
               {expanded ? (
@@ -342,10 +363,16 @@ function SubRow({
                 <HistoryIcon className="w-4 h-4" />
               )}
             </Button>
-            <Button variant="ghost" size="icon" onClick={onEdit} aria-label="编辑订阅" title="改机房 / 提醒方式 / 自动下单">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onEdit}
+              aria-label={t("monitor.row.editAria")}
+              title={t("monitor.row.editTitle")}
+            >
               <Pencil className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={onDelete} aria-label="删除">
+            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={t("common.delete")}>
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -362,6 +389,7 @@ function SubRow({
 }
 
 function HistoryPanel({ planCode }: { planCode: string }) {
+  const { t } = useTranslation();
   const history = useMonitorHistory(planCode);
 
   if (history.isPending) {
@@ -380,7 +408,7 @@ function HistoryPanel({ planCode }: { planCode: string }) {
     return (
       <LoadFailed
         icon={HistoryIcon}
-        title="变化历史读取失败"
+        title={t("monitor.history.failed")}
         error={history.error}
         onRetry={() => history.refetch()}
         compact
@@ -394,10 +422,10 @@ function HistoryPanel({ planCode }: { planCode: string }) {
     <div>
       <div className="flex items-center gap-2 mb-3">
         <HistoryIcon className="w-4 h-4 text-muted-foreground" />
-        <span className="text-sm font-medium">变化历史</span>
+        <span className="text-sm font-medium">{t("monitor.history.title")}</span>
       </div>
       {entries.length === 0 ? (
-        <p className="text-xs text-muted-foreground text-center py-4">暂无历史记录</p>
+        <p className="text-xs text-muted-foreground text-center py-4">{t("monitor.history.empty")}</p>
       ) : (
         <div className="space-y-2 max-h-64 overflow-y-auto">
           {entries.map((e, i) => (
@@ -414,7 +442,9 @@ function HistoryPanel({ planCode }: { planCode: string }) {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">{e.datacenter?.toUpperCase()}</span>
                   <Chip tone={e.changeType === "available" ? "success" : "danger"}>
-                    {e.changeType === "available" ? "有货" : "无货"}
+                    {e.changeType === "available"
+                      ? t("monitor.history.available")
+                      : t("monitor.history.unavailable")}
                   </Chip>
                   {e.config?.display && (
                     <span className="px-2 py-0.5 rounded-full bg-secondary text-[11px]">
@@ -422,7 +452,7 @@ function HistoryPanel({ planCode }: { planCode: string }) {
                     </span>
                   )}
                 </div>
-                <p className="text-muted-foreground mt-1">{formatTime(e.timestamp)}</p>
+                <p className="text-muted-foreground mt-1">{fmtDateTime(e.timestamp)}</p>
               </div>
             </div>
           ))}
@@ -430,15 +460,6 @@ function HistoryPanel({ planCode }: { planCode: string }) {
       )}
     </div>
   );
-}
-
-function formatTime(ts: string): string {
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return ts;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
-    d.getHours()
-  )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 /* ----------------------------- 添加订阅 Dialog ----------------------------- */
@@ -458,6 +479,7 @@ function AddSubscriptionDialog({
   onOpenChange: (v: boolean) => void;
   editing?: MonitorSubscription | null;
 }) {
+  const { t } = useTranslation();
   const create = useCreateMonitorSubscription();
   const update = useUpdateMonitorSubscription();
   const isEdit = !!editing;
@@ -592,7 +614,7 @@ function AddSubscriptionDialog({
     e.preventDefault();
     const code = planCode.trim();
     if (!code) {
-      toast.error("请输入服务器型号");
+      toast.error(t("monitor.toast.needPlanCode"));
       return;
     }
     const dcs = splitList(datacenters);
@@ -601,8 +623,8 @@ function AddSubscriptionDialog({
       // 读失败和"真的没账户"要给不同的话:前者该重试,后者该去加账户
       toast.error(
         accountsFailed
-          ? `账户列表读取失败(${errorMessage(accountsQ.error)}),先重试再开自动下单`
-          : "开启自动下单时必须选择 OVH 账户(否则只通知不下单)"
+          ? t("monitor.toast.accountFailed", { err: errorMessage(accountsQ.error) })
+          : t("monitor.toast.needAccount")
       );
       return;
     }
@@ -639,11 +661,9 @@ function AddSubscriptionDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{isEdit ? "编辑订阅" : "添加订阅"}</DialogTitle>
+          <DialogTitle>{isEdit ? t("monitor.dialog.editTitle") : t("monitor.dialog.addTitle")}</DialogTitle>
           <DialogDescription>
-            {isEdit
-              ? "只改配置，已记录的库存状态和历史不会重置"
-              : "填写需要监控的服务器型号与可选条件"}
+            {isEdit ? t("monitor.dialog.editDesc") : t("monitor.dialog.addDesc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -653,16 +673,16 @@ function AddSubscriptionDialog({
               <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
               <div className="text-xs flex-1 min-w-0">
                 <div className="font-medium text-foreground">
-                  没有可用的通知通道
+                  {t("monitor.notify.noChannel")}
                 </div>
                 <div className="text-muted-foreground mt-0.5 break-words">
-                  {notifyReason || "请先在设置页配置 Telegram 或自定义 Webhook,至少一条"}
+                  {notifyReason || t("monitor.notify.hint")}
                 </div>
                 <Link
                   to="/settings"
                   className="inline-block mt-1 text-foreground underline underline-offset-2"
                 >
-                  去配置 →
+                  {t("monitor.notify.goConfig")}
                 </Link>
               </div>
             </div>
@@ -670,31 +690,31 @@ function AddSubscriptionDialog({
 
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              服务器型号 <span className="text-destructive">*</span>
+              {t("monitor.dialog.planCode")} <span className="text-destructive">*</span>
             </label>
             <Input
               value={planCode}
               onChange={(e) => setPlanCode(e.target.value)}
-              placeholder="例如: 24ska01"
+              placeholder={t("monitor.dialog.planCodePlaceholder")}
               autoFocus={!isEdit}
               readOnly={isEdit}
               className={isEdit ? "bg-muted text-muted-foreground cursor-not-allowed" : undefined}
             />
             {isEdit && (
               <p className="text-[11px] text-muted-foreground mt-1">
-                型号不可改。要换机型请删掉这条订阅再新建
+                {t("monitor.dialog.planCodeReadOnly")}
               </p>
             )}
           </div>
 
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              数据中心（可选，多个用逗号分隔）
+              {t("monitor.dialog.dcLabel")}
             </label>
             <Input
               value={datacenters}
               onChange={(e) => setDatacenters(e.target.value)}
-              placeholder="例如: gra,rbx,sbg 或留空监控所有"
+              placeholder={t("monitor.dialog.dcPlaceholder")}
             />
           </div>
 
@@ -704,7 +724,7 @@ function AddSubscriptionDialog({
               留空保持老行为（盯全部），所以这一块默认是收起的提示而不是必填项。 */}
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              只盯这套配置（可选）
+              {t("monitor.dialog.optionsLabel")}
             </label>
             {serversQ.isPending ? (
               <Skeleton className="h-16 rounded-xl" />
@@ -730,7 +750,7 @@ function AddSubscriptionDialog({
                     onClick={() => setPicked({})}
                     className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
                   >
-                    清空选择（改回盯全部配置）
+                    {t("monitor.dialog.clearOptions")}
                   </button>
                 )}
               </div>
@@ -739,13 +759,13 @@ function AddSubscriptionDialog({
               <Input
                 value={extraOptions}
                 onChange={(e) => setExtraOptions(e.target.value)}
-                placeholder="addon planCode，逗号分隔；留空 = 盯全部配置"
+                placeholder={t("monitor.dialog.optionsPlaceholder")}
               />
             )}
             <p className="text-[11px] text-muted-foreground mt-1">
               {chosenOptions.length > 0
-                ? `已选 ${chosenOptions.length} 项，只有完全匹配的配置才会触发通知与自动下单`
-                : "留空 = 盯该型号的全部配置。多套配置同时补货时会逐套触发"}
+                ? t("monitor.dialog.optionsSelected", { n: chosenOptions.length })
+                : t("monitor.dialog.optionsEmptyHint")}
             </p>
           </div>
 
@@ -755,18 +775,18 @@ function AddSubscriptionDialog({
                 checked={notifyAvailable}
                 onCheckedChange={(v) => setNotifyAvailable(!!v)}
               />
-              <span className="text-sm">有货时提醒</span>
+              <span className="text-sm">{t("monitor.dialog.notifyAvailable")}</span>
             </label>
             <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-border px-3.5 py-2.5 hover:bg-muted/40 transition-colors">
               <Checkbox
                 checked={notifyUnavailable}
                 onCheckedChange={(v) => setNotifyUnavailable(!!v)}
               />
-              <span className="text-sm">无货时提醒</span>
+              <span className="text-sm">{t("monitor.dialog.notifyUnavailable")}</span>
             </label>
             <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-border px-3.5 py-2.5 hover:bg-muted/40 transition-colors sm:col-span-2">
               <Checkbox checked={autoOrder} onCheckedChange={(v) => setAutoOrder(!!v)} />
-              <span className="text-sm">有货时自动下单</span>
+              <span className="text-sm">{t("monitor.dialog.autoOrder")}</span>
             </label>
           </div>
 
@@ -774,7 +794,7 @@ function AddSubscriptionDialog({
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                  下单账户
+                  {t("monitor.dialog.accountLabel")}
                 </label>
                 {/* 订阅的下单账户就绑当前账户 —— 页面上再放一个选择器,
                     就会出现"用 A 账户看库存、订阅却绑到 B 账户"的错配,
@@ -783,7 +803,7 @@ function AddSubscriptionDialog({
                   <div className="flex items-start gap-2 px-3 py-2 rounded-xl border border-destructive/40 bg-destructive/5">
                     <AlertTriangle className="w-3.5 h-3.5 text-destructive flex-shrink-0 mt-0.5" />
                     <span className="text-[12px] min-w-0 break-words">
-                      账户列表读取失败：{errorMessage(accountsQ.error)}
+                      {t("monitor.dialog.accountFailed", { err: errorMessage(accountsQ.error) })}
                     </span>
                     <Button
                       type="button"
@@ -792,7 +812,7 @@ function AddSubscriptionDialog({
                       className="ml-auto flex-shrink-0"
                       onClick={() => accountsQ.refetch()}
                     >
-                      重试
+                      {t("common.retry")}
                     </Button>
                   </div>
                 ) : (
@@ -801,47 +821,46 @@ function AddSubscriptionDialog({
                   null
                 )}
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  触发时用这个账户下单;关掉上面的开关 = 只通知不下单
+                  {t("monitor.dialog.accountHint")}
                 </p>
                 {/* 提交会被拦掉的两种理由写在这里,别让用户点了才知道 */}
                 {accountsFailed ? (
                   <p className="text-[11px] text-destructive mt-1">
-                    账户没读出来之前不能配自动下单 —— 提交了也只会变成"只通知"
+                    {t("monitor.dialog.accountFailedHint")}
                   </p>
                 ) : !accountsQ.isPending && !autoOrderAccountId ? (
                   <p className="text-[11px] text-destructive mt-1">
-                    还没有可用的 OVH 账户,自动下单会被拒绝。先去设置页添加账户
+                    {t("monitor.dialog.noAccountHint")}
                   </p>
                 ) : null}
               </div>
               <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                下单数量
-              </label>
-              <Input
-                type="number"
-                min={1}
-                max={100}
-                value={quantity}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  if (Number.isFinite(v)) {
-                    setQuantity(Math.max(1, Math.min(100, Math.floor(v))));
-                  }
-                }}
-                placeholder="默认 1"
-              />
-              <p className="text-[11px] text-muted-foreground mt-1.5">
-                总下单量 = 检测出的配置数 × 可用数据中心数 × 数量
-              </p>
-              <label className="flex items-center gap-2 mt-2 cursor-pointer text-[12px]">
-                <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
-                下单成功后自动付款
-              </label>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                用 OVH 账户的默认支付方式扣款（需先在 OVH 设置好）。不勾则只下单，
-                需要在订单过期前自己付款
-              </p>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                  {t("monitor.dialog.qtyLabel")}
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={quantity}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (Number.isFinite(v)) {
+                      setQuantity(Math.max(1, Math.min(100, Math.floor(v))));
+                    }
+                  }}
+                  placeholder={t("monitor.dialog.qtyPlaceholder")}
+                />
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  {t("monitor.dialog.qtyHint")}
+                </p>
+                <label className="flex items-center gap-2 mt-2 cursor-pointer text-[12px]">
+                  <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
+                  {t("monitor.dialog.autoPay")}
+                </label>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {t("monitor.dialog.autoPayHint")}
+                </p>
             </div>
             </div>
           )}
@@ -855,24 +874,24 @@ function AddSubscriptionDialog({
                 onOpenChange(false);
               }}
             >
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
               disabled={create.isPending || update.isPending || notifyBlocked || notifyChecking}
               title={
                 notifyBlocked
-                  ? notifyReason || "没有可用的通知通道,无法添加订阅"
+                  ? notifyReason || t("monitor.dialog.blockedTitle")
                   : undefined
               }
             >
               {create.isPending || update.isPending
-                ? "提交中…"
+                ? t("monitor.dialog.submitting")
                 : notifyChecking
-                  ? "校验通知…"
+                  ? t("monitor.dialog.checking")
                   : isEdit
-                    ? "保存修改"
-                    : "确认添加"}
+                    ? t("monitor.dialog.save")
+                    : t("monitor.dialog.confirmAdd")}
             </Button>
           </DialogFooter>
         </form>
@@ -904,6 +923,7 @@ function IntervalStat({
   current?: number;
   unknownLabel?: string;
 }) {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(current === undefined ? "" : String(current));
   const mut = useSetMonitorInterval();
@@ -915,7 +935,7 @@ function IntervalStat({
   const submit = async () => {
     const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) {
-      toast.error("请输入正整数秒数");
+      toast.error(t("monitor.interval.needPositive"));
       return;
     }
     await mut.mutateAsync(Math.round(n));
@@ -925,10 +945,10 @@ function IntervalStat({
   if (current === undefined) {
     return (
       <div>
-        <div className="text-muted-foreground text-xs">检查间隔</div>
+        <div className="text-muted-foreground text-xs">{t("monitor.interval.label")}</div>
         <div
           className="font-semibold tabular-nums text-muted-foreground"
-          title="监控状态没读到,当前间隔未知 —— 先把状态读回来再改"
+          title={t("monitor.interval.unknownTitle")}
         >
           {unknownLabel}
         </div>
@@ -939,11 +959,11 @@ function IntervalStat({
   if (!editing) {
     return (
       <div>
-        <div className="text-muted-foreground text-xs">检查间隔</div>
+        <div className="text-muted-foreground text-xs">{t("monitor.interval.label")}</div>
         <button
           className="font-semibold tabular-nums hover:underline"
           onClick={() => setEditing(true)}
-          title="点击修改（5-3600 秒）"
+          title={t("monitor.interval.editTitle")}
         >
           {current}s
         </button>
@@ -952,7 +972,7 @@ function IntervalStat({
   }
   return (
     <div>
-      <div className="text-muted-foreground text-xs">检查间隔（5-3600s）</div>
+      <div className="text-muted-foreground text-xs">{t("monitor.interval.editLabel")}</div>
       <div className="flex items-center gap-1">
         <input
           autoFocus
@@ -968,7 +988,7 @@ function IntervalStat({
           className="w-20 px-2 py-0.5 border border-border rounded text-sm bg-background"
         />
         <Button size="sm" variant="ghost" onClick={() => void submit()} disabled={mut.isPending}>
-          {mut.isPending ? "…" : "保存"}
+          {mut.isPending ? "…" : t("common.save")}
         </Button>
       </div>
     </div>

@@ -6,6 +6,7 @@ import { useAccounts } from "@/hooks/use-accounts";
 import { LoadFailed } from "@/components/common/LoadFailed";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { zoneStyle, zoneName, regionOf, type ZoneRegion } from "@/lib/zone-color";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 /**
@@ -27,6 +28,7 @@ export function AccountSwitcher({
   compact?: boolean;
 }) {
   const accounts = useAccounts();
+  const { t } = useTranslation();
   const [activeId, setActive] = useActiveAccount();
   // 受控:选完要自己关掉。Radix Popover 默认不会因为点了内容里的按钮就收起,
   // 不管的话选完账户面板还杵在那儿挡着导航。
@@ -77,7 +79,7 @@ export function AccountSwitcher({
     return (
       <div className={compact ? "" : "mx-3 mt-3"}>
         <LoadFailed
-          title="账户列表读取失败"
+          title={t("shell.account.loadFailed")}
           error={accounts.error}
           onRetry={() => accounts.refetch()}
           compact
@@ -97,7 +99,7 @@ export function AccountSwitcher({
         )}
       >
         <Plus className="w-4 h-4" />
-        添加 OVH 账户
+        {t("shell.account.add")}
       </Link>
     );
   }
@@ -106,7 +108,7 @@ export function AccountSwitcher({
     <div className={compact ? "min-w-0" : "px-3 mt-3"}>
       {!compact && (
         <div className="px-0.5 mb-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-          当前账户
+          {t("shell.account.current")}
         </div>
       )}
       <Popover open={open} onOpenChange={setOpen}>
@@ -120,7 +122,7 @@ export function AccountSwitcher({
                 ? "h-8 pl-2 pr-1.5 rounded-lg bg-secondary hover:bg-muted active:bg-muted"
                 : "px-2.5 py-2 rounded-lg border border-border hover:bg-muted"
             )}
-            title="切换账户：机型列表、价格、库存、控制台全部跟着当前账户走"
+            title={t("shell.account.switchHint")}
           >
             {/* 账户名在前、区域徽章在后。
                 名字才是身份 —— 同一个区里可以有好几个账户,它们的区域完全相同,
@@ -129,7 +131,7 @@ export function AccountSwitcher({
                 三区 planCode 互不相通,拿欧区机型配美区账户必然被拒。 */}
             {compact ? (
               <span className="min-w-0 flex-1 flex items-center gap-1.5">
-                <span className="text-[13px] font-medium truncate">{active?.name || "选择账户"}</span>
+                <span className="text-[13px] font-medium truncate">{active?.name || t("shell.account.select")}</span>
                 {active && (
                   <span
                     className={cn(
@@ -143,9 +145,9 @@ export function AccountSwitcher({
               </span>
             ) : (
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-medium truncate">{active?.name || "选择账户"}</span>
+                <span className="block text-[13px] font-medium truncate">{active?.name || t("shell.account.select")}</span>
                 <span className="block text-[11px] text-muted-foreground truncate">
-                  {active ? `${active.zone} · ${zoneName(active.zone)}` : "未选择"}
+                  {active ? `${active.zone} · ${zoneName(active.zone)}` : t("shell.account.notSelected")}
                 </span>
               </span>
             )}
@@ -160,7 +162,7 @@ export function AccountSwitcher({
           {/* 切换账户的后果写在面板顶部 —— 用户正要做选择的这一刻才是该说的时候。
               侧栏版在外面也有一份常驻说明,顶栏版(手机)只靠这里。 */}
           <p className="px-2 pt-1.5 pb-2 text-[10.5px] text-muted-foreground leading-snug border-b border-border mb-1">
-            机型、价格、库存、控制台都按这个账户所在站点显示
+            {t("shell.account.panelNote")}
           </p>
           {/* 按区域分组。同一个区里可以有好几个账户,平铺成一条长列表的话
               用户得逐行去读子公司码才知道哪几个是一伙的;分组之后
@@ -199,7 +201,7 @@ export function AccountSwitcher({
                       <span className="block font-medium truncate">
                         {a.name}
                         {a.isDefault && (
-                          <span className="ml-1 text-[10px] font-normal text-muted-foreground">默认</span>
+                          <span className="ml-1 text-[10px] font-normal text-muted-foreground">{t("shell.account.defaultBadge")}</span>
                         )}
                       </span>
                       <span className="block text-[11px] text-muted-foreground truncate">
@@ -228,7 +230,7 @@ export function AccountSwitcher({
             className="flex items-center gap-2 px-2 py-1.5 mt-1 rounded-md text-[13px] text-muted-foreground hover:bg-muted border-t border-border pt-2 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
-            管理账户
+            {t("shell.account.manage")}
           </Link>
         </PopoverContent>
       </Popover>
@@ -237,7 +239,7 @@ export function AccountSwitcher({
           手机用户点开切换器时照样看得到。 */}
       {!compact && (
         <p className="px-0.5 mt-1.5 text-[10px] text-muted-foreground leading-snug">
-          机型、价格、库存、控制台都按这个账户所在站点显示
+          {t("shell.account.panelNote")}
         </p>
       )}
     </div>

@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { toast } from "sonner";
+import i18n from "@/i18n";
 
 export interface AppDeviceRow {
   id: number;
@@ -37,7 +38,7 @@ export function useCreatePairingCode() {
   return useMutation({
     mutationFn: async () => (await api.post<PairingCodeResp>("/app/pairing-codes")).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.app.devices() }),
-    onError: () => toast.error("生成配对码失败"),
+    onError: () => toast.error(i18n.t("hooksMsg.app.pairingCodeFailed")),
   });
 }
 
@@ -47,9 +48,9 @@ export function useRevokeAppDevice() {
   return useMutation({
     mutationFn: async (id: number) => (await api.delete(`/app/devices/${id}`)).data,
     onSuccess: () => {
-      toast.success("设备已吊销,其令牌立即失效");
+      toast.success(i18n.t("hooksMsg.app.revoked"));
       qc.invalidateQueries({ queryKey: qk.app.devices() });
     },
-    onError: () => toast.error("吊销失败"),
+    onError: () => toast.error(i18n.t("hooksMsg.app.revokeFailed")),
   });
 }

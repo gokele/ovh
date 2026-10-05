@@ -71,12 +71,12 @@ func SelfUpdate(state *app.State, restart func(exePath string)) gin.HandlerFunc 
 		if Version == "dev" {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"error":   "当前是开发构建(version=dev),没有可比较的版本号,不支持自更新。请用 Release 里的二进制",
+				"error":   "当前是开发构建(version=dev),没有可比较的版本号,不支持自更新。请用 Release 里的二进制", "code": "E926F1DE5",
 			})
 			return
 		}
 		if updateRunning() {
-			c.JSON(http.StatusConflict, gin.H{"success": false, "error": "已有更新正在进行", "progress": getProgress()})
+			c.JSON(http.StatusConflict, gin.H{"success": false, "error": "已有更新正在进行", "code": "ED26CED2E", "progress": getProgress()})
 			return
 		}
 

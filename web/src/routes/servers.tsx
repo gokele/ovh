@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useTranslation, Trans } from "react-i18next";
 import { isOrderable } from "@/lib/availability";
 import {
   Server, RefreshCw, Search, Bell, ShoppingCart, Cpu, MemoryStick, HardDrive, Wifi,
@@ -63,20 +64,22 @@ export const Route = createFileRoute("/servers")({
  * 完全不知道发生了什么。现在把两种情况分开说。
  */
 function PriceFallback({ loading, subsidiary }: { loading: boolean; subsidiary: string }) {
+  const { t } = useTranslation();
   if (loading) {
-    return <span className="text-muted-foreground font-normal">— · 价格加载中</span>;
+    return <span className="text-muted-foreground font-normal">{t("servers.price.loading")}</span>;
   }
   return (
     <span
       className="text-muted-foreground font-normal"
-      title={`${subsidiary} 的目录里没有这个机型的报价。OVH 各子公司目录独立,机型代码也不同。`}
+      title={t("servers.price.noQuoteTitle", { subsidiary })}
     >
-      — · {subsidiary} 无报价
+      {t("servers.price.noQuote", { subsidiary })}
     </span>
   );
 }
 
 function ServersPage() {
+  const { t } = useTranslation();
   const q = useServers();
   // 单次拉取 OVH 公开可用性接口（一条请求拿到所有 planCode × 所有 DC 的状态）
   const availQ = useAvailability();
@@ -147,8 +150,8 @@ function ServersPage() {
     <div className="space-y-3 sm:space-y-6">
       <PageHeader
         icon={Server}
-        title="服务器列表"
-        description="目录、价格、可用性全部走访问触发的缓存，2 小时内复用"
+        title={t("servers.title")}
+        description={t("servers.description")}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <CacheBadge />
@@ -172,7 +175,7 @@ function ServersPage() {
                     : ""
                 }`}
               />
-              刷新
+              {t("servers.refresh")}
             </Button>
           </div>
         }
@@ -185,7 +188,7 @@ function ServersPage() {
           <div className="relative w-full sm:flex-1 min-w-0">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <Input
-              placeholder="搜索 planCode / 型号 / CPU / 内存..."
+              placeholder={t("servers.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9 rounded-full"
@@ -200,17 +203,22 @@ function ServersPage() {
             onClick={() => setOnlyAvailable((v) => !v)}
           >
             <Filter className="w-3.5 h-3.5" />
-            仅显示可用
+            {t("servers.onlyAvailable")}
           </Button>
           {/* 价格地区不再单独选:它以前只换价格、不换机型列表,而下拉里写着「US · 美国」,
               看上去像是切到了美区目录 —— 实际列表还是欧区的 planCode(24sk602 vs 美区的
               24sk602-v1-us),照着它下单必然被拒。现在币种直接跟当前账户的子公司走。 */}
           <span className="inline-flex items-center gap-1.5 h-8 sm:h-9 px-2.5 sm:px-3 rounded-full border border-border text-[11px] sm:text-[12px] text-muted-foreground flex-shrink-0">
             <Globe className="w-3.5 h-3.5" />
-            价格按 <b className="text-foreground font-semibold">{subsidiary}</b> 结算
+            <Trans
+              i18nKey="servers.priceRegion"
+              values={{ subsidiary }}
+              components={{ b: <b className="text-foreground font-semibold" /> }}
+              t={t}
+            />
           </span>
           <span className="text-[11px] sm:text-[12px] text-muted-foreground whitespace-nowrap">
-            {q.isPending ? "加载中..." : `共 ${filtered.length} 款`}
+            {q.isPending ? t("servers.loadingShort") : t("servers.totalCount", { n: filtered.length })}
           </span>
           </div>
         </CardContent>
@@ -223,11 +231,17 @@ function ServersPage() {
         <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-[12px]">
           <MapPin className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold">账户子公司配置与 OVH 实际归属不一致</p>
+            <p className="font-semibold">{t("servers.mismatch.title")}</p>
             <p className="text-muted-foreground mt-0.5">
-              OVH 认这个账户属于 <code className="font-mono">{accountSub || "—"}</code>，
-              与设置页里填的 zone 不同。目录、价格、币种、库存、下单 region 全按子公司走，
-              请到「设置 → OVH 账户」改成 {accountSub || "OVH 返回的那个子公司"} 后再下单。
+              <Trans
+                i18nKey="servers.mismatch.desc"
+                values={{
+                  actual: accountSub || "—",
+                  expected: accountSub || t("servers.mismatch.expectedFallback"),
+                }}
+                components={{ code: <code className="font-mono" /> }}
+                t={t}
+              />
             </p>
           </div>
         </div>
@@ -237,7 +251,7 @@ function ServersPage() {
           不是实时库存,把它当成"缺货"会让用户直接放弃一台其实有货的机器。 */}
       {availQ.isError && (
         <LoadFailedBanner
-          title="实时库存读取失败，下面显示的是目录里的静态状态"
+          title={t("servers.availFailedTitle")}
           error={availQ.error}
           onRetry={() => availQ.refetch()}
         />
@@ -254,7 +268,7 @@ function ServersPage() {
         <Card>
           <LoadFailed
             icon={Server}
-            title="机型列表读取失败"
+            title={t("servers.listFailedTitle")}
             error={q.error}
             onRetry={() => q.refetch()}
           />
@@ -263,8 +277,8 @@ function ServersPage() {
         <Card>
           <EmptyState
             icon={Server}
-            title="未找到服务器"
-            description={list.length === 0 ? "API 未返回服务器，检查 API 设置" : "没有匹配的搜索结果"}
+            title={t("servers.notFound")}
+            description={list.length === 0 ? t("servers.emptyApi") : t("servers.emptySearch")}
           />
         </Card>
       ) : (
@@ -326,6 +340,7 @@ function ServerCard({
   subsidiary: string;
   onView: () => void;
 }) {
+  const { t } = useTranslation();
   const addMon = useAddToMonitor();
 
   // 静态可用性兜底（首次渲染、实时还没回来时也有数据）
@@ -360,10 +375,10 @@ function ServerCard({
   const stockUnknown = !!availError && !realtimeDcMap;
   const tone = stockUnknown ? "warning" : okCount > 0 ? "success" : "danger";
   const statusText = stockUnknown
-    ? "库存未知"
+    ? t("servers.card.stockUnknown")
     : okCount > 0
-      ? `${okCount}/${total} 可用`
-      : "暂时缺货";
+      ? t("servers.card.availableCount", { ok: okCount, total })
+      : t("servers.card.outOfStock");
 
   return (
     <Card className="overflow-hidden transition-colors hover:bg-secondary/30">
@@ -381,7 +396,7 @@ function ServerCard({
               )}
             </div>
           </div>
-          <Chip tone={tone as any} title={stockUnknown ? "实时库存接口请求失败,未能确认这台机器的状态" : undefined}>
+          <Chip tone={tone as any} title={stockUnknown ? t("servers.card.stockUnknownTitle") : undefined}>
             <StatusDot
               tone={stockUnknown ? "warning" : okCount > 0 ? "success" : "danger"}
               pulse={!stockUnknown && okCount > 0}
@@ -429,11 +444,11 @@ function ServerCard({
             }
           >
             <Bell className="w-3.5 h-3.5" />
-            监控
+            {t("servers.card.monitor")}
           </Button>
           <Button size="sm" className="flex-1" onClick={onView}>
             <ShoppingCart className="w-3.5 h-3.5" />
-            抢购
+            {t("servers.card.snipe")}
           </Button>
         </div>
       </CardContent>
@@ -478,6 +493,7 @@ function DetailContent({
   subsidiary: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const addMon = useAddToMonitor();
   const create = useCreateQueueItem();
   const defaultAcc = useDefaultAccount();
@@ -612,11 +628,11 @@ function DetailContent({
             <DialogDescription className="truncate mt-0.5">{server.name}</DialogDescription>
           </div>
           {stockUnknown ? (
-            <Chip tone="warning"><StatusDot tone="warning" size="xs" />库存未知</Chip>
+            <Chip tone="warning"><StatusDot tone="warning" size="xs" />{t("servers.detail.stockUnknown")}</Chip>
           ) : ok > 0 ? (
-            <Chip tone="success"><StatusDot tone="success" pulse size="xs" />当前可用</Chip>
+            <Chip tone="success"><StatusDot tone="success" pulse size="xs" />{t("servers.detail.currentlyAvailable")}</Chip>
           ) : (
-            <Chip tone="danger"><StatusDot tone="danger" size="xs" />暂时缺货</Chip>
+            <Chip tone="danger"><StatusDot tone="danger" size="xs" />{t("servers.detail.outOfStock")}</Chip>
           )}
         </div>
       </DialogHeader>
@@ -626,9 +642,9 @@ function DetailContent({
         <div className="border border-border rounded-2xl p-4 bg-secondary/30 flex items-end justify-between gap-3 flex-wrap">
           <div>
             <div className="text-[11px] text-muted-foreground">
-              月费 · {subsidiary}
+              {t("servers.detail.monthlyFee", { subsidiary })}
               <span className="ml-2 text-[10px]">
-                {selectedValues.length > 0 ? "（随当前选配）" : "（默认配置）"}
+                {selectedValues.length > 0 ? t("servers.detail.withOptions") : t("servers.detail.defaultConfig")}
               </span>
             </div>
             <div className="text-2xl font-bold tabular-nums mt-0.5">
@@ -644,11 +660,13 @@ function DetailContent({
           {price && (
             <div className="text-right text-[11px] text-muted-foreground space-y-0.5 tabular-nums">
               {price.installPrice > 0 && (
-                <div>安装费 {formatMoney(price.installPrice, price.currency)}（一次性）</div>
+                <div>{t("servers.detail.installFee", { amount: formatMoney(price.installPrice, price.currency) })}</div>
               )}
               {/* 币种取目录 locale.currencyCode 原值;拿不到就明说未知,不写死 EUR */}
               <div title={price.currency ? undefined : CURRENCY_UNKNOWN_HINT}>
-                币种 {price.currency || "未知"}
+                {t("servers.detail.currency", {
+                  currency: price.currency || t("servers.detail.currencyUnknownValue"),
+                })}
               </div>
             </div>
           )}
@@ -657,9 +675,9 @@ function DetailContent({
         {/* 规格 4 卡 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
           <SpecCard icon={<Cpu className="w-4 h-4" />} label="CPU" value={server.cpu} />
-          <SpecCard icon={<MemoryStick className="w-4 h-4" />} label="内存" value={server.memory} />
-          <SpecCard icon={<HardDrive className="w-4 h-4" />} label="硬盘" value={server.storage} />
-          <SpecCard icon={<Wifi className="w-4 h-4" />} label="带宽" value={server.bandwidth} />
+          <SpecCard icon={<MemoryStick className="w-4 h-4" />} label={t("servers.spec.memory")} value={server.memory} />
+          <SpecCard icon={<HardDrive className="w-4 h-4" />} label={t("servers.spec.storage")} value={server.storage} />
+          <SpecCard icon={<Wifi className="w-4 h-4" />} label={t("servers.spec.bandwidth")} value={server.bandwidth} />
         </div>
 
         {/* 硬件配置选择 */}
@@ -680,7 +698,7 @@ function DetailContent({
         {/* 库存接口挂了 —— 下面的红绿点这时候不代表真实库存,必须在按下抢购之前说清楚。 */}
         {stockFailed && (
           <LoadFailedBanner
-            title="实时库存读取失败，下面的红绿点不代表当前真实库存"
+            title={t("servers.detail.availFailedTitle")}
             error={orderEndpoint ? orderAvail.error : undefined}
             onRetry={() => (orderEndpoint ? orderAvail.refetch() : undefined)}
           />
@@ -691,11 +709,13 @@ function DetailContent({
           <div className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
             <h3 className="text-[13px] font-semibold flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
-              数据中心 · 选 {selectedDCs.length} / {dialogDCs.length}
+              {t("servers.detail.dcHeader", { selected: selectedDCs.length, total: dialogDCs.length })}
             </h3>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-muted-foreground">
-                {stockUnknown ? "库存未知" : `${ok}/${total} 可用 · ${Math.round(ratio * 100)}%`}
+                {stockUnknown
+                  ? t("servers.detail.stockUnknown")
+                  : t("servers.detail.dcSummary", { ok, total, pct: Math.round(ratio * 100) })}
               </span>
               <Button
                 variant="outline"
@@ -711,9 +731,9 @@ function DetailContent({
                     .map((dc) => dc.code);
                   setSelectedDCs(selectedDCs.length === okCodes.length ? [] : okCodes);
                 }}
-                title="一键选中所有可用 DC，再点一次清空"
+                title={t("servers.detail.selectAllTitle")}
               >
-                {selectedDCs.length > 0 ? "清空" : "选可用"}
+                {selectedDCs.length > 0 ? t("servers.detail.clear") : t("servers.detail.selectAvailable")}
               </Button>
             </div>
           </div>
@@ -751,7 +771,7 @@ function DetailContent({
         <div className="border-t border-border pt-4">
           <h3 className="text-[13px] font-semibold mb-2.5 flex items-center gap-1.5">
             <ShoppingCart className="w-3.5 h-3.5 text-muted-foreground" />
-            抢购参数
+            {t("servers.detail.params")}
           </h3>
           <div className="space-y-3">
             <div>
@@ -760,23 +780,27 @@ function DetailContent({
                   库存判断的口径跟着账户走,这是本页独有的信息。 */}
               {orderEndpoint && (
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  机房与配置的红绿点按该账户所在站点（{regionLabel(endpointRegion(orderEndpoint))}）实时查询
-                  {orderAvail.isFetching && " · 同步中…"}
+                  {t("servers.detail.availByRegion", { region: regionLabel(endpointRegion(orderEndpoint)) })}
+                  {orderAvail.isFetching && t("servers.detail.syncing")}
                 </p>
               )}
               {/* 下单前唯一能看出"区配错了"的地方:价格按上方选的 subsidiary 显示,
                   下单却走账户所属站点。两者不同区时价格/库存都对不上,必须显式警告。 */}
               {priceRegionMismatch && (
                 <p className="text-[11px] text-warning mt-1">
-                  ⚠ 价格按 {subsidiary}（{regionLabel(priceRegion)}）显示，而下单账户在
-                  {regionLabel(orderRegion)}站点 —— 三区的目录、价格、库存互不相通，实际扣款以账户所属站点为准。
+                  {t("servers.detail.regionMismatch", {
+                    subsidiary,
+                    priceRegion: regionLabel(priceRegion),
+                    orderRegion: regionLabel(orderRegion),
+                  })}
                 </p>
               )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] text-muted-foreground mb-1">
-                  每个数据中心数量<span className="ml-1 opacity-60">最多 {MAX_ORDER_QUANTITY}</span>
+                  {t("servers.detail.qtyPerDc")}
+                  <span className="ml-1 opacity-60">{t("servers.detail.qtyMax", { n: MAX_ORDER_QUANTITY })}</span>
                 </label>
                 <Input
                   type="number"
@@ -788,12 +812,12 @@ function DetailContent({
                 {orderPlan.clamped && (
                   // 光靠 max= 挡不住手打的值,得把实际会用的数字说出来
                   <p className="text-[11px] text-warning mt-1">
-                    已按 {qty} 台/机房计算（单次最多 {MAX_ORDER_FANOUT} 个任务）
+                    {t("servers.detail.clamped", { qty, max: MAX_ORDER_FANOUT })}
                   </p>
                 )}
               </div>
               <div>
-                <label className="block text-[11px] text-muted-foreground mb-1">重试间隔（秒）</label>
+                <label className="block text-[11px] text-muted-foreground mb-1">{t("servers.detail.retryInterval")}</label>
                 <Input
                   type="number"
                   min={10}
@@ -809,28 +833,34 @@ function DetailContent({
       <DialogFooter className="border-t border-border pt-4 -mx-6 px-6">
         <div className="mr-auto text-[12px] text-muted-foreground">
           {selectedDCs.length > 0
-            ? `将创建 ${totalTasks} 个任务（${selectedDCs.length} DC × ${qty}）${selectedValues.length > 0 ? ` · ${selectedValues.length} 项选配` : ""}`
-            : "请选数据中心"}
+            ? t("servers.detail.willCreate", {
+                tasks: totalTasks,
+                dcs: selectedDCs.length,
+                qty,
+                extra:
+                  selectedValues.length > 0
+                    ? t("servers.detail.willCreateExtra", { n: selectedValues.length })
+                    : "",
+              })
+            : t("servers.detail.pickDc")}
           {selectedDCs.length > 0 && (
             // 这里以前写着"下单即放弃 14 天撤销期" —— 那是 checkout 硬传
             // waiveRetractationPeriod:true 时代的说明。那个参数已经删了
             // (schema 里 required:false,不传就是不弃权),撤回权现在是保留的,
             // 机器控制页还专门有撤单入口。留着这句话会让用户以为退不了。
             <span className="block text-[11px] mt-0.5">
-              {autoPay
-                ? "下单后将用 OVH 默认支付方式自动付款"
-                : "下单成功后需自行付款"}
+              {autoPay ? t("servers.detail.autoPayOn") : t("servers.detail.autoPayOff")}
             </span>
           )}
           {selectedDCs.length > 0 && (
             <label className="flex items-center gap-1.5 mt-1 cursor-pointer text-[11px]">
               <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
-              抢到后自动付款（需 OVH 账户已设置默认支付方式）
+              {t("servers.detail.autoPayLabel")}
             </label>
           )}
         </div>
         <Button variant="outline" onClick={onClose} disabled={create.isPending}>
-          关闭
+          {t("servers.detail.close")}
         </Button>
         <Button
           variant="outline"
@@ -854,17 +884,17 @@ function DetailContent({
           }
         >
           <Bell className="w-4 h-4" />
-          加入监控
+          {t("servers.detail.addToMonitor")}
         </Button>
         <Button
           disabled={selectedDCs.length === 0 || create.isPending}
           onClick={async () => {
             if (selectedDCs.length === 0) {
-              toast.error("请至少选择一个数据中心");
+              toast.error(t("servers.toast.pickDc"));
               return;
             }
             if (!accountId) {
-              toast.error("请选择 OVH 账户");
+              toast.error(t("servers.toast.pickAccount"));
               return;
             }
             const result = await create.mutateAsync({
@@ -877,23 +907,23 @@ function DetailContent({
               autoPay,
             });
             if (result.success > 0) {
-              toast.success(`已创建 ${result.success}/${result.total} 个抢购任务`);
+              toast.success(t("servers.toast.created", { success: result.success, total: result.total }));
               onClose();
             }
             if (result.failed > 0) {
-              toast.error(`${result.failed} 个任务创建失败`);
+              toast.error(t("servers.toast.failedCount", { n: result.failed }));
             }
           }}
         >
           {create.isPending ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              创建中…
+              {t("servers.detail.creating")}
             </>
           ) : (
             <>
               <ShoppingCart className="w-4 h-4" />
-              {selectedDCs.length > 0 ? `创建 ${totalTasks} 个任务` : "创建抢购任务"}
+              {selectedDCs.length > 0 ? t("servers.detail.createN", { n: totalTasks }) : t("servers.detail.create")}
             </>
           )}
         </Button>
@@ -919,23 +949,24 @@ function SpecCard({ icon, label, value }: { icon: React.ReactNode; label: string
 
 /** 服务器目录缓存状态徽章：基于 /api/cache/info 显示当前数据是几分钟前的缓存还是已过期 */
 function CacheBadge() {
+  const { t } = useTranslation();
   const info = useCacheInfo();
   const backend = info.data?.backend;
   if (!backend || !backend.hasCachedData) {
-    return <span className="text-[11px] text-muted-foreground">尚未加载</span>;
+    return <span className="text-[11px] text-muted-foreground">{t("servers.cache.notLoaded")}</span>;
   }
   const ageSec = backend.cacheAge ?? 0;
   const valid = !!backend.cacheValid;
 
   let text: string;
   if (ageSec < 60) {
-    text = `${ageSec} 秒前`;
+    text = t("servers.cache.secondsAgo", { n: ageSec });
   } else if (ageSec < 3600) {
-    text = `${Math.floor(ageSec / 60)} 分钟前`;
+    text = t("servers.cache.minutesAgo", { n: Math.floor(ageSec / 60) });
   } else {
     const h = Math.floor(ageSec / 3600);
     const m = Math.floor((ageSec % 3600) / 60);
-    text = m > 0 ? `${h} 小时 ${m} 分钟前` : `${h} 小时前`;
+    text = m > 0 ? t("servers.cache.hoursMinutesAgo", { h, m }) : t("servers.cache.hoursAgo", { n: h });
   }
 
   return (
@@ -947,11 +978,11 @@ function CacheBadge() {
       }`}
       title={
         valid
-          ? "数据来自缓存，过期后再次访问才会重新调 OVH"
-          : "缓存已过期，下次访问或点刷新会调 OVH 拉新数据"
+          ? t("servers.cache.validTitle")
+          : t("servers.cache.expiredTitle")
       }
     >
-      {valid ? "缓存" : "缓存已过期"} · {text}
+      {valid ? t("servers.cache.cached") : t("servers.cache.expired")} · {text}
     </span>
   );
 }

@@ -1,4 +1,5 @@
 import { AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 /**
  * 「部分数据获取失败」提示条。
@@ -14,10 +15,11 @@ export function PartialNotice({
   className,
 }: {
   failedCount: number;
-  /** 这批数据叫什么，用于拼文案，例如「网卡接口」 */
+  /** 这批数据叫什么，用于拼文案，例如「网卡接口」(调用方传入已译文本) */
   what: string;
   className?: string;
 }) {
+  const { t } = useTranslation();
   if (!failedCount || failedCount <= 0) return null;
   return (
     <div
@@ -27,15 +29,14 @@ export function PartialNotice({
       }
     >
       <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" />
-      <span>
-        {what}有 {failedCount} 条详情未能获取，下方列表可能不完整或存在占位行，可刷新重试。
-      </span>
+      <span>{t("commons.partial.notice", { what, count: failedCount })}</span>
     </div>
   );
 }
 
 /** 单行「详情获取失败」标记。列表里那一行是占位数据时挂它，避免用户把占位值当真实状态。 */
 export function DetailErrorTag({ message }: { message?: string }) {
+  const { t } = useTranslation();
   if (!message) return null;
   return (
     <span
@@ -43,7 +44,7 @@ export function DetailErrorTag({ message }: { message?: string }) {
       title={message}
     >
       <AlertTriangle className="w-3 h-3" />
-      获取失败
+      {t("commons.partial.tag")}
     </span>
   );
 }

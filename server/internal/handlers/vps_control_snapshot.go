@@ -74,7 +74,7 @@ func CreateVpsSnapshot(state *app.State) gin.HandlerFunc {
 			if strings.Contains(errMsg, "already") || strings.Contains(errMsg, "exists") {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"success": false,
-					"error":   "该 VPS 已存在快照,免费档同时只允许 1 个,请先删除旧快照",
+					"error":   "该 VPS 已存在快照,免费档同时只允许 1 个,请先删除旧快照", "code": "EBDA81EF5",
 				})
 				return
 			}
@@ -82,7 +82,7 @@ func CreateVpsSnapshot(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 创建快照任务已提交", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "创建快照任务已提交", "task": task})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "创建快照任务已提交", "code": "E6EB65166", "task": task})
 	}
 }
 
@@ -110,7 +110,7 @@ func UpdateVpsSnapshotDescription(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 快照描述已更新", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "快照描述已更新"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "快照描述已更新", "code": "E0ED90EA7"})
 	}
 }
 
@@ -132,7 +132,7 @@ func RevertVpsSnapshot(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Warn("VPS "+svc+" 已触发快照回滚 (destructive)", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "回滚任务已提交,VPS 即将进入维护态", "task": task})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "回滚任务已提交,VPS 即将进入维护态", "code": "ED5A9B443", "task": task})
 	}
 }
 
@@ -153,6 +153,6 @@ func DeleteVpsSnapshot(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 快照已删除", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "快照删除任务已提交", "task": task})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "快照删除任务已提交", "code": "E6D751507", "task": task})
 	}
 }

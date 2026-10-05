@@ -4,6 +4,10 @@ import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getApiSecretKey, setApiSecretKey, clearApiSecretKey, onAuthFailure } from "@/lib/api";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
+import { LanguageToggle } from "@/components/layout/LanguageToggle";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 type AuthState = "checking" | "needs-auth" | "authed";
 
@@ -18,6 +22,7 @@ type AuthState = "checking" | "needs-auth" | "authed";
  *   那时用户会卡在一屏永远不再更新的旧数据上。收到 401 就重新弹登录覆盖层。
  */
 export function AuthGate({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const [state, setState] = useState<AuthState>("checking");
   const [errMsg, setErrMsg] = useState<string>("");
 
@@ -28,7 +33,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (state !== "authed") return;
     return onAuthFailure(() => {
-      setErrMsg("登录状态已失效，请重新输入 API 密钥");
+      // 事件可能晚于本次渲染很久才触发,直接走 i18n.t 免得闭包里拿到旧语言
+      setErrMsg(i18n.t("commons.auth.sessionExpired"));
       setState("needs-auth");
     });
   }, [state]);
@@ -59,7 +65,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         return;
       }
       clearApiSecretKey();
-      setErrMsg("已保存的 API 密钥失效，请重新输入");
+      setErrMsg(t("commons.auth.storedKeyInvalid"));
       setState("needs-auth");
     });
   }, []);
@@ -107,11 +113,12 @@ function LoginOverlay({
     return () => clearInterval(t);
   }, [cooldown]);
   const [error, setError] = useState<string>(initialError || "");
+  const { t } = useTranslation();
 
   const submit = async () => {
     const trimmed = key.trim();
     if (!trimmed) {
-      setError("请输入 API 密钥");
+      setError(t("commons.auth.emptyKey"));
       return;
     }
     setSubmitting(true);
@@ -126,7 +133,7 @@ function LoginOverlay({
         if (r.reason === "rate-limited" && r.retryAfter) setCooldown(r.retryAfter);
       }
     } catch (e: any) {
-      setError(e?.message || "验证失败，请检查网络或后端服务");
+      setError(e?.message || t("commons.auth.verifyFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -134,19 +141,24 @@ function LoginOverlay({
 
   return (
     <div className="fixed inset-0 z-[100] bg-background/95 backdrop-blur-sm flex items-center justify-center px-4">
-      <div className="w-full max-w-md border border-border rounded-2xl bg-background p-7 space-y-5">
+      <div className="w-full max-w-md border border-border rounded-2xl bg-background p-7 space-y-5 relative">
+        {/* 登录页也要能切语言/主题:英文浏览器环境的中文用户不该被锁在外面 */}
+        <div className="absolute top-4 right-4 flex items-center gap-1">
+          <LanguageToggle />
+          <ThemeToggle />
+        </div>
         <div className="flex items-center gap-2.5">
           <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center">
             <ShieldAlert className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold leading-tight">需要 API 密钥</h2>
-            <p className="text-[12px] text-muted-foreground mt-0.5">访问后端前请先验证身份</p>
+            <h2 className="text-lg font-semibold leading-tight">{t("commons.auth.title")}</h2>
+            <p className="text-[12px] text-muted-foreground mt-0.5">{t("commons.auth.subtitle")}</p>
           </div>
         </div>
 
         <div className="space-y-2">
-          <label className="text-[12px] font-medium block">API 密钥</label>
+          <label className="text-[12px] font-medium block">{t("commons.auth.keyLabel")}</label>
           <div className="relative">
             <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <Input
@@ -154,7 +166,7 @@ function LoginOverlay({
               autoFocus
               autoComplete="off"
               spellCheck={false}
-              placeholder="后端配置文件 / 环境变量里的 X-API-Key"
+              placeholder={t("commons.auth.keyPlaceholder")}
               value={key}
               onChange={(e) => setKey(e.target.value)}
               onKeyDown={(e) => {
@@ -174,17 +186,17 @@ function LoginOverlay({
           {submitting ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
-              验证中…
+              {t("commons.auth.verifying")}
             </>
           ) : cooldown > 0 ? (
-            `请等待 ${cooldown} 秒`
+            t("commons.auth.waitSeconds", { count: cooldown })
           ) : (
-            "验证并进入"
+            t("commons.auth.submit")
           )}
         </Button>
 
         <p className="text-[10px] text-muted-foreground leading-relaxed">
-          密钥保存在浏览器 localStorage，不会上传服务端。换设备或清缓存后需重新输入。
+          {t("commons.auth.storageNote")}
         </p>
       </div>
     </div>
@@ -222,7 +234,7 @@ async function verifyKey(key: string): Promise<VerifyResult> {
     return {
       ok: false,
       reason: "unreachable",
-      message: `连不上后端服务(${e?.message || "网络错误"})。确认后端已启动、地址和端口正确后重试。`,
+      message: i18n.t("commons.auth.unreachable", { reason: e?.message || i18n.t("commons.auth.networkError") }),
     };
   }
   if (res.status === 200) return { ok: true };
@@ -230,7 +242,7 @@ async function verifyKey(key: string): Promise<VerifyResult> {
     return {
       ok: false,
       reason: "bad-key",
-      message: "密钥不对。它是后端 .env 文件里的 API_SECRET_KEY;没设置过的话默认是 123456(强烈建议改掉)。",
+      message: i18n.t("commons.auth.badKey"),
     };
   }
   if (res.status === 429) {
@@ -240,12 +252,12 @@ async function verifyKey(key: string): Promise<VerifyResult> {
       ok: false,
       reason: "rate-limited",
       retryAfter: secs,
-      message: res.data?.message || `密钥连续错误次数过多,请约 ${secs} 秒后再试。`,
+      message: res.data?.message || i18n.t("commons.auth.rateLimited", { secs }),
     };
   }
   return {
     ok: false,
     reason: "unreachable",
-    message: `后端返回了 HTTP ${res.status},不是预期的响应。确认前面没有挡着反向代理或登录页。`,
+    message: i18n.t("commons.auth.unexpectedStatus", { status: res.status }),
   };
 }

@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import type { DiskGroup, CustomPartition } from "@/hooks/use-server-control";
 
 /**
@@ -35,14 +36,14 @@ function rankOf(t?: string): number {
   return SPEED_RANK.unknown;
 }
 
-/** 人话化的盘型标签 */
+/** 人话化的盘型标签(跟随语言) */
 export function diskTypeLabel(t?: string): string {
   const r = rankOf(t);
-  if (r === SPEED_RANK.nvme) return "NVMe 固态";
-  if (r === SPEED_RANK.ssd) return "SSD 固态";
-  if (r === SPEED_RANK.sas) return "SAS 机械";
-  if (r === SPEED_RANK.sata) return "SATA 机械";
-  return t || "未知类型";
+  if (r === SPEED_RANK.nvme) return i18n.t("commons.smart.diskType.nvme");
+  if (r === SPEED_RANK.ssd) return i18n.t("commons.smart.diskType.ssd");
+  if (r === SPEED_RANK.sas) return i18n.t("commons.smart.diskType.sas");
+  if (r === SPEED_RANK.sata) return i18n.t("commons.smart.diskType.sata");
+  return t || i18n.t("commons.smart.diskType.unknown");
 }
 
 export interface GroupSummary {
@@ -108,7 +109,13 @@ export function buildSmartPlan(
 ): SmartPlan {
   const groups = summarizeGroups(diskGroups);
   if (groups.length === 0) {
-    return { partitions: [], targetGroupId: 0, groups, notes: [], blocked: "没读到磁盘组信息,无法生成方案" };
+    return {
+      partitions: [],
+      targetGroupId: 0,
+      groups,
+      notes: [],
+      blocked: i18n.t("commons.smart.blockedNoGroups"),
+    };
   }
   if (osKind === "windows") {
     return {
@@ -116,7 +123,7 @@ export function buildSmartPlan(
       targetGroupId: groups[0].id,
       groups,
       notes: [],
-      blocked: "Windows 的分区规则和 Linux 不同(NTFS 只支持 RAID 1),这里不自动生成,请用默认分区方案",
+      blocked: i18n.t("commons.smart.blockedWindows"),
     };
   }
 
@@ -128,28 +135,34 @@ export function buildSmartPlan(
   const notes: string[] = [];
 
   notes.push(
-    `系统装在磁盘组 ${target.id}(${target.label})` +
-      (groups.length > 1 ? " —— 这组最快" : "")
+    groups.length > 1
+      ? i18n.t("commons.smart.noteSystemGroupFastest", { id: target.id, label: target.label })
+      : i18n.t("commons.smart.noteSystemGroup", { id: target.id, label: target.label })
   );
   notes.push(
     raid === null
-      ? "只有一块盘,不做 RAID"
+      ? i18n.t("commons.smart.noteRaidNone")
       : raid === 1
-        ? "2 块盘 → RAID 1 镜像:坏一块数据还在,可用容量是一半"
-        : `${target.diskCount} 块盘 → RAID 5:可用约 ${target.diskCount - 1} 块盘的容量,允许坏一块`
+        ? i18n.t("commons.smart.noteRaid1")
+        : i18n.t("commons.smart.noteRaid5", {
+            disks: target.diskCount,
+            usable: target.diskCount - 1,
+          })
   );
-  notes.push("/boot 用 ext4 —— OVH 文档明确 /boot 不能用 XFS");
-  notes.push("根分区留空 = 占满剩余空间(整份方案只允许一个这样的分区)");
+  notes.push(i18n.t("commons.smart.noteBootExt4"));
+  notes.push(i18n.t("commons.smart.noteRootFill"));
 
   if (groups.length > 1) {
     const others = groups.filter((g) => g.id !== target.id);
     notes.push(
-      `另外 ${others.length} 个磁盘组(${others.map((g) => g.label).join("、")})这次不动 —— ` +
-        "OVH 接口只支持对一个磁盘组做自定义分区。装完进系统自己分区挂载即可,上面的数据不受影响"
+      i18n.t("commons.smart.noteOtherGroups", {
+        count: others.length,
+        labels: others.map((g) => g.label).join(i18n.t("commons.smart.labelSeparator")),
+      })
     );
   }
   if (raid === 5) {
-    notes.push("想要满容量可以把根分区改成 RAID 0,但那样坏任意一块盘就全丢,请自行权衡");
+    notes.push(i18n.t("commons.smart.noteRaid5Tradeoff"));
   }
 
   const raidStr = raid === null ? undefined : `raid${raid}`;

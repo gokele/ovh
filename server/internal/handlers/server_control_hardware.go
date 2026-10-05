@@ -322,7 +322,7 @@ func SetReverseDNS(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.IP == "" || body.Reverse == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "IP地址和反向DNS不能为空"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "IP地址和反向DNS不能为空", "code": "E907CF2B8"})
 			return
 		}
 		// 找该 IP 所在的服务器 IP 块
@@ -340,7 +340,7 @@ func SetReverseDNS(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("服务器 "+svc+" IP "+body.IP+" 反向DNS已设置为 "+body.Reverse, "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "反向DNS已设置"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "反向DNS已设置", "code": "E3BD7C8AF"})
 	}
 }
 
@@ -366,7 +366,7 @@ func DeleteReverseDNS(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("服务器 "+svc+" IP "+ip+" 反向DNS已删除", "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "反向DNS已删除"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "反向DNS已删除", "code": "E480066AC"})
 	}
 }
 
@@ -506,7 +506,7 @@ func UpdateServiceRenewal(state *app.State) gin.HandlerFunc {
 		if f, ok := renew["forced"].(bool); ok && f {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"error":   "该服务器处于 OVH 合同期(engaged),续费策略由 OVH 锁定,无法修改",
+				"error":   "该服务器处于 OVH 合同期(engaged),续费策略由 OVH 锁定,无法修改", "code": "E8F1028D1",
 			})
 			return
 		}
@@ -538,10 +538,10 @@ func UpdateServiceRenewal(state *app.State) gin.HandlerFunc {
 			// 也**不能**指向 POST /terminate——那是立即终止,提交即暂停服务器,真实踩过。
 			// 唯一正确的路是 PUT /services/{serviceId} 的 terminationPolicy。
 			c.JSON(http.StatusBadRequest, gin.H{"success": false,
-				"error": "到期终止请用 PUT termination-policy 接口(terminationPolicy=terminateAtExpirationDate);不要调 /terminate——那是立即终止,提交即暂停服务"})
+				"error": "到期终止请用 PUT termination-policy 接口(terminationPolicy=terminateAtExpirationDate);不要调 /terminate——那是立即终止,提交即暂停服务", "code": "ECBAA0559"})
 			return
 		default:
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "mode 必须是 auto / manual / delete 之一"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "mode 必须是 auto / manual / delete 之一", "code": "EA464F1AF"})
 			return
 		}
 		// period 可空:用户指定了就用,否则沿用 OVH 当前值
@@ -561,7 +561,7 @@ func UpdateServiceRenewal(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info("服务器 "+svc+" 续费策略已更新: mode="+body.Mode, "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "续费策略已更新"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "续费策略已更新", "code": "ED101FDC4"})
 	}
 }
 
@@ -582,7 +582,7 @@ func ChangeContact(state *app.State) gin.HandlerFunc {
 			state.Logger.Warn("账户所在大区 "+region+" 不提供服务器联系人变更(changeContact),已拦截请求", "server_control")
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success":     false,
-				"error":       "美区账户不支持通过 API 变更服务器联系人 —— OVHcloud US 没有 NIC 联系人系统,请在 OVHcloud US 控制台或联系客服办理",
+				"error":       "美区账户不支持通过 API 变更服务器联系人 —— OVHcloud US 没有 NIC 联系人系统,请在 OVHcloud US 控制台或联系客服办理", "code": "ED999C012",
 				"unsupported": true,
 				"region":      region,
 			})
@@ -606,7 +606,7 @@ func ChangeContact(state *app.State) gin.HandlerFunc {
 			params["contactBilling"] = v
 		}
 		if len(params) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "至少需要指定一个联系人（管理员、技术或计费）"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "至少需要指定一个联系人（管理员、技术或计费）", "code": "E06AF4A77"})
 			return
 		}
 		// OVH 这个接口返回 long[](任务 ID 数组),不是 map
@@ -619,7 +619,7 @@ func ChangeContact(state *app.State) gin.HandlerFunc {
 		state.Logger.Info(fmt.Sprintf("服务器 %s 联系人变更请求已提交: %v, tasks=%v", svc, params, taskIDs), "server_control")
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"message": "联系人变更请求已提交",
+			"message": "联系人变更请求已提交", "code": "EA0AA106E",
 			"taskIds": taskIDs,
 		})
 	}
@@ -823,7 +823,7 @@ func HardwareReplace(state *app.State) gin.HandlerFunc {
 		componentType, _ := body["componentType"].(string)
 		comment, _ := body["comment"].(string)
 		if componentType == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 componentType 参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 componentType 参数", "code": "E9871712B"})
 			return
 		}
 		var result map[string]interface{}
@@ -846,7 +846,7 @@ func HardwareReplace(state *app.State) gin.HandlerFunc {
 				// inverse=true 空 = "未列出的全换" = 整机所有盘。
 				c.JSON(http.StatusBadRequest, gin.H{
 					"success": false,
-					"error":   "disks 不能为空：正常模式填故障盘序列号；故障盘序列号读不出来时用 inverse=true 并填所有【健康盘】的序列号",
+					"error":   "disks 不能为空：正常模式填故障盘序列号；故障盘序列号读不出来时用 inverse=true 并填所有【健康盘】的序列号", "code": "EA0B09D1D",
 				})
 				return
 			}
@@ -954,7 +954,7 @@ func GetHardwareRaidProfiles(state *app.State) gin.HandlerFunc {
 					"success":   true,
 					"profiles":  []interface{}{},
 					"supported": false,
-					"message":   "此服务器不支持硬件RAID",
+					"message":   "此服务器不支持硬件RAID", "code": "EBE4D06BC",
 				})
 				return
 			}
@@ -1036,7 +1036,7 @@ func GetPartitionSchemes(state *app.State) gin.HandlerFunc {
 		}
 		templateName := c.Query("templateName")
 		if templateName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少templateName参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少templateName参数", "code": "EB164A0F1"})
 			return
 		}
 		encodedTpl := url.PathEscape(templateName)

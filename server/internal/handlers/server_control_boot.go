@@ -103,7 +103,7 @@ func SetBootConfig(state *app.State) gin.HandlerFunc {
 		// 之前 Go 把字符串直接塞进 body 会被 OVH 拒
 		bootID, err := strconv.ParseInt(bootIDStr, 10, 64)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "boot_id 必须是整数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "boot_id 必须是整数", "code": "EECA8B342"})
 			return
 		}
 		client, err := ovhClientFor(state, c)
@@ -132,7 +132,7 @@ func SetBootConfig(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("服务器 %s 启动模式已设置为 %d", svc, bootID), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "启动模式已更新，重启后生效"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "启动模式已更新，重启后生效", "code": "EDC39F7DF"})
 	}
 }
 
@@ -184,7 +184,7 @@ func SetMonitoringStatus(state *app.State) gin.HandlerFunc {
 			enabled = body.Monitoring
 		}
 		if enabled == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 enabled 参数（必须显式传 true 或 false）"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 enabled 参数（必须显式传 true 或 false）", "code": "E574F984F"})
 			return
 		}
 		// PUT /dedicated/server/{serviceName} 只发要改的那一个属性,不要"补全"。
@@ -315,7 +315,7 @@ func ChangeBootMode(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.BootID == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少bootId参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少bootId参数", "code": "E81B66FDC"})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[Boot] 切换服务器 %s 启动模式到 %d", svc, body.BootID), "server_control")
@@ -341,7 +341,7 @@ func ChangeBootMode(state *app.State) gin.HandlerFunc {
 		state.Logger.Info("[Boot] 启动模式切换成功，需要重启服务器生效", "server_control")
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"message": "启动模式已切换，需要重启服务器生效",
+			"message": "启动模式已切换，需要重启服务器生效", "code": "E859A0AA0",
 			"bootId":  body.BootID,
 		})
 	}

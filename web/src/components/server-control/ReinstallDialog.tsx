@@ -19,43 +19,45 @@ import { OsIcon, detectOsKind, osBrandColor, osBrandTextColor } from "@/componen
 import { useTheme } from "@/hooks/use-theme";
 import { toast } from "sonner";
 import { buildSmartPlan } from "@/lib/smart-storage";
+import { Trans, useTranslation } from "react-i18next";
+import { fmtDateTime } from "@/i18n/format";
 
-/** OS 分组的中文标签 + 显示顺序(按用户使用频率排) */
+/** OS 分组(标签走 i18n key,渲染处 t())+ 显示顺序(按用户使用频率排) */
 const OS_GROUPS: { kind: ReturnType<typeof detectOsKind>; label: string }[] = [
-  { kind: "debian",   label: "Debian" },
-  { kind: "ubuntu",   label: "Ubuntu" },
-  { kind: "windows",  label: "Windows" },
-  { kind: "proxmox",  label: "Proxmox VE" },
-  { kind: "rocky",    label: "Rocky Linux" },
-  { kind: "alma",     label: "AlmaLinux" },
-  { kind: "fedora",   label: "Fedora" },
-  { kind: "esxi",     label: "VMware ESXi" },
-  { kind: "centos",   label: "CentOS" },
-  { kind: "opensuse", label: "openSUSE" },
-  { kind: "freebsd",  label: "FreeBSD" },
-  { kind: "byoi",     label: "BYOI(镜像导入)" },
-  { kind: "byolinux", label: "BYO Linux" },
-  { kind: "linux",    label: "其他 Linux" },
+  { kind: "debian",   label: "ctrl.reinstall.os.debian" },
+  { kind: "ubuntu",   label: "ctrl.reinstall.os.ubuntu" },
+  { kind: "windows",  label: "ctrl.reinstall.os.windows" },
+  { kind: "proxmox",  label: "ctrl.reinstall.os.proxmox" },
+  { kind: "rocky",    label: "ctrl.reinstall.os.rocky" },
+  { kind: "alma",     label: "ctrl.reinstall.os.alma" },
+  { kind: "fedora",   label: "ctrl.reinstall.os.fedora" },
+  { kind: "esxi",     label: "ctrl.reinstall.os.esxi" },
+  { kind: "centos",   label: "ctrl.reinstall.os.centos" },
+  { kind: "opensuse", label: "ctrl.reinstall.os.opensuse" },
+  { kind: "freebsd",  label: "ctrl.reinstall.os.freebsd" },
+  { kind: "byoi",     label: "ctrl.reinstall.os.byoi" },
+  { kind: "byolinux", label: "ctrl.reinstall.os.byolinux" },
+  { kind: "linux",    label: "ctrl.reinstall.os.linux" },
 ];
 
 const HARDWARE_RAID_LEVELS = [
-  { value: "", label: "默认（无 RAID）" },
-  { value: "raid0", label: "RAID 0 · 条带（最大容量，无冗余）" },
-  { value: "raid1", label: "RAID 1 · 镜像（数据冗余）" },
-  { value: "raid5", label: "RAID 5 · 分布式奇偶（平衡）" },
-  { value: "raid6", label: "RAID 6 · 双重奇偶（高冗余）" },
-  { value: "raid10", label: "RAID 10 · 镜像+条带（高性能+冗余）" },
+  { value: "", label: "ctrl.reinstall.hwRaid.none" },
+  { value: "raid0", label: "ctrl.reinstall.hwRaid.raid0" },
+  { value: "raid1", label: "ctrl.reinstall.hwRaid.raid1" },
+  { value: "raid5", label: "ctrl.reinstall.hwRaid.raid5" },
+  { value: "raid6", label: "ctrl.reinstall.hwRaid.raid6" },
+  { value: "raid10", label: "ctrl.reinstall.hwRaid.raid10" },
 ];
 
 // schema: dedicated.server.reinstall.storage.partitioning.layout.RaidLevelEnum
 // = [0,1,5,6,7,10]，三区一致。以前少了 raid7（后端一直支持），用户在界面上够不到。
 const SOFTWARE_RAID_LEVELS = [
-  { value: "raid0", label: "RAID 0 · 2+ 盘" },
-  { value: "raid1", label: "RAID 1 · 2+ 盘（推荐）" },
-  { value: "raid5", label: "RAID 5 · 3+ 盘" },
-  { value: "raid6", label: "RAID 6 · 4+ 盘" },
-  { value: "raid7", label: "RAID 7 · 7+ 盘（仅 ZFS）" },
-  { value: "raid10", label: "RAID 10 · 4+ 盘" },
+  { value: "raid0", label: "ctrl.reinstall.swRaid.raid0" },
+  { value: "raid1", label: "ctrl.reinstall.swRaid.raid1" },
+  { value: "raid5", label: "ctrl.reinstall.swRaid.raid5" },
+  { value: "raid6", label: "ctrl.reinstall.swRaid.raid6" },
+  { value: "raid7", label: "ctrl.reinstall.swRaid.raid7" },
+  { value: "raid10", label: "ctrl.reinstall.swRaid.raid10" },
 ];
 
 // schema: dedicated.server.reinstall.storage.partitioning.layout.FileSystemEnum
@@ -102,6 +104,7 @@ export function ReinstallDialog({
   const disk = useServerDiskInfo(serviceName, open);
   const raid = useServerRaidProfiles(serviceName, open);
   const mut = useReinstallServer();
+  const { t } = useTranslation();
   // 品牌色当文字色在深色底上要提亮(见 osBrandTextColor 注释)
   const brandDark = useTheme().resolved === "dark";
 
@@ -210,18 +213,22 @@ export function ReinstallDialog({
    */
   const blockingErrors: { label: string; error: unknown; retry: () => void }[] = [];
   if (tpl.isError) {
-    blockingErrors.push({ label: "系统模板列表", error: tpl.error, retry: () => tpl.refetch() });
+    blockingErrors.push({ label: "ctrl.reinstall.dep.templates", error: tpl.error, retry: () => tpl.refetch() });
   }
   if ((useCustomStorage || useProxmox9Zfs) && disk.isError) {
-    blockingErrors.push({ label: "磁盘组信息", error: disk.error, retry: () => disk.refetch() });
+    blockingErrors.push({ label: "ctrl.reinstall.dep.diskGroups", error: disk.error, retry: () => disk.refetch() });
   }
   if (useCustomStorage && raid.isError) {
-    blockingErrors.push({ label: "硬件 RAID 支持情况", error: raid.error, retry: () => raid.refetch() });
+    blockingErrors.push({ label: "ctrl.reinstall.dep.hwRaid", error: raid.error, retry: () => raid.refetch() });
   }
   if (storageMode === "scheme" && ps.isError) {
-    blockingErrors.push({ label: "内置分区方案", error: ps.error, retry: () => ps.refetch() });
+    blockingErrors.push({ label: "ctrl.reinstall.dep.schemes", error: ps.error, retry: () => ps.refetch() });
   }
   const blocked = blockingErrors.length > 0;
+  /** 读失败清单的本地化拼接(重装按钮 title 和提交拦截 toast 共用) */
+  const failedList = blocked
+    ? blockingErrors.map((b) => t(b.label)).join(t("ctrl.reinstall.listSep"))
+    : "";
 
   // 一旦进入 blocked,把"已点过下一步"的确认态收回。
   // 否则重试成功的那一刻按钮直接停在「确认重装（不可逆）」上,用户随手一点就提交了 ——
@@ -267,23 +274,23 @@ export function ReinstallDialog({
 
   const handleSubmit = async () => {
     if (!templateName) {
-      toast.error("请选择系统模板");
+      toast.error(t("ctrl.reinstall.toast.selectTemplate"));
       return;
     }
     // 兜底:按钮已经 disabled,但状态可能在点击那一刻才翻成 error
     if (blocked) {
       setConfirming(false);
-      toast.error(`${blockingErrors.map((b) => b.label).join("、")}没读出来,重试成功后再提交重装`);
+      toast.error(t("ctrl.reinstall.toast.blockedRetry", { list: failedList }));
       return;
     }
     // OVH 的 customizations.hostname 只接受合法主机名/FQDN，非法值会被 OVH 以英文错误码打回
     const hn = hostname.trim();
     if (hn && !/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(hn)) {
-      toast.error("Hostname 只能包含字母、数字、连字符和点，且不能以连字符开头或结尾");
+      toast.error(t("ctrl.reinstall.toast.hostnameInvalid"));
       return;
     }
     if (useProxmox9Zfs && zfsRaid1Impossible) {
-      toast.error("该服务器只有 1 块磁盘，无法使用 ZFS RAID1，请改用 RAID0");
+      toast.error(t("ctrl.reinstall.toast.zfsRaid1Impossible"));
       return;
     }
     if (!confirming) {
@@ -307,13 +314,13 @@ export function ReinstallDialog({
         customPartitions: useCustomStorage ? customPartitions : undefined,
         diskGroups: useCustomStorage ? disk.data : undefined,
       });
-      toast.success("系统重装请求已发送");
+      toast.success(t("ctrl.reinstall.toast.submitted"));
       // 后端忽略了哪份配置必须让用户看见：装是装得成，但他填的东西没生效
       (res?.warnings || []).forEach((w) => toast.warning(w, { duration: 6000 }));
       onOpenChange(false);
       reset();
     } catch (e: any) {
-      toast.error(e?.response?.data?.error || "重装失败");
+      toast.error(errorMessage(e));
     }
   };
 
@@ -344,9 +351,9 @@ export function ReinstallDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <HardDrive className="w-5 h-5 text-destructive" />
-            重装系统
+            {t("ctrl.reinstall.title")}
           </DialogTitle>
-          <DialogDescription>选择要安装的操作系统模板。此操作将清空服务器所有数据。</DialogDescription>
+          <DialogDescription>{t("ctrl.reinstall.desc")}</DialogDescription>
         </DialogHeader>
 
         <div className="overflow-y-auto flex-1 -mx-6 px-6 space-y-5">
@@ -356,18 +363,15 @@ export function ReinstallDialog({
               <div className="flex items-start gap-2 text-[12px]">
                 <AlertTriangle className="w-4 h-4 text-destructive mt-0.5 flex-shrink-0" />
                 <div className="leading-relaxed">
-                  <p className="font-semibold">有配置没读出来,已暂时锁住重装按钮</p>
-                  <p className="text-muted-foreground">
-                    重装会清空全部数据且不可撤销。下面这些数据没拿到时,界面上对应位置显示的
-                    并不是这台机器的真实情况,照着它选出来的方案可能装出一份完全不同的系统。
-                  </p>
+                  <p className="font-semibold">{t("ctrl.reinstall.blockedTitle")}</p>
+                  <p className="text-muted-foreground">{t("ctrl.reinstall.blockedDesc")}</p>
                 </div>
               </div>
               <div className="space-y-1.5 pl-6">
                 {blockingErrors.map((b) => (
                   <div key={b.label} className="flex items-start justify-between gap-2 text-[11px]">
                     <span className="min-w-0">
-                      <span className="font-semibold">{b.label}读取失败</span>
+                      <span className="font-semibold">{t("ctrl.reinstall.depFailed", { what: t(b.label) })}</span>
                       <span className="text-muted-foreground"> · {errorMessage(b.error)}</span>
                     </span>
                     <Button
@@ -377,7 +381,7 @@ export function ReinstallDialog({
                       className="h-6 px-2 text-[11px] flex-shrink-0"
                       onClick={b.retry}
                     >
-                      重试
+                      {t("common.retry")}
                     </Button>
                   </div>
                 ))}
@@ -389,31 +393,33 @@ export function ReinstallDialog({
           <div className="border border-info/40 bg-info/5 rounded-2xl p-3 text-[12px] flex items-start gap-2">
             <Zap className="w-4 h-4 text-info mt-0.5 flex-shrink-0" />
             <div className="text-foreground/80 leading-relaxed space-y-1">
-              <p>已解锁 Windows 后请刷新页面以获取最新模板列表。</p>
-              <p>不熟悉 Windows 系统时，建议直接选 <span className="font-semibold">Windows Std</span> 系列。</p>
+              <p>{t("ctrl.reinstall.winHintRefresh")}</p>
+              <p>
+                <Trans i18nKey="ctrl.reinstall.winHintStd" components={{ b: <span className="font-semibold" /> }} />
+              </p>
             </div>
           </div>
 
           {/* 模板搜索 */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-[12px] font-semibold">操作系统模板</label>
+              <label className="text-[12px] font-semibold">{t("ctrl.reinstall.tplLabel")}</label>
               <Button
                 variant="outline"
                 size="sm"
                 className="h-7 text-[11px]"
                 onClick={() => tpl.refetch()}
                 disabled={tpl.isFetching}
-                title="模板列表本地长期缓存，点击重新拉取最新版"
+                title={t("ctrl.reinstall.refreshTitle")}
               >
                 <RefreshCw className={`w-3 h-3 mr-1 ${tpl.isFetching ? "animate-spin" : ""}`} />
-                刷新
+                {t("common.refresh")}
               </Button>
             </div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="搜索模板…如 ubuntu / debian / proxmox / windows"
+                placeholder={t("ctrl.reinstall.searchPlaceholder")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
@@ -423,12 +429,12 @@ export function ReinstallDialog({
                 等于告诉用户这台机器一个系统都装不了。 */}
             <p className="text-[11px] text-muted-foreground mt-1 mb-2">
               {tpl.isError && (tpl.data || []).length === 0
-                ? "模板列表读取失败,数量未知"
+                ? t("ctrl.reinstall.countUnknown")
                 : search
-                  ? `找到 ${filtered.length} 个匹配模板`
-                  : `共 ${(tpl.data || []).length} 个模板`}
+                  ? t("ctrl.reinstall.countMatched", { n: filtered.length })
+                  : t("ctrl.reinstall.countTotal", { n: (tpl.data || []).length })}
               {tpl.dataUpdatedAt > 0 && (
-                <> · 缓存于 {new Date(tpl.dataUpdatedAt).toLocaleString("zh-CN")}</>
+                <> · {t("ctrl.reinstall.cachedAt", { time: fmtDateTime(tpl.dataUpdatedAt) })}</>
               )}
             </p>
 
@@ -439,9 +445,11 @@ export function ReinstallDialog({
               <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-[11px] mb-2">
                 <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" />
                 <p className="leading-relaxed text-foreground/80">
-                  下面这份模板列表是本地缓存的<span className="font-semibold">旧数据</span>,本次刷新失败
-                  （{errorMessage(tpl.error)}）。上面的"共 N 个"同样是旧的,OVH 那边可能已经增删过模板 ——
-                  请点上方"刷新"重试成功后再选。
+                  <Trans
+                    i18nKey="ctrl.reinstall.staleCacheWarn"
+                    values={{ err: errorMessage(tpl.error) }}
+                    components={{ b: <span className="font-semibold" /> }}
+                  />
                 </p>
               </div>
             )}
@@ -460,8 +468,8 @@ export function ReinstallDialog({
                 <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground px-4 text-center">
                   <Loader2 className="w-7 h-7 animate-spin text-foreground/60" />
                   <div className="space-y-1">
-                    <p className="text-[13px] font-medium text-foreground">正在加载操作系统模板…</p>
-                    <p className="text-[11px]">首次拉 OVH 需要 3-8 秒,之后会缓存</p>
+                    <p className="text-[13px] font-medium text-foreground">{t("ctrl.reinstall.loadingTitle")}</p>
+                    <p className="text-[11px]">{t("ctrl.reinstall.loadingHint")}</p>
                   </div>
                 </div>
               </div>
@@ -469,12 +477,12 @@ export function ReinstallDialog({
               // 「未找到匹配模板」会被读成"搜索词不对",用户只会反复换关键词,永远等不到结果
               <LoadFailed
                 icon={HardDrive}
-                title="系统模板列表读取失败"
+                title={t("ctrl.reinstall.tplLoadFailed")}
                 error={tpl.error}
                 onRetry={() => tpl.refetch()}
               />
             ) : filtered.length === 0 ? (
-              <EmptyState icon={HardDrive} title="未找到匹配模板" />
+              <EmptyState icon={HardDrive} title={t("ctrl.reinstall.noMatch")} />
             ) : (
               // 左右两栏:左 OS 分组列表,右 当前分组的模板。搜索时右栏自动平铺所有命中。
               <div className="border border-border rounded-2xl overflow-hidden grid grid-cols-[140px_1fr] sm:grid-cols-[180px_1fr] lg:grid-cols-[200px_1fr] h-[360px]">
@@ -501,7 +509,7 @@ export function ReinstallDialog({
                             size={20}
                           />
                           <span className={`text-[13px] truncate ${active ? "font-semibold text-foreground" : "text-foreground/80"}`}>
-                            {group.label}
+                            {t(group.label)}
                           </span>
                         </div>
                         <span
@@ -526,42 +534,42 @@ export function ReinstallDialog({
                     if (!showFlat && !activeGroup) {
                       return (
                         <div className="h-full flex items-center justify-center text-[12px] text-muted-foreground px-6 text-center">
-                          ← 左侧选择一个发行版
+                          {t("ctrl.reinstall.pickGroup")}
                         </div>
                       );
                     }
                     if (items.length === 0) {
                       return (
                         <div className="h-full flex items-center justify-center text-[12px] text-muted-foreground">
-                          该分组下没有模板
+                          {t("ctrl.reinstall.groupEmpty")}
                         </div>
                       );
                     }
                     return (
                       <div className="divide-y divide-border/60">
-                        {items.map((t) => {
-                          const selected = templateName === t.templateName;
-                          const kind = detectOsKind(t.templateName, t.distribution, t.family);
+                        {items.map((item) => {
+                          const selected = templateName === item.templateName;
+                          const kind = detectOsKind(item.templateName, item.distribution, item.family);
                           const brandColor = osBrandColor(kind);
                           return (
                             <button
-                              key={t.templateName}
+                              key={item.templateName}
                               type="button"
-                              onClick={() => setTemplateName(t.templateName)}
+                              onClick={() => setTemplateName(item.templateName)}
                               className={`w-full text-left px-4 py-2.5 hover:bg-secondary/50 transition-colors flex items-center gap-3 ${
                                 selected ? "bg-secondary" : ""
                               }`}
                             >
                               <OsIcon
-                                templateName={t.templateName}
-                                distribution={t.distribution}
-                                family={t.family}
+                                templateName={item.templateName}
+                                distribution={item.distribution}
+                                family={item.family}
                                 size={24}
                               />
                               <div className="flex-1 min-w-0">
-                                <div className="text-[13px] font-mono font-semibold truncate">{t.templateName}</div>
+                                <div className="text-[13px] font-mono font-semibold truncate">{item.templateName}</div>
                                 <div className="text-[11px] text-muted-foreground truncate">
-                                  {t.distribution} · {t.family} · {t.bitFormat}-bit
+                                  {item.distribution} · {item.family} · {item.bitFormat}-bit
                                 </div>
                               </div>
                               {selected && (
@@ -569,7 +577,7 @@ export function ReinstallDialog({
                                   className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
                                   style={{ backgroundColor: brandColor, color: "#fff" }}
                                 >
-                                  已选
+                                  {t("ctrl.reinstall.selectedBadge")}
                                 </span>
                               )}
                             </button>
@@ -587,38 +595,38 @@ export function ReinstallDialog({
           <div className="border border-border rounded-2xl p-4 space-y-2">
             <div className="flex items-center gap-2">
               <Cog className="w-4 h-4 text-muted-foreground" />
-              <h4 className="text-[13px] font-semibold">存储配置</h4>
+              <h4 className="text-[13px] font-semibold">{t("ctrl.reinstall.storage.title")}</h4>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              以下四选一。ZFS 预设、内置分区方案、高级存储配置写的是同一份配置，OVH 只接受其中一种。
+              {t("ctrl.reinstall.storage.desc")}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[12px]">
               <StorageModeOption
                 checked={storageMode === "default"}
                 onSelect={() => setStorageMode("default")}
-                label="使用模板默认分区"
-                hint="最省事，OVH 按模板推荐布局装"
+                label={t("ctrl.reinstall.mode.default")}
+                hint={t("ctrl.reinstall.mode.defaultHint")}
               />
               {isProxmox9 && (
                 <StorageModeOption
                   checked={storageMode === "zfs"}
                   onSelect={() => setStorageMode("zfs")}
-                  label="Proxmox 9 + ZFS 预设（推荐）"
-                  hint="ZFS 根文件系统 + 独立 /var/lib/vz"
+                  label={t("ctrl.reinstall.mode.zfs")}
+                  hint={t("ctrl.reinstall.mode.zfsHint")}
                 />
               )}
               <StorageModeOption
                 checked={storageMode === "scheme"}
                 onSelect={() => setStorageMode("scheme")}
-                label="内置分区方案"
-                hint={templateName ? "选用该模板自带的分区方案" : "先选一个系统模板"}
+                label={t("ctrl.reinstall.mode.scheme")}
+                hint={t(templateName ? "ctrl.reinstall.mode.schemeHint" : "ctrl.reinstall.mode.schemeHintDisabled")}
                 disabled={!templateName}
               />
               <StorageModeOption
                 checked={storageMode === "custom"}
                 onSelect={() => setStorageMode("custom")}
-                label="高级存储配置"
-                hint="硬件 / 软 RAID + 自定义分区"
+                label={t("ctrl.reinstall.mode.custom")}
+                hint={t("ctrl.reinstall.mode.customHint")}
               />
             </div>
           </div>
@@ -628,15 +636,15 @@ export function ReinstallDialog({
             <div className="border border-success/40 bg-success/5 rounded-2xl p-4 space-y-3">
               <div className="flex items-center gap-2">
                 <Database className="w-4 h-4 text-success" />
-                <h4 className="text-[13px] font-semibold">Proxmox VE 9 + ZFS 根文件系统</h4>
+                <h4 className="text-[13px] font-semibold">{t("ctrl.reinstall.zfs.title")}</h4>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                使用 ZFS 作为根文件系统，提供快照、压缩、数据完整性检查等高级功能。
+                {t("ctrl.reinstall.zfs.desc")}
               </p>
 
               <div className="space-y-3">
                   <div>
-                    <label className="block text-[12px] mb-1.5">RAID 级别</label>
+                    <label className="block text-[12px] mb-1.5">{t("ctrl.reinstall.zfs.raidLevel")}</label>
                     <div className="flex gap-4 text-[13px]">
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -645,7 +653,7 @@ export function ReinstallDialog({
                           onChange={() => setZfsRaidLevel(1)}
                           className="w-4 h-4"
                         />
-                        RAID1（镜像，冗余）
+                        {t("ctrl.reinstall.zfs.raid1")}
                       </label>
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -654,17 +662,17 @@ export function ReinstallDialog({
                           onChange={() => setZfsRaidLevel(0)}
                           className="w-4 h-4"
                         />
-                        RAID0（条带，最大容量）
+                        {t("ctrl.reinstall.zfs.raid0")}
                       </label>
                     </div>
                   </div>
                   {zfsRaid1Impossible && (
                     <p className="text-[11px] text-destructive">
-                      该服务器只检测到 1 块磁盘，无法做镜像，请改用 RAID0。
+                      {t("ctrl.reinstall.zfs.singleDiskWarn")}
                     </p>
                   )}
                   <div>
-                    <label className="block text-[12px] mb-1.5">/var/lib/vz 大小（GB）· VM/容器存储</label>
+                    <label className="block text-[12px] mb-1.5">{t("ctrl.reinstall.zfs.vzLabel")}</label>
                     <Input
                       type="number"
                       min={10}
@@ -679,17 +687,22 @@ export function ReinstallDialog({
                     {/* 上限跟后端同口径：RAID1 只算单盘容量，且要扣 /boot + swap + 根目录预留 */}
                     <p className="text-[11px] text-muted-foreground mt-1">
                       {/* 磁盘信息读失败时不能继续写"读取中",那会让用户一直等一个不会来的数字 */}
-                      剩余分给根目录（/），最大{" "}
-                      {vzMaxKnown
-                        ? `${zfsCap.maxVzGB} GB`
-                        : disk.isError
-                          ? "未知（磁盘信息读取失败，上方可重试）"
-                          : "未知（磁盘信息读取中）"}
+                      {t("ctrl.reinstall.zfs.vzHint", {
+                        max: vzMaxKnown
+                          ? `${zfsCap.maxVzGB} GB`
+                          : disk.isError
+                            ? t("ctrl.reinstall.zfs.maxUnknownFailed")
+                            : t("ctrl.reinstall.zfs.maxUnknownLoading"),
+                      })}
                       {zfsCap.singleDiskGB > 0 && (
                         <>
                           {" "}
-                          （{zfsCap.diskCount} × {zfsCap.singleDiskGB}GB，RAID{zfsRaidLevel} 下实际可用约{" "}
-                          {Math.floor(zfsCap.usableMB / 1024)}GB，已扣除 /boot 1GB 与 swap 8GB）
+                          {t("ctrl.reinstall.zfs.vzDetail", {
+                            disks: zfsCap.diskCount,
+                            size: zfsCap.singleDiskGB,
+                            level: zfsRaidLevel,
+                            usable: Math.floor(zfsCap.usableMB / 1024),
+                          })}
                         </>
                       )}
                     </p>
@@ -700,9 +713,9 @@ export function ReinstallDialog({
 
           {/* 自定义 Hostname */}
           <div>
-            <label className="block text-[12px] font-semibold mb-1.5">自定义 Hostname（可选）</label>
+            <label className="block text-[12px] font-semibold mb-1.5">{t("ctrl.reinstall.hostnameLabel")}</label>
             <Input
-              placeholder="如 server1.example.com"
+              placeholder={t("ctrl.reinstall.hostnamePlaceholder")}
               value={hostname}
               onChange={(e) => setHostname(e.target.value)}
             />
@@ -711,7 +724,7 @@ export function ReinstallDialog({
           {/* 内置分区方案（仅 scheme 模式） */}
           {storageMode === "scheme" && templateName && (
             <div>
-              <label className="block text-[12px] font-semibold mb-1.5">内置分区方案</label>
+              <label className="block text-[12px] font-semibold mb-1.5">{t("ctrl.reinstall.mode.scheme")}</label>
               {ps.isPending ? (
                 <Skeleton className="h-9 rounded-md" />
               ) : ps.isError ? (
@@ -720,22 +733,22 @@ export function ReinstallDialog({
                 <LoadFailed
                   compact
                   icon={Cog}
-                  title="内置分区方案读取失败"
+                  title={t("ctrl.reinstall.scheme.loadFailed")}
                   error={ps.error}
                   onRetry={() => ps.refetch()}
                 />
               ) : (ps.data || []).length === 0 ? (
-                <p className="text-[12px] text-muted-foreground">该模板没有内置分区方案，请改用其它存储模式。</p>
+                <p className="text-[12px] text-muted-foreground">{t("ctrl.reinstall.scheme.empty")}</p>
               ) : (
-              <Select value={partitionSchemeName} onValueChange={setPartitionSchemeName}>
+                <Select value={partitionSchemeName} onValueChange={setPartitionSchemeName}>
                 <SelectTrigger>
-                  <SelectValue placeholder="使用模板默认分区" />
+                  <SelectValue placeholder={t("ctrl.reinstall.mode.default")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value=" ">使用模板默认分区</SelectItem>
+                  <SelectItem value=" ">{t("ctrl.reinstall.mode.default")}</SelectItem>
                   {(ps.data || []).map((s) => (
                     <SelectItem key={s.name} value={s.name}>
-                      {s.name} · 优先级 {s.priority}
+                      {t("ctrl.reinstall.scheme.item", { name: s.name, priority: s.priority })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -749,7 +762,7 @@ export function ReinstallDialog({
             {useCustomStorage && (
               <div className="flex items-center gap-2 text-[13px] font-semibold mb-3">
                 <Cog className="w-4 h-4" />
-                高级存储配置（RAID & 自定义分区）
+                {t("ctrl.reinstall.advTitle")}
               </div>
             )}
 
@@ -764,22 +777,22 @@ export function ReinstallDialog({
                   <LoadFailed
                     compact
                     icon={HardDrive}
-                    title="磁盘组信息读取失败"
+                    title={t("ctrl.reinstall.disk.loadFailed")}
                     error={disk.error}
                     onRetry={() => disk.refetch()}
                   />
                 ) : Object.keys(disk.data || {}).length === 0 ? (
-                  <p className="text-[12px] text-muted-foreground">未检测到磁盘组信息</p>
+                  <p className="text-[12px] text-muted-foreground">{t("ctrl.reinstall.disk.empty")}</p>
                 ) : (
                   <div className="space-y-3">
-                    <h4 className="text-[12px] font-semibold">磁盘组配置</h4>
+                    <h4 className="text-[12px] font-semibold">{t("ctrl.reinstall.disk.groupTitle")}</h4>
                     {Object.entries(disk.data || {}).map(([gidStr, group]) => {
                       const gid = parseInt(gidStr);
                       return (
                         <div key={gid} className="border border-border rounded-xl p-3 space-y-2 bg-background">
                           <div className="flex items-center gap-2 text-[12px]">
                             <HardDrive className="w-3.5 h-3.5 text-muted-foreground" />
-                            <span className="font-semibold">磁盘组 {gid}</span>
+                            <span className="font-semibold">{t("ctrl.reinstall.disk.group", { id: gid })}</span>
                             {group.raidController && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border">
                                 {group.raidController}
@@ -796,7 +809,7 @@ export function ReinstallDialog({
                             ))}
                           </div>
                           <div>
-                            <label className="block text-[11px] text-muted-foreground mb-1">硬件 RAID 模式</label>
+                            <label className="block text-[11px] text-muted-foreground mb-1">{t("ctrl.reinstall.hwRaid.label")}</label>
                             {/* hook 现在只把 404/501（OVH 明说没有 RAID 控制器）当成 supported:false,
                                 其余错误会抛出来走 isError —— 否则这里会在读失败时言之凿凿地写
                                 「此服务器不支持硬件 RAID」,用户照办改用软 RAID 装完才发现白折腾。 */}
@@ -804,12 +817,11 @@ export function ReinstallDialog({
                               <Skeleton className="h-9 rounded-md" />
                             ) : raid.isError ? (
                               <p className="text-[11px] text-destructive">
-                                硬件 RAID 支持情况读取失败（{errorMessage(raid.error)}）。
-                                现在无法判断这台机器能不能做硬件 RAID，请用上方"重试"读回来再决定。
+                                {t("ctrl.reinstall.hwRaid.readFailed", { err: errorMessage(raid.error) })}
                               </p>
                             ) : !raid.data?.supported ? (
                               <p className="text-[11px] text-warning">
-                                此服务器不支持硬件 RAID，可改用下方"软 RAID"。
+                                {t("ctrl.reinstall.hwRaid.unsupported")}
                               </p>
                             ) : (
                               <Select
@@ -817,12 +829,12 @@ export function ReinstallDialog({
                                 onValueChange={(v) => setHardwareRaid({ ...hardwareRaid, [gid]: v === " " ? "" : v })}
                               >
                                 <SelectTrigger className="h-9">
-                                  <SelectValue placeholder="默认（无 RAID）" />
+                                  <SelectValue placeholder={t("ctrl.reinstall.hwRaid.none")} />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {HARDWARE_RAID_LEVELS.map((l) => (
                                     <SelectItem key={l.value || "none"} value={l.value || " "}>
-                                      {l.label}
+                                      {t(l.label)}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -845,7 +857,7 @@ export function ReinstallDialog({
                       className="w-4 h-4"
                     />
                     <HardDrive className="w-3.5 h-3.5" />
-                    使用软 RAID（Software RAID）
+                    {t("ctrl.reinstall.swRaid.label")}
                   </label>
                   {useSoftwareRaid && (
                     <div className="pl-6 space-y-2">
@@ -856,13 +868,13 @@ export function ReinstallDialog({
                         <SelectContent>
                           {SOFTWARE_RAID_LEVELS.map((l) => (
                             <SelectItem key={l.value} value={l.value}>
-                              {l.label}
+                              {t(l.label)}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                       <p className="text-[11px] text-muted-foreground">
-                        软 RAID 由 Linux mdadm 管理，不需要硬件 RAID 控制器。所有磁盘将自动加入软 RAID 阵列。
+                        {t("ctrl.reinstall.swRaid.desc")}
                       </p>
                     </div>
                   )}
@@ -871,7 +883,7 @@ export function ReinstallDialog({
                 {/* 自定义分区 */}
                 <div className="border-t border-border pt-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <h4 className="text-[12px] font-semibold">自定义分区方案（可选）</h4>
+                    <h4 className="text-[12px] font-semibold">{t("ctrl.reinstall.part.title")}</h4>
                     <div className="flex flex-wrap gap-2">
                     {/* 智能配置:按实际磁盘生成一份方案,省掉手填。
                         混合盘(多磁盘组)也给方案 —— 挑最快的组装系统,
@@ -884,7 +896,7 @@ export function ReinstallDialog({
                       disabled={!disk.data || Object.keys(disk.data).length === 0}
                     >
                       <Wand2 className="w-3.5 h-3.5 mr-1" />
-                      智能配置
+                      {t("ctrl.reinstall.smart.title")}
                     </Button>
                     <Button
                       type="button"
@@ -908,11 +920,11 @@ export function ReinstallDialog({
                       }
                     >
                       <Plus className="w-3.5 h-3.5 mr-1" />
-                      添加分区
+                      {t("ctrl.reinstall.part.add")}
                     </Button>
                     </div>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mb-2">留空则使用默认分区。size=0 表示剩余空间。</p>
+                  <p className="text-[11px] text-muted-foreground mb-2">{t("ctrl.reinstall.part.desc")}</p>
                   {customPartitions.length > 0 && (
                     <div className="space-y-2">
                       {customPartitions.map((p, idx) => (
@@ -940,7 +952,7 @@ export function ReinstallDialog({
             <div className="border border-destructive/40 bg-destructive/5 rounded-2xl p-3 text-[12px] flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-destructive mt-0.5 flex-shrink-0" />
               <div className="leading-relaxed">
-                确认后服务器将立即开始重装，<span className="font-semibold">所有数据将被清空</span>。再次点击"确认重装"提交。
+                <Trans i18nKey="ctrl.reinstall.confirmWarn" components={{ b: <span className="font-semibold" /> }} />
               </div>
             </div>
           )}
@@ -948,21 +960,21 @@ export function ReinstallDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
+            {t("common.cancel")}
           </Button>
           {/* blocked 时按钮锁死:信息缺失下按不可逆的重装,是这个对话框里代价最大的一种误操作 */}
           <Button
             onClick={handleSubmit}
             disabled={!templateName || mut.isPending || blocked}
-            title={blocked ? `${blockingErrors.map((b) => b.label).join("、")}读取失败，请先重试` : undefined}
+            title={blocked ? t("ctrl.reinstall.submitBlockedTitle", { list: failedList }) : undefined}
           >
             {mut.isPending
-              ? "提交中…"
+              ? t("ctrl.reinstall.submitting")
               : blocked
-                ? "配置未读全，暂不可重装"
+                ? t("ctrl.reinstall.submitBlocked")
                 : confirming
-                  ? "确认重装（不可逆）"
-                  : "下一步"}
+                  ? t("ctrl.reinstall.submitConfirm")
+                  : t("ctrl.reinstall.next")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -974,23 +986,24 @@ export function ReinstallDialog({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wand2 className="w-4 h-4" />
-              智能配置
+              {t("ctrl.reinstall.smart.title")}
             </DialogTitle>
-            <DialogDescription>按这台机器的实际磁盘生成一份分区方案，生成后还能逐条改</DialogDescription>
+            <DialogDescription>{t("ctrl.reinstall.smart.desc")}</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="rounded-xl border border-border bg-muted/40 px-3.5 py-3">
-              <p className="text-[12px] font-medium mb-1.5">检测到的磁盘</p>
+              <p className="text-[12px] font-medium mb-1.5">{t("ctrl.reinstall.smart.detected")}</p>
               {smartPlan.groups.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground">没读到磁盘组信息</p>
+                <p className="text-[11px] text-muted-foreground">{t("ctrl.reinstall.smart.noDisks")}</p>
               ) : (
                 <ul className="text-[11px] text-muted-foreground space-y-0.5">
                   {smartPlan.groups.map((g) => (
                     <li key={g.id}>
-                      磁盘组 {g.id}：{g.label}
+                      {t("ctrl.reinstall.smart.groupLine", { id: g.id })}
+                      {g.label}
                       {g.id === smartPlan.targetGroupId && !smartPlan.blocked && (
-                        <span className="ml-1.5 text-foreground font-medium">← 装系统</span>
+                        <span className="ml-1.5 text-foreground font-medium">{t("ctrl.reinstall.smart.target")}</span>
                       )}
                     </li>
                   ))}
@@ -1005,14 +1018,16 @@ export function ReinstallDialog({
             ) : (
               <>
                 <div className="rounded-xl border border-border px-3.5 py-3">
-                  <p className="text-[12px] font-medium mb-1.5">将生成的分区</p>
+                  <p className="text-[12px] font-medium mb-1.5">{t("ctrl.reinstall.smart.partitions")}</p>
                   <div className="space-y-1">
                     {smartPlan.partitions.map((p, i) => (
                       <div key={i} className="text-[11px] font-mono flex flex-wrap gap-x-2">
                         <span className="text-foreground">{p.mountpoint}</span>
                         <span className="text-muted-foreground">{p.filesystem}</span>
-                        <span className="text-muted-foreground">{p.size === 0 ? "剩余空间" : `${p.size}MB`}</span>
-                        <span className="text-muted-foreground">磁盘组{p.diskGroupId}</span>
+                        <span className="text-muted-foreground">
+                          {p.size === 0 ? t("ctrl.reinstall.smart.remaining") : `${p.size}MB`}
+                        </span>
+                        <span className="text-muted-foreground">{t("ctrl.reinstall.smart.partGroup", { id: p.diskGroupId })}</span>
                         {p.raid && <span className="text-muted-foreground">{p.raid.toUpperCase()}</span>}
                       </div>
                     ))}
@@ -1029,7 +1044,7 @@ export function ReinstallDialog({
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSmart(false)}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               disabled={!!smartPlan.blocked || smartPlan.partitions.length === 0}
@@ -1038,10 +1053,10 @@ export function ReinstallDialog({
                 // 追加会和他之前手填的撞车(比如两个 size=0)
                 setCustomPartitions(smartPlan.partitions);
                 setShowSmart(false);
-                toast.success(`已生成 ${smartPlan.partitions.length} 个分区，可继续手动调整`);
+                toast.success(t("ctrl.reinstall.smart.applied", { n: smartPlan.partitions.length }));
               }}
             >
-              应用这份方案
+              {t("ctrl.reinstall.smart.apply")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1099,12 +1114,13 @@ function PartitionRow({
   onChange: (p: CustomPartition) => void;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="border border-border rounded-xl p-2.5 flex items-center gap-2 text-[12px] bg-background flex-wrap">
       <Input
         value={partition.mountpoint}
         onChange={(e) => onChange({ ...partition, mountpoint: e.target.value })}
-        placeholder="挂载点"
+        placeholder={t("ctrl.reinstall.part.mountpoint")}
         className="h-8 w-32"
       />
       <Select value={partition.filesystem} onValueChange={(v) => onChange({ ...partition, filesystem: v })}>
@@ -1126,7 +1142,7 @@ function PartitionRow({
         onChange={(e) => onChange({ ...partition, size: parseInt(e.target.value) || 0 })}
         placeholder="MB"
         className="h-8 w-24"
-        title="size=0 表示剩余空间"
+        title={t("ctrl.reinstall.part.sizeHint")}
       />
       <span className="text-[11px] text-muted-foreground">MB</span>
       {diskGroupIds.length > 1 && (
@@ -1135,12 +1151,12 @@ function PartitionRow({
           onValueChange={(v) => onChange({ ...partition, diskGroupId: parseInt(v) })}
         >
           <SelectTrigger className="h-8 w-24">
-            <SelectValue placeholder="磁盘组" />
+            <SelectValue placeholder={t("ctrl.reinstall.part.diskGroup")} />
           </SelectTrigger>
           <SelectContent>
             {diskGroupIds.map((gid) => (
               <SelectItem key={gid} value={String(gid)}>
-                磁盘组 {gid}
+                {t("ctrl.reinstall.disk.group", { id: gid })}
               </SelectItem>
             ))}
           </SelectContent>
@@ -1151,10 +1167,10 @@ function PartitionRow({
         onValueChange={(v) => onChange({ ...partition, raid: v === " " ? undefined : v })}
       >
         <SelectTrigger className="h-8 w-28">
-          <SelectValue placeholder="无 RAID" />
+          <SelectValue placeholder={t("ctrl.reinstall.part.noRaid")} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value=" ">无 RAID</SelectItem>
+          <SelectItem value=" ">{t("ctrl.reinstall.part.noRaid")}</SelectItem>
           {SOFTWARE_RAID_LEVELS.map((l) => (
             <SelectItem key={l.value} value={l.value}>
               {l.value.toUpperCase()}

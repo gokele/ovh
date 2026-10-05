@@ -14,6 +14,10 @@ import {
 } from "@/hooks/use-server-control";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/money";
+import { Trans, useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { errorMessage } from "@/components/common/LoadFailed";
+import { fmtDate, fmtDateTime } from "@/i18n/format";
 
 /** EngagementDialog 钩子绑定 —— dedicated / vps 各自传入。
  *  类型上接受 (svc, enabled?) → query / mutation 形状即可。 */
@@ -38,6 +42,27 @@ const DEFAULT_HOOKS: EngagementHooks = {
   useUpdateEngagementEndRule,
 };
 
+/** OVH 到期策略枚举 → 语言包 key;没匹配上的透传原始枚举值 */
+function endStrategyKey(s: string): string | null {
+  switch (s) {
+    case "REACTIVATE_ENGAGEMENT":
+      return "maint.engagement.strategy.reactivate";
+    case "STOP_ENGAGEMENT_FALLBACK_DEFAULT_PRICE":
+      return "maint.engagement.strategy.fallbackDefault";
+    case "STOP_ENGAGEMENT_KEEP_PRICE":
+      return "maint.engagement.strategy.keepPrice";
+    case "CANCEL_SERVICE":
+      return "maint.engagement.strategy.cancelService";
+    default:
+      return null;
+  }
+}
+
+function endStrategyText(t: TFunction, s: string): string {
+  const key = endStrategyKey(s);
+  return (key ? t(key) : s) || "—";
+}
+
 /** 合同期管理:查看当前 engagement + 切换更长承诺期 + 改到期策略。
  *  默认绑 dedicated;VPS 传入 vps 版 hooks 即可复用整套 UI。 */
 export function EngagementDialog({
@@ -51,6 +76,7 @@ export function EngagementDialog({
   onOpenChange: (v: boolean) => void;
   hooks?: EngagementHooks;
 }) {
+  const { t } = useTranslation();
   const current = hooks.useEngagement(open ? serviceName : null);
   const available = hooks.useEngagementAvailable(open ? serviceName : null, open);
   const ongoing = hooks.useEngagementRequest(open ? serviceName : null);
@@ -69,23 +95,23 @@ export function EngagementDialog({
       const orderUrl: string | undefined = data?.request?.order?.url;
       setConfirmMode(null);
       if (orderUrl) {
-        toast.success("订单已创建,正在打开 OVH 支付页面…");
+        toast.success(t("maint.engagement.toast.orderCreated"));
         // 在新标签打开,不影响当前页面
         window.open(orderUrl, "_blank", "noopener,noreferrer");
       } else {
-        toast.success("变更请求已提交,请前往 OVH manager 完成支付");
+        toast.success(t("maint.engagement.toast.requestSubmitted"));
       }
     } catch (e: any) {
-      toast.error(e?.response?.data?.error || "提交失败");
+      toast.error(errorMessage(e));
     }
   };
 
   const handleCancelRequest = async () => {
     try {
       await deleteReq.mutateAsync();
-      toast.success("已撤销变更请求");
+      toast.success(t("maint.engagement.toast.requestCancelled"));
     } catch (e: any) {
-      toast.error(e?.response?.data?.error || "撤销失败");
+      toast.error(errorMessage(e));
     }
   };
 
@@ -103,10 +129,10 @@ export function EngagementDialog({
       await updateRule.mutateAsync(
         strategy === "CANCEL_SERVICE" ? { strategy, confirm: true } : { strategy },
       );
-      toast.success("到期策略已更新");
+      toast.success(t("maint.engagement.toast.endRuleUpdated"));
       setConfirmStrategy(null);
     } catch (e: any) {
-      toast.error(e?.response?.data?.error || "更新失败");
+      toast.error(errorMessage(e));
     }
   };
 
@@ -116,9 +142,9 @@ export function EngagementDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CalendarRange className="w-5 h-5" />
-            合同期管理
+            {t("maint.engagement.title")}
           </DialogTitle>
-          <DialogDescription>切换更长承诺期享受折扣 / 改到期策略</DialogDescription>
+          <DialogDescription>{t("maint.engagement.desc")}</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto -mx-6 px-6 space-y-4">
@@ -130,20 +156,24 @@ export function EngagementDialog({
               <section className="border border-border rounded-2xl p-3.5 space-y-2">
                 <div className="flex items-center gap-2">
                   <FileClock className="w-4 h-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold">当前合同期</h3>
+                  <h3 className="text-sm font-semibold">{t("maint.engagement.currentTitle")}</h3>
                 </div>
                 {current.data ? (
                   <div className="space-y-1.5 text-[12px]">
                     {current.data.currentPeriod && (
                       <div className="text-muted-foreground">
-                        周期: {new Date(current.data.currentPeriod.startDate).toLocaleDateString("zh-CN")} —{" "}
-                        {new Date(current.data.currentPeriod.endDate).toLocaleDateString("zh-CN")}
+                        {t("maint.engagement.periodRange", {
+                          start: fmtDate(current.data.currentPeriod.startDate),
+                          end: fmtDate(current.data.currentPeriod.endDate),
+                        })}
                       </div>
                     )}
                     {current.data.endRule && (
                       <div className="flex items-center gap-2 flex-wrap pt-1">
-                        <span className="text-muted-foreground">到期策略:</span>
-                        <Chip tone="default">{translateEndStrategy(current.data.endRule.strategy)}</Chip>
+                        <span className="text-muted-foreground">{t("maint.engagement.endRuleLabel")}</span>
+                        <Chip tone="default">
+                          {endStrategyText(t, current.data.endRule.strategy)}
+                        </Chip>
                         {current.data.endRule.possibleStrategies
                           .filter((s) => s !== current.data!.endRule!.strategy)
                           .map((s) => (
@@ -155,7 +185,7 @@ export function EngagementDialog({
                               onClick={() => handleEndRule(s)}
                               disabled={updateRule.isPending}
                             >
-                              改为「{translateEndStrategy(s)}」
+                              {t("maint.engagement.changeTo", { strategy: endStrategyText(t, s) })}
                             </Button>
                           ))}
                       </div>
@@ -164,16 +194,10 @@ export function EngagementDialog({
                 ) : current.isError ? (
                   /* 读失败 ≠ 没签合同期。写成"未签合同期"会让用户以为可以随便改续费方式 */
                   <p className="text-[12px] text-destructive">
-                    合同期信息读取失败：
-                    {(current.error as any)?.response?.data?.error ||
-                      (current.error as any)?.message ||
-                      "请关闭弹窗后重试"}
-                    。当前是否处于承诺期未知，请勿据此判断。
+                    {t("maint.engagement.loadFailed", { err: errorMessage(current.error) })}
                   </p>
                 ) : (
-                  <p className="text-[12px] text-muted-foreground">
-                    该服务未签合同期,按标准月付方式续费。可在下方订阅承诺期享受折扣。
-                  </p>
+                  <p className="text-[12px] text-muted-foreground">{t("maint.engagement.noEngagement")}</p>
                 )}
               </section>
 
@@ -182,23 +206,21 @@ export function EngagementDialog({
                 <section className="border border-warning/40 bg-warning/5 rounded-2xl p-3.5 space-y-2">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 text-warning" />
-                    <h3 className="text-sm font-semibold">订单已创建,等待支付</h3>
+                    <h3 className="text-sm font-semibold">{t("maint.engagement.ongoingTitle")}</h3>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    OVH 已为此变更创建订单,**付款前合同期不会生效**,服务继续按原月付。30 天未付订单将自动取消。
-                  </p>
+                  <p className="text-[11px] text-muted-foreground">{t("maint.engagement.ongoingDesc")}</p>
                   <div className="text-[12px] space-y-1">
                     {ongoing.data.pricing && (
-                      <div>目标: {ongoing.data.pricing.description}</div>
+                      <div>{t("maint.engagement.targetLabel", { what: ongoing.data.pricing.description })}</div>
                     )}
                     {ongoing.data.requestDate && (
                       <div className="text-muted-foreground">
-                        提交时间: {new Date(ongoing.data.requestDate).toLocaleString("zh-CN")}
+                        {t("maint.engagement.requestTimeLabel", { time: fmtDateTime(ongoing.data.requestDate) })}
                       </div>
                     )}
                     {ongoing.data.order?.orderId && (
                       <div className="text-muted-foreground">
-                        订单号: #{ongoing.data.order.orderId}
+                        {t("maint.engagement.orderNoLabel", { id: ongoing.data.order.orderId })}
                       </div>
                     )}
                   </div>
@@ -210,7 +232,7 @@ export function EngagementDialog({
                         onClick={() => window.open(ongoing.data!.order!.url, "_blank", "noopener,noreferrer")}
                       >
                         <ExternalLink className="w-3.5 h-3.5 mr-1" />
-                        前往 OVH 支付
+                        {t("maint.engagement.payBtn")}
                       </Button>
                     )}
                     <Button
@@ -220,7 +242,7 @@ export function EngagementDialog({
                       disabled={deleteReq.isPending}
                     >
                       <X className="w-3.5 h-3.5 mr-1" />
-                      撤销请求
+                      {t("maint.engagement.cancelReqBtn")}
                     </Button>
                   </div>
                 </section>
@@ -229,13 +251,11 @@ export function EngagementDialog({
               {/* 可订阅的 engagement 列表 */}
               <section className="space-y-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <h3 className="text-sm font-semibold">可订阅的承诺期</h3>
-                  <p className="text-[10px] text-muted-foreground">
-                    长周期承诺通常有折扣(部分入门款无折扣)。月均价就是月度等效成本。
-                  </p>
+                  <h3 className="text-sm font-semibold">{t("maint.engagement.availableTitle")}</h3>
+                  <p className="text-[10px] text-muted-foreground">{t("maint.engagement.availableHint")}</p>
                 </div>
                 {(available.data || []).length === 0 ? (
-                  <EmptyState icon={CalendarRange} title="暂无可订阅的承诺期" />
+                  <EmptyState icon={CalendarRange} title={t("maint.engagement.emptyAvailable")} />
                 ) : (
                   <div className="space-y-2">
                     {(available.data || []).map((p) => (
@@ -249,12 +269,12 @@ export function EngagementDialog({
                     ))}
                     {ongoing.data && (
                       <p className="text-[11px] text-muted-foreground text-center pt-1">
-                        有变更请求处理中,需先撤销才能订阅新承诺期
+                        {t("maint.engagement.ongoingBlock")}
                       </p>
                     )}
                     {!ongoing.data && ongoing.isError && (
                       <p className="text-[11px] text-warning text-center pt-1">
-                        进行中的变更请求读取失败,暂时无法订阅 —— 无法确认是否已有未付订单,重复提交会多出一笔订单。
+                        {t("maint.engagement.ongoingError")}
                       </p>
                     )}
                   </div>
@@ -266,7 +286,7 @@ export function EngagementDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            关闭
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -275,38 +295,36 @@ export function EngagementDialog({
       <Dialog open={!!confirmMode} onOpenChange={(v) => !v && setConfirmMode(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>确认订阅承诺期?</DialogTitle>
-            <DialogDescription>提交前请阅读流程</DialogDescription>
+            <DialogTitle>{t("maint.engagement.confirmTitle")}</DialogTitle>
+            <DialogDescription>{t("maint.engagement.confirmDesc")}</DialogDescription>
           </DialogHeader>
           <ol className="space-y-1.5 text-[12px] text-muted-foreground list-decimal pl-5">
             <li>
-              OVH 创建一笔<span className="font-semibold text-foreground">未付订单</span>
-              (一次性预付=承诺期总价;周期付费=首期价)
+              <Trans
+                i18nKey="maint.engagement.step1"
+                components={{ b: <span className="font-semibold text-foreground" /> }}
+              />
             </li>
             <li>
-              <span className="font-semibold text-foreground">付款前合同期不会激活</span>
-              ,服务继续按原月付收费
+              <Trans
+                i18nKey="maint.engagement.step2"
+                components={{ b: <span className="font-semibold text-foreground" /> }}
+              />
             </li>
-            <li>
-              若已设自动扣款 + 余额充足 → 几分钟内自动扣款激活
-            </li>
-            <li>
-              否则需手动去 OVH manager 支付。30 天没付订单自动取消
-            </li>
-            <li>
-              一旦付款 → 合同期锁死,中途解约按未消耗月数计违约金
-            </li>
+            <li>{t("maint.engagement.step3")}</li>
+            <li>{t("maint.engagement.step4")}</li>
+            <li>{t("maint.engagement.step5")}</li>
           </ol>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmMode(null)}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={() => confirmMode && handleSubscribe(confirmMode)}
               disabled={createReq.isPending}
             >
               <Check className="w-3.5 h-3.5 mr-1" />
-              {createReq.isPending ? "提交中…" : "创建订单"}
+              {createReq.isPending ? t("maint.engagement.submitting") : t("maint.engagement.createOrderBtn")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -316,27 +334,28 @@ export function EngagementDialog({
       <Dialog open={!!confirmStrategy} onOpenChange={(v) => !v && setConfirmStrategy(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-destructive">确认改为「到期自动销毁服务」?</DialogTitle>
-            <DialogDescription>承诺期结束时服务将被销毁</DialogDescription>
+            <DialogTitle className="text-destructive">{t("maint.engagement.destroyTitle")}</DialogTitle>
+            <DialogDescription>{t("maint.engagement.destroyDesc")}</DialogDescription>
           </DialogHeader>
           <div className="text-[12px] text-muted-foreground space-y-1.5">
             <p>
-              承诺期结束时,OVH 会
-              <span className="font-semibold text-destructive">直接销毁这台服务器</span>
-              ,数据不保留、IP 不保留。
+              <Trans
+                i18nKey="maint.engagement.destroyBody1"
+                components={{ b: <span className="font-semibold text-destructive" /> }}
+              />
             </p>
-            <p>设置后若要反悔,需要在承诺期结束前改回其它策略。</p>
+            <p>{t("maint.engagement.destroyBody2")}</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmStrategy(null)}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
               disabled={updateRule.isPending}
               onClick={() => confirmStrategy && handleEndRule(confirmStrategy, true)}
             >
-              {updateRule.isPending ? "提交中…" : "确认销毁"}
+              {updateRule.isPending ? t("maint.engagement.submitting") : t("maint.engagement.confirmDestroyBtn")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -354,6 +373,7 @@ function PricingRow({
   onSubscribe: () => void;
   disabled: boolean;
 }) {
+  const { t } = useTranslation();
   // 币种一律用 OVH 给的 currencyCode。以前兜底 "USD" —— 合同期这套端点三区都有,
   // 欧区账户的价格会被硬贴上 USD 标签。拿不到就只显示数字(formatMoney 不编货币符号)。
   const currency = pricing.price?.currencyCode || "";
@@ -387,9 +407,9 @@ function PricingRow({
       : totalValue > 0
         ? formatMoney(totalValue, currency)
         : "—";
-  const perMonthText = perMonth > 0 ? `${formatMoney(perMonth, currency)} / 月` : "";
+  const perMonthText = perMonth > 0 ? t("maint.engagement.perMonth", { price: formatMoney(perMonth, currency) }) : "";
 
-  const friendlyTitle = humanizeDescription(pricing.description, months, isUpfront);
+  const friendlyTitle = humanizeDescription(t, pricing.description, months, isUpfront);
 
   return (
     <div className="border border-border rounded-xl p-3 flex items-center gap-3 flex-wrap">
@@ -397,12 +417,14 @@ function PricingRow({
         <div className="flex items-center gap-2 flex-wrap">
           <div className="text-[13px] font-semibold">{friendlyTitle}</div>
           <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
-            {isUpfront ? "一次性预付" : "周期付费"}
+            {isUpfront ? t("maint.engagement.badgeUpfront") : t("maint.engagement.badgePeriodic")}
           </span>
         </div>
         {pricing.engagementConfiguration && (
           <div className="text-[11px] text-muted-foreground mt-1">
-            到期: {translateEndStrategy(pricing.engagementConfiguration.defaultEndAction)}
+            {t("maint.engagement.endActionLabel", {
+              strategy: endStrategyText(t, pricing.engagementConfiguration.defaultEndAction),
+            })}
           </div>
         )}
       </div>
@@ -412,7 +434,7 @@ function PricingRow({
           <div className="text-[10px] text-muted-foreground">{perMonthText}</div>
         )}
         <Button size="sm" variant="outline" onClick={onSubscribe} disabled={disabled} className="mt-1.5">
-          订阅
+          {t("maint.engagement.subscribeBtn")}
         </Button>
       </div>
     </div>
@@ -429,27 +451,16 @@ function parseDurationMonths(iso: string): number {
   return years * 12 + monthsPart;
 }
 
-// humanizeDescription "rental for 12 months" → "12 个月预付套餐"
-function humanizeDescription(desc: string, months: number, isUpfront: boolean): string {
+// humanizeDescription "rental for 12 months" → 本地化的「N 年/N 个月 + 预付/周期」标题
+function humanizeDescription(t: TFunction, desc: string, months: number, isUpfront: boolean): string {
   if (months > 0) {
-    const human = months % 12 === 0 ? `${months / 12} 年` : `${months} 个月`;
-    return isUpfront ? `${human}预付` : `${human}周期`;
+    const human =
+      months % 12 === 0
+        ? t("maint.engagement.durationYears", { n: months / 12 })
+        : t("maint.engagement.durationMonths", { n: months });
+    return t(isUpfront ? "maint.engagement.upfrontTitle" : "maint.engagement.periodicTitle", {
+      duration: human,
+    });
   }
   return desc || "—";
-}
-
-// translateEndStrategy OVH 到期策略枚举 → 中文
-function translateEndStrategy(s: string): string {
-  switch (s) {
-    case "REACTIVATE_ENGAGEMENT":
-      return "到期自动再签同样合同期";
-    case "STOP_ENGAGEMENT_FALLBACK_DEFAULT_PRICE":
-      return "到期转月付(回到标准价)";
-    case "STOP_ENGAGEMENT_KEEP_PRICE":
-      return "到期转月付(保持当前价,无合同期)";
-    case "CANCEL_SERVICE":
-      return "到期自动销毁服务";
-    default:
-      return s || "—";
-  }
 }

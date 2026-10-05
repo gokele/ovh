@@ -3,6 +3,8 @@ import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { toast } from "sonner";
 import { zoneStyle } from "@/lib/zone-color";
+import i18n from "@/i18n";
+import { apiMessage } from "@/lib/api-error";
 
 export interface OVHAccount {
   id: string;
@@ -94,16 +96,16 @@ export function useCreateAccount() {
       // 新账户的出站配置要出现在代理健康面板里
       qc.invalidateQueries({ queryKey: qk.accounts.proxyStatus() });
       if (data.valid) {
-        toast.success(`账户 ${data.account.name} 创建成功`);
+        toast.success(i18n.t("hooksMsg.account.created", { name: data.account.name }));
       } else {
-        toast.warning(`账户已保存,但 OVH 验证失败,请检查凭据`);
+        toast.warning(i18n.t("hooksMsg.account.savedVerifyFailed"));
       }
       // 子公司填错不会让 valid 变 false,但会让目录/价格/下单全部走错站点,单独长时间提示
       if (data.subsidiaryWarning) {
         toast.warning(data.subsidiaryWarning, { duration: 15000 });
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.error || "创建失败"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }
 
@@ -125,15 +127,15 @@ export function useUpdateAccount() {
       // 链路检测同理:那份延迟数字是旧代理跑出来的,留着会让用户拿旧链路的成绩
       // 给新代理背书 —— 而他改代理的目的往往正是嫌慢。
       qc.removeQueries({ queryKey: qk.accounts.proxyCheck(vars.id) });
-      toast.success("账户已更新");
+      toast.success(i18n.t("hooksMsg.account.updated"));
       if (!data.valid) {
-        toast.warning("账户已保存,但 OVH 验证失败,请检查凭据");
+        toast.warning(i18n.t("hooksMsg.account.savedVerifyFailed"));
       }
       if (data.subsidiaryWarning) {
         toast.warning(data.subsidiaryWarning, { duration: 15000 });
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.error || "更新失败"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }
 
@@ -150,9 +152,9 @@ export function useDeleteAccount() {
       // 关联数据也变了,顺手 invalidate
       qc.invalidateQueries({ queryKey: ["queue"] });
       qc.invalidateQueries({ queryKey: ["history"] });
-      toast.success("账户已删除,关联数据一并清理");
+      toast.success(i18n.t("hooksMsg.account.deleted"));
     },
-    onError: (e: any) => toast.error(e?.response?.data?.error || "删除失败"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }
 
@@ -163,9 +165,9 @@ export function useSetDefaultAccount() {
     mutationFn: async (id: string) => (await api.post(`/accounts/${id}/set-default`)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ACCOUNTS_KEY });
-      toast.success("已设为默认账户");
+      toast.success(i18n.t("hooksMsg.account.setDefault"));
     },
-    onError: (e: any) => toast.error(e?.response?.data?.error || "设默认失败"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }
 
@@ -176,9 +178,9 @@ export function useVerifyAccount() {
       (await api.post<AccountVerifyResult>(`/accounts/${id}/verify`)).data,
     onSuccess: (data) => {
       if (data.valid) {
-        toast.success("OVH 凭据验证通过");
+        toast.success(i18n.t("hooksMsg.account.verifyOk"));
       } else {
-        toast.error("OVH 凭据验证失败,检查 AppKey / AppSecret / ConsumerKey");
+        toast.error(i18n.t("hooksMsg.account.verifyFailed"));
       }
       // 凭据有效 ≠ 区配对了。这条警告比"验证通过"重要得多,单独弹且停久一点
       if (data.subsidiaryWarning) {
@@ -298,14 +300,14 @@ export function useProxyTest() {
       const rec: ProxyTestRecord = { ...data, testedAt: Date.now() };
       qc.setQueryData(qk.accounts.proxyTest(id), rec);
       if (data.success) {
-        toast.success(`出口 IP ${data.egressIP}(${data.usingProxy ? "经代理" : "直连"})`);
+        toast.success(i18n.t("hooksMsg.account.egressOk", { ip: data.egressIP, via: data.usingProxy ? i18n.t("hooksMsg.account.viaProxy") : i18n.t("hooksMsg.account.viaDirect") }));
         if (data.warning) toast.warning(data.warning, { duration: 10000 });
       } else {
         // 配了代理就不会退回直连:这条失败等于该账户此刻一单都下不出去
-        toast.error(`出口测试失败(经由${data.via}): ${data.error}`);
+        toast.error(i18n.t("hooksMsg.account.egressFailed", { via: data.via, error: data.error }));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.error || "出口测试请求没发出去"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }
 
@@ -418,14 +420,14 @@ export type LatencyLevel = "fast" | "slow" | "bad";
  */
 export function gradeLatency(minMs: number): { level: LatencyLevel; note: string } {
   if (minMs < 300) {
-    return { level: "fast", note: "延迟正常,补货那一刻不会因为链路吃亏。" };
+    return { level: "fast", note: i18n.t("hooksMsg.account.latFast") };
   }
   if (minMs <= 800) {
-    return { level: "slow", note: "偏慢。冷门机型够用,热门机型会比别人慢半步。" };
+    return { level: "slow", note: i18n.t("hooksMsg.account.latSlow") };
   }
   return {
     level: "bad",
-    note: "这个延迟在补货那一刻很可能抢不过别人 —— 换一个离该大区更近的代理。",
+    note: i18n.t("hooksMsg.account.latVerySlow"),
   };
 }
 
@@ -469,28 +471,28 @@ export function useProxyCheck() {
       const rec: ProxyCheckRecord = { ...data, receivedAt: Date.now() };
       qc.setQueryData(qk.accounts.proxyCheck(id), rec);
       if (!data.success) {
-        toast.error(`链路检测没做成: ${data.error}`);
+        toast.error(i18n.t("hooksMsg.account.probeFailed", { error: data.error }));
         return;
       }
       if (data.warning) toast.warning(data.warning, { duration: 10000 });
       const down = data.targets.filter((t) => !t.ok);
       if (down.length > 0) {
         // 目标不通 ≠ 慢,这是"此刻下不了单",优先级高于任何延迟结论
-        toast.error(`${down.length}/${data.targets.length} 个目标不通 —— 这个账户现在下不出单`);
+        toast.error(i18n.t("hooksMsg.account.probeDown", { down: down.length, total: data.targets.length }));
         return;
       }
       const worst = worstMinMs(data.targets);
       if (worst === undefined) {
-        toast.warning("检测回来了,但没有一条目标给出延迟 —— 打开弹窗看具体哪条");
+        toast.warning(i18n.t("hooksMsg.account.probeNoLatency"));
         return;
       }
       const g = gradeLatency(worst);
-      const head = `链路检测完成 · 最慢目标 ${worst}ms`;
+      const head = i18n.t("hooksMsg.account.probeDone", { worst });
       if (g.level === "bad") toast.error(`${head} —— ${g.note}`, { duration: 10000 });
       else if (g.level === "slow") toast.warning(`${head} —— ${g.note}`, { duration: 8000 });
       else toast.success(head);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.error || "链路检测请求没发出去"),
+    onError: (e: any) => toast.error(apiMessage(e)),
   });
 }
 

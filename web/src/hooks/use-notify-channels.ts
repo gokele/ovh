@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import i18n from "@/i18n";
+import { apiMessage } from "@/lib/api-error";
 
 export interface NotifyChannel {
   name: string;
@@ -48,9 +50,9 @@ export function useNotifyGate(): [boolean, string, boolean] {
   if (q.data.anyAvailable) return [false, "", false];
   const detail = q.data.channels
     .filter((c) => c.configured && !c.ok)
-    .map((c) => `${c.name}: ${c.detail || "不可用"}`)
-    .join("；");
-  return [true, detail || "还没有配置任何通知通道（Telegram / Webhook 至少配一个）", false];
+    .map((c) => i18n.t("hooksMsg.notify.channelLine", { name: c.name, detail: c.detail || i18n.t("hooksMsg.notify.channelUnavailable") }))
+    .join(i18n.t("hooksMsg.notify.channelSeparator"));
+  return [true, detail || i18n.t("hooksMsg.notify.noChannelConfigured"), false];
 }
 
 /**
@@ -73,17 +75,21 @@ export function useTestNotification() {
       qc.invalidateQueries({ queryKey: ["notify", "channels"] });
       const failed = (d.channels || []).filter((c) => c.configured && !c.ok);
       if (d.delivered === 0) {
-        toast.error(d.message || "一条都没发出去");
+        toast.error(d.message || i18n.t("hooksMsg.notify.noneDelivered"));
       } else if (failed.length) {
         toast.warning(
-          `${d.delivered} 条已送达，但 ${failed.map((c) => c.name).join("、")} 失败：` +
-            failed.map((c) => c.detail || "未知原因").join("；")
+          i18n.t("hooksMsg.notify.partialDelivered", {
+            delivered: d.delivered,
+            names: failed.map((c) => c.name).join(i18n.t("hooksMsg.notify.nameSeparator")),
+            reasons: failed
+              .map((c) => c.detail || i18n.t("hooksMsg.notify.unknownReason"))
+              .join(i18n.t("hooksMsg.notify.channelSeparator")),
+          })
         );
       } else {
-        toast.success(d.message || `已发往 ${d.delivered} 个通道`);
+        toast.success(d.message || i18n.t("hooksMsg.notify.sentToChannels", { count: d.delivered }));
       }
     },
-    onError: (e: any) =>
-      toast.error(e.response?.data?.message || e.response?.data?.error || "发送失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.notify.sendFailed")),
   });
 }

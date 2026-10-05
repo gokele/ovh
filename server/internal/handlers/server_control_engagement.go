@@ -136,7 +136,7 @@ func CreateEngagementRequest(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.PricingMode == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 pricingMode 参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 pricingMode 参数", "code": "EA4F2905C"})
 			return
 		}
 		serviceID, err := serviceIDForDedicated(client, svc)
@@ -152,7 +152,7 @@ func CreateEngagementRequest(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("服务器 %s engagement 请求已提交: pricingMode=%s", svc, body.PricingMode), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "合同期变更请求已提交", "request": result})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "合同期变更请求已提交", "code": "E02A9E774", "request": result})
 	}
 }
 
@@ -176,7 +176,7 @@ func DeleteEngagementRequest(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("服务器 %s engagement 请求已撤销", svc), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "合同期变更请求已撤销"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "合同期变更请求已撤销", "code": "EB9374300"})
 	}
 }
 
@@ -196,7 +196,7 @@ func UpdateEngagementEndRule(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Strategy == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 strategy 参数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 strategy 参数", "code": "E8537A991"})
 			return
 		}
 		if !engagementEndStrategies[body.Strategy] {
@@ -206,7 +206,7 @@ func UpdateEngagementEndRule(state *app.State) gin.HandlerFunc {
 		// CANCEL_SERVICE 会在承诺期结束时直接销毁服务器,且不可撤销,
 		// 所以要求调用方显式带 confirm:true,避免误点一次按钮就把机器排进销毁队列
 		if body.Strategy == "CANCEL_SERVICE" && !body.Confirm {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "到期自动销毁服务属于不可撤销操作,请二次确认后重试(需带 confirm:true)"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "到期自动销毁服务属于不可撤销操作,请二次确认后重试(需带 confirm:true)", "code": "EAFF9E887"})
 			return
 		}
 		serviceID, err := serviceIDForDedicated(client, svc)
@@ -223,6 +223,6 @@ func UpdateEngagementEndRule(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("服务器 %s engagement endRule 已改为 %s", svc, body.Strategy), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "到期策略已更新"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "到期策略已更新", "code": "E55ACDD1F"})
 	}
 }

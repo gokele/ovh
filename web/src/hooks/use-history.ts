@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { toast } from "sonner";
+import i18n from "@/i18n";
+import { apiMessage } from "@/lib/api-error";
 
 export interface PurchaseHistory {
   id: string;
@@ -59,9 +61,13 @@ export function useRefreshOrderStatus() {
       (await api.post<{ success: boolean; updated: number }>("/purchase-history/refresh-status")).data,
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: qk.history() });
-      toast.success(d.updated > 0 ? `${d.updated} 条订单状态有更新` : "订单状态已是最新");
+      toast.success(
+        d.updated > 0
+          ? i18n.t("hooksMsg.history.statusUpdated", { count: d.updated })
+          : i18n.t("hooksMsg.history.statusAlreadyLatest")
+      );
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "刷新状态失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.history.refreshStatusFailed")),
   });
 }
 
@@ -72,8 +78,8 @@ export function useClearHistory() {
     mutationFn: async () => (await api.delete("/purchase-history")).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.history() });
-      toast.success("已清空购买历史");
+      toast.success(i18n.t("hooksMsg.history.cleared"));
     },
-    onError: (e: any) => toast.error(e.response?.data?.error || "清空失败"),
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.history.clearFailed")),
   });
 }

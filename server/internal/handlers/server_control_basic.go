@@ -567,7 +567,7 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 		if !ok {
 			c.JSON(http.StatusConflict, gin.H{
 				"success": false,
-				"error":   "该服务器已有重装任务正在执行，请等待完成后再试",
+				"error":   "该服务器已有重装任务正在执行，请等待完成后再试", "code": "EF9E440A0",
 			})
 			return
 		}
@@ -585,7 +585,7 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 		}
 		templateName, _ := body["templateName"].(string)
 		if templateName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "未指定系统模板"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "未指定系统模板", "code": "ED4AB4A93"})
 			return
 		}
 
@@ -611,7 +611,7 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 		if hasCustomStorage && schemeName != "" {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"error":   "自定义存储配置与内置分区方案只能选择一种",
+				"error":   "自定义存储配置与内置分区方案只能选择一种", "code": "EA940C92F",
 			})
 			return
 		}
@@ -632,7 +632,7 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 			if raw, ok := body["zfsRaidLevel"]; ok && raw != nil {
 				v, ok := numconv.ToInt64(raw)
 				if !ok {
-					c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "zfsRaidLevel 必须是整数"})
+					c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "zfsRaidLevel 必须是整数", "code": "E83AB4138"})
 					return
 				}
 				raidLevel = v
@@ -648,13 +648,13 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 			if raw, ok := body["zfsVzSize"]; ok && raw != nil {
 				v, ok := numconv.ToInt64(raw)
 				if !ok {
-					c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "zfsVzSize 必须是整数(MB)"})
+					c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "zfsVzSize 必须是整数(MB)", "code": "E6D5BF3D6"})
 					return
 				}
 				vzSizeMB = v
 			}
 			if vzSizeMB < 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "/var/lib/vz 容量不能为负数"})
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "/var/lib/vz 容量不能为负数", "code": "E348BDC21"})
 				return
 			}
 			state.Logger.Info(fmt.Sprintf("🎯 使用 Proxmox 9 + ZFS 根文件系统预设 (RAID%d)", raidLevel), "server_control")
@@ -957,7 +957,7 @@ func GetInstallStatus(state *app.State) gin.HandlerFunc {
 						c.JSON(http.StatusOK, gin.H{
 							"success":         true,
 							"hasInstallation": false,
-							"message":         "当前没有正在进行的安装",
+							"message":         "当前没有正在进行的安装", "code": "E2BA2B9D1",
 						})
 						return
 					}
@@ -967,14 +967,14 @@ func GetInstallStatus(state *app.State) gin.HandlerFunc {
 					var info map[string]interface{}
 					if serr := client.Get("/dedicated/server/"+svc, &info); serr != nil {
 						state.Logger.Error("获取服务器 "+svc+" 安装状态失败(服务器不可访问): "+serr.Error(), "server_control")
-						c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "服务器不存在或不属于当前账户"})
+						c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "服务器不存在或不属于当前账户", "code": "E834268F5"})
 						return
 					}
 					state.Logger.Info("服务器 "+svc+" 当前没有正在进行的安装", "server_control")
 					c.JSON(http.StatusOK, gin.H{
 						"success":         true,
 						"hasInstallation": false,
-						"message":         "当前没有正在进行的安装",
+						"message":         "当前没有正在进行的安装", "code": "E2BA2B9D1",
 					})
 					return
 				}
@@ -1164,12 +1164,12 @@ func GetTaskAvailableTimeslots(state *app.State) gin.HandlerFunc {
 		}
 		periodStart, ok := normalizeAPIDate(c.Query("periodStart"))
 		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "periodStart 必须是 YYYY-MM-DD 或 ISO8601 时间"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "periodStart 必须是 YYYY-MM-DD 或 ISO8601 时间", "code": "E36D84314"})
 			return
 		}
 		periodEnd, ok := normalizeAPIDate(c.Query("periodEnd"))
 		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "periodEnd 必须是 YYYY-MM-DD 或 ISO8601 时间"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "periodEnd 必须是 YYYY-MM-DD 或 ISO8601 时间", "code": "E6E5E89F8"})
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[Task] 查询任务 %s 的可用时间段 %s -> %s", taskID, periodStart, periodEnd), "server_control")
@@ -1189,13 +1189,13 @@ func GetTaskAvailableTimeslots(state *app.State) gin.HandlerFunc {
 						"success":             true,
 						"timeslots":           []interface{}{},
 						"scheduleNotRequired": true,
-						"message":             "该任务无需预约",
+						"message":             "该任务无需预约", "code": "E4F64261F",
 					})
 					return
 				}
 				if apiErr.Code == http.StatusNotFound {
 					state.Logger.Warn("[Task] 任务或服务器不存在: "+err.Error(), "server_control")
-					c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "任务或服务器不存在"})
+					c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "任务或服务器不存在", "code": "ECE34F4F3"})
 					return
 				}
 			}
@@ -1237,19 +1237,19 @@ func ScheduleTaskTimeslot(state *app.State) gin.HandlerFunc {
 			wanted = strings.TrimSpace(body.StartDate)
 		}
 		if wanted == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 wantedBeginingDate (ISO8601 日期时间)"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 wantedBeginingDate (ISO8601 日期时间)", "code": "E21D1E278"})
 			return
 		}
 		wantedTime, perr := time.Parse(time.RFC3339, wanted)
 		if perr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "wantedBeginingDate 必须是 ISO8601 日期时间，例如 2026-01-02T15:04:05Z"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "wantedBeginingDate 必须是 ISO8601 日期时间，例如 2026-01-02T15:04:05Z", "code": "E6FD24026"})
 			return
 		}
 		// hasPerformedBackup 是 schema 必填项，缺了 OVH 必 400，所以在这里就要求调用方显式表态。
 		// 但 false 在 schema 里是合法取值（它是"你是否已备份"的如实回答，不是开关），
 		// 上一轮直接 400 拒掉等于把 OVH 允许的调用变成不可达，这里改成原样透传 + 记一条警告日志。
 		if body.HasPerformedBackup == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 hasPerformedBackup：预约干预前必须确认是否已备份数据"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 hasPerformedBackup：预约干预前必须确认是否已备份数据", "code": "E9222DCA1"})
 			return
 		}
 		if !*body.HasPerformedBackup {
@@ -1267,7 +1267,7 @@ func ScheduleTaskTimeslot(state *app.State) gin.HandlerFunc {
 				switch apiErr.Code {
 				case http.StatusNotFound:
 					state.Logger.Warn("[Task] 任务或服务器不存在: "+err.Error(), "server_control")
-					c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "任务或服务器不存在"})
+					c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "任务或服务器不存在", "code": "ECE34F4F3"})
 					return
 				case http.StatusBadRequest, http.StatusConflict:
 					// OVH 的业务校验（任务不支持预约、时间段已被占用等）原样透出
@@ -1281,6 +1281,6 @@ func ScheduleTaskTimeslot(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[Task] 任务 %s 干预时间预约成功", taskID), "server_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "干预时间已预约"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "干预时间已预约", "code": "E98AC2C1C"})
 	}
 }

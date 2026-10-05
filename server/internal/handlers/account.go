@@ -20,7 +20,7 @@ import (
 )
 
 func noOVHRespAccount(c *gin.Context) {
-	c.JSON(http.StatusBadRequest, gin.H{"error": "未配置OVH API"})
+	c.JSON(http.StatusBadRequest, gin.H{"error": "未配置OVH API", "code": "E855DF392"})
 }
 
 // ── 带失败计数的并发详情拉取 ──────────────────────────────────────────────
@@ -408,7 +408,7 @@ func contactChangeUnsupported(state *app.State, c *gin.Context) bool {
 	state.Logger.Warn("账户 "+acc.Name+" 属于 US 区,OVH US API 不提供联系人变更(contactChange)能力", "server_control")
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"status":  "unsupported",
-		"message": "OVH US 区不支持联系人变更请求,该功能仅在 EU / CA 区可用",
+		"message": "OVH US 区不支持联系人变更请求,该功能仅在 EU / CA 区可用", "code": "E8015BE9B",
 	})
 	return true
 }
@@ -436,7 +436,7 @@ func contactTokenTip(err error) string {
 func parseContactTaskID(c *gin.Context) (int64, bool) {
 	taskID, err := strconv.ParseInt(c.Param("task_id"), 10, 64)
 	if err != nil || taskID <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "任务 ID 无效:必须是正整数"})
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "任务 ID 无效:必须是正整数", "code": "EB9AE459D"})
 		return 0, false
 	}
 	return taskID, true
@@ -520,7 +520,7 @@ func AcceptContactChangeRequest(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Token == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少必需的 token 参数。请从邮件中获取 token 并输入。"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少必需的 token 参数。请从邮件中获取 token 并输入。", "code": "EBC948D95"})
 			return
 		}
 		if err := client.Post(fmt.Sprintf("/me/task/contactChange/%d/accept", taskID), map[string]interface{}{
@@ -534,7 +534,7 @@ func AcceptContactChangeRequest(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("成功接受联系人变更请求 %d", taskID), "server_control")
-		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "联系人变更请求已接受"})
+		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "联系人变更请求已接受", "code": "E87E768E8"})
 	}
 }
 
@@ -558,7 +558,7 @@ func RefuseContactChangeRequest(state *app.State) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Token == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少必需的 token 参数。请从邮件中获取 token 并输入。"})
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少必需的 token 参数。请从邮件中获取 token 并输入。", "code": "EBC948D95"})
 			return
 		}
 		if err := client.Post(fmt.Sprintf("/me/task/contactChange/%d/refuse", taskID), map[string]interface{}{
@@ -572,7 +572,7 @@ func RefuseContactChangeRequest(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("成功拒绝联系人变更请求 %d", taskID), "server_control")
-		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "联系人变更请求已拒绝"})
+		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "联系人变更请求已拒绝", "code": "E30A15DE3"})
 	}
 }
 
@@ -597,7 +597,7 @@ func ResendContactChangeEmail(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("成功重发联系人变更请求 %d 的邮件", taskID), "server_control")
-		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "确认邮件已重新发送"})
+		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "确认邮件已重新发送", "code": "E97D26804"})
 	}
 }
 

@@ -12,6 +12,8 @@
  * 两边必须同时改，否则前端绿灯、后端 404。
  */
 
+import i18n from "@/i18n";
+
 export type OvhRegion = "EU" | "US" | "CA";
 
 /** endpoint（go-ovh 名）→ 大区。空值按 EU（OVH 默认站点，覆盖面最广），与后端 EndpointRegion 一致。 */
@@ -59,14 +61,14 @@ export function regionLabelOf(code?: string | null): string {
   return "";
 }
 
-/** 大区的中文名，用于提示文案 */
+/** 大区名(跟随语言)，用于提示文案 */
 export function regionLabel(region: OvhRegion): string {
   switch (region) {
     case "US":
-      return "美区";
+      return i18n.t("commons.region.us");
     case "CA":
-      return "加区";
+      return i18n.t("commons.region.ca");
     default:
-      return "欧区";
+      return i18n.t("commons.region.eu");
   }
 }
