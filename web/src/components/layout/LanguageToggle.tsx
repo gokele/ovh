@@ -20,7 +20,12 @@ export function LanguageToggle() {
       onClick={async () => {
         // 先切完语言再弹 toast,不然提示文本用的是切换前的语言(会出"Language: 中文"混排)
         await i18n.changeLanguage(next);
-        // localStorage 持久化由 i18next detector 的 caches 负责
+        // 手动选择落盘:此后不再跟随浏览器语言自动切换(caches 为空,自动检测不写)
+        try {
+          window.localStorage.setItem("ovh-lang", next);
+        } catch {
+          /* 隐私模式等存不进去就算了,本次会话内仍然生效 */
+        }
         toast(t("lang.switched", { name: LANGUAGE_LABELS[next] }), { duration: 2200 });
       }}
       className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-accent-foreground hover:bg-accent transition-colors flex-shrink-0"

@@ -35,9 +35,11 @@ void i18n
     nonExplicitSupportedLngs: true,
     fallbackLng: "zh",
     detection: {
+      // 默认跟随浏览器语言(自动检测不落盘,浏览器改语言页面就跟着变);
+      // 手动切换(顶栏/登录页按钮)才写 localStorage,之后以手动选择为准
       order: ["localStorage", "navigator"],
       lookupLocalStorage: "ovh-lang",
-      caches: ["localStorage"],
+      caches: [],
     },
     interpolation: {
       // React 已经转义,不需要 i18next 再转义一次
