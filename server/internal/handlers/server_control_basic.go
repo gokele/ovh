@@ -194,7 +194,7 @@ func Reboot(state *app.State) gin.HandlerFunc {
 		if err := client.Post("/dedicated/server/"+svc+"/reboot", map[string]interface{}{}, &result); err != nil {
 			// 重启防抖(OVH 回 403 + "A reboot has already been requested")不是失败:
 			// 用户要的重启已经在进行,当成功返回,别让人误以为权限出了问题
-			if isRebootAlreadyRequested(err) {
+			if ovh.IsRebootAlreadyRequested(err) {
 				state.Logger.Info("服务器 "+svc+" 已有重启在进行中,本次请求按幂等成功处理", "server_control")
 				c.JSON(http.StatusOK, gin.H{
 					"success": true,

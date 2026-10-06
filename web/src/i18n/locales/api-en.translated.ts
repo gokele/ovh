@@ -224,4 +224,5 @@ export const apiEn: Record<ApiCode, string> = {
   "ZFS_VZ_OVER_LIMIT": "/var/lib/vz size {{vz}}MB exceeds the limit: under RAID{{level}} this machine has about {{usable}}MB usable; after /boot {{boot}}MB and swap {{swap}}MB, the value must be below {{max}}MB",
   "E704347D1": "A reboot is already in progress on this server — no need to send another; just wait for it to finish",
   "EA0CDDD4E": "Switched back to disk boot, and a reboot is already in progress — that reboot will bring the normal system back in ~3-5 minutes",
+  "E308E982D": "A reboot is already in progress on this VPS — no need to send another; just wait for it to finish",
 };

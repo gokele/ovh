@@ -60,6 +60,14 @@ func VpsReboot(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Post("/vps/"+svc+"/reboot", map[string]interface{}{}, &task); err != nil {
+			// 同独服:已有重启在跑时 OVH 拒绝重复请求,按幂等成功处理
+			if ovh.IsRebootAlreadyRequested(err) {
+				c.JSON(http.StatusOK, gin.H{
+					"success": true,
+					"message": "这台 VPS 已经有一个重启在进行中,无需重复发送 —— 稍等它完成即可", "code": "E308E982D",
+				})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}

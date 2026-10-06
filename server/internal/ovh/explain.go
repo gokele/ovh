@@ -116,3 +116,16 @@ func hintFor(e *ovhsdk.APIError) string {
 	}
 	return "调用 OVH 失败"
 }
+
+// IsRebootAlreadyRequested 认出 OVH 的重启防抖。
+// 实测独服回 403 + "A reboot has already been requested"(不是 409),
+// 状态码认不出来只能按原文匹配;含义是"已有一个重启在跑",不是权限问题。
+// VPS 等其它产品线同义文案一并覆盖。
+func IsRebootAlreadyRequested(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "reboot has already been requested") ||
+		strings.Contains(lower, "a reboot is already in progress")
+}

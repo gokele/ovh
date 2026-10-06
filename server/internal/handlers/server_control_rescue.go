@@ -187,7 +187,7 @@ func EnterRescue(state *app.State) gin.HandlerFunc {
 		var task map[string]interface{}
 		if err := client.Post("/dedicated/server/"+svc+"/reboot", nil, &task); err != nil {
 			// 重启防抖(已有重启在进行):启动项已切好,机器这次重启就会进救援 —— 流程等价于成功
-			if isRebootAlreadyRequested(err) {
+			if ovh.IsRebootAlreadyRequested(err) {
 				state.Logger.Warn("服务器 "+svc+" 救援启动已设置,且已有重启在进行中(无需再发)", "server_control")
 				c.JSON(http.StatusOK, gin.H{
 					"success": true,
@@ -268,7 +268,7 @@ func ExitRescue(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Post("/dedicated/server/"+svc+"/reboot", nil, &task); err != nil {
-			if isRebootAlreadyRequested(err) {
+			if ovh.IsRebootAlreadyRequested(err) {
 				// 已有重启在进行 + 启动项已切回硬盘 → 那次重启就会回到正常系统
 				state.Logger.Warn("服务器 "+svc+" 已切回硬盘启动,且已有重启在进行中(无需再发)", "server_control")
 				c.JSON(http.StatusOK, gin.H{
@@ -292,9 +292,3 @@ func ExitRescue(state *app.State) gin.HandlerFunc {
 	}
 }
 
-// isRebootAlreadyRequested 认出 OVH 的重启防抖。
-// 实测它回的是 403 + "A reboot has already been requested"(不是 409),
-// 状态码认不出来,只能按原文匹配;含义是"已有一个重启在跑",不是权限问题
-func isRebootAlreadyRequested(err error) bool {
-	return err != nil && strings.Contains(strings.ToLower(err.Error()), "reboot has already been requested")
-}
