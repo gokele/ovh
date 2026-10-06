@@ -70,6 +70,10 @@ func hintFor(e *ovhsdk.APIError) string {
 
 	// —— 先按原文认。这些说法的含义与状态码无关 ——
 	switch {
+	case strings.Contains(lower, "reboot has already been requested"):
+		// OVH 对同一台机器的重启防抖(实测回 403 而不是 409,状态码认不出来)。
+		// 它不是权限问题:已经有一个重启在跑了,这次请求要做的件事已经在发生
+		return "这台服务器已经有一个重启在进行中,等它完成即可(不需要重新授权或改凭据)"
 	case strings.Contains(lower, "invalid token"), strings.Contains(lower, "token is invalid"):
 		return "这里的 token 不是 API 密钥,而是 OVH **发到邮箱里**的一次性确认令牌。" +
 			"它填错、过期或已经用过都会这样 —— 回邮件重新抄一遍,或让 OVH 重发一封"

@@ -220,5 +220,7 @@ export const apiZh = {
   "ZFS_RAID_LEVEL_UNSUPPORTED": "RAID 级别 {{level}} 不受支持，可选：0/1/5/6/7/10",
   "ZFS_SINGLE_DISK_RAID": "该服务器只有 {{count}} 块磁盘，无法使用 RAID{{level}}，请改用 RAID0",
   "ZFS_VZ_OVER_LIMIT": "/var/lib/vz 容量 {{vz}}MB 超出可用范围：本机 RAID{{level}} 下可用约 {{usable}}MB，扣除 /boot {{boot}}MB 和 swap {{swap}}MB 后，该值必须小于 {{max}}MB",
+  "E704347D1": "这台服务器已经有一个重启在进行中,无需重复发送 —— 稍等它完成即可",
+  "EA0CDDD4E": "已切回硬盘启动,并且服务器已有一个重启在进行中 —— 这次重启就会回到正常系统,约 3~5 分钟",
 } as const;
 export type ApiCode = keyof typeof apiZh;

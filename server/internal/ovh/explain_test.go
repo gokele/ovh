@@ -115,3 +115,19 @@ func TestExplainStaysVagueWhenMessageIsUnknown(t *testing.T) {
 		t.Errorf("没把用户引向原文:\n  %s", got)
 	}
 }
+
+// 回归:reboot 防抖(403 + "A reboot has already been requested")不能说成权限问题。
+// 实测 OVH 对重复 reboot 回 403 而不是 409,按状态码硬猜会把人带去重建 API 凭据
+func TestExplainRebootAlreadyRequested(t *testing.T) {
+	got := Explain(&ovhsdk.APIError{
+		Code:    403,
+		Class:   "Client::Forbidden",
+		Message: "A reboot has already been requested",
+	})
+	if strings.Contains(got, "consumer key") || strings.Contains(got, "权限规则") {
+		t.Fatalf("把重启防抖说成了权限问题: %s", got)
+	}
+	if !strings.Contains(got, "重启在进行中") {
+		t.Fatalf("应说明已有重启在进行: %s", got)
+	}
+}
