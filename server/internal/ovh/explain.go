@@ -129,3 +129,33 @@ func IsRebootAlreadyRequested(err error) bool {
 	return strings.Contains(lower, "reboot has already been requested") ||
 		strings.Contains(lower, "a reboot is already in progress")
 }
+
+// IsTaskConflict 认出 OVH 的任务冲突/进行中拒绝。
+// VPS 任务链(rebuild/start/stop/snapshot/revert)和部分独服操作在
+// 已有任务在跑时被拒,文案族:"task is already running"/"another task" /
+// "already in progress" / "Cannot ... while ... in status"。
+// 状态码不可靠(实测有 403 也有 409),按原文匹配为准。
+func IsTaskConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *ovhsdk.APIError
+	if errors.As(err, &apiErr) && apiErr.Code == 409 {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	for _, needle := range []string{
+		"task is already running",
+		"another task",
+		"already in progress",
+		"task is pending",
+		"while the vps is in status",
+		"current status of the server does not allow",
+		"action pending",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
+}

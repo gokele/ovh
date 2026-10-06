@@ -77,8 +77,13 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 		if body.NotifyUnavailable != nil {
 			notifyUnavailable = *body.NotifyUnavailable
 		}
+		// 夹到 [1, MaxOrderQuantity]:quantity 直接乘进 batchOrder 的下单扇出,
+		// 不设上界时一个 1000 会并发发上千个真实下单
 		if body.Quantity < 1 {
 			body.Quantity = 1
+		}
+		if body.Quantity > types.MaxOrderQuantity {
+			body.Quantity = types.MaxOrderQuantity
 		}
 
 		var serverName string

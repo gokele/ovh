@@ -72,7 +72,7 @@ func TerminateVps(state *app.State) gin.HandlerFunc {
 			return
 		}
 		state.Logger.Warn("VPS "+svc+" 终止请求已提交,等邮件 token", "vps_control")
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "终止请求已提交,请查邮件获取 token", "code": "E83B1CF34", "token": token})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "终止请求已提交,真正的确认 token 只发到管理员邮箱(OVH 返回的字符串是确认信息,不是 token)", "code": "E83B1CF34", "response": token})
 	}
 }
 

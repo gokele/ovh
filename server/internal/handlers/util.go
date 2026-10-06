@@ -12,6 +12,7 @@ import (
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 )
 
@@ -264,4 +265,24 @@ func idToString(v interface{}) string {
 	default:
 		return fmt.Sprintf("%v", x)
 	}
+}
+
+// respondOVHError 统一的 OVH 写操作错误响应:
+// 4xx 透传(前端能区分"重试没用"和"服务器错了")、5xx 保持 500,文案一律 ovh.Explain。
+// 任务冲突类(IsTaskConflict)回 409,提示用户等任务完成。
+func respondOVHError(c *gin.Context, err error) {
+	if err == nil {
+		return
+	}
+	msg := ovh.Explain(err)
+	if ovh.IsTaskConflict(err) {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "error": "已有一个任务在进行中,等它完成后再试。" + msg})
+		return
+	}
+	var apiErr *ovhsdk.APIError
+	if errors.As(err, &apiErr) && apiErr.Code >= 400 && apiErr.Code < 500 {
+		c.JSON(apiErr.Code, gin.H{"success": false, "error": msg})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": msg})
 }

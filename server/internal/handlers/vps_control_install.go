@@ -309,6 +309,14 @@ func ReinstallVps(state *app.State) gin.HandlerFunc {
 		if len(body.SSHKey) > 0 {
 			params["sshKey"] = body.SSHKey[0]
 		}
+		// 与独服 InstallOS 同款 per-service 锁:重装连点在 OVH 侧撞任务冲突,
+		// 第二发显示"失败"而重装其实已开跑 —— 用户极易再点第三次
+		mu, ok := acquireInstallLock("vps:" + svc)
+		if !ok {
+			c.JSON(http.StatusConflict, gin.H{"success": false, "error": "该 VPS 已有重装任务正在执行,请等待完成后再试(进度看任务历史)", "code": "EF9E440A0"})
+			return
+		}
+		defer mu.Unlock()
 		var task map[string]interface{}
 		if err := client.Post("/vps/"+svc+"/rebuild", params, &task); err != nil {
 			state.Logger.Error("VPS "+svc+" rebuild 失败: "+err.Error(), "vps_control")

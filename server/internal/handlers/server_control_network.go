@@ -564,7 +564,7 @@ func GetIPMIConsole(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Post("/dedicated/server/"+svc+"/features/ipmi/access", params, &task); err != nil {
-			msg := err.Error()
+			msg := ovh.Explain(err)
 			if !ipmiActivated {
 				msg += "（该服务器的 IPMI activated=false，很可能需要先在 OVH 管理后台启用 IPMI）"
 			}

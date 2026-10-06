@@ -896,7 +896,7 @@ func HardwareReplace(state *app.State) gin.HandlerFunc {
 			return
 		}
 		if err2 != nil {
-			errMsg := err2.Error()
+			errMsg := ovh.Explain(err2)
 			state.Logger.Error("硬件更换失败: "+svc+" - "+componentType+" - "+errMsg, "server_control")
 			if strings.Contains(errMsg, "Action pending") {
 				ticketID := "未知"

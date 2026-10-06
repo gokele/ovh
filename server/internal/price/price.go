@@ -45,7 +45,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 
 	client, err := state.OVH.ClientFor(accountID)
 	if err != nil {
-		return Result{Success: false, Error: "未配置OVH API密钥: " + err.Error()}
+		return Result{Success: false, Error: "未配置OVH API密钥: " + ovh.Explain(err)}
 	}
 	acc, _ := state.FindAccount(accountID)
 	subsidiary := orderSubsidiary(state, acc)
@@ -69,7 +69,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 	if err := client.Post("/order/cart", map[string]interface{}{
 		"ovhSubsidiary": subsidiary,
 	}, &cartResult); err != nil {
-		return Result{Success: false, Error: err.Error()}
+		return Result{Success: false, Error: ovh.Explain(err)}
 	}
 	cartID, _ = cartResult["cartId"].(string)
 	state.Logger.Debug("购物车创建成功，ID: "+cartID, "price")
@@ -91,7 +91,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 		}, &itemResult)
 	}
 	if err := postBase(); err != nil {
-		msg := err.Error()
+		msg := ovh.Explain(err)
 		if d, pm, found := lookupEcoPricing(state, client, cartID, planCode, baseDuration); found &&
 			(d != baseDuration || pm != basePricingMode) {
 			state.Logger.Warn(fmt.Sprintf("以 %s/%s 加购 %s 失败(%s)，改用目录计价 %s/%s 重试",
@@ -100,7 +100,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 			err = postBase()
 		}
 		if err != nil {
-			msg = err.Error()
+			msg = ovh.Explain(err)
 			if strings.Contains(msg, "is not available in") {
 				state.Logger.Warn("配置在指定数据中心不可用: "+msg, "price")
 				return Result{Success: false, Error: "该配置在指定数据中心不可用"}
@@ -186,7 +186,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 				// 机房没设上 → 购物车停留在 OVH 默认机房,summary 出来的是"别的机房的价格"。
 				// 把它当成用户请求机房的价格返回会直接误导买不买的决策,必须硬失败。
 				state.Logger.Error(fmt.Sprintf("设置机房 %s 失败: %s，本次询价作废", cfg.value, err.Error()), "price")
-				return Result{Success: false, Error: "无法把购物车配置到指定机房：" + err.Error()}
+				return Result{Success: false, Error: "无法把购物车配置到指定机房:" + ovh.Explain(err)}
 			}
 			// os / region 是 requiredConfiguration 里的必填项,没设上时价格可能仍然算得出来,
 			// 但 purchase.go 对同样的失败是 fail-fast,所以这里标 degraded 让下单闸门拒绝放行。
@@ -272,7 +272,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 	// 之前 Go 静默忽略会导致瞬断时 success:true 但价格全 nil，前端误以为有效价格 0
 	var cartSummary map[string]interface{}
 	if err := client.Get("/order/cart/"+cartID+"/summary", &cartSummary); err != nil {
-		return Result{Success: false, Error: err.Error()}
+		return Result{Success: false, Error: ovh.Explain(err)}
 	}
 
 	priceInfo := &PriceInfo{

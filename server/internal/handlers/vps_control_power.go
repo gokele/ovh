@@ -21,6 +21,11 @@ func VpsStart(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Post("/vps/"+svc+"/start", map[string]interface{}{}, &task); err != nil {
+			// 任务冲突(重装/快照/另一个电源操作在跑)回 409,不再当服务器错误
+			if ovh.IsTaskConflict(err) {
+				c.JSON(http.StatusConflict, gin.H{"success": false, "error": "该 VPS 已有任务在进行中(重装/快照/另一个电源操作),等它完成后再启动。原文见:" + ovh.Explain(err)})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
@@ -41,6 +46,11 @@ func VpsStop(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Post("/vps/"+svc+"/stop", map[string]interface{}{}, &task); err != nil {
+			// 任务冲突(重装/快照/另一个电源操作在跑)回 409,不再当服务器错误
+			if ovh.IsTaskConflict(err) {
+				c.JSON(http.StatusConflict, gin.H{"success": false, "error": "该 VPS 已有任务在进行中(重装/快照/另一个电源操作),等它完成后再关机。原文见:" + ovh.Explain(err)})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}

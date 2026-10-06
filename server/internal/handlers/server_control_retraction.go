@@ -396,7 +396,7 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 		if err != nil || !found {
 			msg := "没找到这台机器对应的订单"
 			if err != nil {
-				msg = "订单查询失败: " + err.Error()
+				msg = "订单查询失败: " + ovh.Explain(err)
 			}
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": msg})
 			return

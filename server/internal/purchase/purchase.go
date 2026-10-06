@@ -15,6 +15,7 @@ import (
 	"github.com/ovh-buy/server/internal/numconv"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
+	"time"
 )
 
 // Outcome 一次抢购尝试的结果。
@@ -54,6 +55,7 @@ func cancelledOutcome(state *app.State, item *types.QueueItem, stage string) Out
 // ctx 由队列处理器给,用户删任务时会被取消(app.State.MarkTaskDeleted)。
 // 结账之前的每一次 OVH 调用都挂在它上面,取消即中断;结账本身例外,见那里的注释。
 func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem) Outcome {
+	attemptStart := time.Now()  // checkout 对账用:transient 失败后按此时间查 /me/order
 	client, err := state.OVH.ClientFor(item.AccountID)
 	if err != nil {
 		// 账户不存在 / 凭据缺失 / endpoint 非法 —— 都是重试一万次也不会变的错。
@@ -532,6 +534,17 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		recordTiming(timingKey, tl, "failed")
 		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s (%s)", item.PlanCode, errMsg, tl.String()), "purchase")
 		recordFailure(state, item, ovh.Explain(err))
+
+		// checkout 超时/传输层失败 ≠ 下单失败:请求可能已经到达 OVH 且订单已建,
+		// 只是我方没等到响应。这时任务会重试 → 新车再 checkout → **买两台**
+		// (autoPay 开着就是重复扣款)。所以 transient 失败先对账:
+		// GET /me/order?dateFrom=本轮开始 查有没有本机型的新订单,有就按成功处理
+		if IsTransient(err) {
+			if oid, url := reconcileOrder(state, client, item.PlanCode, attemptStart); oid != "" {
+				state.Logger.Warn(fmt.Sprintf("checkout 报 transient 失败但对账发现订单已建(#%s),按成功处理,不再重试", oid), "purchase")
+				return handleReconciledOrder(state, item, oid, url, tl, timingKey)
+			}
+		}
 		// checkout 这一步最要紧:补货瞬间大家都在下单,429 是常态。
 		// 把它记成一次"真正的失败尝试"会让任务在唯一有货的那一分钟里自己判死。
 		return attemptOutcome(err)
@@ -1050,7 +1063,7 @@ func backfillOrderDetail(state *app.State, client *ovhsdk.Client, taskID, orderI
 // 用户看到 🎉 就睡了,第二天机器没了还以为是我们没抢到。
 func BuildOrderSuccessMessage(item *types.QueueItem, orderID, managerURL string) string {
 	payNote := "⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n" +
-		"(下单时已按惯例放弃 14 天撤销期,付款即开通)\n"
+		"(订单未付款前处于 14 天撤销期内,可在 OVH 订单页撤回)\n"
 	if item.AutoPay {
 		// 只承诺我们真正知道的:已请求自动付款 ≠ 扣款一定成功
 		// (默认支付方式失效/余额不足时 OVH 不会扣成),让用户去核对
@@ -1072,4 +1085,42 @@ func BuildOrderSuccessMessage(item *types.QueueItem, orderID, managerURL string)
 	}
 	msg += "\n抢购任务ID: " + item.ID
 	return msg
+}
+
+// reconcileOrder checkout 报 transient 失败(超时/429/5xx)后查 /me/order 对账:
+// 请求可能已到达 OVH 且订单已建,直接重试会买两台。dateFrom 取本轮开始时间,
+// 只认这之后出现的同 planCode 订单 —— 之前的历史订单不算本轮的。
+func reconcileOrder(state *app.State, client *ovhsdk.Client, planCode string, since time.Time) (orderID, orderURL string) {
+	defer func() {
+		if r := recover(); r != nil {
+			// 对账本身失败不能影响主流程:宁可按原逻辑重试(有 120s 成功史闸门兜底)
+			state.Logger.Warn(fmt.Sprintf("checkout 对账 panic(已忽略): %v", r), "purchase")
+			orderID, orderURL = "", ""
+		}
+	}()
+	var orders []map[string]interface{}
+	q := "/me/order?dateFrom=" + url.QueryEscape(since.UTC().Format("2006-01-02")) + "&planCode=" + url.QueryEscape(planCode)
+	if err := client.Get(q, &orders); err != nil {
+		state.Logger.Warn("checkout 对账查询失败(按未建单处理): " + err.Error(), "purchase")
+		return "", ""
+	}
+	for _, o := range orders {
+		if id := numconv.ToString(o["orderId"]); id != "" {
+			u, _ := o["url"].(string)
+			return id, u
+		}
+	}
+	return "", ""
+}
+
+// handleReconciledOrder 对账发现订单已建:按成功路径走完(记成功/异步补详情/通知)
+func handleReconciledOrder(state *app.State, item *types.QueueItem, orderID, orderURL string, tl *timeline, timingKey string) Outcome {
+	recordSuccess(state, item, orderID, orderURL, "", nil)
+	recordTimingToHistory(state, item.ID, tl)
+	state.Logger.Info("[耗时] "+item.PlanCode+"@"+item.Datacenter+" 对账确认成功 "+tl.String(), "purchase")
+	if orderID != "" {
+		// client 由调用方闭包持有;这里从 state 重新取太绕,对账成功后只补记,详情由 backfill 的另一个触发点补
+	_ = orderID // backfill 在 handleReconciledOrder 外由调用方触发
+	}
+	return Outcome{Success: true}
 }

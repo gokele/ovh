@@ -281,6 +281,9 @@ func ProcessQueueLoop(state *app.State) {
 						}
 					}
 					state.QueueMu.Unlock()
+					// 成功即落库,不等轮末:checkout 成功到 SaveQueue 之间崩溃的话,
+					// 重启后任务复活再买一台(真金白银)。失败轮不落 —— 高频且可重建
+					_ = state.SaveQueue()
 					procMu.Lock()
 					processedIDs = append(processedIDs, it.ID)
 					procMu.Unlock()

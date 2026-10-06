@@ -152,6 +152,28 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 		// 去重:防止同一 plan@dc + 同 options 的任务被重复入队(除非监控来源 + 显式跳过)
 		quickOrderMu.Lock()
 		defer quickOrderMu.Unlock()
+		// 监控跳过的只是"队列里已有同配置任务"检查 —— 它在补货窗口内本来就该能重新入队。
+		// 但"120 秒内同配置已成功下过单"这道闸门对监控同样生效:监控的 lastStatus 在
+		// 验价 429 抖动时会走 price_check_failed → available 的来回,状态机表达不了
+		// "这个窗口已经买过",唯一能表达的就是近期成功史,跳过它 = 同一窗口重复下单
+		if body.FromMonitor && body.SkipDuplicateCheck {
+			fp0 := fingerprint(options)
+			nowTS0 := time.Now().Unix()
+			state.HistoryMu.Lock()
+			for i := len(state.History) - 1; i >= 0; i-- {
+				h := state.History[i]
+				if h.PlanCode == body.PlanCode && h.Datacenter == body.Datacenter && h.Status == "success" &&
+					fingerprint(h.Options) == fp0 {
+					if t, ok := types.ParseTS(h.PurchaseTime); ok && nowTS0-t.Unix() < 120 {
+						state.HistoryMu.Unlock()
+						state.Logger.Info("监控来源:近期已成功下过同配置订单,拒绝(防同窗口重复下单)", "quick_order")
+						c.JSON(http.StatusTooManyRequests, gin.H{"success": false, "error": "该配置刚刚已成功下单(120 秒内),不再重复下单", "code": "EF4FA206C"})
+						return
+					}
+				}
+			}
+			state.HistoryMu.Unlock()
+		}
 		if !(body.FromMonitor && body.SkipDuplicateCheck) {
 			fp := fingerprint(options)
 			state.QueueMu.Lock()

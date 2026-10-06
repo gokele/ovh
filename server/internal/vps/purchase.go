@@ -137,7 +137,7 @@ func PurchaseVPS(state *app.State, sub types.VPSSubscription, dcCode string) Out
 		"pricingMode": pricingMode,
 		"quantity":    qty,
 	}, &itemResult); err != nil {
-		msg := err.Error()
+		msg := ovh.Explain(err)
 		// 停售机型在这一步会被拒,而且重试没有意义
 		if strings.Contains(msg, "not found") || strings.Contains(msg, "invalid planCode") {
 			return Outcome{Fatal: true, Reason: fmt.Sprintf(
@@ -349,7 +349,7 @@ func autoOrderOnRestock(state *app.State, sub types.VPSSubscription, dcs []map[s
 			// 同独服:checkout 是 autoPayWithPreferredPaymentMethod:false,
 			// "成功"= 订单已创建、未付款、逾期作废。通知里必须说清楚。
 			payNote := "⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n" +
-				"(下单时已按惯例放弃 14 天撤销期,付款即开通)"
+				"(订单未付款前处于 14 天撤销期内,可在 OVH 订单页撤回)"
 			if sub.AutoPay {
 				payNote = "💳 已请求用账户默认支付方式自动付款,请打开订单链接核对扣款是否成功。\n" +
 					"(下单时已按惯例放弃 14 天撤销期)"

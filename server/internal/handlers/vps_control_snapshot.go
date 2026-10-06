@@ -71,14 +71,24 @@ func CreateVpsSnapshot(state *app.State) gin.HandlerFunc {
 			// 具体原因。文案匹配仅用于把提示说得更友好,匹配不上也会照常把原始错误返回,
 			// 不像 404 降级那样会改变语义,所以三区文案差异在这里是可接受的。
 			errMsg := strings.ToLower(err.Error())
-			if strings.Contains(errMsg, "already") || strings.Contains(errMsg, "exists") {
+			// 任务冲突优先识别:"a snapshot task is already running" 里有 already,
+			// 宽匹配会把它误判成"已有快照" —— 此时快照可能还没落地,删除入口不存在,提示把人带偏
+			if ovh.IsTaskConflict(err) {
+				c.JSON(http.StatusConflict, gin.H{
+					"success": false,
+					"error":   "该 VPS 已有任务在进行中(可能是上一个快照任务还在跑),等它完成再试。原文见:" + ovh.Explain(err),
+				})
+				return
+			}
+			// "已有快照"要求文案里明确提到 snapshot,避免其他 already/exists 类错误被误归因
+			if (strings.Contains(errMsg, "already") || strings.Contains(errMsg, "exists")) && strings.Contains(errMsg, "snapshot") {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"success": false,
 					"error":   "该 VPS 已存在快照,免费档同时只允许 1 个,请先删除旧快照", "code": "EBDA81EF5",
 				})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 创建快照任务已提交", "vps_control")
@@ -106,7 +116,11 @@ func UpdateVpsSnapshotDescription(state *app.State) gin.HandlerFunc {
 		// 那会把只读字段一并发回,被 OVH 400 掉
 		if err := client.Put("/vps/"+svc+"/snapshot",
 			map[string]interface{}{"description": body.Description}, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			if ovhIsNotFound(err) {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "当前没有快照,无法修改描述", "code": "E3E1F5824"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 快照描述已更新", "vps_control")
@@ -126,9 +140,26 @@ func RevertVpsSnapshot(state *app.State) gin.HandlerFunc {
 			noOVHResp(c)
 			return
 		}
+		// destructive 操作加服务端 confirm 闸门(与独服 ExitRescue/CANCEL_SERVICE 同款):
+		// 回滚丢快照之后的全部数据,脚本裸发一发就触发太危险
+		var body struct {
+			Confirm bool `json:"confirm"`
+		}
+		_ = c.ShouldBindJSON(&body)
+		if !body.Confirm {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "回滚会丢弃快照之后的全部数据,请在请求里带 confirm:true 确认", "code": "EFD5D37BB",
+			})
+			return
+		}
 		var task map[string]interface{}
 		if err := client.Post("/vps/"+svc+"/snapshot/revert", map[string]interface{}{}, &task); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			if ovhIsNotFound(err) {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "当前没有快照可回滚", "code": "E2BA0443E"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Warn("VPS "+svc+" 已触发快照回滚 (destructive)", "vps_control")
@@ -149,7 +180,13 @@ func DeleteVpsSnapshot(state *app.State) gin.HandlerFunc {
 		}
 		var task map[string]interface{}
 		if err := client.Delete("/vps/"+svc+"/snapshot", &task); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			// 404 = 当前没有快照可删(双击第二发/快照已被删):幂等成功,不是服务器错误。
+			// GET 侧同文件早已把 404 认定为"无快照"正常态,写侧对齐
+			if ovhIsNotFound(err) {
+				c.JSON(http.StatusOK, gin.H{"success": true, "message": "当前没有快照,无需删除", "code": "EF4E0B03F"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 快照已删除", "vps_control")
