@@ -327,7 +327,9 @@ func recordVPSPurchase(state *app.State, sub types.VPSSubscription, dcCode strin
 		entry.ErrorMessage = &reason
 	}
 	state.History = append(state.History, entry)
-	go state.SaveHistory()
+	// 注意:defer 的 Unlock 先执行,SaveHistory 在锁外(它自己拿 HistoryMu 快照,
+	// 持锁同步调会死锁 —— 见独服 recordSuccess 的同款修复)。这里保持异步:
+	// VPS 购买路径一次只一条,上面的 120s 闸门在崩溃重放时兜底
 }
 
 // autoOrderOnRestock 补货时自动下单。
@@ -337,6 +339,23 @@ func autoOrderOnRestock(state *app.State, sub types.VPSSubscription, dcs []map[s
 	if !sub.AutoOrder || strings.TrimSpace(sub.AutoOrderAccountID) == "" {
 		return
 	}
+	// 同独服 quick-order 的 120 秒近期成功闸门:VPS 库存自然抖动
+	// (有货→抢光→再放货)每个回摆都会重新触发无货→有货跳变,
+	// 不挡的话同一窗口反复买 quantity 台直到用户肉眼发现。
+	// 状态机表达不了"这个窗口已经买过",唯一能表达的就是近期成功史
+	state.HistoryMu.Lock()
+	nowTS := time.Now().Unix()
+	for i := len(state.History) - 1; i >= 0; i-- {
+		h := &state.History[i]
+		if h.PlanCode == sub.PlanCode && h.Status == "success" && h.AccountID == sub.AutoOrderAccountID {
+			if t, ok := types.ParseTS(h.PurchaseTime); ok && nowTS-t.Unix() < 120 {
+				state.HistoryMu.Unlock()
+				state.Logger.Info("[VPS下单] 同配置 120 秒内已成功下过单,跳过本次补货(防抖动重复下单): "+sub.PlanCode, "vps_purchase")
+				return
+			}
+		}
+	}
+	state.HistoryMu.Unlock()
 	for _, dc := range dcs {
 		code, _ := dc["code"].(string)
 		if code == "" {
@@ -352,7 +371,7 @@ func autoOrderOnRestock(state *app.State, sub types.VPSSubscription, dcs []map[s
 				"(订单未付款前处于 14 天撤销期内,可在 OVH 订单页撤回)"
 			if sub.AutoPay {
 				payNote = "💳 已请求用账户默认支付方式自动付款,请打开订单链接核对扣款是否成功。\n" +
-					"(下单时已按惯例放弃 14 天撤销期)"
+					"(订单未付款前处于 14 天撤销期内,可在 OVH 订单页撤回)"
 			}
 			// 同独服:通知里发需要登录的控制面板深链,不发 checkout 那个带凭证的 url。
 			// 带凭证那份存在本地历史里,界面上照样一键可付。

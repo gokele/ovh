@@ -390,9 +390,14 @@ var statusMap = map[string]string{
 // 不写子公司的话,同时监控 IE 和 US 的用户收到的两条通知长得一模一样,分不清该去哪买。
 func SendSummaryNotification(state *app.State, planCode, ovhSubsidiary string, dcs []map[string]interface{}, changeType string) bool {
 	cfg := state.Config.Get()
-	if cfg.TgToken == "" || cfg.TgChatID == "" || len(dcs) == 0 {
+	if len(dcs) == 0 {
 		return false
 	}
+	// 通道判定交给 notify.Broadcast(TG + Webhook 至少一条):
+	// 以前 TG 未配就整体早退 —— webhook-only 用户服务器通知正常、
+	// VPS 补货/下架一条都收不到,而且循环照跑(AnyAvailable 只看"已配置"),
+	// 监控白跑无通知无报错
+	_ = cfg
 	planDisplay := vpsPlanDisplay(planCode)
 	var emoji, title string
 	switch changeType {
@@ -633,6 +638,11 @@ func monitorLoopGen(state *app.State, gen int64) {
 						toOrder := *sub
 						toOrder.OvhSubsidiary = ovhSub
 						autoOrderOnRestock(state, toOrder, newAvailable)
+					// 下单/通知已发生,立即把本轮 lastStatus 落库 —— 不等轮末统一 Save。
+					// 中间崩溃/自更新重启的话,磁盘上还是旧状态,重启后同一波有货被当成
+					// 新跳变:重复发通知 + 再下一单(订单侧 120s 闸门依赖 history 已落库,
+					// 两个窗口叠加时兜不住)
+					_ = SaveSubscriptions(state)
 					}
 					if len(newUnavailable) > 0 && sub.NotifyUnavailable {
 						state.Logger.Info(fmt.Sprintf("VPS %s 下架：%d个数据中心", sub.PlanCode, len(newUnavailable)), "vps_monitor")
@@ -713,7 +723,9 @@ func Stop(state *app.State) bool {
 	}
 	running = false
 	runningMu.Unlock()
-	state.Logger.Info("正在停止VPS监控...", "vps_monitor")
+	if state != nil {
+		state.Logger.Info("正在停止VPS监控...", "vps_monitor")
+	}
 	return true
 }
 
