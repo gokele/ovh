@@ -711,15 +711,17 @@ func Start(state *app.State) bool {
 	if loopWg != nil {
 		loopWg.Wait()
 	}
-	loopWg = &sync.WaitGroup{}
-	loopWg.Add(1)
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	loopWg = wg
 	runningMu.Unlock()
 	// 重置 TG 检查时间戳,保证启动后第一轮一定 verify
 	tgCheckMu.Lock()
 	lastTGCheck = time.Time{}
 	tgCheckMu.Unlock()
 	go func() {
-		defer loopWg.Done()
+		defer wg.Done()  // 闭包捕获局部引用:Stop→Start 换新 WaitGroup 后,
+		// 旧 goroutine 仍 Done 自己出生时那份(读全局会打到新 wg 上,计数变负 panic)
 		monitorLoopGen(state, gen)
 	}()
 	state.Logger.Info(fmt.Sprintf("VPS监控已启动 (检查间隔: %d秒)", state.VPSCheckInterval), "vps_monitor")

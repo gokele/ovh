@@ -1039,7 +1039,12 @@ func backfillOrderDetail(state *app.State, client *ovhsdk.Client, taskID, orderI
 	}
 
 	state.HistoryMu.Lock()
-	defer state.HistoryMu.Unlock()
+	// defer 先 Unlock 再 Save:SaveHistory 内部拿 HistoryMu(快照),
+	// 持锁调它 = 同 goroutine 不可重入死锁(跟 recordSuccess 同型 bug)
+	defer func() {
+		state.HistoryMu.Unlock()
+		_ = state.SaveHistory()
+	}()
 	for i := range state.History {
 		if state.History[i].TaskID != taskID {
 			continue
@@ -1065,7 +1070,6 @@ func backfillOrderDetail(state *app.State, client *ovhsdk.Client, taskID, orderI
 		if changed {
 			state.Logger.Info(fmt.Sprintf("补全订单 %s 详情: 过期时间=%q 价格=%v",
 				orderID, expirationTime, priceInfo != nil), "purchase")
-			state.SaveHistory()
 		}
 		return
 	}
