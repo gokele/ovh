@@ -91,6 +91,9 @@ export function useOwnedServers() {
       const raw = (res.data?.servers || []) as OwnedServer[];
       return raw.filter((s) => {
         const state = s.state?.toLowerCase();
+        // 后端对详情拉挂的行返回 {serviceName, name, error} 占位 —— 必须放行,
+        // 否则机器从列表直接消失(既不是失败标记也不是机器,用户以为机器没了)
+        if (s.error) return true;
         const status = s.status?.toLowerCase();
         if (status === "expired" || status === "suspended") return false;
         if (state === "error" || state === "suspended") return false;
@@ -139,6 +142,8 @@ export function useUpdateRenewal(serviceName: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.serverControl.serviceInfo(serviceName) });
+      // 列表行带 renewalType(60s staleTime),不失效会继续显示旧模式
+      qc.invalidateQueries({ queryKey: ["server-control", "list"] });
     },
   });
 }
@@ -1080,7 +1085,7 @@ export function useServerBackupFtp(serviceName: string | null) {
           accessFailedCount = Number(accRes.data?.failedCount) || 0;
         } catch (e: any) {
           // 访问列表拿不到不算整体失败，但要说明「列表为空是没查到」而不是「没配过 IP」
-          accessError = e?.response?.data?.error || e?.message || i18n.t("hooksMsg.server.backupAclLoadFailed");
+          accessError = apiMessage(e) || e?.message || i18n.t("hooksMsg.server.backupAclLoadFailed");
         }
         return { backupFtp: res.data?.backupFtp || null, accessList, accessFailedCount, accessError };
       } catch (e: any) {
@@ -1091,7 +1096,7 @@ export function useServerBackupFtp(serviceName: string | null) {
           }
           return { notActivated: true };
         }
-        return { notAvailable: true, error: e?.response?.data?.error || e?.message };
+        return { notAvailable: true, error: apiMessage(e) || e?.message };
       }
     },
     enabled: !!serviceName,
@@ -1598,6 +1603,8 @@ export function useEnterRescue(serviceName: string) {
     mutationFn: async (v: { email?: string; sshKey?: string; bootId?: number }) =>
       (await api.post(`/server-control/${serviceName}/rescue`, { ...v, confirm: true })).data,
     onSuccess: (d: any) => {
+      // netboot 切换改变 bootModes 的 active 标记
+      qc.invalidateQueries({ queryKey: qk.serverControl.bootModes(serviceName) });
       toast.success(bodyMessage(d) || i18n.t("hooksMsg.server.rescueEntered"));
       qc.invalidateQueries({ queryKey: qk.serverControl.rescue(serviceName) });
     },
@@ -1612,6 +1619,8 @@ export function useExitRescue(serviceName: string) {
     mutationFn: async () =>
       (await api.post(`/server-control/${serviceName}/rescue/exit`, { confirm: true })).data,
     onSuccess: (d: any) => {
+      // netboot 切换改变 bootModes 的 active 标记
+      qc.invalidateQueries({ queryKey: qk.serverControl.bootModes(serviceName) });
       toast.success(bodyMessage(d) || i18n.t("hooksMsg.server.rescueExited"));
       qc.invalidateQueries({ queryKey: qk.serverControl.rescue(serviceName) });
     },

@@ -236,6 +236,11 @@ func ProcessQueueLoop(state *app.State) {
 					state.QueueMu.Unlock()
 					return
 				}
+				// 快照后用户可能已暂停/删除:不复核会照走完整下单链路(结账=真实扣款)
+				if current.Status != "running" {
+					state.QueueMu.Unlock()
+					return
+				}
 				isFirstAttempt := current.LastCheckTime == 0
 				// 自愈:间隔为 0 的老任务把有效值写回去,界面上就不再显示"0 秒后",
 				// 下一次 SaveQueue 顺带落库,以后也不用每轮再兜底

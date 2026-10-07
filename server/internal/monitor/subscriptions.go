@@ -185,6 +185,14 @@ func (m *Monitor) KnownServers() []string {
 }
 
 // MessageUUIDCacheLookup 用于 webhook 回调时取回完整配置
+// MessageUUIDCacheDelete 消费一条内存缓存(一键下单按钮的内存回退路径:
+// 命中后必须删,不然回退路径绕过 DB 的一次性 nonce)
+func (m *Monitor) MessageUUIDCacheDelete(id string) {
+	m.cacheLock.Lock()
+	delete(m.messageUUIDCache, id)
+	m.cacheLock.Unlock()
+}
+
 func (m *Monitor) MessageUUIDCacheLookup(id string) *CachedMessage {
 	m.cacheLock.Lock()
 	defer m.cacheLock.Unlock()

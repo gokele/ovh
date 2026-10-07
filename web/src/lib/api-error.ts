@@ -29,7 +29,7 @@ export function apiMessage(e: unknown): string {
     }
   }
   // 网络层错误(请求根本没到后端)原文是英文技术串,给可读的通用文案
-  if (!data && err?.code === "ERR_NETWORK") {
+  if (!data && (err?.code === "ERR_NETWORK" || err?.code === "ECONNABORTED")) {
     return i18n.t("common.networkError") as string;
   }
   return raw;

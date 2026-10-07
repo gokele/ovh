@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ovh-buy/server/internal/app"
+	"bytes"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -185,7 +186,7 @@ func (p *Poller) loop(gen int64) {
 
 	fails := 0
 	// 长轮询要挂起 PollTimeoutSeconds 秒才回,客户端超时必须留出富余
-	client := &http.Client{Timeout: (PollTimeoutSeconds + 15) * time.Second}
+	client := httpClient((PollTimeoutSeconds + 15) * time.Second)
 
 	for p.stillMine(gen) {
 		updates, err := p.fetch(client)
@@ -264,7 +265,12 @@ func (p *Poller) fetch(client *http.Client) ([]map[string]interface{}, error) {
 		ErrorCode   int                      `json:"error_code"`
 		Result      []map[string]interface{} `json:"result"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
+	// UseNumber:id 字段(TG 的 callback/message id ~5.8e18)解成 float64 会
+	// 丢精度 + 科学计数法,answerCallbackQuery 拿到的 id 和 TG 发的对不上,
+	// 按钮点击的 toast 反馈永远失败。json.Number 保住精确整数
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	if err := dec.Decode(&result); err != nil {
 		return nil, fmt.Errorf("响应不是合法 JSON(HTTP %d)", resp.StatusCode)
 	}
 	if !result.OK {
@@ -306,7 +312,7 @@ func deleteWebhook(state *app.State) (bool, string) {
 	if token == "" {
 		return false, "未配置 Telegram Bot Token"
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpClient(10 * time.Second)
 	resp, err := client.Get("https://api.telegram.org/bot" + token + "/deleteWebhook")
 	if err != nil {
 		return false, scrub(err.Error())

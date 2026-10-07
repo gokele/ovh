@@ -112,14 +112,21 @@ function createApiClient(): AxiosInstance {
     return config;
   });
 
-  // 响应拦截：401 = 会话失效，通知 AuthGate 重新接管
+  // 响应拦截：401 = 会话失效，通知 AuthGate 重新接管。
+  // 但只有 auth 中间件的 401 才算 —— 它带专属 code(NO_API_KEY / INVALID_API_KEY /
+  // INVALID_DEVICE_TOKEN)。OVH 侧 401(某个账户的 ConsumerKey 被吊销,被后端
+  // respondOVHError 原样透传)不该把拿着有效 App 密钥的用户整个登出
   client.interceptors.response.use(
     (res) => res,
-    (error: AxiosError<{ error?: string }>) => {
+    (error: AxiosError<{ error?: string; code?: string; success?: boolean }>) => {
       if (error.response?.status === 401) {
-        notifyAuthFailure();
-      } else if (error.response?.data?.error) {
-        // 服务器明确的错误信息不在拦截层弹 toast，让业务层决定（避免重复提示）
+        const code = error.response.data?.code;
+        const isAuthLevel =
+          code === "NO_API_KEY" || code === "INVALID_API_KEY" || code === "INVALID_DEVICE_TOKEN" ||
+          error.response.data?.success === undefined; // 非业务 JSON(反向代理/基础认证)也按会话失效处理
+        if (isAuthLevel) {
+          notifyAuthFailure();
+        }
       }
       return Promise.reject(error);
     }

@@ -870,7 +870,7 @@ func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, e
 				state.History[i].Price = priceInfo
 			}
 			state.Logger.Info("更新抢购历史(成功) 任务ID: "+item.ID, "purchase")
-			go state.SaveHistory()
+			state.SaveHistory()
 			return
 		}
 	}
@@ -896,7 +896,7 @@ func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, e
 	}
 	state.History = append(state.History, entry)
 	state.Logger.Info("创建抢购历史(成功) 任务ID: "+item.ID, "purchase")
-	go state.SaveHistory()
+	state.SaveHistory()
 }
 
 func recordFailure(state *app.State, item *types.QueueItem, errMsg string) {
@@ -916,7 +916,7 @@ func recordFailure(state *app.State, item *types.QueueItem, errMsg string) {
 			state.History[i].AttemptCount = item.RetryCount
 			state.History[i].Options = item.Options
 			state.Logger.Info("更新抢购历史(失败) 任务ID: "+item.ID, "purchase")
-			go state.SaveHistory()
+			state.SaveHistory()
 			return
 		}
 	}
@@ -935,7 +935,7 @@ func recordFailure(state *app.State, item *types.QueueItem, errMsg string) {
 	}
 	state.History = append(state.History, entry)
 	state.Logger.Info("创建抢购历史(失败) 任务ID: "+item.ID, "purchase")
-	go state.SaveHistory()
+	state.SaveHistory()
 }
 
 // backfillOrderDetail 下单成功后异步补 history 行的 expirationTime + price。
@@ -1047,7 +1047,7 @@ func backfillOrderDetail(state *app.State, client *ovhsdk.Client, taskID, orderI
 		if changed {
 			state.Logger.Info(fmt.Sprintf("补全订单 %s 详情: 过期时间=%q 价格=%v",
 				orderID, expirationTime, priceInfo != nil), "purchase")
-			go state.SaveHistory()
+			state.SaveHistory()
 		}
 		return
 	}

@@ -50,7 +50,7 @@ func VerifyConfig(state *app.State) (bool, string) {
 	if chatID == "" {
 		return false, "未配置 Telegram Chat ID"
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpClient(10 * time.Second)
 
 	// 1) getMe 验 token
 	resp, err := client.Get("https://api.telegram.org/bot" + token + "/getMe")
@@ -384,7 +384,7 @@ func MarkButtonPressed(state *app.State, chatID interface{}, messageID int64, pr
 		"reply_markup": map[string]interface{}{"inline_keyboard": kb},
 	}
 	body, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpClient(10 * time.Second)
 	req, _ := http.NewRequest(http.MethodPost,
 		"https://api.telegram.org/bot"+cfg.TgToken+"/editMessageReplyMarkup",
 		bytes.NewReader(body))
@@ -476,7 +476,7 @@ func RegisterCommands(state *app.State) {
 	}
 	payload := map[string]interface{}{"commands": BotCommands}
 	body, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpClient(10 * time.Second)
 	req, _ := http.NewRequest(http.MethodPost,
 		"https://api.telegram.org/bot"+cfg.TgToken+"/setMyCommands",
 		bytes.NewReader(body))
@@ -521,7 +521,7 @@ func SendKeyboard(state *app.State, chatID interface{}, replyToMessageID int64,
 		payload["reply_markup"] = replyMarkup
 	}
 	body, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := httpClient(10 * time.Second)
 	req, _ := http.NewRequest(http.MethodPost,
 		"https://api.telegram.org/bot"+cfg.TgToken+"/sendMessage",
 		bytes.NewReader(body))

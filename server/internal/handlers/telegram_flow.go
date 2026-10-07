@@ -349,7 +349,7 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 
 	f, ok := getFlow(tok)
 	if !ok {
-		telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "这个选择已过期，请重新 /watch", true)
+		telegram.AnswerCallback(state, idToString(cb["id"]), "这个选择已过期，请重新 /watch", true)
 		telegram.SendReply(state, chatID, "⌛ 选择超时（超过 10 分钟），请重新发一次 /watch "+"", messageID)
 		return true
 	}
@@ -365,7 +365,7 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 			f.PickedOptions = nil
 			f.PickedConfig = ""
 		}
-		telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "好", false)
+		telegram.AnswerCallback(state, idToString(cb["id"]), "好", false)
 		askAccount(state, f, chatID, messageID)
 		return true
 
@@ -380,12 +380,12 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 			label = f.Configs[idx].Label
 		}
 		if !mon.SetSubscriptionOptions(f.PlanCode, opts) {
-			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "订阅已不在了", true)
+			telegram.AnswerCallback(state, idToString(cb["id"]), "订阅已不在了", true)
 			telegram.SendReply(state, chatID, "这条订阅已经被删掉了，发 /watch "+f.PlanCode+" 重新开始。", messageID)
 			return true
 		}
 		mon.SaveToDB()
-		telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "好", false)
+		telegram.AnswerCallback(state, idToString(cb["id"]), "好", false)
 		if len(opts) == 0 {
 			telegram.SendReply(state, chatID,
 				"🌐 "+f.PlanCode+" 改回盯全部配置。\n每套配置补货都会各自通知、各自下单。", messageID)
@@ -400,13 +400,13 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 			f.AccountID = f.Accounts[idx].ID
 			f.AccountLabel = accountLabel(f.Accounts[idx])
 		}
-		telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "好", false)
+		telegram.AnswerCallback(state, idToString(cb["id"]), "好", false)
 		askAction(state, f, chatID, messageID)
 		return true
 
 	case stepSwitchAccount:
 		if idx < 0 || idx >= len(f.Accounts) {
-			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "选项无效", true)
+			telegram.AnswerCallback(state, idToString(cb["id"]), "选项无效", true)
 			return true
 		}
 		acc := f.Accounts[idx]
@@ -414,12 +414,12 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 			// 落库失败必须说。不说的话用户以为切了,下一单还是落在旧账户上,
 			// 而 planCode 是分区的 —— 后果是永远抢不到且看不出原因。
 			state.Logger.Error("保存 Telegram 当前账户失败: "+err.Error(), "telegram")
-			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "保存失败", true)
+			telegram.AnswerCallback(state, idToString(cb["id"]), "保存失败", true)
 			telegram.SendReply(state, chatID, "⚠️ 切换失败，没能写进数据库："+err.Error()+"\n当前账户仍是原来那个。", messageID)
 			return true
 		}
 		state.Logger.Info("Telegram 当前账户切换为: "+acc.Name+" ("+acc.ID+")", "telegram")
-		telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "已切换", false)
+		telegram.AnswerCallback(state, idToString(cb["id"]), "已切换", false)
 		telegram.SendReply(state, chatID,
 			"👤 当前账户已切换为：\n"+telegram.AccountLabel(acc)+
 				"\n\n之后的文本下单和 /watch 都会落到这个账户。\n"+
@@ -429,7 +429,7 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 
 	case stepOrderConfirm:
 		if f.Order == nil || len(f.Confirm) == 0 {
-			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "选项已失效", true)
+			telegram.AnswerCallback(state, idToString(cb["id"]), "选项已失效", true)
 			return true
 		}
 		// 按钮顺序:[确认] [改用 A] [改用 B] ... [每个账户都下] [取消]
@@ -448,13 +448,13 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 
 		switch {
 		case idx == iCancel:
-			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "已取消", false)
+			telegram.AnswerCallback(state, idToString(cb["id"]), "已取消", false)
 			telegram.SendReply(state, chatID, "✖️ 已取消，没有创建任何任务。", messageID)
 		case len(f.Accounts) > 1 && idx == iAll:
-			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "全部账户开抢", false)
+			telegram.AnswerCallback(state, idToString(cb["id"]), "全部账户开抢", false)
 			telegram.SendReply(state, chatID, runOrder(state, f.Order, f.Accounts), messageID)
 		case idx == iConfirm:
-			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "开始下单", false)
+			telegram.AnswerCallback(state, idToString(cb["id"]), "开始下单", false)
 			telegram.SendReply(state, chatID, runOrder(state, f.Order, f.Confirm), messageID)
 		case idx > iConfirm && idx-1 < len(alt):
 			picked := alt[idx-1]
@@ -462,17 +462,17 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 			if err := telegram.SetActiveAccount(state, picked.ID); err != nil {
 				state.Logger.Warn("保存 Telegram 当前账户失败(不影响本次下单): "+err.Error(), "telegram")
 			}
-			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "换账户下单", false)
+			telegram.AnswerCallback(state, idToString(cb["id"]), "换账户下单", false)
 			telegram.SendReply(state, chatID,
 				runOrder(state, f.Order, []types.OVHAccount{picked}), messageID)
 		default:
-			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "选项无效", true)
+			telegram.AnswerCallback(state, idToString(cb["id"]), "选项无效", true)
 		}
 		return true
 
 	case stepOrderAccount:
 		if idx < 0 || idx >= len(f.Accounts) || f.Order == nil {
-			telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "选项无效", true)
+			telegram.AnswerCallback(state, idToString(cb["id"]), "选项无效", true)
 			return true
 		}
 		acc := f.Accounts[idx]
@@ -481,7 +481,7 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 		if err := telegram.SetActiveAccount(state, acc.ID); err != nil {
 			state.Logger.Warn("保存 Telegram 当前账户失败(不影响本次下单): "+err.Error(), "telegram")
 		}
-		telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "开始下单", false)
+		telegram.AnswerCallback(state, idToString(cb["id"]), "开始下单", false)
 		o := f.Order
 		res := telegram.ProcessOrder(state, acc.ID, o.PlanCode, o.Datacenter, o.Quantity, o.Options)
 		if res.Success {
@@ -499,7 +499,7 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 		if idx >= 0 && idx < len(actionChoices) {
 			qty = actionChoices[idx].Quantity
 		}
-		telegram.AnswerCallback(state, fmt.Sprintf("%v", cb["id"]), "已保存", false)
+		telegram.AnswerCallback(state, idToString(cb["id"]), "已保存", false)
 		telegram.SendReply(state, chatID, finishWatchFlow(state, mon, f, qty), messageID)
 		return true
 	}

@@ -146,7 +146,11 @@ export function useToggleQueueItem() {
   return useMutation({
     mutationFn: async ({ id, action }: { id: string; action: "pause" | "resume" }) =>
       (await api.put(`/queue/${id}/status`, { status: action === "pause" ? "paused" : "running" })).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.queue.list() }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.queue.list() });
+      // 暂停/恢复改变仪表盘 activeQueues
+      qc.invalidateQueries({ queryKey: qk.stats() });
+    },
     onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.queue.actionFailed")),
   });
 }
