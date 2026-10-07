@@ -34,7 +34,11 @@ import (
 	"github.com/ovh-buy/server/internal/storage"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/updater"
+	"github.com/ovh-buy/server/internal/vps"
 )
+
+var monitorState *monitor.Monitor
+var appStateForShutdown *app.State
 
 func main() {
 	// envPath 就是 godotenv 读的那个文件。密钥自动生成时会追加到这里,
@@ -165,6 +169,8 @@ func main() {
 
 	// 监控器
 	mon := monitor.New(state)
+	monitorState = mon
+	appStateForShutdown = state
 	// 删账户的级联清理需要摸到监控内存(SQL 清了、内存不清会被 SaveToDB 写回)
 	handlers.SetMonitorRef(mon)
 	mon.LoadFromDB()
@@ -570,6 +576,7 @@ func main() {
 	// 必须在任何 OVH 调用之前接好 —— SetProxyErrorHook 会清掉已缓存的 client
 	// 让它们带着钩子重建,晚接的话前面那些请求的故障就丢了。
 	proxyguard.Init(state)
+	proxyguard.SetDisableAutoOrder(mon.DisableAutoOrderForAccount)
 	proxyguard.SetReload(func() {
 		// 库里关掉了自动下单,内存里的 Monitor 还拿着旧值 —— 不重读的话
 		// 自动下单会继续触发,而它的出口已经断了。
@@ -595,10 +602,17 @@ func main() {
 	go telegram.RegisterCommands(state)
 	// 服务器目录走懒加载：访问到且缓存过期时才打 OVH，无后台定时刷新
 
-	// 自动启动监控（如果有订阅）
+	// 自动启动监控（如果有订阅）。VPS 侧与服务器侧同口径:
+	// 之前 VPS 循环只在手动添加订阅时才启动,重启/自更新重启后订阅还在但循环死了,
+	// 用户以为 VPS 抢购在跑,实际完全静默失效
 	if len(mon.Snapshot()) > 0 {
 		mon.Start()
 		state.Logger.Info("自动启动服务器监控", "system")
+	}
+	if len(state.VPSSubscriptions) > 0 {
+		if vps.Start(state) {
+			state.Logger.Info("自动启动 VPS 监控", "system")
+		}
 	}
 
 	state.Logger.Info("Server started", "system")
@@ -762,6 +776,16 @@ var restartPending atomic.Bool
 // 这句留到关完再刷,万一 Close 卡住,最有用的那条线索就丢了。
 func gracefulShutdown(srv *http.Server, sqlDB io.Closer, lg *logger.Logger, console *slog.Logger, reason string, wait time.Duration) {
 	lg.Info("收到 "+reason+",正在优雅退出", "system")
+
+	// 先停后台循环再关资源:下单/监控的副作用(OVH 侧订单/通知)先于持久化,
+	// 中途被杀 → 重启后重放(重复下单/重复通知)。停循环让它们走到下一个
+	// 安全点(状态已落库)再退出;HTTP 收尾和 DB 关闭紧随其后
+	handlers.StopPoller()
+	if monitorState != nil {
+		monitorState.Stop()
+	}
+	vps.Stop(appStateForShutdown)
+	lg.Info("后台循环已停止(TG 轮询/服务器监控/VPS 监控)", "system")
 
 	// 给在途请求留出收尾时间。抢购链路最长的一步是结账,实测几秒级;
 	// 超时也要继续往下走,不能因为一个卡住的请求把整个退出流程拖死。
