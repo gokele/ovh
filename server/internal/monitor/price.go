@@ -148,6 +148,7 @@ func (m *Monitor) verifyPriceAvailable(planCode, datacenter string, configInfo m
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", m.state.APIKey)
 	resp, err := client.Do(req)
 	if err != nil {
 		errMsg := "价格校验API请求失败: " + err.Error()
@@ -232,6 +233,7 @@ func (m *Monitor) GetPriceInfoText(planCode, datacenter string, configInfo map[s
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", m.state.APIKey)
 	resp, err := client.Do(req)
 	if err != nil {
 		m.state.Logger.Warn("价格API请求失败: "+err.Error(), "monitor")

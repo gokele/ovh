@@ -27,6 +27,7 @@ var (
 	// 同一次补货下两次单。VPS 侧界面就一个 停止/启动 按钮,点两下即可复现,
 	// 而 VPS 循环退出延迟很大(每订阅一次 10 秒超时的 HTTP + 下单往返)。
 	generation int64
+	loopWg     *sync.WaitGroup
 
 	// TG 健康检查节流。loop 每 5 分钟 verify 一次,失败自停。
 	tgCheckMu   sync.Mutex
@@ -704,12 +705,23 @@ func Start(state *app.State) bool {
 	// 每个循环记住自己出生时的代际号,不是当前代就退出。
 	generation++
 	gen := generation
+	// 等上一代循环退出:不等的话旧循环正在处理的那个订阅(含下单链)会跑完,
+	// 新循环同时处理同一订阅 → 一次补货两次下单(120s 闸门只挡"已成功",
+	// 首单成交前拦不住)
+	if loopWg != nil {
+		loopWg.Wait()
+	}
+	loopWg = &sync.WaitGroup{}
+	loopWg.Add(1)
 	runningMu.Unlock()
 	// 重置 TG 检查时间戳,保证启动后第一轮一定 verify
 	tgCheckMu.Lock()
 	lastTGCheck = time.Time{}
 	tgCheckMu.Unlock()
-	go monitorLoopGen(state, gen)
+	go func() {
+		defer loopWg.Done()
+		monitorLoopGen(state, gen)
+	}()
 	state.Logger.Info(fmt.Sprintf("VPS监控已启动 (检查间隔: %d秒)", state.VPSCheckInterval), "vps_monitor")
 	return true
 }

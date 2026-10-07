@@ -28,7 +28,6 @@ func DefaultWhitelist() map[string]struct{} {
 		"/api/health":                 {},
 		"/api/version":                {}, // 前端启动时拉版本号,登录前可见
 		"/api/version/check-update":   {}, // 更新检查也免鉴权,登录前可提示
-		"/api/internal/monitor/price": {},
 		"/api/app/pair":               {}, // App 配对兑换:凭 2 分钟一次性码,不需要密钥
 	}
 }

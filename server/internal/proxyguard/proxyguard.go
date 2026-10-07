@@ -56,6 +56,9 @@ type Guard struct {
 	// reload 让 Monitor 从库里重读订阅。由 main 注入 ——
 	// 改了库但内存里的 Monitor 还拿着旧值,自动下单会继续触发。
 	reload func()
+	// setDisabled 带 Monitor 锁的"关掉某账户全部订阅自动下单"入口,main 注入。
+	// 以前绕过它裸改库,监控轮末整表落库会把 AutoOrder=true 写回去(竞态)
+	setDisabled func(accountID string) int
 }
 
 var global *Guard
@@ -255,32 +258,26 @@ func (g *Guard) pauseQueue(accountID string) int {
 // 内存里的 Monitor 还拿着旧值，所以这里只改库 + 记一笔，
 // 由 main 注入的 reload 回调去让它生效（monitor 包 import 不进来）。
 func (g *Guard) disableAutoOrder(accountID string) int {
-	if g.state.DB == nil {
+	// 走 Monitor 的带锁 API,不再绕过内存态直接改库 ——
+	// 以前"读全表→改→写回"全程不持监控的锁,监控循环轮末的整表落库
+	// 用内存里的 AutoOrder=true 覆盖回去,代理挂了但自动下单照常触发
+	g.mu.Lock()
+	fn := g.setDisabled
+	g.mu.Unlock()
+	if fn == nil {
+		g.state.Logger.Warn("Monitor 带锁变更入口未注入,无法安全关闭自动下单(跳过而不是裸改库)", "proxy")
 		return 0
 	}
-	subs, err := g.state.DB.ListMonitorSubscriptions()
-	if err != nil {
-		g.state.Logger.Warn("读订阅失败，无法关闭自动下单: "+err.Error(), "proxy")
-		return 0
+	return fn(accountID)
+}
+
+// SetDisableAutoOrder 注入带 Monitor 锁的禁用入口。
+func SetDisableAutoOrder(fn func(accountID string) int) {
+	if global != nil {
+		global.mu.Lock()
+		global.setDisabled = fn
+		global.mu.Unlock()
 	}
-	n := 0
-	for i := range subs {
-		if subs[i].AutoOrderAccountID == accountID && subs[i].AutoOrder {
-			subs[i].AutoOrder = false
-			n++
-		}
-	}
-	if n == 0 {
-		return 0
-	}
-	if err := g.state.DB.ReplaceMonitorSubscriptions(subs); err != nil {
-		g.state.Logger.Error("关闭自动下单后落库失败: "+err.Error(), "proxy")
-		return 0
-	}
-	if g.reload != nil {
-		g.reload()
-	}
-	return n
 }
 
 // SetReload 注入"让 Monitor 重读订阅"的回调。

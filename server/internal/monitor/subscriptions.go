@@ -362,3 +362,24 @@ func (m *Monitor) ClearAccountRefs(accountID string) int {
 	}
 	return n
 }
+
+// DisableAutoOrderForAccount 关掉指定账户全部订阅的自动下单(带锁,持久化)。
+// 给 proxyguard 用:以前它绕过内存态直接改库,监控循环轮末的整表落库
+// 会用内存里的 AutoOrder=true 覆盖回去 —— 代理挂了但自动下单照常触发
+func (m *Monitor) DisableAutoOrderForAccount(accountID string) int {
+	m.subsMu.Lock()
+	n := 0
+	for _, sub := range m.subscriptions {
+		if sub.AutoOrderAccountID == accountID && sub.AutoOrder {
+			sub.mu.Lock()
+			sub.AutoOrder = false
+			sub.mu.Unlock()
+			n++
+		}
+	}
+	m.subsMu.Unlock()
+	if n > 0 {
+		m.SaveToDB()
+	}
+	return n
+}

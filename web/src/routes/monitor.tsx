@@ -170,6 +170,18 @@ function MonitorPage() {
         </CardContent>
       </Card>
 
+      {/* 区域问题:后端发现监控查错大区(如 US 账户的订阅在 EU 目录找不到)时逐条列出。
+          不渲染的话监控静默失效,用户只看到"一直没货" */}
+      {(status.data?.region_issues?.length ?? 0) > 0 && (
+        <div className="border border-warning/40 bg-warning/5 rounded-2xl p-3 space-y-1.5">
+          {(status.data?.region_issues ?? []).map((issue, i) => (
+            <p key={i} className="text-[12px] text-foreground/80 leading-relaxed">
+              ⚠️ {issue}
+            </p>
+          ))}
+        </div>
+      )}
+
       {/* 订阅列表 */}
       {list.isPending ? (
         <div className="space-y-3">
@@ -434,17 +446,19 @@ function HistoryPanel({ planCode }: { planCode: string }) {
               className="flex items-start gap-3 p-2.5 bg-muted/40 rounded-xl text-xs"
             >
               <StatusDot
-                tone={e.changeType === "available" ? "success" : "danger"}
+                tone={e.changeType === "available" ? "success" : e.changeType === "price_check_failed" ? "info" : "danger"}
                 size="sm"
                 className="mt-1"
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">{e.datacenter?.toUpperCase()}</span>
-                  <Chip tone={e.changeType === "available" ? "success" : "danger"}>
+                  <Chip tone={e.changeType === "available" ? "success" : e.changeType === "price_check_failed" ? "info" : "danger"}>
                     {e.changeType === "available"
                       ? t("monitor.history.available")
-                      : t("monitor.history.unavailable")}
+                      : e.changeType === "price_check_failed"
+                        ? t("monitor.history.priceCheckFailed")
+                        : t("monitor.history.unavailable")}
                   </Chip>
                   {e.config?.display && (
                     <span className="px-2 py-0.5 rounded-full bg-secondary text-[11px]">
