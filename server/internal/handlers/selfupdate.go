@@ -88,7 +88,11 @@ func SelfUpdate(state *app.State, restart func(exePath string)) gin.HandlerFunc 
 		// TryLock 成功后锁的所有权移交给更新 goroutine(它 defer Unlock)。
 		// handler 自己不 defer:否则 handler 返回就释放,goroutine 还在下载,
 		// 下一个请求又能 TryLock 成功 —— 互斥就失效了
-		if !updateMu.TryLock() {
+		// 两道防线:updateRunning()(phase 检查,挡住"goroutine 已在跑"的场景)
+		// + TryLock(原子段,挡住"两个请求同时过检查"的竞态窗口)。
+		// 只靠 TryLock 不够:handler 在启动 goroutine 后就释放锁,
+		// 后续请求 TryLock 能成功,必须靠 phase 判断
+		if updateRunning() || !updateMu.TryLock() {
 			c.JSON(http.StatusConflict, gin.H{"success": false, "error": "已有更新正在进行", "code": "ED26CED2E", "progress": getProgress()})
 			return
 		}
@@ -111,10 +115,14 @@ func SelfUpdate(state *app.State, restart func(exePath string)) gin.HandlerFunc 
 		}
 
 		setProgressLocked(updater.Progress{Phase: "downloading", Message: "正在下载 v" + latest, Version: latest})
+		updateMu.Unlock()  // 原子段结束:phase 已是 downloading,后续请求被 updateRunning 挡住
 		state.Logger.Info("[更新] 开始自更新: "+Version+" → "+latest, "version")
 
 		go func() {
-			defer updateMu.Unlock()  // 锁的所有权在这里:goroutine 结束才允许下一次更新
+			// 注意:goroutine 不持锁。并发防护靠上面 TryLock 段置的 phase
+			// (downloading → updateRunning() → 409),不靠长持锁。
+			// 如果 goroutine defer 持锁,内部 setProgress(内部 Lock)就死锁
+			// —— 同 goroutine 不可重入,跟 handler 那个是同一个坑
 			tmp, exe, err := updater.Prepare(rel, func(pct int) {
 				setProgress(updater.Progress{
 					Phase: "downloading", Percent: pct, Version: latest,
