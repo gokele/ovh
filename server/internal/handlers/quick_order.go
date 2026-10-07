@@ -115,7 +115,15 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 			}
 		}
 
-		priceResult := price.GetInternal(state, body.AccountID, body.PlanCode, body.Datacenter, options)
+		// 监控批量入队路径走短 TTL 缓存:monitor 刚刚验过一遍同参数,
+		// batchOrder 并发 N 条各自再跑一遍完整购物车周期,补货瞬间最易触发 429。
+		// 用户手动下单(FromMonitor=false)不走缓存,永远看到新鲜价格
+		var priceResult price.Result
+		if body.FromMonitor {
+			priceResult = price.GetInternalCached(state, body.AccountID, body.PlanCode, body.Datacenter, options)
+		} else {
+			priceResult = price.GetInternal(state, body.AccountID, body.PlanCode, body.Datacenter, options)
+		}
 		if !priceResult.Success {
 			err := priceResult.Error
 			if err == "" {

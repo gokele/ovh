@@ -849,8 +849,13 @@ func extract(v interface{}) *float64 {
 }
 
 func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, expirationTime string, priceInfo *types.PriceInfo) {
+	// 锁内只改内存,SaveHistory 在锁外 —— 它自己会拿 HistoryMu(快照),
+	// Go mutex 不可重入,持锁同步调它(c419176 引入)首次下单成功即死锁全队列
 	state.HistoryMu.Lock()
-	defer state.HistoryMu.Unlock()
+	defer func() {
+		state.HistoryMu.Unlock()
+		_ = state.SaveHistory()
+	}()
 	now := types.NowISO()
 
 	for i := range state.History {
@@ -870,7 +875,6 @@ func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, e
 				state.History[i].Price = priceInfo
 			}
 			state.Logger.Info("更新抢购历史(成功) 任务ID: "+item.ID, "purchase")
-			state.SaveHistory()
 			return
 		}
 	}
@@ -896,12 +900,14 @@ func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, e
 	}
 	state.History = append(state.History, entry)
 	state.Logger.Info("创建抢购历史(成功) 任务ID: "+item.ID, "purchase")
-	state.SaveHistory()
 }
 
 func recordFailure(state *app.State, item *types.QueueItem, errMsg string) {
 	state.HistoryMu.Lock()
-	defer state.HistoryMu.Unlock()
+	defer func() {
+		state.HistoryMu.Unlock()
+		_ = state.SaveHistory()
+	}()
 	now := types.NowISO()
 
 	for i := range state.History {
@@ -916,7 +922,6 @@ func recordFailure(state *app.State, item *types.QueueItem, errMsg string) {
 			state.History[i].AttemptCount = item.RetryCount
 			state.History[i].Options = item.Options
 			state.Logger.Info("更新抢购历史(失败) 任务ID: "+item.ID, "purchase")
-			state.SaveHistory()
 			return
 		}
 	}
@@ -935,7 +940,6 @@ func recordFailure(state *app.State, item *types.QueueItem, errMsg string) {
 	}
 	state.History = append(state.History, entry)
 	state.Logger.Info("创建抢购历史(失败) 任务ID: "+item.ID, "purchase")
-	state.SaveHistory()
 }
 
 // backfillOrderDetail 下单成功后异步补 history 行的 expirationTime + price。

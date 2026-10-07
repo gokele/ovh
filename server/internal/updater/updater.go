@@ -400,11 +400,14 @@ func RollbackIfStale(state *app.State) bool {
 	}
 
 	state.Logger.Error("[更新] 检测到上一次更新后未能正常启动,正在回滚到更新前的版本", "version")
-	_ = os.Remove(pending)
+	// 先 rename 后删标记:rename 失败(权限/EBUSY/杀软)时标记必须保留,
+	// 下次启动还能重试回滚。以前反过来 —— 删完标记 rename 一失败,
+	// 下次启动走"有备份无标记=上次正常"分支把备份也删了,坏版本从此无人能救
 	if err := os.Rename(backup, exe); err != nil {
-		state.Logger.Error("[更新] 回滚失败,请手动用备份文件替换: "+err.Error(), "version")
+		state.Logger.Error("[更新] 回滚失败(标记已保留,下次启动将重试): "+err.Error(), "version")
 		return false
 	}
+	_ = os.Remove(pending)
 	state.Logger.Info("[更新] 已回滚。请检查新版本为什么起不来后再试", "version")
 	return true
 }

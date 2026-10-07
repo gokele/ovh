@@ -12,6 +12,9 @@ import (
 	"github.com/ovh-buy/server/internal/numconv"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
+	"sort"
+	"sync"
+	"time"
 )
 
 // Result 询价结果
@@ -33,6 +36,55 @@ type PriceInfo struct {
 	PricingMode string                   `json:"pricingMode"`
 	Prices      map[string]interface{}   `json:"prices"`
 	Items       []map[string]interface{} `json:"items"`
+}
+
+// internalPriceCache 短 TTL 询价结果缓存。
+// 背景:监控每轮对 orderable 机房全量验价(每个 7-9 个串行 OVH 调用),
+// 持续有货的订阅按 5 秒一轮就能把账户打进 429 —— 而 429 一来验价失败,
+// 自动下单被闸门挡住,等于"监控自己把下单通道刷死"。
+// 询价结果(同一配置同一机房)在 20 秒内不会实质变化,复用它即可把
+// 每分钟的完整购物车周期降一个数量级。入队时刻的二次验价(monitor 刚验过
+// 一遍、batchOrder 又逐条验)同样命中这里,补货瞬间的突发消失。
+var internalPriceCache = struct {
+	sync.Mutex
+	m map[string]cacheEntry
+}{m: make(map[string]cacheEntry)}
+
+type cacheEntry struct {
+	at     time.Time
+	result Result
+}
+
+const priceCacheTTL = 20 * time.Second
+
+func priceCacheKey(accountID, planCode, datacenter string, options []string) string {
+	sort.Strings(options)
+	return accountID + "|" + planCode + "@" + datacenter + "|" + strings.Join(options, ",")
+}
+
+// GetInternalCached 带短 TTL 缓存的 GetInternal(监控轮询/批量入队路径用;
+// 用户显式点击的询价仍走无缓存的 GetInternal,保证手查永远新鲜)
+func GetInternalCached(state *app.State, accountID, planCode, datacenter string, options []string) Result {
+	key := priceCacheKey(accountID, planCode, datacenter, options)
+	internalPriceCache.Lock()
+	if e, ok := internalPriceCache.m[key]; ok && time.Since(e.at) < priceCacheTTL {
+		internalPriceCache.Unlock()
+		return e.result
+	}
+	internalPriceCache.Unlock()
+	r := GetInternal(state, accountID, planCode, datacenter, options)
+	internalPriceCache.Lock()
+	// 防无限增长:超 512 条先清过期
+	if len(internalPriceCache.m) > 512 {
+		for k, e := range internalPriceCache.m {
+			if time.Since(e.at) >= priceCacheTTL {
+				delete(internalPriceCache.m, k)
+			}
+		}
+	}
+	internalPriceCache.m[key] = cacheEntry{at: time.Now(), result: r}
+	internalPriceCache.Unlock()
+	return r
 }
 
 // GetInternal 询价。accountID 决定用哪个账户调 OVH(空 = 默认账户),

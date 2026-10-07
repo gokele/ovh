@@ -75,18 +75,26 @@ func SelfUpdate(state *app.State, restart func(exePath string)) gin.HandlerFunc 
 			})
 			return
 		}
-		if updateRunning() {
+		// check-and-set 原子化:旧代码检查后隔着一次 FetchLatest(20s 网络请求)才置
+		// downloading,双开页面/双击都能过检查 → 两个 goroutine 写同一个临时文件
+		// (同名 <pid>),交错损坏或互相删备份。updateMu.TryLock 一次挡住
+		// TryLock 成功后锁的所有权移交给更新 goroutine(它 defer Unlock)。
+		// handler 自己不 defer:否则 handler 返回就释放,goroutine 还在下载,
+		// 下一个请求又能 TryLock 成功 —— 互斥就失效了
+		if !updateMu.TryLock() {
 			c.JSON(http.StatusConflict, gin.H{"success": false, "error": "已有更新正在进行", "code": "ED26CED2E", "progress": getProgress()})
 			return
 		}
 
 		rel, err := updater.FetchLatest()
 		if err != nil {
+			updateMu.Unlock()  // 还没移交给 goroutine,提前退出要自己还
 			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": err.Error()})
 			return
 		}
 		latest := trimV(rel.TagName)
 		if !semverGreater(latest, Version) {
+			updateMu.Unlock()
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"error":   "当前已是最新版本 " + Version,
@@ -99,6 +107,7 @@ func SelfUpdate(state *app.State, restart func(exePath string)) gin.HandlerFunc 
 		state.Logger.Info("[更新] 开始自更新: "+Version+" → "+latest, "version")
 
 		go func() {
+			defer updateMu.Unlock()  // 锁的所有权在这里:goroutine 结束才允许下一次更新
 			tmp, exe, err := updater.Prepare(rel, func(pct int) {
 				setProgress(updater.Progress{
 					Phase: "downloading", Percent: pct, Version: latest,

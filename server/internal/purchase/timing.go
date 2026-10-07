@@ -142,12 +142,14 @@ func recordTimingToHistory(state *app.State, taskID string, t *timeline) {
 		return
 	}
 	state.HistoryMu.Lock()
-	defer state.HistoryMu.Unlock()
+	defer func() {
+		state.HistoryMu.Unlock()
+		_ = state.SaveHistory()  // 同步:耗时数据丢了不影响下单,但排查慢在哪全靠它
+	}()
 	for i := range state.History {
 		if state.History[i].TaskID == taskID {
 			state.History[i].Timing = t.entries()
 			state.History[i].TotalMs = t.total().Milliseconds()
-			go state.SaveHistory()
 			return
 		}
 	}
