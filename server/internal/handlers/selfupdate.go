@@ -24,6 +24,13 @@ func setProgress(p updater.Progress) {
 	updateMu.Unlock()
 }
 
+// setProgressLocked 在已持有 updateMu 的临界区里安全地写进度(不再拿锁)。
+// 以前 handler 持锁(TryLock)后调 setProgress → 内部又 Lock → 同 goroutine
+// 不可重入,更新按钮第一次点击就卡死
+func setProgressLocked(p updater.Progress) {
+	updateProgress = p
+}
+
 func getProgress() updater.Progress {
 	updateMu.Lock()
 	defer updateMu.Unlock()
@@ -103,7 +110,7 @@ func SelfUpdate(state *app.State, restart func(exePath string)) gin.HandlerFunc 
 			return
 		}
 
-		setProgress(updater.Progress{Phase: "downloading", Message: "正在下载 v" + latest, Version: latest})
+		setProgressLocked(updater.Progress{Phase: "downloading", Message: "正在下载 v" + latest, Version: latest})
 		state.Logger.Info("[更新] 开始自更新: "+Version+" → "+latest, "version")
 
 		go func() {
