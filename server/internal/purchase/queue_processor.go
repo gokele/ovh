@@ -272,6 +272,21 @@ func ProcessQueueLoop(state *app.State) {
 				}
 
 				outcome := PurchaseServer(ctx, state, &snapshot)
+				if outcome.PauseTask {
+					// 结账不确定:暂停而不是重试(重试可能买两台)。不计失败次数
+					state.QueueMu.Lock()
+					for i := range state.Queue {
+						if state.Queue[i].ID == it.ID {
+							state.Queue[i].Status = "paused"
+							state.Queue[i].UpdatedAt = types.NowISO()
+							break
+						}
+					}
+					state.QueueMu.Unlock()
+					_ = state.SaveQueue()
+					state.Logger.Info("任务已暂停(结账结果不确定,等人工确认): "+it.PlanCode, "queue")
+					return
+				}
 				if outcome.Cancelled {
 					// 用户删的,不是失败:不动 FailureCount、不置 failed,队列里也已经没有它了
 					return

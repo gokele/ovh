@@ -40,6 +40,9 @@ type Outcome struct {
 	// 不是失败:不写 history、不计 FailureCount、不算 Attempted。
 	// 结账之前的任何一步都可能落到这里;结账一旦发出就不再接受取消(见 checkout 处注释)。
 	Cancelled bool
+	// PauseTask:结账结果不确定(超时+对账也失败),暂停任务等人工确认。
+	// 不计 FailureCount(不是确定性失败);不发 Fatal(用户确认无单后可恢复)
+	PauseTask bool
 }
 
 // cancelledOutcome 下单途中任务被删除时的返回。
@@ -544,6 +547,17 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 				state.Logger.Warn(fmt.Sprintf("checkout 报 transient 失败但对账发现订单已建(#%s),按成功处理,不再重试", oid), "purchase")
 				return handleReconciledOrder(state, item, oid, url, tl, timingKey)
 			}
+			// 对账也失败(429/超时/panic 兜底返回空):OVH 侧订单状态未知。
+			// 直接重试 = 可能买两台(第一单已建但 history 没记,120s 闸门也不认识它)。
+			// 暂停任务 + 通知用户去 OVH 订单页人工确认 —— 比自动重试安全:
+			// 最多错过一台,不会多买一台
+			state.Logger.Warn("checkout transient 失败且对账未能确认,暂停任务等待人工确认(防重复下单)", "purchase")
+			notify.Broadcast(state, fmt.Sprintf(
+				"⚠️ 抢购 %s@%s 结账超时,无法确认订单是否已创建\n\n"+
+					"任务已暂停。请到 OVH 订单页查看是否已有一笔未付订单:\n"+
+					"- 有:等付款即可,任务不需要恢复\n"+
+					"- 没有:在队列页把任务恢复运行", item.PlanCode, item.Datacenter), nil)
+			return Outcome{Attempted: false, PauseTask: true}
 		}
 		// checkout 这一步最要紧:补货瞬间大家都在下单,429 是常态。
 		// 把它记成一次"真正的失败尝试"会让任务在唯一有货的那一分钟里自己判死。
