@@ -11,6 +11,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/ovh"
+	"strings"
 )
 
 // miscParallelGetStringKeys 与 util.go 的 parallelGetStringKeys 同构,额外把每项的错误带出来。
@@ -141,7 +142,12 @@ func AddSecondaryDNS(state *app.State) gin.HandlerFunc {
 			return
 		}
 		if err := client.Post("/dedicated/server/"+svc+"/secondaryDnsDomains", map[string]interface{}{"domain": body.Domain}, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			// 已添加过的域名(already exists):幂等成功
+			if strings.Contains(strings.ToLower(err.Error()), "already") {
+				c.JSON(http.StatusOK, gin.H{"success": true, "message": "该域名已在二级 DNS 列表中,无需重复添加", "code": "E4D9E7F86"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("添加从DNS域名 "+body.Domain+" 成功", "server_control")
@@ -159,7 +165,11 @@ func DeleteSecondaryDNS(state *app.State) gin.HandlerFunc {
 			return
 		}
 		if err := client.Delete("/dedicated/server/"+svc+"/secondaryDnsDomains/"+domain, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			if ovhIsNotFound(err) {
+				c.JSON(http.StatusOK, gin.H{"success": true, "message": "该域名不在二级 DNS 列表中,无需删除", "code": "E1C4B0FD2"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("删除从DNS域名 "+domain+" 成功", "server_control")

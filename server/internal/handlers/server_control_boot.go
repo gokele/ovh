@@ -24,7 +24,7 @@ func GetBootConfig(state *app.State) gin.HandlerFunc {
 		}
 		var info map[string]interface{}
 		if err := client.Get("/dedicated/server/"+svc, &info); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		bootID := info["bootId"]
@@ -34,7 +34,7 @@ func GetBootConfig(state *app.State) gin.HandlerFunc {
 		// 用户以为机器不支持切 rescue，实际是调用失败，必须原样报出来
 		if err := client.Get("/dedicated/server/"+svc+"/boot", &bootList); err != nil {
 			state.Logger.Error("获取服务器 "+svc+" 启动模式列表失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		// 并发拉每个 boot id 的详情
@@ -128,7 +128,7 @@ func SetBootConfig(state *app.State) gin.HandlerFunc {
 			"bootId": bootID,
 		}, nil); err != nil {
 			state.Logger.Error("设置服务器 "+svc+" 启动模式失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("服务器 %s 启动模式已设置为 %d", svc, bootID), "server_control")
@@ -147,7 +147,7 @@ func GetMonitoringStatus(state *app.State) gin.HandlerFunc {
 		}
 		var info map[string]interface{}
 		if err := client.Get("/dedicated/server/"+svc, &info); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		// 缺失时默认 false
@@ -204,7 +204,7 @@ func SetMonitoringStatus(state *app.State) gin.HandlerFunc {
 			"monitoring": *enabled,
 		}, nil); err != nil {
 			state.Logger.Error("设置服务器 "+svc+" 监控失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		statusText := "开启"
@@ -227,7 +227,7 @@ func GetBootModes(state *app.State) gin.HandlerFunc {
 		}
 		var info map[string]interface{}
 		if err := client.Get("/dedicated/server/"+svc, &info); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		currentBootID := info["bootId"]
@@ -236,7 +236,7 @@ func GetBootModes(state *app.State) gin.HandlerFunc {
 		// 同 GetBootConfig：吞掉这个错误会让 boot-mode 页面显示成空列表且无任何提示
 		if err := client.Get("/dedicated/server/"+svc+"/boot", &bootIDs); err != nil {
 			state.Logger.Error("获取服务器 "+svc+" 启动模式列表失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		// 并发拉每个 boot id 详情
@@ -335,7 +335,7 @@ func ChangeBootMode(state *app.State) gin.HandlerFunc {
 		if err := client.Put("/dedicated/server/"+svc, map[string]interface{}{
 			"bootId": body.BootID,
 		}, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("[Boot] 启动模式切换成功，需要重启服务器生效", "server_control")

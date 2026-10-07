@@ -134,7 +134,7 @@ func GetNetworkInterfaces(state *app.State) gin.HandlerFunc {
 				return
 			}
 			state.Logger.Error("[网卡] 获取网卡列表失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		// 并发拉每张网卡详情。用带 error 的版本:失败原因要原样带给前端,
@@ -266,7 +266,7 @@ func ConfigureOLAAggregation(state *app.State) gin.HandlerFunc {
 			"name":                     body.Name,
 			"virtualNetworkInterfaces": body.VirtualNetworkInterfaces,
 		}, &result); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[OLA] 网络聚合配置任务已创建: Task#%v", result["taskId"]), "server_control")
@@ -296,7 +296,7 @@ func ResetOLAConfiguration(state *app.State) gin.HandlerFunc {
 		if err := client.Post("/dedicated/server/"+svc+"/ola/reset", map[string]interface{}{
 			"virtualNetworkInterface": body.VirtualNetworkInterface,
 		}, &result); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("[OLA] 网络接口重置任务已创建: Task#%v", result["taskId"]), "server_control")
@@ -339,7 +339,7 @@ func OLAGroup(state *app.State) gin.HandlerFunc {
 			"name":                     body.Name,
 			"virtualNetworkInterfaces": body.VirtualNetworkInterfaces,
 		}, &result); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("创建OLA组成功: %s, Task#%v", svc, result["taskId"]), "server_control")
@@ -375,7 +375,7 @@ func OLAUngroup(state *app.State) gin.HandlerFunc {
 		if err := client.Post("/dedicated/server/"+svc+"/ola/reset", map[string]interface{}{
 			"virtualNetworkInterface": body.VirtualNetworkInterface,
 		}, &task); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		tasks := []map[string]interface{}{task}
@@ -426,7 +426,7 @@ func GetIPMIAccessTypes(state *app.State) gin.HandlerFunc {
 				return
 			}
 			state.Logger.Error("[IPMI] 查询支持的控制台类型失败: "+err.Error(), "server_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		supportedList := []string{}
@@ -469,7 +469,7 @@ func GetIPMIConsole(state *app.State) gin.HandlerFunc {
 		state.Logger.Info("[IPMI] 获取服务器 "+svc+" IPMI信息", "server_control")
 		var ipmi map[string]interface{}
 		if err := client.Get("/dedicated/server/"+svc+"/features/ipmi", &ipmi); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		// dedicated.server.Ipmi.activated 是必填 boolean，但 schema 没说清它是「IPMI 功能可用」
@@ -583,7 +583,7 @@ func GetIPMIConsole(state *app.State) gin.HandlerFunc {
 			// 之前 Go 静默 continue 会掩盖 OVH 真错误，最终用 "超时" 假面具吞掉
 			if err := client.Get(fmt.Sprintf("/dedicated/server/%s/task/%v", svc, taskID), &ts); err != nil {
 				state.Logger.Error(fmt.Sprintf("[IPMI] 查询任务 %v 状态失败: %s", taskID, err.Error()), "server_control")
-				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+				respondOVHError(c, err)
 				return
 			}
 			status, _ := ts["status"].(string)
@@ -695,7 +695,7 @@ func GetNetworkInterfaceStats(state *app.State) gin.HandlerFunc {
 		state.Logger.Info("[Network] 获取服务器 "+svc+" 网络接口信息", "server_control")
 		var macs []string
 		if err := client.Get("/dedicated/server/"+svc+"/networkInterfaceController", &macs); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		// 并发拉每张网卡详情

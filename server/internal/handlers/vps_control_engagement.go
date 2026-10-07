@@ -9,7 +9,6 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/numconv"
-	"github.com/ovh-buy/server/internal/ovh"
 )
 
 // 区域核对结论(逐条对过 EU / US / CA 三站的 /1.0/services.json):
@@ -43,7 +42,7 @@ func GetVpsEngagement(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForVps(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		var eng map[string]interface{}
@@ -55,7 +54,7 @@ func GetVpsEngagement(state *app.State) gin.HandlerFunc {
 				return
 			}
 			state.Logger.Error(fmt.Sprintf("VPS %s 查询合同期失败(serviceId=%d): %s", svc, serviceID, err.Error()), "vps_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "engagement": eng, "serviceId": serviceID})
@@ -73,12 +72,12 @@ func GetVpsEngagementAvailable(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForVps(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		var pricings []map[string]interface{}
 		if err := client.Get(fmt.Sprintf("/services/%d/billing/engagement/available", serviceID), &pricings); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "pricings": pricings})
@@ -96,7 +95,7 @@ func GetVpsEngagementRequest(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForVps(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		var req map[string]interface{}
@@ -108,7 +107,7 @@ func GetVpsEngagementRequest(state *app.State) gin.HandlerFunc {
 				return
 			}
 			state.Logger.Error(fmt.Sprintf("VPS %s 查询合同期变更请求失败(serviceId=%d): %s", svc, serviceID, err.Error()), "vps_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "request": req})
@@ -134,13 +133,13 @@ func CreateVpsEngagementRequest(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForVps(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		var result map[string]interface{}
 		if err := client.Post(fmt.Sprintf("/services/%d/billing/engagement/request", serviceID),
 			map[string]interface{}{"pricingMode": body.PricingMode}, &result); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("VPS %s engagement 请求已提交: %s", svc, body.PricingMode), "vps_control")
@@ -159,11 +158,11 @@ func DeleteVpsEngagementRequest(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForVps(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		if err := client.Delete(fmt.Sprintf("/services/%d/billing/engagement/request", serviceID), nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("VPS %s engagement 请求已撤销", svc), "vps_control")
@@ -204,12 +203,12 @@ func UpdateVpsEngagementEndRule(state *app.State) gin.HandlerFunc {
 		}
 		serviceID, err := serviceIDForVps(client, svc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		if err := client.Put(fmt.Sprintf("/services/%d/billing/engagement/endRule", serviceID),
 			map[string]interface{}{"strategy": body.Strategy}, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("VPS %s engagement endRule 已改为 %s", svc, body.Strategy), "vps_control")

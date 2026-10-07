@@ -90,7 +90,7 @@ func terminationPolicyHandler(
 		}
 		if err := setTerminationPolicy(client, serviceID, body.Policy); err != nil {
 			state.Logger.Error(label+" "+svc+" 设置终止策略失败: "+err.Error(), logSource)
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 

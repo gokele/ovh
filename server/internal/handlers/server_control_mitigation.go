@@ -147,7 +147,13 @@ func EnableMitigation(state *app.State) gin.HandlerFunc {
 		var result map[string]interface{}
 		if err := client.Post("/ip/"+encoded+"/mitigation",
 			map[string]interface{}{"ipOnMitigation": ip}, &result); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			// 已开启 permanent 再开启会被 OVH 拒 —— 幂等成功,别当服务器错误
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "already") || ovh.IsTaskConflict(err) {
+				c.JSON(http.StatusOK, gin.H{"success": true, "message": "该 IP 已在永久缓解中,无需重复开启", "code": "E7E8BB801"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("启用 IP "+ip+" 的永久 DDoS 缓解", "server_control")
@@ -176,7 +182,12 @@ func DisableMitigation(state *app.State) gin.HandlerFunc {
 		}
 		encoded := strings.ReplaceAll(ipBlock, "/", "%2F")
 		if err := client.Delete("/ip/"+encoded+"/mitigation/"+ip, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			// 未开启时删除 404:幂等成功(双击第二发/已关过)
+			if ovhIsNotFound(err) {
+				c.JSON(http.StatusOK, gin.H{"success": true, "message": "该 IP 未开启永久缓解,无需关闭", "code": "E9E0B7F01"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("关闭 IP "+ip+" 的永久 DDoS 缓解", "server_control")

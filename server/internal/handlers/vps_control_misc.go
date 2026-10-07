@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/ovh-buy/server/internal/app"
-	"github.com/ovh-buy/server/internal/ovh"
+	"strings"
 )
 
 // ChangeVpsContact POST /api/vps-control/:service_name/change-contact
@@ -48,7 +48,7 @@ func ChangeVpsContact(state *app.State) gin.HandlerFunc {
 		}
 		var taskIDs []int64
 		if err := client.Post("/vps/"+svc+"/changeContact", params, &taskIDs); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info(fmt.Sprintf("VPS %s 联系人变更已提交: %v, tasks=%v", svc, params, taskIDs), "vps_control")
@@ -68,7 +68,7 @@ func TerminateVps(state *app.State) gin.HandlerFunc {
 		}
 		var token string
 		if err := client.Post("/vps/"+svc+"/terminate", map[string]interface{}{}, &token); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Warn("VPS "+svc+" 终止请求已提交,等邮件 token", "vps_control")
@@ -105,7 +105,7 @@ func ConfirmVpsTermination(state *app.State) gin.HandlerFunc {
 		}
 		var resp string
 		if err := client.Post("/vps/"+svc+"/confirmTermination", params, &resp); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Warn("VPS "+svc+" 终止已确认", "vps_control")
@@ -125,7 +125,7 @@ func GetVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 		}
 		var domains []string
 		if err := client.Get("/vps/"+svc+"/secondaryDnsDomains", &domains); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		details := parallelGetStringKeys(client, domains, func(d string) string {
@@ -176,7 +176,11 @@ func AddVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 			params["ip"] = body.IP
 		}
 		if err := client.Post("/vps/"+svc+"/secondaryDnsDomains", params, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			if strings.Contains(strings.ToLower(err.Error()), "already") {
+				c.JSON(http.StatusOK, gin.H{"success": true, "message": "该域名已在二级 DNS 列表中,无需重复添加", "code": "E4D9E7F86"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 添加二级 DNS "+body.Domain, "vps_control")
@@ -195,7 +199,11 @@ func DeleteVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 			return
 		}
 		if err := client.Delete("/vps/"+svc+"/secondaryDnsDomains/"+domain, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			if ovhIsNotFound(err) {
+				c.JSON(http.StatusOK, gin.H{"success": true, "message": "该域名不在二级 DNS 列表中,无需删除", "code": "E1C4B0FD2"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("VPS "+svc+" 删除二级 DNS "+domain, "vps_control")
@@ -238,7 +246,7 @@ func GetVpsOptions(state *app.State) gin.HandlerFunc {
 		isUS := vpsRegionFor(state, c) == vpsRegionUS
 		var opts []string
 		if err := client.Get("/vps/"+svc+"/option", &opts); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		details := parallelGetStringKeys(client, opts, func(o string) string {
@@ -304,7 +312,7 @@ func GetVpsAutomatedBackup(state *app.State) gin.HandlerFunc {
 				return
 			}
 			state.Logger.Error("VPS "+svc+" 查询自动备份失败: "+err.Error(), "vps_control")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			respondOVHError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "automatedBackup": d})

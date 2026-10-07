@@ -11,6 +11,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/ovh"
+	"net"
 )
 
 // 区域核对结论(逐条对过 EU / US / CA 三站的 /1.0/ip.json):
@@ -23,7 +24,7 @@ import (
 // isIPv4 简单判 IPv4 地址(含点号、不含冒号)。OVH 的 anti-DDoS mitigation 只支持 IPv4,
 // IPv6 传过去会 400 "[ipOnMitigation] Given data is not valid for type ipv4"
 func isIPv4(s string) bool {
-	return strings.Contains(s, ".") && !strings.Contains(s, ":")
+	return net.ParseIP(s) != nil && net.ParseIP(s).To4() != nil
 }
 
 // resolveIPBlock 把裸 IP 换成它所属的真实 ipBlock(带掩码)。
@@ -173,7 +174,13 @@ func EnableVpsMitigation(state *app.State) gin.HandlerFunc {
 		var result map[string]interface{}
 		if err := client.Post("/ip/"+encoded+"/mitigation",
 			map[string]interface{}{"ipOnMitigation": ip}, &result); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			// 已开启 permanent 再开启被拒:幂等成功
+			lower := strings.ToLower(err.Error())
+			if strings.Contains(lower, "already") || ovh.IsTaskConflict(err) {
+				c.JSON(http.StatusOK, gin.H{"success": true, "message": "该 IP 已在永久缓解中,无需重复开启", "code": "E7E8BB801"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("VPS IP "+ip+" 启用永久 DDoS 缓解", "vps_control")
@@ -201,7 +208,11 @@ func DisableVpsMitigation(state *app.State) gin.HandlerFunc {
 		}
 		encoded := strings.ReplaceAll(resolveIPBlock(client, ipBlock), "/", "%2F")
 		if err := client.Delete("/ip/"+encoded+"/mitigation/"+ip, nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			if ovhIsNotFound(err) {
+				c.JSON(http.StatusOK, gin.H{"success": true, "message": "该 IP 未开启永久缓解,无需关闭", "code": "E9E0B7F01"})
+				return
+			}
+			respondOVHError(c, err)
 			return
 		}
 		state.Logger.Info("VPS IP "+ip+" 关闭永久 DDoS 缓解", "vps_control")
