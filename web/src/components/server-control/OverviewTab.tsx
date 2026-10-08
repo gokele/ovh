@@ -1,6 +1,6 @@
-import { Cpu, HardDrive, MemoryStick, MapPin, Globe, Wifi, AlertTriangle } from "lucide-react";
+import { Cpu, HardDrive, MemoryStick, MapPin, Globe, Wifi, AlertTriangle, PartyPopper } from "lucide-react";
 import type { OwnedServer } from "@/hooks/use-server-control";
-import { useServerHardware, useServerIps, useServerNetworkInterfaces } from "@/hooks/use-server-control";
+import { useServerHardware, useServerIps, useServerNetworkInterfaces, useHardwareLottery } from "@/hooks/use-server-control";
 import { useHideIp, maskSensitive } from "@/hooks/use-hide-ip";
 import { Skeleton } from "@/components/common/Skeleton";
 import { PartialNotice, DetailErrorTag } from "@/components/common/PartialNotice";
@@ -11,30 +11,31 @@ import { useTranslation } from "react-i18next";
 export function OverviewTab({ server }: { server: OwnedServer }) {
   const { t } = useTranslation();
   const hw = useServerHardware(server.serviceName);
+  const lottery = useHardwareLottery(server.serviceName);
   const ips = useServerIps(server.serviceName);
   const interfaces = useServerNetworkInterfaces(server.serviceName);
   const { hidden } = useHideIp();
 
   // 内存字段是 { value, unit } 对象
   const memText = hw.data?.memorySize
-    ? `${hw.data.memorySize.value} ${hw.data.memorySize.unit}`
+    ? `${hw.data?.memorySize?.value} ${hw.data?.memorySize?.unit}`
     : "—";
 
   // CPU 字段：processorName + 核线（旧前端写法照搬）
   const cpuText = hw.data?.processorName
-    ? hw.data.coresPerProcessor && hw.data.threadsPerProcessor
+    ? hw.data?.coresPerProcessor && hw.data?.threadsPerProcessor
       ? t("maint.overview.cpuCoresThreads", {
-          name: hw.data.processorName,
-          cores: hw.data.coresPerProcessor,
-          threads: hw.data.threadsPerProcessor,
+          name: (hw.data?.processorName ?? ""),
+          cores: hw.data?.coresPerProcessor,
+          threads: hw.data?.threadsPerProcessor,
         })
-      : hw.data.processorName
+      : (hw.data?.processorName ?? "")
     : "—";
 
   // 磁盘：把所有 diskGroups 拼成 "N × Type Size" / "N × Type Size" 多组用 / 分隔
   const diskText =
-    hw.data?.diskGroups && hw.data.diskGroups.length > 0
-      ? hw.data.diskGroups
+    hw.data?.diskGroups && (hw.data?.diskGroups?.length ?? 0) > 0
+      ? (hw.data?.diskGroups ?? [])
           .map((g: any) => {
             const count = g.numberOfDisks ?? 1;
             const type = g.diskType ?? "";
@@ -59,7 +60,26 @@ export function OverviewTab({ server }: { server: OwnedServer }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
+      
+        {/* 中奖横幅:订购配置 != 实际交付且更好。checked=false 时不显示 */}
+        {lottery.data?.checked && lottery.data.won && (
+          <div className="border border-amber-400/40 bg-amber-400/5 rounded-2xl p-3 flex items-start gap-2">
+            <PartyPopper className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+            <div className="leading-relaxed">
+              <span className="text-[12px] font-semibold text-amber-600 dark:text-amber-300">
+                {t("maint.overview.lottery.bannerTitle")}
+              </span>{" "}
+              <span className="text-[12px] text-muted-foreground">
+                {t("maint.overview.lottery.bannerDesc", {
+                  items: lottery.data.items
+                    .map((i) => t(`maint.overview.lottery.kind.${i.kind}`))
+                    .join(" · "),
+                })}
+              </span>
+            </div>
+          </div>
+        )}
+<div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
         <InfoCard icon={<Cpu className="w-4 h-4" />} label={t("maint.overview.info.cpu")} value={cpuText} loading={hw.isPending} />
         <InfoCard icon={<MemoryStick className="w-4 h-4" />} label={t("maint.overview.info.mem")} value={memText} loading={hw.isPending} />
         <InfoCard icon={<HardDrive className="w-4 h-4" />} label={t("maint.overview.info.disk")} value={diskText} loading={hw.isPending} />

@@ -83,10 +83,19 @@ func GetHardwareInfo(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
+		// 订购配置 vs 实际硬件 → "中奖"比对。拉不到订购配置(权限 / 老合同)不影响硬件信息本身,
+		// 只是 lottery.checked=false,前端不显示中奖标识。
+		spec, specErr := hwFetchOrderedSpec(client, svc)
+		lottery := hwComputeLottery(spec, hardware)
+		if specErr != nil {
+			lottery.Reason = ovh.Explain(specErr)
+			state.Logger.Warn("获取服务器 "+svc+" 订购配置失败,跳过中奖比对: "+specErr.Error(), "server_control")
+		}
 		// 缺字段补 N/A / 0 / {} / []，
 		// 否则 JSON 序列化 null 让前端 .toLowerCase / .length 崩溃
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
+			"lottery": lottery,
 			"hardware": gin.H{
 				"bootMode":                valueOr(hardware, "bootMode", "N/A"),
 				"coresPerProcessor":       defaultZero(hardware["coresPerProcessor"]),

@@ -333,6 +333,16 @@ const pack: MaintDialogsPack = {
       pointsLine: "<b>{{n}}</b> data points · period {{period}}",
     },
     overview: {
+    lottery: {
+      bannerTitle: "🎉 You won the hardware lottery!",
+      bannerDesc: "Delivered hardware is better than ordered: {{items}}",
+      kind: {
+        cpu: "CPU",
+        memory: "Memory",
+        disk: "Disk",
+      },
+    },
+
       detailError: "This server's details could not be fetched ({{err}}); the information below may be incomplete.",
       svcInfoError: "This server's renewal/billing info could not be fetched ({{err}}); the renewal status shows \"unknown\" rather than \"manual\". Refresh to retry.",
       info: {

@@ -44,6 +44,21 @@ export interface HardwareInfo {
   expansionCards?: any[];
 }
 
+/** 硬件"中奖"检测结果:订购配置 ≠ 机房实际交付(且实际更好) */
+export interface HardwareLottery {
+  /** false = 没拿到订购配置(权限/老合同),不显示任何中奖标识 */
+  checked: boolean;
+  won: boolean;
+  planCode?: string;
+  planName?: string;
+  items: Array<{
+    kind: "cpu" | "memory" | "disk";
+    ordered: string;
+    actual: string;
+  }>;
+  reason?: string;
+}
+
 export interface ServiceInfo {
   status: string;
   expiration: string;
@@ -100,6 +115,19 @@ export function useOwnedServers() {
         return state === "ok" || state === "active";
       });
     },
+    staleTime: 60_000,
+  });
+}
+
+/** 硬件"中奖"检测结果(后端 hardware 接口附带) */
+export function useHardwareLottery(serviceName: string | null) {
+  return useQuery({
+    queryKey: qk.serverControl.hardware(serviceName || ""),
+    queryFn: async () => {
+      const res = await api.get(`/server-control/${serviceName}/hardware`);
+      return (res.data?.lottery || null) as HardwareLottery | null;
+    },
+    enabled: !!serviceName,
     staleTime: 60_000,
   });
 }

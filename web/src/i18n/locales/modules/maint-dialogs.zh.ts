@@ -328,6 +328,16 @@ export const maintDialogsZh = {
       pointsLine: "数据点 <b>{{n}}</b> · 周期 {{period}}",
     },
     overview: {
+    lottery: {
+      bannerTitle: "🎉 你中奖了！",
+      bannerDesc: "订购配置与实际交付不同：{{items}}",
+      kind: {
+        cpu: "CPU",
+        memory: "内存",
+        disk: "硬盘",
+      },
+    },
+
       detailError: "该服务器的详情未能获取（{{err}}），下方信息可能不完整。",
       svcInfoError: "该服务器的续费/计费信息未能获取（{{err}}），续费状态显示为「未知」而非「手动」，可刷新重试。",
       info: {
