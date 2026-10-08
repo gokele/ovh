@@ -252,7 +252,7 @@ Notification endpoints are configured in the settings page under "Notification C
 - **Privacy mode**: one-click masking of all IPs / MACs / reverse DNS hostnames
 
 ### Misc
-- **Account management**: balance / refunds / email history (follows the current account)
+- **Account management**: balance / OVH order records / refunds / email history (follows the current account)
 - **Order history**: orders + prices + countdowns + direct OVH order links, account chip per row
 - **Detailed logs**: live refresh, filter by level / keyword
 - **Auto update check**: the dashboard calls `GET /api/version/check-update` once on mount to compare against GitHub releases; new versions show a ✨ chip next to the version number linking to the release; the backend is purely passive — no goroutines, no timers

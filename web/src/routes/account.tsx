@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { User, Mail, RefreshCw, FileText, Inbox, ShieldCheck, type LucideIcon } from "lucide-react";
+import { User, Mail, RefreshCw, FileText, Inbox, ShieldCheck, ShoppingBag, ExternalLink, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fmtDateTime } from "@/i18n/format";
@@ -12,9 +12,9 @@ import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PartialNotice } from "@/components/common/PartialNotice";
 import { LoadFailed, LoadFailedBanner } from "@/components/common/LoadFailed";
-import { useAccountInfo, useRefunds, useEmails, type EmailHistoryEntry } from "@/hooks/use-account";
+import { useAccountInfo, useRefunds, useEmails, useOrders, type EmailHistoryEntry, type OrderRecord } from "@/hooks/use-account";
 
-/** 账户管理：顶部 3 张 KPI + Tabs (邮件 / 退款) */
+/** 账户管理：顶部 3 张 KPI + Tabs (邮件 / 订单 / 退款) */
 export const Route = createFileRoute("/account")({
   component: AccountPage,
 });
@@ -84,10 +84,14 @@ function AccountPage() {
       <Tabs defaultValue="emails">
         <TabsList>
           <TabsTrigger value="emails">{t("account.emailsTab")}</TabsTrigger>
+          <TabsTrigger value="orders">{t("account.ordersTab")}</TabsTrigger>
           <TabsTrigger value="refunds">{t("account.refundsTab")}</TabsTrigger>
         </TabsList>
         <TabsContent value="emails">
           <EmailsTab />
+        </TabsContent>
+        <TabsContent value="orders">
+          <OrdersTab />
         </TabsContent>
         <TabsContent value="refunds">
           <RefundsTab />
@@ -294,5 +298,95 @@ function RefundsTab() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function OrdersTab() {
+  const { t } = useTranslation();
+  const orders = useOrders();
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold">{t("account.ordersTab")}</h3>
+          <Button variant="outline" size="sm" onClick={() => orders.refetch()} disabled={orders.isFetching}>
+            <RefreshCw className={`w-3.5 h-3.5 ${orders.isFetching ? "animate-spin" : ""}`} />
+            {t("common.refresh")}
+          </Button>
+        </div>
+        {orders.isPending ? (
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
+          </div>
+        ) : orders.isError ? (
+          /* 跟退款同一个盲区:请求整条挂掉 → data 为 undefined → 落到「暂无订单」。
+             用户会据此认定"这笔单没下成"再去重复下单,所以失败必须明说。 */
+          <LoadFailed
+            icon={ShoppingBag}
+            title={t("account.ordersFailedTitle")}
+            error={orders.error}
+            onRetry={() => orders.refetch()}
+            compact
+          />
+        ) : (orders.data?.items || []).length === 0 ? (
+          (orders.data?.failedCount || 0) > 0 ? (
+            <EmptyState
+              icon={ShoppingBag}
+              title={t("account.ordersPartialTitle")}
+              description={t("account.ordersPartialDesc", { count: orders.data?.failedCount || 0 })}
+            />
+          ) : (
+            <EmptyState icon={ShoppingBag} title={t("account.noOrders")} />
+          )
+        ) : (
+          <div>
+            <PartialNotice failedCount={orders.data?.failedCount || 0} what={t("account.ordersTab")} className="mb-3" />
+            <div className="divide-y divide-border">
+            {(orders.data?.items || []).map((o) => (
+              <OrderRow key={o.orderId} order={o} />
+            ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function OrderRow({ order }: { order: OrderRecord }) {
+  const { t } = useTranslation();
+  // retractionDate 非空且还在未来 = 订单处于法定撤回期内,过期了就不显示
+  const retractUntil =
+    order.retractionDate && !Number.isNaN(new Date(order.retractionDate).getTime()) && new Date(order.retractionDate) > new Date()
+      ? fmtDateTime(order.retractionDate)
+      : null;
+  return (
+    <div className="py-3 flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="font-mono text-sm font-semibold">#{order.orderId}</span>
+          {retractUntil && (
+            <Chip tone="warning">{t("account.orderRetractable", { date: retractUntil })}</Chip>
+          )}
+        </div>
+        <p className="text-[11px] text-muted-foreground">{fmtDateTime(order.date)}</p>
+      </div>
+      <div className="text-right flex-shrink-0">
+        <p className="text-lg font-bold">{order.priceWithTax?.text || "—"}</p>
+        <div className="flex items-center justify-end gap-3">
+          {order.url && (
+            <a href={order.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-[11px] text-foreground hover:underline">
+              <ExternalLink className="w-3 h-3" />
+              {t("account.orderOpenManager")}
+            </a>
+          )}
+          {order.pdfUrl && (
+            <a href={order.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-foreground hover:underline">
+              {t("account.downloadPdf")}
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

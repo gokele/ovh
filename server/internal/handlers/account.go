@@ -666,7 +666,70 @@ func GetAccountBills(state *app.State) gin.HandlerFunc {
 			"failed":    failed,
 			"truncated": truncated,
 			// warning 为空字符串表示走的是正常窗口查询;非空说明是降级路径,前端可原样提示
-			"warning": warn,
+			"warning":   warn,
 		})
+	}
+}
+
+// GetAccountOrders GET /api/ovh/account/orders
+//
+// OVH 官方订单记录。三区 schema 已逐一核对(eu/us/ca api ovhcloud /1.0/me.json):
+//   - GET /me/order → long[](订单号是整数,与 bill/refund 的字符串 id 不同,
+//     idsToStrings→idToString 的宽松转换两边都兼容)
+//   - EU/CA 支持 date.from/date.to(datetime);US 不支持任何查询参数 ——
+//     fetchRecentBillingIDs 的窗口查询被拒时自动降级为全量列表,行为正确只是多拉几条
+//   - GET /me/order/{orderId} → billing.Order:orderId/date/expirationDate/
+//     retractionDate/pdfUrl/url/priceWithTax{value,text,currencyCode} 等
+//
+// 响应是裸数组 + X-Partial-Failures 头(与 refunds 一致,前端 toPartialList 包装)。
+func GetAccountOrders(state *app.State) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		client, err := ovhClientFor(state, c)
+		if err != nil {
+			noOVHRespAccount(c)
+			return
+		}
+		ids, warn, err := fetchRecentBillingIDs(client, "/me/order", accountBillingListSize)
+		if err != nil {
+			state.Logger.Error("获取订单列表失败: "+err.Error(), "account_management")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取订单列表失败: " + ovh.Explain(err)})
+			return
+		}
+		if warn != "" {
+			state.Logger.Warn("订单列表"+warn, "account_management")
+		}
+		// 订单号随时间单调递增,倒序后前 N 条就是最近的 N 条。窗口路径直接返回的
+		// id 顺序 OVH 没有承诺,US 全量降级更可能整包乱序 —— 不排的话"最近 20 条"
+		// 取样可能取到老的(拿到详情后仍会按 date 重排,这里只影响拉哪一批)。
+		sortBillingIDsDesc(ids)
+		scan := len(ids)
+		if scan > accountBillingMaxDetails {
+			scan = accountBillingMaxDetails
+			state.Logger.Warn(fmt.Sprintf("订单共 %d 条,只取前 %d 条拉取详情", len(ids), scan), "account_management")
+		}
+		// 并发拉订单详情
+		details, failed, firstErr := parallelGetStringsCounted(client, ids[:scan], func(s string) string {
+			return "/me/order/" + s
+		}, 10)
+		list := collectDetails(state, c, details, failed, firstErr, "订单", "account_management")
+		sortBillingByDateDesc(list)
+		if len(list) > accountBillingListSize {
+			list = list[:accountBillingListSize]
+		}
+
+		acc, _ := ovhAccountFor(state, c)
+		for _, item := range list {
+			// billing.Order.password 是订单口令,页面用不到,不透传给前端
+			delete(item, "password")
+			// url 缺失时用控制台深链补上,保证每条订单都能点进去看 OVH 那边的原始状态
+			if u, _ := item["url"].(string); strings.TrimSpace(u) == "" && acc.Endpoint != "" {
+				if oid, err := strconv.ParseInt(idToString(item["orderId"]), 10, 64); err == nil {
+					item["url"] = managerOrderURL(acc.Endpoint, oid)
+				}
+			}
+		}
+
+		state.Logger.Info(fmt.Sprintf("成功获取 %d 条订单记录(窗口内 %d 条,拉取失败 %d 条)", len(list), len(ids), failed), "account_management")
+		c.JSON(http.StatusOK, list)
 	}
 }

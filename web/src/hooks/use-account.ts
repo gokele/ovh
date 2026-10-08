@@ -27,6 +27,24 @@ export interface RefundRecord {
   pdfUrl?: string;
 }
 
+/**
+ * OVH 官方订单记录(/me/order → billing.Order)。
+ * priceWithTax/priceWithoutTax/tax 是 {value, text, currencyCode} 对象(OVH order.Price),
+ * 展示一律用 text(带货币符号,后端格式化好的);retractionDate 非空且未过期 = 还在撤回期内。
+ */
+export interface OrderRecord {
+  orderId: number;
+  date: string;
+  expirationDate?: string | null;
+  retractionDate?: string | null;
+  pdfUrl?: string;
+  /** OVH 控制台深链;后端在 OVH 没回 url 时会用账户 endpoint 补上 */
+  url?: string;
+  priceWithTax?: { value: number; text: string; currencyCode: string };
+  priceWithoutTax?: { value: number; text: string; currencyCode: string };
+  tax?: { value: number; text: string; currencyCode: string };
+}
+
 export interface EmailHistoryEntry {
   id: number;
   date: string;
@@ -84,6 +102,18 @@ export function useEmails() {
     queryKey: qk.account.emails(accountId),
     queryFn: async (): Promise<PartialList<EmailHistoryEntry>> => {
       const res = await api.get<EmailHistoryEntry[]>("/ovh/account/email-history");
+      return toPartialList(res.data, readPartialFailures(res.headers));
+    },
+  });
+}
+
+/** OVH 订单记录。同 useRefunds：裸数组 + X-Partial-Failures 头 */
+export function useOrders() {
+  const [accountId] = useActiveAccount();
+  return useQuery({
+    queryKey: qk.account.orders(accountId),
+    queryFn: async (): Promise<PartialList<OrderRecord>> => {
+      const res = await api.get<OrderRecord[]>("/ovh/account/orders");
       return toPartialList(res.data, readPartialFailures(res.headers));
     },
   });
