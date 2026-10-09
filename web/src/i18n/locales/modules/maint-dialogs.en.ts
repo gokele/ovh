@@ -334,7 +334,7 @@ const pack: MaintDialogsPack = {
     },
     overview: {
     lottery: {
-      bannerTitle: "🎉 You won the hardware lottery!",
+      bannerTitle: "You won the hardware lottery!",
       bannerDesc: "Delivered hardware is better than ordered: {{items}}",
       kind: {
         cpu: "CPU",

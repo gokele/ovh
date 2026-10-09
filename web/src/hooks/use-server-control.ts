@@ -119,29 +119,39 @@ export function useOwnedServers() {
   });
 }
 
-/** 硬件"中奖"检测结果(后端 hardware 接口附带) */
-export function useHardwareLottery(serviceName: string | null) {
+/** /server-control/{sn}/hardware 的完整响应:硬件信息 + 中奖检测一次带回 */
+interface HardwareEnvelope {
+  success: boolean;
+  hardware: HardwareInfo | null;
+  lottery: HardwareLottery | null;
+}
+
+// 中奖检测和硬件信息来自同一个接口,两个 hook 必须共享同一次请求。
+// queryKey 相同的 query 全局只有一份缓存、只跑一个 queryFn —— 以前两个 hook
+// 各带各的 queryFn 又共用同一个 key,先挂载的 useServerHardware 把缓存写成了
+// 纯 HardwareInfo,useHardwareLottery 再读同一份缓存,.checked 永远是 undefined,
+// 中奖横幅一次都不会显示。改成共用 queryFn + 各自 select 投影:一份缓存各取所需。
+function useHardwareQuery<T>(serviceName: string | null, select: (d: HardwareEnvelope) => T) {
   return useQuery({
     queryKey: qk.serverControl.hardware(serviceName || ""),
-    queryFn: async () => {
+    queryFn: async (): Promise<HardwareEnvelope> => {
       const res = await api.get(`/server-control/${serviceName}/hardware`);
-      return (res.data?.lottery || null) as HardwareLottery | null;
+      return res.data as HardwareEnvelope;
     },
     enabled: !!serviceName,
     staleTime: 60_000,
+    select,
   });
+}
+
+/** 硬件"中奖"检测结果(后端 hardware 接口附带) */
+export function useHardwareLottery(serviceName: string | null) {
+  return useHardwareQuery(serviceName, (d) => d?.lottery || null);
 }
 
 /** 硬件信息（后端返回 { success, hardware: {...} }） */
 export function useServerHardware(serviceName: string | null) {
-  return useQuery({
-    queryKey: qk.serverControl.hardware(serviceName || ""),
-    queryFn: async () => {
-      const res = await api.get(`/server-control/${serviceName}/hardware`);
-      return (res.data?.hardware || null) as HardwareInfo | null;
-    },
-    enabled: !!serviceName,
-  });
+  return useHardwareQuery(serviceName, (d) => d?.hardware || null);
 }
 
 

@@ -329,7 +329,7 @@ export const maintDialogsZh = {
     },
     overview: {
     lottery: {
-      bannerTitle: "🎉 你中奖了！",
+      bannerTitle: "你中奖了！",
       bannerDesc: "订购配置与实际交付不同：{{items}}",
       kind: {
         cpu: "CPU",
