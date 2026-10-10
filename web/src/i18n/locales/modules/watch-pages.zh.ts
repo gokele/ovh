@@ -270,6 +270,7 @@ export const watchPagesZh = {
     showSensitive: "显示 IP / MAC",
     hideIp: "隐藏 IP",
     hiddenTip: "已隐藏敏感信息 · 点击显示",
+    lotteryBadge: "这台机器中了硬件奖",
     list: {
       failed: "服务器列表读取失败",
       empty: "暂无服务器",

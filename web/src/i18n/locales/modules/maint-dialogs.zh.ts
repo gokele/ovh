@@ -329,8 +329,12 @@ export const maintDialogsZh = {
     },
     overview: {
     lottery: {
-      bannerTitle: "你中奖了！",
-      bannerDesc: "订购配置与实际交付不同：{{items}}",
+      title1: "你中奖了！",
+      title2: "大奖！配置双升级",
+      title3: "头奖！！全面升级",
+      bannerDesc: "实际交付优于订购：{{items}}",
+      gainPct: "+{{pct}}%",
+      gainMedia: "介质升级",
       kind: {
         cpu: "CPU",
         memory: "内存",

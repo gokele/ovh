@@ -82,6 +82,7 @@ func ListMyServers(state *app.State) gin.HandlerFunc {
 		type srvResult struct {
 			info         map[string]interface{}
 			svcInfo      map[string]interface{}
+			lottery      *hwLottery
 			detailError  error
 			svcInfoError error
 		}
@@ -108,6 +109,9 @@ func ListMyServers(state *app.State) gin.HandlerFunc {
 					return
 				}
 				results[idx].svcInfo = svc
+				// 中奖摘要:详情页算过就纯缓存读(0 请求),没算过补 1 次 hardware GET,
+				// 1h TTL。徽章是锦上添花,失败只当没有,不影响列表
+				results[idx].lottery = hwLotteryFor(client, nm)
 			}(i, name)
 		}
 		wg.Wait()
@@ -167,6 +171,10 @@ func ListMyServers(state *app.State) gin.HandlerFunc {
 			}
 			if r.svcInfoError != nil {
 				entry["svcInfoError"] = r.svcInfoError.Error()
+			}
+			// 中奖徽章摘要:只带 won/tier,详情在机器详情页
+			if r.lottery != nil && r.lottery.Checked && r.lottery.Won {
+				entry["lottery"] = gin.H{"won": true, "tier": r.lottery.Tier}
 			}
 			servers = append(servers, entry)
 		}

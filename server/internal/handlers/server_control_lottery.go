@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 
@@ -31,9 +32,13 @@ import (
 
 // hwLotteryItem 单项中奖明细(只列出"实际优于订购"的项)
 type hwLotteryItem struct {
-	Kind    string `json:"kind"`    // cpu | memory | disk
-	Ordered string `json:"ordered"` // 订购配置展示文案
-	Actual  string `json:"actual"`  // 实际配置展示文案
+	Kind    string  `json:"kind"`    // cpu | memory | disk
+	Ordered string  `json:"ordered"` // 订购配置展示文案
+	Actual  string  `json:"actual"`  // 实际配置展示文案
+	// 量化幅度,前端据此显示 "+100%"。0 = 算不出来(前端退回普通文案)
+	GainPct float64 `json:"gainPct,omitempty"`
+	// 硬盘专属:介质升级(HDD→SSD→NVMe)
+	MediaUp bool `json:"mediaUp,omitempty"`
 }
 
 // hwLottery 返回给前端的比对结果
@@ -41,6 +46,7 @@ type hwLottery struct {
 	// Checked=false 表示没拿到订购配置(权限不足 / 老合同没有 options 等),前端不显示任何中奖标识
 	Checked  bool            `json:"checked"`
 	Won      bool            `json:"won"`
+	Tier     int             `json:"tier,omitempty"` // 1=中奖 2=大奖 3=头奖(按中奖项数与翻倍幅度)
 	PlanCode string          `json:"planCode,omitempty"`
 	PlanName string          `json:"planName,omitempty"`
 	Items    []hwLotteryItem `json:"items"`
@@ -82,6 +88,40 @@ type hwSvcLite struct {
 
 // 订购配置下单后不会再变,按 serviceName 缓存,避免每次打开概览都多打 3 个 OVH 请求
 var hwOrderedSpecCache sync.Map // serviceName -> *hwOrderedSpec
+
+// 中奖结果缓存:机器列表页要给每台机器带 lottery 摘要,不能每次列表刷新都
+// N×GET specifications/hardware。详情页算完顺手写入,列表页缓存命中直接用,
+// 过期(1h)才补算。硬件抽奖开完奖就定了,1h 的陈旧度没有实际影响。
+type hwLotteryEntry struct {
+	lot hwLottery
+	at  time.Time
+}
+
+var hwLotteryCache sync.Map // serviceName -> hwLotteryEntry
+
+const hwLotteryTTL = time.Hour
+
+// hwLotteryFor 取(或补算)一台机器的中奖结果。任何失败都返回 nil:
+// 列表页的徽章是锦上添花,不允许它拖慢或报错影响列表本身。
+func hwLotteryFor(client *ovhsdk.Client, svc string) *hwLottery {
+	if v, ok := hwLotteryCache.Load(svc); ok {
+		if e := v.(hwLotteryEntry); time.Since(e.at) < hwLotteryTTL {
+			lot := e.lot
+			return &lot
+		}
+	}
+	spec, err := hwFetchOrderedSpec(client, svc)
+	if err != nil {
+		return nil
+	}
+	var hardware map[string]interface{}
+	if err := client.Get("/dedicated/server/"+svc+"/specifications/hardware", &hardware); err != nil {
+		return nil
+	}
+	lot := hwComputeLottery(spec, hardware)
+	hwLotteryCache.Store(svc, hwLotteryEntry{lot: lot, at: time.Now()})
+	return &lot
+}
 
 var (
 	hwReRAM  = regexp.MustCompile(`^ram-(\d+)g`)
@@ -185,7 +225,11 @@ func hwComputeLottery(spec *hwOrderedSpec, hardware map[string]interface{}) hwLo
 	}
 	actualCPU, _ := hardware["processorName"].(string)
 	if orderedCPU != "" && actualCPU != "" && !hwCPUSame(orderedCPU, actualCPU) {
-		res.Items = append(res.Items, hwLotteryItem{Kind: "cpu", Ordered: orderedCPU, Actual: actualCPU})
+		res.Items = append(res.Items, hwLotteryItem{
+			Kind:    "cpu",
+			Ordered: orderedCPU,
+			Actual:  actualCPU,
+		})
 	}
 
 	// ---- 内存:实际 > 订购 ----
@@ -195,6 +239,7 @@ func hwComputeLottery(spec *hwOrderedSpec, hardware map[string]interface{}) hwLo
 				Kind:    "memory",
 				Ordered: hwFmtGB(spec.MemoryGB),
 				Actual:  hwFmtGB(actualGB),
+				GainPct: (actualGB - spec.MemoryGB) / spec.MemoryGB * 100,
 			})
 		}
 	}
@@ -241,14 +286,36 @@ func hwComputeLottery(spec *hwOrderedSpec, hardware map[string]interface{}) hwLo
 					Kind:    "disk",
 					Ordered: strings.Join(ordParts, " + "),
 					Actual:  strings.Join(actParts, " + "),
+					GainPct: func() float64 {
+						if ordTotal > 0 && bigger {
+							return (actTotal - ordTotal) / ordTotal * 100
+						}
+						return 0
+					}(),
+					MediaUp: better,
 				})
 			}
 		}
 	}
 
 	res.Won = len(res.Items) > 0
+	// 等级:中奖项数为底,任一项翻倍以上 +1,封顶 3。
+	// 1=中奖(单项小升) 2=大奖(双项,或单项翻倍) 3=头奖(三项全中 / 多项+翻倍)
+	if res.Won {
+		res.Tier = len(res.Items)
+		for _, it := range res.Items {
+			if it.GainPct >= 100 {
+				res.Tier++
+				break
+			}
+		}
+		if res.Tier > 3 {
+			res.Tier = 3
+		}
+	}
 	return res
 }
+
 
 func hwNormCPU(s string) string {
 	s = hwReCPUNoise.ReplaceAllString(strings.ToLower(s), "")

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2 } from "lucide-react";
+import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2, PartyPopper } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -248,6 +248,9 @@ function ServerSelector({
             <div className="flex items-center gap-2">
               <StatusDot tone={selected.state === "ok" ? "success" : "warning"} size="xs" />
               <span className="font-semibold">{maskSensitive(displayName(selected), hidden)}</span>
+              {selected.lottery?.won && (
+                <PartyPopper className="w-3 h-3 text-amber-500 flex-shrink-0" aria-label={t("serverList.lotteryBadge")} />
+              )}
               <span className="text-[11px] text-muted-foreground font-sans ml-1">
                 {selected.commercialRange} · {(selected.datacenter || "").toUpperCase()}
               </span>
@@ -273,6 +276,9 @@ function ServerSelector({
             >
               <StatusDot tone={s.state === "ok" ? "success" : "warning"} size="xs" />
               <span className="font-semibold">{maskSensitive(displayName(s), hidden)}</span>
+              {s.lottery?.won && (
+                <PartyPopper className="w-3 h-3 text-amber-500 flex-shrink-0" aria-label={t("serverList.lotteryBadge")} />
+              )}
               <span className="text-[11px] text-muted-foreground font-sans ml-1">
                 {s.commercialRange} · {(s.datacenter || "").toUpperCase()}
               </span>

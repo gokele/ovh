@@ -275,6 +275,7 @@ const pack: WatchPagesPack = {
     showSensitive: "Show IP / MAC",
     hideIp: "Hide IP",
     hiddenTip: "Sensitive info hidden · click to show",
+    lotteryBadge: "This machine won the hardware lottery",
     list: {
       failed: "Failed to load the server list",
       empty: "No servers",

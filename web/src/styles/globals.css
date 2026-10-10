@@ -176,3 +176,31 @@
     }
   }
 }
+
+/* ── 中奖彩带(LotteryConfetti):只动 transform/opacity,一次性自然收尾 ── */
+@keyframes lottery-confetti-fall {
+  0% {
+    transform: translate3d(0, -8px, 0) rotate(0deg);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--drift, 0px), 180px, 0) rotate(var(--rot, 180deg));
+    opacity: 0;
+  }
+}
+
+.lottery-confetti-particle {
+  animation-name: lottery-confetti-fall;
+  animation-timing-function: cubic-bezier(0.16, 0.6, 0.35, 1); /* ease-out 减速收尾 */
+  animation-fill-mode: forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lottery-confetti-particle {
+    animation: none;
+    display: none;
+  }
+}

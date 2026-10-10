@@ -334,8 +334,12 @@ const pack: MaintDialogsPack = {
     },
     overview: {
     lottery: {
-      bannerTitle: "You won the hardware lottery!",
+      title1: "You won the hardware lottery!",
+      title2: "Big win — double upgrade!",
+      title3: "JACKPOT — upgraded across the board!",
       bannerDesc: "Delivered hardware is better than ordered: {{items}}",
+      gainPct: "+{{pct}}%",
+      gainMedia: "media upgrade",
       kind: {
         cpu: "CPU",
         memory: "Memory",

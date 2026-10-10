@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	ovhsdk "github.com/ovh/go-ovh/ovh"
@@ -91,6 +92,8 @@ func GetHardwareInfo(state *app.State) gin.HandlerFunc {
 			lottery.Reason = ovh.Explain(specErr)
 			state.Logger.Warn("获取服务器 "+svc+" 订购配置失败,跳过中奖比对: "+specErr.Error(), "server_control")
 		}
+		// 顺手写入结果缓存:机器列表页的徽章从这里取,列表刷新就不用再打一遍这些请求
+		hwLotteryCache.Store(svc, hwLotteryEntry{lot: lottery, at: time.Now()})
 		// 缺字段补 N/A / 0 / {} / []，
 		// 否则 JSON 序列化 null 让前端 .toLowerCase / .length 崩溃
 		c.JSON(http.StatusOK, gin.H{

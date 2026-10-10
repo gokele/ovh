@@ -32,6 +32,8 @@ export interface OwnedServer {
   svcInfoError?: string;
   /** 有值表示这台机器连详情都没拉到，除 serviceName/name 外其它字段都缺 */
   error?: string;
+  /** 中奖摘要(后端 1h 缓存,只有确实中奖的机器才带)。徽章用,详情在概览页 */
+  lottery?: { won: boolean; tier?: number };
 }
 
 export interface HardwareInfo {
@@ -49,12 +51,18 @@ export interface HardwareLottery {
   /** false = 没拿到订购配置(权限/老合同),不显示任何中奖标识 */
   checked: boolean;
   won: boolean;
+  /** 1=中奖 2=大奖 3=头奖(中奖项数 + 翻倍加成,后端算好) */
+  tier?: number;
   planCode?: string;
   planName?: string;
   items: Array<{
     kind: "cpu" | "memory" | "disk";
     ordered: string;
     actual: string;
+    /** 量化涨幅(%),0/缺省 = 算不出来 */
+    gainPct?: number;
+    /** 硬盘介质升级(HDD→SSD→NVMe) */
+    mediaUp?: boolean;
   }>;
   reason?: string;
 }
