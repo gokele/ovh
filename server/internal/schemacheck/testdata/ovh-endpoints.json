@@ -2196,6 +2196,29 @@
       ]
     }
   },
+  "GET /services/{serviceId}/options": {
+    "CA": {
+      "status": "BETA",
+      "response": "services.expanded.Service[]",
+      "params": [
+        "path:serviceId:long:true"
+      ]
+    },
+    "EU": {
+      "status": "BETA",
+      "response": "services.expanded.Service[]",
+      "params": [
+        "path:serviceId:long:true"
+      ]
+    },
+    "US": {
+      "status": "BETA",
+      "response": "services.expanded.Service[]",
+      "params": [
+        "path:serviceId:long:true"
+      ]
+    }
+  },
   "GET /vps": {
     "CA": {
       "status": "PRODUCTION",
