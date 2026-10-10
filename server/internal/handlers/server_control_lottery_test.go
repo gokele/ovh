@@ -61,7 +61,7 @@ func TestHwLottery_DiskUpgrade(t *testing.T) {
 
 // 量化收益与等级:内存翻倍+CPU 跨代 → tier 2;三代全中+翻倍 → 封顶 3;跨族 CPU 不算代差
 func TestLotteryTierAndGains(t *testing.T) {
-	// CPU 换型号 + 内存 32→64 翻倍:两项 + 翻倍加成 → 封顶 3
+	// CPU 换型号 + 内存 32→64:中两项 → tier 2(翻倍是 OVH 惯例,不作为提级依据)
 	spec := &hwOrderedSpec{CPU: "Intel Xeon E5-1620v2", MemoryGB: 32}
 	hw := map[string]interface{}{
 		"processorName": "Intel Xeon E5-1630v4",
@@ -76,8 +76,8 @@ func TestLotteryTierAndGains(t *testing.T) {
 			t.Errorf("内存涨幅应约 100%%,实际 %.1f", it.GainPct)
 		}
 	}
-	if lot.Tier != 3 {
-		t.Errorf("两项+翻倍应封顶 tier 3,实际 %d", lot.Tier)
+	if lot.Tier != 2 {
+		t.Errorf("两项应为 tier 2,实际 %d", lot.Tier)
 	}
 
 	// CPU 换品牌、内存不变:只中一项,tier 1

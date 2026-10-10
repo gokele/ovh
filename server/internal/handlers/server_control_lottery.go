@@ -46,7 +46,7 @@ type hwLottery struct {
 	// Checked=false 表示没拿到订购配置(权限不足 / 老合同没有 options 等),前端不显示任何中奖标识
 	Checked  bool            `json:"checked"`
 	Won      bool            `json:"won"`
-	Tier     int             `json:"tier,omitempty"` // 1=中奖 2=大奖 3=头奖(按中奖项数与翻倍幅度)
+	Tier     int             `json:"tier,omitempty"` // 1=中奖 2=大奖 3=头奖(按中奖项数)
 	PlanCode string          `json:"planCode,omitempty"`
 	PlanName string          `json:"planName,omitempty"`
 	Items    []hwLotteryItem `json:"items"`
@@ -299,16 +299,10 @@ func hwComputeLottery(spec *hwOrderedSpec, hardware map[string]interface{}) hwLo
 	}
 
 	res.Won = len(res.Items) > 0
-	// 等级:中奖项数为底,任一项翻倍以上 +1,封顶 3。
-	// 1=中奖(单项小升) 2=大奖(双项,或单项翻倍) 3=头奖(三项全中 / 多项+翻倍)
+	// 等级 = 中奖项数(1=中奖 2=大奖 3=头奖)。不拿"翻倍"当加成:
+	// OVH 的中奖惯例就是翻倍(内存 32→64 是标准剧情),按翻倍提级几乎每次都头奖,等级就没意义了
 	if res.Won {
 		res.Tier = len(res.Items)
-		for _, it := range res.Items {
-			if it.GainPct >= 100 {
-				res.Tier++
-				break
-			}
-		}
 		if res.Tier > 3 {
 			res.Tier = 3
 		}
