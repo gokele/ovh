@@ -267,6 +267,28 @@ func idToString(v interface{}) string {
 	}
 }
 
+// putServiceRenew 发 renew 修改(独服 / VPS 的 PUT .../serviceInfos 共用)。
+//
+// OVH 正在分批下线 renew.manualPayment 参数(实测 2026-10 US 区 VPS 拒收:
+// 400 "manualPayment parameter isn't available anymore"),但官方 schema 三区
+// 都还保留着这个字段 —— 文档滞后于 live,没法按 schema 预判哪个服务收。
+// 所以按"先按现行契约发,命中参数废弃就自动去掉该字段重试"处理:
+// 手动续费在新契约里就是 automatic=false + deleteAtExpiration=false,
+// manualPayment 在新计费体系里已无语义,去掉不算改行为。
+func putServiceRenew(client *ovhsdk.Client, path string, next map[string]interface{}) error {
+	err := client.Put(path, map[string]interface{}{"renew": next}, nil)
+	if err == nil || !ovh.IsParamUnavailable(err, "manualPayment") {
+		return err
+	}
+	fallback := make(map[string]interface{}, len(next))
+	for k, v := range next {
+		if k != "manualPayment" {
+			fallback[k] = v
+		}
+	}
+	return client.Put(path, map[string]interface{}{"renew": fallback}, nil)
+}
+
 // respondOVHError 统一的 OVH 写操作错误响应:
 // 4xx 透传(前端能区分"重试没用"和"服务器错了")、5xx 保持 500,文案一律 ovh.Explain。
 // 任务冲突类(IsTaskConflict)回 409,提示用户等任务完成。

@@ -353,8 +353,7 @@ func UpdateVpsRenewal(state *app.State) gin.HandlerFunc {
 			next["period"] = pv
 		}
 		// services.Service 只有 renew 可写,整对象发回去会被 400
-		if err := client.Put("/vps/"+svc+"/serviceInfos",
-			map[string]interface{}{"renew": next}, nil); err != nil {
+		if err := putServiceRenew(client, "/vps/"+svc+"/serviceInfos", next); err != nil {
 			respondOVHError(c, err)
 			return
 		}

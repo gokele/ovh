@@ -563,8 +563,7 @@ func UpdateServiceRenewal(state *app.State) gin.HandlerFunc {
 		// services.Service 里只有 renew 可写,其余 12 个字段全是只读 ——
 		// 把 GET 回来的整个对象发回去会被 OVH 400
 		// "Try to alter read-only properties: status, creation, expiration"
-		if err := client.Put("/dedicated/server/"+svc+"/serviceInfos",
-			map[string]interface{}{"renew": next}, nil); err != nil {
+		if err := putServiceRenew(client, "/dedicated/server/"+svc+"/serviceInfos", next); err != nil {
 			state.Logger.Error("修改服务器 "+svc+" 续费策略失败: "+err.Error(), "server_control")
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return

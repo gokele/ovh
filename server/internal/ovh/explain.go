@@ -70,6 +70,11 @@ func hintFor(e *ovhsdk.APIError) string {
 
 	// —— 先按原文认。这些说法的含义与状态码无关 ——
 	switch {
+	case strings.Contains(lower, "parameter isn't available anymore"):
+		// OVH 的参数废弃拒绝(官方 schema 还没同步)。新版本已自动去掉废弃参数
+		// 重试;走到这里说明去掉后仍被拒 —— 这个服务在新的计费体系里不再接受
+		// 这种改法,别把人指去查凭据/权限
+		return "OVH 已在这个服务上下线了该参数(官方文档还没同步)。程序已自动按新契约重试仍被拒:请改用「自动续费」,或直接在 OVH 控制台操作"
 	case strings.Contains(lower, "reboot has already been requested"):
 		// OVH 对同一台机器的重启防抖(实测回 403 而不是 409,状态码认不出来)。
 		// 它不是权限问题:已经有一个重启在跑了,这次请求要做的件事已经在发生
@@ -128,6 +133,19 @@ func IsRebootAlreadyRequested(err error) bool {
 	lower := strings.ToLower(err.Error())
 	return strings.Contains(lower, "reboot has already been requested") ||
 		strings.Contains(lower, "a reboot is already in progress")
+}
+
+// IsParamUnavailable 认出 OVH 的参数废弃拒绝:400 + "<param> parameter isn't
+// available anymore"。
+// 坑点:官方 schema 里这个字段往往**还列着**(三区 vps.json 的
+// service.RenewType.manualPayment 至今是合法可选布尔)—— 文档滞后于 live。
+// 实测 2026-10 US 区 PUT /vps/{svc}/serviceInfos 对 renew.manualPayment 拒收。
+func IsParamUnavailable(err error, param string) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()),
+		strings.ToLower(param)+" parameter isn't available anymore")
 }
 
 // IsTaskConflict 认出 OVH 的任务冲突/进行中拒绝。

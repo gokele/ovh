@@ -131,3 +131,37 @@ func TestExplainRebootAlreadyRequested(t *testing.T) {
 		t.Fatalf("应说明已有重启在进行: %s", got)
 	}
 }
+
+// 回归:manualPayment 参数废弃(400 + "manualPayment parameter isn't available anymore",
+// 实测 2026-10 US 区 PUT /vps/{svc}/serviceInfos)。
+// 官方 schema 三区都还列着这个字段 —— 文档滞后于 live,IsParamUnavailable 是
+// putServiceRenew 自动降级重试的判据,认不出 = 重试永远不会发生。
+func TestIsParamUnavailableManualPayment(t *testing.T) {
+	err := &ovhsdk.APIError{
+		Code:    400,
+		Class:   "Client::BadRequest",
+		Message: "[renew] manualPayment parameter isn't available anymore",
+	}
+	if !IsParamUnavailable(err, "manualPayment") {
+		t.Fatalf("应认出 manualPayment 参数废弃: %v", err)
+	}
+	// 其它参数不受牵连
+	if IsParamUnavailable(err, "period") {
+		t.Fatal("period 不该被认成废弃参数")
+	}
+	// nil 与无关错误不误报
+	if IsParamUnavailable(nil, "manualPayment") {
+		t.Fatal("nil 不该命中")
+	}
+	if IsParamUnavailable(errors.New("some network error"), "manualPayment") {
+		t.Fatal("无关错误不该命中")
+	}
+	// 兜底文案:去掉参数重试仍被拒时,要告诉用户换路径,而不是指向凭据/权限
+	got := Explain(err)
+	if !strings.Contains(got, "自动按新契约重试") {
+		t.Fatalf("缺兜底提示: %s", got)
+	}
+	if strings.Contains(got, "consumer key") {
+		t.Fatalf("参数废弃不应指向凭据问题: %s", got)
+	}
+}
