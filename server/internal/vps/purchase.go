@@ -244,13 +244,33 @@ func buildVPSConfig(required []requiredItem, dcCode, os string) []kv {
 		}
 	}
 
-	// 系统:用户没选就不提交,让 OVH 用默认镜像
-	if os = strings.TrimSpace(os); os != "" {
-		if r, ok := byLabel["vps_os"]; !ok || len(r.AllowedValues) == 0 || containsFold(r.AllowedValues, os) {
+	// 系统:requiredConfiguration 里 vps_os 标的是 required:false,但 checkout 不给它
+	// 就 400 "Missing parameter(s): vps_os or vps_backupid is required" ——
+	// 根本没有"OVH 默认镜像"这回事。用户没选时从购物车允许的列表里挑一个。
+	os = strings.TrimSpace(os)
+	r, hasOS := byLabel["vps_os"]
+	if os == "" && hasOS {
+		os = defaultVPSOS(r.AllowedValues)
+	}
+	if os != "" {
+		if !hasOS || len(r.AllowedValues) == 0 || containsFold(r.AllowedValues, os) {
 			out = append(out, kv{"vps_os", os})
 		}
 	}
 	return out
+}
+
+// defaultVPSOS 用户没选系统时的兜底:按偏好顺序挑购物车里有的,都没有就取第一个
+func defaultVPSOS(allowed []string) string {
+	for _, want := range []string{"Debian 13", "Debian 12", "Ubuntu 24.04"} {
+		if containsFold(allowed, want) {
+			return want
+		}
+	}
+	if len(allowed) > 0 {
+		return allowed[0]
+	}
+	return ""
 }
 
 func containsFold(list []string, want string) bool {
@@ -357,7 +377,15 @@ func autoOrderOnRestock(state *app.State, sub types.VPSSubscription, dcs []map[s
 	}
 	state.HistoryMu.Unlock()
 	for _, dc := range dcs {
-		code, _ := dc["code"].(string)
+		// 可用性接口每个机房给两个名字:code 是 eu-west-lim 这种新长码,
+		// datacenter(这里存成 name)是 DE / GRA / EU-WEST-LZ-AMS 这种短名。
+		// 购物车的 vps_datacenter 只认短名 —— 交长码 checkout 直接 400
+		// "Invalid VPS datacenter 'EU-WEST-LIM'"。LIM→DE、ERI→UK、MUM→YNM
+		// 这几个连大写都对不上,只能用 OVH 自己给的那个字段。
+		code, _ := dc["name"].(string)
+		if code == "" {
+			code, _ = dc["code"].(string)
+		}
 		if code == "" {
 			continue
 		}

@@ -78,15 +78,20 @@ func TestBuildVPSConfig_不提交购物车没要的项(t *testing.T) {
 	}
 }
 
-// 用户没选系统就不提交,让 OVH 用默认镜像
-func TestBuildVPSConfig_没选系统就不提交(t *testing.T) {
+// 用户没选系统也必须提交 vps_os:checkout 缺它就 400,不存在"OVH 默认镜像"
+func TestBuildVPSConfig_没选系统就挑一个(t *testing.T) {
 	req := []requiredItem{
 		{Label: "vps_datacenter", Required: true},
 		{Label: "vps_os", AllowedValues: []string{"Ubuntu 24.04", "Debian 12"}},
 	}
 	got := labels(buildVPSConfig(req, "GRA", ""))
-	if _, ok := got["vps_os"]; ok {
-		t.Error("没选系统不该提交 vps_os")
+	if got["vps_os"] != "Debian 12" {
+		t.Errorf("没选系统应按偏好挑 Debian 12,实际 %q", got["vps_os"])
+	}
+	req[1].AllowedValues = []string{"Fedora 44", "Rocky Linux 9"}
+	got = labels(buildVPSConfig(req, "GRA", ""))
+	if got["vps_os"] != "Fedora 44" {
+		t.Errorf("偏好都没有时应取第一个,实际 %q", got["vps_os"])
 	}
 }
 
