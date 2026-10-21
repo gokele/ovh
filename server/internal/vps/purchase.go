@@ -2,6 +2,7 @@ package vps
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -168,6 +169,28 @@ func PurchaseVPS(state *app.State, sub types.VPSSubscription, dcCode string) Out
 		state.Logger.Info(fmt.Sprintf("[VPS下单] 配置 %s = %s", cfg.label, cfg.value), "vps_purchase")
 	}
 
+	// 4.5) 必选附加项。2027 系列的 automatedBackup / storage 是 mandatory 家族,
+	// 不加 checkout 就 400 "Addon of type automatedBackup is missing"。
+	// 拉不到选项就硬着头皮结账 —— 老型号可能根本没有必选家族。
+	var opts []vpsOption
+	if err := client.Get(fmt.Sprintf("/order/cart/%s/vps/options?planCode=%s", cartID, url.QueryEscape(sub.PlanCode)), &opts); err != nil {
+		state.Logger.Warn("[VPS下单] 拉附加项失败(按无必选项继续): "+ovh.Explain(err), "vps_purchase")
+	}
+	addons, missing := pickMandatoryAddons(opts, duration, pricingMode)
+	if len(missing) > 0 {
+		return Outcome{Fatal: true, Reason: fmt.Sprintf(
+			"必选附加项 %v 没有 %s/%s 计价的可选值,这个型号按当前计价方式买不了", missing, duration, pricingMode)}
+	}
+	for _, a := range addons {
+		if err := client.Post(fmt.Sprintf("/order/cart/%s/vps/options", cartID), map[string]interface{}{
+			"itemId": itemID, "planCode": a.planCode, "duration": duration,
+			"pricingMode": pricingMode, "quantity": qty,
+		}, nil); err != nil {
+			return Outcome{Reason: fmt.Sprintf("添加附加项 %s 失败: %s", a.planCode, ovh.Explain(err))}
+		}
+		state.Logger.Info(fmt.Sprintf("[VPS下单] 附加项 %s = %s", a.family, a.planCode), "vps_purchase")
+	}
+
 	// 5) 结账
 	var checkoutResult map[string]interface{}
 	// 同独服:不发 waiveRetractationPeriod(放弃 14 天撤回权)。
@@ -189,6 +212,61 @@ func PurchaseVPS(state *app.State, sub types.VPSSubscription, dcCode string) Out
 }
 
 type kv struct{ label, value string }
+
+// vpsOption GET /order/cart/{id}/vps/options 的一项
+type vpsOption struct {
+	Family    string `json:"family"`
+	Mandatory bool   `json:"mandatory"`
+	PlanCode  string `json:"planCode"`
+	Prices    []struct {
+		Duration    string   `json:"duration"`
+		PricingMode string   `json:"pricingMode"`
+		Capacities  []string `json:"capacities"`
+		Price       struct {
+			Value float64 `json:"value"`
+		} `json:"price"`
+	} `json:"prices"`
+}
+
+type addonPick struct{ family, planCode string }
+
+// pickMandatoryAddons 给每个必选家族挑一个附加项:只看和主商品同 duration/pricingMode
+// 的续费价,取最便宜的(备份就是 1 天保留那档,而不是 7 天)。
+// os 家族跳过 —— 它由 vps_os 配置项决定,再手动加一个 option-linux 会和 Windows 冲突。
+// missing 是有必选家族却挑不出可用项的情况,交给调用方判定失败。
+func pickMandatoryAddons(opts []vpsOption, duration, pricingMode string) (picks []addonPick, missing []string) {
+	type best struct {
+		planCode string
+		price    float64
+	}
+	chosen := map[string]*best{}
+	var families []string
+	for _, o := range opts {
+		if !o.Mandatory || o.Family == "" || strings.EqualFold(o.Family, "os") {
+			continue
+		}
+		if _, seen := chosen[o.Family]; !seen {
+			chosen[o.Family] = nil
+			families = append(families, o.Family)
+		}
+		for _, p := range o.Prices {
+			if p.Duration != duration || p.PricingMode != pricingMode || !containsFold(p.Capacities, "renew") {
+				continue
+			}
+			if b := chosen[o.Family]; b == nil || p.Price.Value < b.price {
+				chosen[o.Family] = &best{o.PlanCode, p.Price.Value}
+			}
+		}
+	}
+	for _, f := range families {
+		if b := chosen[f]; b != nil {
+			picks = append(picks, addonPick{f, b.planCode})
+		} else {
+			missing = append(missing, f)
+		}
+	}
+	return picks, missing
+}
 
 // requiredItem 购物车给出的一个必需配置项
 type requiredItem struct {
