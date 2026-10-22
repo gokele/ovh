@@ -34,7 +34,10 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 			SkipDuplicateCheck bool     `json:"skipDuplicateCheck"`
 			AutoPay            bool     `json:"autoPay"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "任务参数格式不正确"})
+			return
+		}
 		if body.PlanCode == "" || body.Datacenter == "" {
 			c.JSON(http.StatusOK, gin.H{"success": false, "error": "缺少 planCode 或 datacenter", "code": "E75DA4B08"})
 			return

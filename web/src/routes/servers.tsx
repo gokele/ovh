@@ -45,7 +45,7 @@ import { groupOptions, type OptionGroupKey } from "@/lib/option-groups";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
 import { lookupDcStatus, datacentersForPlan } from "@/lib/datacenters";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
-import { formatMoney, currencyUnknownHint } from "@/lib/money";
+import { formatMoney, currencyUnknownHint, comparePrices } from "@/lib/money";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
 import { endpointRegion, regionLabel } from "@/lib/ovh-regions";
 import { clampOrderPlan, MAX_ORDER_QUANTITY, MAX_ORDER_FANOUT } from "@/lib/order-limits";
@@ -101,7 +101,8 @@ function ServersPage() {
   // 查不到就一直显示"价格加载中",而用户根本看不出是配置错了。
   const pageAccounts = useAccounts();
   const [activeAccountId] = useActiveAccount();
-  const activeAcc = findAccountByID(pageAccounts.data, activeAccountId);
+  const defaultPageAccount = useDefaultAccount();
+  const activeAcc = findAccountByID(pageAccounts.data, activeAccountId) || defaultPageAccount;
   const subsidiary = (activeAcc?.zone || accountSub || "IE").toUpperCase();
 
   // 单次拉取所选 subsidiary 的目录算价格（base plan + addon family 月费累加）
@@ -151,10 +152,7 @@ function ServersPage() {
   // 价格排序独立于筛选:目录价格是异步到的,priceMap 更新后顺序自动跟上
   const sorted = useMemo(() => {
     if (priceSort === "default") return filtered;
-    const priceOf = (pc: string) => priceMap[pc]?.total ?? Infinity;
-    return [...filtered].sort((a, b) =>
-      priceSort === "asc" ? priceOf(a.planCode) - priceOf(b.planCode) : priceOf(b.planCode) - priceOf(a.planCode)
-    );
+    return [...filtered].sort((a, b) => comparePrices(priceMap[a.planCode]?.total, priceMap[b.planCode]?.total, priceSort));
   }, [filtered, priceSort, priceMap]);
 
   const detailServer = detailPlanCode ? list.find((s) => s.planCode === detailPlanCode) || null : null;
@@ -328,6 +326,7 @@ function ServersPage() {
         <DialogContent className="w-[95vw] sm:w-full sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
           {detailServer ? (
             <DetailContent
+              key={`${activeAcc?.id || "default"}:${detailServer.planCode}`}
               server={detailServer}
               realtimeDcMap={availMap[detailServer.planCode]}
               availError={availQ.isError}
@@ -528,7 +527,7 @@ function DetailContent({
   // 下单账户 = 左侧菜单栏(手机端在顶栏)选的那个全局账户,这里不再单独选。
   // 拿不到时退回默认账户,避免刚装好还没选就点不了下单。
   const [globalAccountId] = useActiveAccount();
-  const accountId = globalAccountId || defaultAcc?.id || "";
+  const accountId = findAccountByID(accounts, globalAccountId)?.id || defaultAcc?.id || "";
   const activeAccount = findAccountByID(accounts, accountId);
 
   // 这里选的下单账户可能跟页面顶部的活跃账户不是同一个区。

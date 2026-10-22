@@ -1,12 +1,14 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ovh-buy/server/internal/config"
 	"github.com/ovh-buy/server/internal/db"
@@ -14,6 +16,56 @@ import (
 	"github.com/ovh-buy/server/internal/storage"
 	"github.com/ovh-buy/server/internal/types"
 )
+
+func TestEnqueueDoesNotPublishBeforeCommit(t *testing.T) {
+	s := enqueueTestState(t)
+	s.DB.SetMaxOpenConns(1)
+	conn, err := s.DB.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	before := s.DB.Stats().WaitCount
+	done := make(chan error, 1)
+	go func() { done <- s.EnqueueItems([]types.QueueItem{{ID: "uncommitted", Status: "running"}}, false) }()
+	deadline := time.Now().Add(3 * time.Second)
+	for s.DB.Stats().WaitCount == before {
+		if time.Now().After(deadline) {
+			t.Fatal("enqueue did not reach the blocked database")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	published := false
+	if s.QueueMu.TryLock() {
+		published = len(s.Queue) != 0
+		s.QueueMu.Unlock()
+	}
+	_ = conn.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if published {
+		t.Fatal("a worker could execute an uncommitted task")
+	}
+	rows, err := s.DB.ListQueue()
+	if err != nil || len(rows) != 1 || len(s.Queue) != 1 {
+		t.Fatalf("queue not committed: %+v %v", rows, err)
+	}
+}
+
+func TestEnqueueDatabaseFailureKeepsOriginalQueue(t *testing.T) {
+	s := enqueueTestState(t)
+	if err := s.EnqueueItems([]types.QueueItem{{ID: "saved", Status: "paused"}}, false); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.DB.Close()
+	if err := s.EnqueueItems([]types.QueueItem{{ID: "not-saved", Status: "running"}}, true); err == nil {
+		t.Fatal("database failure must be returned")
+	}
+	if len(s.Queue) != 1 || s.Queue[0].ID != "saved" {
+		t.Fatalf("failed enqueue changed the running queue: %+v", s.Queue)
+	}
+}
 
 func enqueueTestState(t *testing.T) *State {
 	t.Helper()

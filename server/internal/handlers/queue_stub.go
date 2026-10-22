@@ -6,18 +6,17 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/types"
 )
 
 // GetQueue GET /api/queue
 func GetQueue(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state.QueueMu.Lock()
-		defer state.QueueMu.Unlock()
 		// 返回副本，确保为空时序列化为 [] 而不是 null
-		cp := make([]interface{}, 0, len(state.Queue))
-		for _, it := range state.Queue {
-			cp = append(cp, it)
-		}
+		cp := make([]types.QueueItem, len(state.Queue))
+		copy(cp, state.Queue)
+		state.QueueMu.Unlock()
 		c.JSON(http.StatusOK, cp)
 	}
 }
@@ -26,11 +25,9 @@ func GetQueue(state *app.State) gin.HandlerFunc {
 func GetPurchaseHistory(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state.HistoryMu.Lock()
-		defer state.HistoryMu.Unlock()
-		cp := make([]interface{}, 0, len(state.History))
-		for _, h := range state.History {
-			cp = append(cp, h)
-		}
+		cp := make([]types.PurchaseHistoryEntry, len(state.History))
+		copy(cp, state.History)
+		state.HistoryMu.Unlock()
 		c.JSON(http.StatusOK, cp)
 	}
 }

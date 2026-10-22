@@ -7,6 +7,7 @@ import { useActiveAccountEndpoint } from "@/components/common/active-endpoint";
 import { apiBaseUrlForEndpoint, endpointRegion } from "@/lib/ovh-regions";
 import { formatMoney } from "@/lib/money";
 import i18n from "@/i18n";
+import { apiDatacenterCode } from "@/lib/datacenters";
 
 export interface DatacenterInfo {
   datacenter: string;
@@ -147,11 +148,11 @@ export function hasStockWithOption(
   dcCodes?: string[]
 ): boolean {
   if (!variants || variants.length === 0) return true;
-  const filter = dcCodes && dcCodes.length > 0 ? new Set(dcCodes.map((c) => c.toLowerCase())) : null;
+  const filter = dcCodes && dcCodes.length > 0 ? new Set(dcCodes.map(apiDatacenterCode)) : null;
   for (const v of variants) {
     if (!fqnMatchesOption(v.fqn, candidate)) continue;
     for (const dc of v.datacenters || []) {
-      const code = dc.datacenter?.toLowerCase();
+      const code = apiDatacenterCode(dc.datacenter || "");
       if (!code) continue;
       if (filter && !filter.has(code)) continue;
       const s = dc.availability;

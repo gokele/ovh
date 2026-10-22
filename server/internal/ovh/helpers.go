@@ -6,13 +6,17 @@ import "strings"
 
 // ConvertDisplayDCToAPIDC 将前端显示的数据中心代码转换为 OVH API 代码
 func ConvertDisplayDCToAPIDC(datacenter string) string {
-	if datacenter == "" {
+	lower := strings.ToLower(strings.TrimSpace(datacenter))
+	if lower == "" {
 		return "gra"
 	}
 	dcMap := map[string]string{
-		"mum": "ynm", // 孟买：前端 mum，OVH API 用 ynm
+		"mum":   "ynm", // 孟买：前端 mum，OVH API 用 ynm
+		"tor":   "ca-east-tor-a",
+		"par-a": "eu-west-par-a",
+		"par-b": "eu-west-par-b",
+		"par-c": "eu-west-par-c",
 	}
-	lower := strings.ToLower(datacenter)
 	if v, ok := dcMap[lower]; ok {
 		return v
 	}

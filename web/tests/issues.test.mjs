@@ -18,6 +18,40 @@ const { Route } = await server.ssrLoadModule("/src/routes/monitor.tsx");
 const { useServers } = await server.ssrLoadModule("/src/hooks/use-servers.ts");
 const { mergeStockPlans } = await server.ssrLoadModule("/src/lib/stock-plans.ts");
 const { Route: ServersRoute } = await server.ssrLoadModule("/src/routes/servers.tsx");
+const { hasStockWithOption } = await server.ssrLoadModule("/src/hooks/use-availability.ts");
+const { comparePrices } = await server.ssrLoadModule("/src/lib/money.ts");
+
+test("default account's configured subsidiary selects the price catalog", () => {
+  const client = new QueryClient();
+  client.setQueryData(["accounts", "list"], [{ id: "us", endpoint: "ovh-us", zone: "US", isDefault: true }]);
+  client.setQueryData(["servers", "list", { showApiServers: true, accountId: "" }], []);
+  try {
+    renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(ServersRoute.options.component)));
+    assert.ok(client.getQueryState(["ovh-catalog", "eco", "US"]));
+    assert.equal(client.getQueryState(["ovh-catalog", "eco", "IE"]), undefined);
+  } finally {
+    client.clear();
+  }
+});
+
+test("stock option indicators recognize display aliases without mixing datacenters", () => {
+  for (const [display, api] of [["mum", "ynm"], ["tor", "ca-east-tor-a"], ["par-a", "eu-west-par-a"]]) {
+    const variants = [{ fqn: "plan.ram-32g", datacenters: [{ datacenter: api, availability: "1H-low" }] }];
+    assert.equal(hasStockWithOption(variants, {}, "memory", "ram-32g", [display]), true);
+    assert.equal(hasStockWithOption(variants, {}, "memory", "ram-32g", ["par-b"]), false);
+  }
+});
+
+test("unknown prices stay last in either direction and zero is a valid price", () => {
+  const values = [undefined, 50, 0, NaN, 20];
+  assert.deepEqual([...values].sort((a, b) => comparePrices(a, b, "asc")).filter(Number.isFinite), [0, 20, 50]);
+  assert.deepEqual([...values].sort((a, b) => comparePrices(a, b, "desc")).filter(Number.isFinite), [50, 20, 0]);
+  for (const direction of ["asc", "desc"]) {
+    assert.ok(comparePrices(undefined, 50, direction) > 0);
+    assert.ok(comparePrices(0, undefined, direction) < 0);
+    assert.equal(comparePrices(undefined, NaN, direction), 0);
+  }
+});
 
 for (const catalogState of ["ready", "pending", "error"]) {
   test(`server list includes 27skle01-v1 from stock with sales catalog ${catalogState}`, () => {

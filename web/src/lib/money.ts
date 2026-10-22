@@ -46,3 +46,11 @@ export function formatMoney(value: number, code?: string | null, digits = 2): st
 
 /** 币种缺失时给 title / 说明用的文案，别让用户以为是页面少渲染了一截 */
 export const currencyUnknownHint = () => i18n.t("commons.currencyUnknownHint");
+
+/** 升降序均将未知报价排最后;零元是有效报价。 */
+export function comparePrices(a: number | undefined, b: number | undefined, direction: "asc" | "desc"): number {
+  const aKnown = a !== undefined && Number.isFinite(a);
+  const bKnown = b !== undefined && Number.isFinite(b);
+  if (!aKnown || !bKnown) return aKnown ? -1 : bKnown ? 1 : 0;
+  return direction === "asc" ? a! - b! : b! - a!;
+}

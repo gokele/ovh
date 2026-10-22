@@ -35,6 +35,12 @@ export const OVH_DATACENTERS: DataCenter[] = [
   { code: "syd", name: "悉尼", region: "澳大利亚" },
 ];
 
+/** 显示码与官方库存/配置 API 使用同一机房标识。 */
+export function apiDatacenterCode(code: string): string {
+  const normalized = code.trim().toLowerCase();
+  return OVH_DATACENTERS.find((dc) => dc.code === normalized)?.apiCode || normalized;
+}
+
 /** 从可用性 map（res.data.availability）里查某个 DC 的状态，自动处理 mum/ynm 别名 */
 export function lookupDcStatus(
   availMap: Record<string, string> | undefined,

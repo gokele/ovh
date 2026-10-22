@@ -252,7 +252,11 @@ func ProcessQueueLoop(state *app.State) {
 				current.UpdatedAt = types.NowISO()
 				finalRetry := current.RetryCount
 				snapshot := *current
+				// 与暂停操作共用 QueueMu,避免状态检查后、登记取消函数前被暂停。
+				ctx, cancel := context.WithCancel(context.Background())
+				state.RegisterTaskCancel(it.ID, cancel)
 				state.QueueMu.Unlock()
+				defer state.UnregisterTaskCancel(it.ID)
 
 				if isFirstAttempt {
 					state.Logger.Info("首次尝试任务 "+it.ID+": "+it.PlanCode+" 在 "+it.Datacenter, "queue")
@@ -262,9 +266,6 @@ func ProcessQueueLoop(state *app.State) {
 
 				// 给这一轮下单挂一个可取消的 ctx 并登记到 State。用户从任何入口删任务
 				// 都会经由 MarkTaskDeleted 调 cancel,正在进行的 OVH 调用立刻中断。
-				ctx, cancel := context.WithCancel(context.Background())
-				state.RegisterTaskCancel(it.ID, cancel)
-				defer state.UnregisterTaskCancel(it.ID)
 				// 登记后复核:上面那次 IsTaskDeleted 到这里之间被删的话,
 				// MarkTaskDeleted 当时还找不到 cancel 函数,ctx 不会被取消。
 				if state.IsTaskDeleted(it.ID) {
@@ -288,7 +289,7 @@ func ProcessQueueLoop(state *app.State) {
 					return
 				}
 				if outcome.Cancelled {
-					// 用户删的,不是失败:不动 FailureCount、不置 failed,队列里也已经没有它了
+					// 用户删除或暂停,不计失败,不覆盖用户选择的队列状态。
 					return
 				}
 				if outcome.WaitingForCatalog {

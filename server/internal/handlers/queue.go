@@ -31,7 +31,10 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			AutoPay  bool `json:"autoPay"`
 			Preorder bool `json:"preorder"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "任务参数格式不正确"})
+			return
+		}
 		if body.AccountID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "缺少 account_id", "code": "E34CBF1D4"})
 			return
@@ -203,20 +206,35 @@ func UpdateQueueStatus(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Status string `json:"status"`
 		}
-		_ = c.ShouldBindJSON(&body)
-		if body.Status == "" {
-			body.Status = "pending"
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "任务状态参数格式不正确"})
+			return
 		}
+		switch body.Status {
+		case "pending", "running", "paused", "completed", "failed":
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "无效的任务状态"})
+			return
+		}
+		found := false
 		state.QueueMu.Lock()
 		for i := range state.Queue {
 			if state.Queue[i].ID == id {
 				state.Queue[i].Status = body.Status
 				state.Queue[i].UpdatedAt = types.NowISO()
+				if body.Status != "running" {
+					state.UnregisterTaskCancel(id)
+				}
+				found = true
 				state.Logger.Info("Updated "+state.Queue[i].PlanCode+" status to "+body.Status, "")
 				break
 			}
 		}
 		state.QueueMu.Unlock()
+		if !found {
+			c.JSON(http.StatusNotFound, gin.H{"status": "error", "error": "任务不存在", "code": "E10FEEC40"})
+			return
+		}
 		if err := state.SaveQueue(); err != nil {
 			state.Logger.Error("改任务状态后保存队列失败: "+err.Error(), "queue")
 			c.JSON(http.StatusInternalServerError, gin.H{
