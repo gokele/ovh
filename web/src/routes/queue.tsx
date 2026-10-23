@@ -8,6 +8,7 @@ import {
   X,
   Clock,
   Plus,
+  Pencil,
   Loader2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -40,12 +41,13 @@ import {
   useUpdateQueueInterval,
   useClearQueue,
   useCreateQueueItem,
+  useUpdateQueueItem,
   type QueueItem,
   usePurchaseTimings,
   type PurchaseTiming,
 } from "@/hooks/use-queue";
 import { useServers } from "@/hooks/use-servers";
-import { OVH_DATACENTERS as OVH_DC_LIST } from "@/lib/datacenters";
+import { OVH_DATACENTERS as OVH_DC_LIST, apiDatacenterCode } from "@/lib/datacenters";
 import { RETRY_INTERVAL, useSettings } from "@/hooks/use-settings";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
@@ -160,6 +162,7 @@ function QueuePage() {
   const { create: createPlanCode, options: createOptions } = Route.useSearch();
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [editingItem, setEditingItem] = useState<QueueItem | null>(null);
   const [prefillPlanCode, setPrefillPlanCode] = useState<string>("");
   const [prefillOptions, setPrefillOptions] = useState<string>("");
 
@@ -269,7 +272,7 @@ function QueuePage() {
                   variant="outline"
                   disabled={batchRunning}
                   onClick={() =>
-                    runBatch(t("queue.verbPause"), selectedItems.filter((i) => i.status === "running"), (it) =>
+                    runBatch(t("queue.verbPause"), selectedItems.filter((i) => i.status === "running" || i.status === "pending"), (it) =>
                       toggle.mutateAsync({ id: it.id, action: "pause" })
                     )
                   }
@@ -314,9 +317,16 @@ function QueuePage() {
               onToggle={() =>
                 toggle.mutate({
                   id: q.id,
-                  action: q.status === "running" ? "pause" : "resume",
+                  action: q.status === "running" || q.status === "pending" ? "pause" : "resume",
                 })
               }
+              onEdit={async () => {
+                if (q.status === "running" || q.status === "pending") {
+                  try { await toggle.mutateAsync({ id: q.id, action: "pause" }); } catch { return; }
+                }
+                setEditingItem({ ...q, status: "paused" });
+                setShowCreateDialog(true);
+              }}
               onDelete={() => remove.mutate(q.id)}
             />
           ))}
@@ -430,18 +440,21 @@ function QueuePage() {
       </Dialog>
 
       <CreateQueueDialog
+        key={editingItem?.id || "new"}
+        editing={editingItem}
         open={showCreateDialog}
         onOpenChange={(v) => {
           setShowCreateDialog(v);
           if (!v) {
+            setEditingItem(null);
             setPrefillPlanCode("");
             setPrefillOptions("");
             // 清掉 URL 上的 create / options 参数
             navigate({ search: () => ({}) as any, replace: true });
           }
         }}
-        initialPlanCode={prefillPlanCode}
-        initialOptions={prefillOptions}
+        initialPlanCode={editingItem?.planCode || prefillPlanCode}
+        initialOptions={editingItem ? (editingItem.options || []).join(",") : prefillOptions}
       />
     </div>
   );
@@ -453,14 +466,18 @@ function CreateQueueDialog({
   onOpenChange,
   initialPlanCode,
   initialOptions,
+  editing,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   initialPlanCode?: string;
   initialOptions?: string;
+  editing?: QueueItem | null;
 }) {
   const { t } = useTranslation();
   const create = useCreateQueueItem();
+  const update = useUpdateQueueItem();
+  const saving = create.isPending || update.isPending;
   // 默认跟随全局账户,本次任务可以另选账户。
   const [globalAccountId] = useActiveAccount();
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -504,6 +521,7 @@ function CreateQueueDialog({
   // 这个对话框和服务器卡片弹的那个是两条建任务入口,开关两边都要有 ——
   // 上一版只加了卡片那边,这边漏了
   const [autoPay, setAutoPay] = useState(false);
+  const [coupon, setCoupon] = useState("");
   // 用户选的 addon,按组索引。每次切 planCode 自动清空(让用户重新选)。
   const [picked, setPicked] = useState<Partial<Record<OptionGroupKey, string>>>({});
   // 手填的额外 addon planCode(catalog 里没分组覆盖到的、或用户想加的特殊 addon)
@@ -511,10 +529,18 @@ function CreateQueueDialog({
 
   useEffect(() => {
     if (open) {
-      setSelectedAccountId("");
+      setSelectedAccountId(editing?.accountId || "");
       if (initialPlanCode) setPlanCode(initialPlanCode);
+      if (editing) {
+        setDatacenters([OVH_DATACENTERS.find((dc) => apiDatacenterCode(dc.code) === apiDatacenterCode(editing.datacenter))?.code || editing.datacenter]);
+        setQuantity("1");
+        setRetryInterval(String(editing.retryInterval || cfgDefault));
+        touchedRef.current = true;
+        setAutoPay(!!editing.autoPay);
+        setCoupon(editing.coupon || "");
+      }
     }
-  }, [initialPlanCode, open]);
+  }, [initialPlanCode, open, editing]);
 
   /** planCode 匹配到的服务器（用于显示名称提示） */
   const matchedServer = useMemo(
@@ -527,8 +553,9 @@ function CreateQueueDialog({
   const prevPlanCodeRef = useRef("");
   useEffect(() => {
     const code = planCode.trim();
-    if (code === prevPlanCodeRef.current) return;
-    prevPlanCodeRef.current = code;
+    const selectionKey = `${code}|${!!matchedServer}`;
+    if (selectionKey === prevPlanCodeRef.current) return;
+    prevPlanCodeRef.current = selectionKey;
     if (initialOptions && code === (initialPlanCode || "").trim()) {
       // 走"外部带 initialOptions 进来"分支:
       //   - 能映射到 chip 组的塞进 picked
@@ -570,7 +597,7 @@ function CreateQueueDialog({
    *  二选一,不混用。 */
   const parsedOptions = useMemo(() => {
     if (matchedServer) {
-      return Object.values(picked).filter(Boolean) as string[];
+      return [...new Set([...(Object.values(picked).filter(Boolean) as string[]), ...splitList(extraInput)])];
     }
     return splitList(extraInput);
   }, [matchedServer, picked, extraInput]);
@@ -604,6 +631,7 @@ function CreateQueueDialog({
     setDatacenters([]);
     setQuantity("1");
     setAutoPay(false);
+    setCoupon("");
     touchedRef.current = false;
     setRetryInterval(String(cfgDefault));
     setPicked({});
@@ -612,14 +640,14 @@ function CreateQueueDialog({
   };
 
   const handleClose = () => {
-    if (create.isPending) return;
+    if (saving) return;
     reset();
     onOpenChange(false);
   };
 
   const toggleDC = (code: string) => {
     setDatacenters((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+      prev.includes(code) ? prev.filter((c) => c !== code) : editing ? [code] : [...prev, code]
     );
   };
 
@@ -631,6 +659,14 @@ function CreateQueueDialog({
       toast.error(t("queue.toast.fillForm"));
       return;
     }
+    if (editing) {
+      try {
+        await update.mutateAsync({ id: editing.id, datacenter: datacenters[0], options: parsedOptions,
+          retryInterval: Number(retryInterval) || cfgDefault, autoPay, coupon: coupon.trim() });
+        reset(); onOpenChange(false);
+      } catch { /* Error is shown by the mutation hook; keep the form open. */ }
+      return;
+    }
     const result = await create.mutateAsync({
       account_id: accountId,
       planCode: planCode.trim(),
@@ -639,6 +675,7 @@ function CreateQueueDialog({
       retryInterval: Number(retryInterval) || cfgDefault,
       options: parsedOptions,
       autoPay,
+      coupon,
       preorder: !!matchedServer?.prerelease,
     });
     if (result.success > 0) {
@@ -657,9 +694,9 @@ function CreateQueueDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{t("queue.createTitle")}</DialogTitle>
+          <DialogTitle>{editing ? t("queue.editTitle") : t("queue.createTitle")}</DialogTitle>
           <DialogDescription>
-            {t("queue.createDesc")}
+            {editing ? t("queue.editDesc") : t("queue.createDesc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -670,9 +707,10 @@ function CreateQueueDialog({
             </label>
             <Select
               value={activeAcc?.id || ""}
-              disabled={accountsQ.isPending || !accounts?.length || create.isPending}
+              disabled={!!editing || accountsQ.isPending || !accounts?.length || saving}
               onValueChange={(id) => {
                 setSelectedAccountId(id);
+                setCoupon("");
                 // 换账户后目录可能属于另一个站点,配置和机房须重新选择。
                 setPlanCode("");
                 setDatacenters([]);
@@ -693,7 +731,7 @@ function CreateQueueDialog({
               </SelectContent>
             </Select>
             <p id="queue-account-rule" className="text-[11px] text-muted-foreground mt-1.5">
-              {t("queue.accountRule")}
+              {editing ? t("queue.editIdentity") : t("queue.accountRule")}
             </p>
             {/* 没有账户就没法下单,底下的创建按钮会一直灰着 —— 必须讲清是"没读到"还是"真没有" */}
             {accountsQ.isError && (
@@ -723,13 +761,13 @@ function CreateQueueDialog({
                 {t("queue.refreshModels")}
               </Button>
             </div>
-            <PlanCodeCombobox
+            {editing ? <Input value={planCode} readOnly aria-label={t("queue.planCodeLabel")} /> : <PlanCodeCombobox
               value={planCode}
               onChange={setPlanCode}
               servers={searchServers}
               loading={servers.isPending || availQ.isFetching}
               placeholder={t("queue.planCodePlaceholder")}
-            />
+            />}
             {matchedServer && (
               <p className="text-[11px] text-muted-foreground mt-1 truncate">
                 {matchedServer.cpu} · {matchedServer.memory} · {matchedServer.storage}
@@ -778,6 +816,7 @@ function CreateQueueDialog({
                 <button
                   type="button"
                   onClick={selectAllDC}
+                  disabled={!!editing}
                   className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                 >
                   {t("queue.selectAll")}
@@ -824,6 +863,7 @@ function CreateQueueDialog({
                 type="text"
                 inputMode="numeric"
                 value={quantity}
+                disabled={!!editing}
                 onChange={(e) => {
                   const v = e.target.value;
                   if (v === "" || /^\d*$/.test(v)) setQuantity(v);
@@ -853,6 +893,18 @@ function CreateQueueDialog({
                 {t("queue.retryHint")}
               </p>
             </div>
+          </div>
+
+          <div>
+            <label htmlFor="queue-coupon" className="block text-[13px] font-medium mb-1.5">
+              {t("queue.couponLabel")}
+            </label>
+            <Input id="queue-coupon" value={coupon} onChange={(e) => setCoupon(e.target.value)}
+              placeholder={t("queue.couponPlaceholder")} autoCapitalize="none" spellCheck={false}
+              aria-describedby="queue-coupon-hint" />
+            <p id="queue-coupon-hint" className="text-[11px] text-muted-foreground mt-1">
+              {t("queue.couponHint")}
+            </p>
           </div>
 
           <label className="flex items-center gap-2 cursor-pointer text-[13px]">
@@ -914,6 +966,8 @@ function CreateQueueDialog({
               />
             )}
 
+            {grouped && (editing || extraInput) && <Input className="mt-3" aria-label={t("queue.extraOptionsPlaceholder")}
+              placeholder={t("queue.extraOptionsPlaceholder")} value={extraInput} onChange={(e) => setExtraInput(e.target.value)} />}
             {parsedOptions.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-border">
                 <span className="text-[11px] text-muted-foreground">{t("queue.optionsSelected")}</span>
@@ -931,7 +985,7 @@ function CreateQueueDialog({
 
 
           {/* 汇总提示 */}
-          {datacenters.length > 0 && (
+          {!editing && datacenters.length > 0 && (
             <div className="border border-border rounded-2xl p-3 text-[12px] text-muted-foreground">
               <Trans
                 i18nKey="queue.summary"
@@ -952,19 +1006,19 @@ function CreateQueueDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={create.isPending}>
+          <Button variant="outline" onClick={handleClose} disabled={saving}>
             {t("queue.cancel")}
           </Button>
-          <Button onClick={handleSubmit} disabled={!canSubmit || create.isPending}>
-            {create.isPending ? (
+          <Button onClick={handleSubmit} disabled={!canSubmit || saving}>
+            {saving ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                {t("queue.creating")}
+                {editing ? t("queue.saving") : t("queue.creating")}
               </>
             ) : (
               <>
                 <Plus className="w-4 h-4" />
-                {matchedServer?.prerelease
+                {editing ? t("queue.save") : matchedServer?.prerelease
                   ? datacenters.length > 0 ? t("queue.createPreorder", { n: totalTasks }) : t("queue.createPreorderAction")
                   : datacenters.length > 0 ? t("queue.createN", { n: totalTasks }) : t("queue.createAction")}
               </>
@@ -983,6 +1037,7 @@ function QueueRow({
   onSelect,
   onToggle,
   onDelete,
+  onEdit,
 }: {
   item: QueueItem;
   timing?: PurchaseTiming;
@@ -990,6 +1045,7 @@ function QueueRow({
   onSelect: () => void;
   onToggle: () => void;
   onDelete: () => void;
+  onEdit: () => void;
 }) {
   const { t } = useTranslation();
   const chip = (() => {
@@ -1040,6 +1096,7 @@ function QueueRow({
             <span className="font-mono font-semibold text-sm">{item.planCode}</span>
             <AccountChip accountId={item.accountId} />
             {item.preorder && <Chip tone="warning">{t("queue.preorderBadge")}</Chip>}
+            {item.coupon && <Chip>{t("queue.couponValue", { code: item.coupon })}</Chip>}
             <Chip tone="default">DC {item.datacenter.toUpperCase()}</Chip>
             {item.options && item.options.length > 0 && (
               // 以前只显示个数。而一个型号底下几套配置的差别恰恰在这里 ——
@@ -1066,6 +1123,8 @@ function QueueRow({
               <span>{t("queue.stoppedRetrying")}</span>
             ) : item.status === "completed" ? (
               <span>{t("queue.status.completed")}</span>
+            ) : item.status === "paused" ? (
+              <span>{t("queue.waitingResume")}</span>
             ) : (
               <span className="inline-flex items-center gap-1">
                 {t("queue.nextAttempt")}
@@ -1107,9 +1166,11 @@ function QueueRow({
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {chip}
+          {item.status !== "completed" && <Button variant="ghost" size="sm" onClick={onEdit} aria-label={t("queue.edit")}><Pencil className="w-4 h-4" />{t("queue.edit")}</Button>}
           {item.status !== "completed" && item.status !== "failed" && (
-            <Button variant="ghost" size="icon" onClick={onToggle} aria-label={item.status === "running" ? t("queue.pause") : t("queue.resume")}>
-              {item.status === "running" ? <PauseCircle className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
+            <Button variant="ghost" size="sm" onClick={onToggle} aria-label={item.status === "paused" ? t("queue.resume") : t("queue.pause")}>
+              {item.status === "paused" ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
+              {item.status === "paused" ? t("queue.resume") : t("queue.pause")}
             </Button>
           )}
           <Button variant="ghost" size="icon" onClick={onDelete} aria-label={t("queue.delete")}>

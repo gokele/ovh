@@ -87,7 +87,8 @@ type CachedMessage struct {
 type Subscription struct {
 	// mu 保护下面所有可变字段。加在结构体里而不是复用 subsMu:
 	// 检查是「每订阅一个 goroutine」并发跑的,用一把全局锁会让 30 个订阅的检查串行化。
-	mu sync.Mutex
+	mu       sync.Mutex
+	revision uint64
 
 	PlanCode           string            `json:"planCode"`
 	Datacenters        []string          `json:"datacenters"`
@@ -131,6 +132,8 @@ type Subscription struct {
 // 期间用户可能改订阅配置,半程换配置会让状态机前后不一致(比如前半程按"通知有货"、
 // 后半程按"不通知"走),而且每次读都要加锁。
 type subCheckConfig struct {
+	Revision           uint64
+	Paused             bool
 	Datacenters        []string
 	NotifyAvailable    bool
 	NotifyUnavailable  bool
@@ -150,6 +153,8 @@ func (s *Subscription) checkConfig() subCheckConfig {
 	opts := make([]string, len(s.Options))
 	copy(opts, s.Options)
 	return subCheckConfig{
+		Revision:           s.revision,
+		Paused:             s.Paused,
 		Datacenters:        dcs,
 		Options:            opts,
 		NotifyAvailable:    s.NotifyAvailable,
@@ -266,6 +271,7 @@ func (s *Subscription) snapshot() *Subscription {
 		Quantity:           s.Quantity,
 		AutoOrderAccountID: s.AutoOrderAccountID,
 		AutoPay:            s.AutoPay,
+		Paused:             s.Paused,
 
 		LastCheckAt:         s.LastCheckAt,
 		LastCheckAccountID:  s.LastCheckAccountID,

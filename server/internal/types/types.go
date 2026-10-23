@@ -167,6 +167,7 @@ type QueueItem struct {
 	// "order will be automatically paid with preferred payment method")。
 	// 默认 false:自动扣钱必须是用户显式打开的开关,不能是隐含行为。
 	AutoPay            bool   `json:"autoPay,omitempty"`
+	Coupon             string `json:"coupon,omitempty"`
 	Preorder           bool   `json:"preorder,omitempty"` // 本地预订:等账户销售目录上架后再尝试下单
 	ConfigSniperTaskID string `json:"configSniperTaskId,omitempty"`
 }
@@ -191,6 +192,7 @@ type PurchaseHistoryEntry struct {
 	OrderID        string   `json:"orderId"`
 	OrderURL       string   `json:"orderUrl"`
 	ErrorMessage   *string  `json:"errorMessage"`
+	CouponWarning  string   `json:"couponWarning,omitempty"`
 	PurchaseTime   string   `json:"purchaseTime"`
 	AttemptCount   int      `json:"attemptCount"`
 	ExpirationTime string   `json:"expirationTime,omitempty"`

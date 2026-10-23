@@ -49,7 +49,7 @@ func TestAddQueuePreorderDoesNotBypassValidation(t *testing.T) {
 		{"27skle99-v1", true, http.StatusBadRequest},
 		{"25scale01-v1", true, http.StatusBadRequest},
 	} {
-		body := fmt.Sprintf(`{"account_id":"eu","planCode":%q,"datacenter":"gra","preorder":%t}`, tc.plan, tc.preorder)
+		body := fmt.Sprintf(`{"account_id":"eu","planCode":%q,"datacenter":"gra","preorder":%t,"coupon":" Save10 "}`, tc.plan, tc.preorder)
 		request := httptest.NewRequest(http.MethodPost, "/queue", strings.NewReader(body))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()
@@ -59,7 +59,7 @@ func TestAddQueuePreorderDoesNotBypassValidation(t *testing.T) {
 		}
 	}
 	items, err := st.DB.ListQueue()
-	if err != nil || len(items) != 1 || !items[0].Preorder {
+	if err != nil || len(items) != 1 || !items[0].Preorder || items[0].Coupon != "Save10" {
 		t.Fatalf("preorder was not persisted: %+v %v", items, err)
 	}
 }

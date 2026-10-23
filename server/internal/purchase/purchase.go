@@ -2,6 +2,7 @@ package purchase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -520,6 +521,27 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	}
 
 	tl.mark("加硬件选项")
+	couponWarning := ""
+	if coupon := strings.TrimSpace(item.Coupon); coupon != "" {
+		err := client.PostWithContext(ctx, "/order/cart/"+cartID+"/coupon", map[string]interface{}{"coupon": coupon}, nil)
+		if ctx.Err() != nil {
+			return cancelledOutcome(state, item, "应用优惠码")
+		}
+		tl.mark("应用优惠码")
+		if err != nil {
+			var apiErr *ovhsdk.APIError
+			if IsTransient(err) || !errors.As(err, &apiErr) || apiErr.Code < 400 || apiErr.Code >= 500 {
+				recordTiming(timingKey, tl, "failed")
+				recordFailure(state, item, "应用优惠码暂时失败: "+ovh.Explain(err))
+				return Outcome{}
+			}
+			// 明确被拒绝才回退;网络故障不能当作优惠码无效。
+			couponWarning = "优惠码被 OVH 拒绝，本次未使用优惠码，价格不包含该码优惠。原因: " + ovh.Explain(err)
+			state.Logger.Warn(couponWarning, "purchase")
+		} else {
+			state.Logger.Info("购物车优惠码已应用", "purchase")
+		}
+	}
 
 	// 直接结账 —— 跳过 /summary(它只是日志用的价格,2 秒开销),
 	// 价格 + 过期时间下面 checkout 成功后用 /me/order 异步补,不阻塞主流程。
@@ -566,7 +588,10 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		tl.mark("下单")
 		recordTiming(timingKey, tl, "failed")
 		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s (%s)", item.PlanCode, errMsg, tl.String()), "purchase")
-		recordFailure(state, item, ovh.Explain(err))
+		if couponWarning != "" {
+			errMsg += "；" + couponWarning
+		}
+		recordFailure(state, item, errMsg)
 
 		// checkout 超时/传输层失败 ≠ 下单失败:请求可能已经到达 OVH 且订单已建,
 		// 只是我方没等到响应。这时任务会重试 → 新车再 checkout → **买两台**
@@ -575,7 +600,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		if IsTransient(err) {
 			if oid, url := reconcileOrder(state, client, item.PlanCode, attemptStart); oid != "" {
 				state.Logger.Warn(fmt.Sprintf("checkout 报 transient 失败但对账发现订单已建(#%s),按成功处理,不再重试", oid), "purchase")
-				return handleReconciledOrder(state, item, oid, url, tl, timingKey)
+				return handleReconciledOrder(state, item, oid, url, tl, timingKey, couponWarning)
 			}
 			// 对账也失败(429/超时/panic 兜底返回空):OVH 侧订单状态未知。
 			// 直接重试 = 可能买两台(第一单已建但 history 没记,120s 闸门也不认识它)。
@@ -603,7 +628,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	success = true
 
 	// 立刻记成功 —— 价格和过期时间空着,后台异步补
-	recordSuccess(state, item, orderID, orderURL, "", nil)
+	recordSuccess(state, item, orderID, orderURL, "", nil, couponWarning)
 	recordTimingToHistory(state, item.ID, tl)
 	state.Logger.Info("[耗时] "+item.PlanCode+"@"+item.Datacenter+" 抢购成功 "+tl.String(), "purchase")
 
@@ -618,7 +643,11 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	// 成功通知走统一通知层(Telegram + Webhook 至少一条可达就发)。
 	// 以前被 TG 配置判断包住:Webhook-only 用户收不到"抢到了但没付款",
 	// 订单逾期作废 —— 这是整条链路里最不能丢的一条消息(issue #2)。
-	if notify.Broadcast(state, BuildOrderSuccessMessage(item, orderID, ovh.ManagerOrderURL(acc.Endpoint, orderID)), nil) > 0 {
+	message := BuildOrderSuccessMessage(item, orderID, ovh.ManagerOrderURL(acc.Endpoint, orderID))
+	if couponWarning != "" {
+		message += "\n\n⚠️ " + couponWarning
+	}
+	if notify.Broadcast(state, message, nil) > 0 {
 		state.Logger.Info("已为订单 "+orderID+" 发送订单成功通知。", "purchase")
 	} else {
 		state.Logger.Warn("订单 "+orderID+" 已创建,但成功通知未送达任何通道。", "purchase")
@@ -912,7 +941,7 @@ func extract(v interface{}) *float64 {
 	return nil
 }
 
-func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, expirationTime string, priceInfo *types.PriceInfo) {
+func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, expirationTime string, priceInfo *types.PriceInfo, couponWarning string) {
 	// 锁内只改内存,SaveHistory 在锁外 —— 它自己会拿 HistoryMu(快照),
 	// Go mutex 不可重入,持锁同步调它(c419176 引入)首次下单成功即死锁全队列
 	state.HistoryMu.Lock()
@@ -929,6 +958,7 @@ func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, e
 			state.History[i].OrderID = orderID
 			state.History[i].OrderURL = orderURL
 			state.History[i].ErrorMessage = nil
+			state.History[i].CouponWarning = couponWarning
 			state.History[i].PurchaseTime = now
 			state.History[i].AttemptCount = item.RetryCount
 			state.History[i].Options = item.Options
@@ -944,17 +974,18 @@ func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, e
 	}
 
 	entry := types.PurchaseHistoryEntry{
-		ID:           uuid.NewString(),
-		TaskID:       item.ID,
-		AccountID:    item.AccountID,
-		PlanCode:     item.PlanCode,
-		Datacenter:   item.Datacenter,
-		Options:      item.Options,
-		Status:       "success",
-		OrderID:      orderID,
-		OrderURL:     orderURL,
-		PurchaseTime: now,
-		AttemptCount: item.RetryCount,
+		ID:            uuid.NewString(),
+		TaskID:        item.ID,
+		AccountID:     item.AccountID,
+		PlanCode:      item.PlanCode,
+		Datacenter:    item.Datacenter,
+		Options:       item.Options,
+		Status:        "success",
+		CouponWarning: couponWarning,
+		OrderID:       orderID,
+		OrderURL:      orderURL,
+		PurchaseTime:  now,
+		AttemptCount:  item.RetryCount,
 	}
 	if expirationTime != "" {
 		entry.ExpirationTime = expirationTime
@@ -1186,10 +1217,13 @@ func reconcileOrder(state *app.State, client *ovhsdk.Client, planCode string, si
 }
 
 // handleReconciledOrder 对账发现订单已建:按成功路径走完(记成功/异步补详情/通知)
-func handleReconciledOrder(state *app.State, item *types.QueueItem, orderID, orderURL string, tl *timeline, timingKey string) Outcome {
-	recordSuccess(state, item, orderID, orderURL, "", nil)
+func handleReconciledOrder(state *app.State, item *types.QueueItem, orderID, orderURL string, tl *timeline, timingKey string, couponWarning string) Outcome {
+	recordSuccess(state, item, orderID, orderURL, "", nil, couponWarning)
 	recordTimingToHistory(state, item.ID, tl)
 	state.Logger.Info("[耗时] "+item.PlanCode+"@"+item.Datacenter+" 对账确认成功 "+tl.String(), "purchase")
+	if couponWarning != "" {
+		notify.Broadcast(state, fmt.Sprintf("⚠️ 订单 #%s: %s", orderID, couponWarning), nil)
+	}
 	if orderID != "" {
 		// client 由调用方闭包持有;这里从 state 重新取太绕,对账成功后只补记,详情由 backfill 的另一个触发点补
 		_ = orderID // backfill 在 handleReconciledOrder 外由调用方触发

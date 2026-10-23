@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -28,8 +29,9 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			Options       []string `json:"options"`
 			RetryInterval int      `json:"retryInterval"`
 			// AutoPay 下单成功后用默认支付方式自动付款(显式开关,默认关)
-			AutoPay  bool `json:"autoPay"`
-			Preorder bool `json:"preorder"`
+			AutoPay  bool   `json:"autoPay"`
+			Preorder bool   `json:"preorder"`
+			Coupon   string `json:"coupon"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "任务参数格式不正确"})
@@ -77,6 +79,7 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			LastCheckTime: 0,
 			AutoPay:       body.AutoPay,
 			Preorder:      body.Preorder,
+			Coupon:        strings.TrimSpace(body.Coupon),
 		}
 		// 入队 + 落库是一件事:EnqueueItems 失败会把这条从内存撤回,
 		// 不留"这次能跑但重启就丢"的半成功任务
@@ -129,6 +132,34 @@ func RemoveQueueItem(state *app.State) gin.HandlerFunc {
 		}
 		if removed != nil {
 			state.Logger.Info("Removed "+removed.PlanCode+" from queue (ID: "+id+")", "system")
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "success"})
+	}
+}
+
+// UpdateQueueItem PUT /api/queue/:id,一个任务仍对应一台服务器。
+func UpdateQueueItem(state *app.State) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body struct {
+			Datacenter    string   `json:"datacenter"`
+			Options       []string `json:"options"`
+			RetryInterval int      `json:"retryInterval"`
+			AutoPay       bool     `json:"autoPay"`
+			Coupon        string   `json:"coupon"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Datacenter) == "" || body.RetryInterval < types.MinRetryInterval || body.RetryInterval > types.MaxRetryInterval {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "请填写机房及有效的重试间隔"})
+			return
+		}
+		if err := state.UpdateQueueItem(c.Param("id"), strings.TrimSpace(body.Datacenter), body.Options, body.RetryInterval, body.AutoPay, strings.TrimSpace(body.Coupon)); err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, app.ErrQueueNotFound) {
+				status = http.StatusNotFound
+			} else if errors.Is(err, app.ErrQueueNotEditable) {
+				status = http.StatusConflict
+			}
+			c.JSON(status, gin.H{"status": "error", "error": err.Error()})
+			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "success"})
 	}

@@ -181,3 +181,81 @@ test("stock-only Eco models become searchable prereleases without replacing list
   ]);
   assert.deepEqual(mergeStockPlans([listed]), [listed]);
 });
+
+
+test("coupon is trimmed and sent to every datacenter and quantity task", async () => {
+  const { useCreateQueueItem } = await server.ssrLoadModule("/src/hooks/use-queue.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const client = new QueryClient();
+  const adapter = api.defaults.adapter;
+  const bodies = [];
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.url, "/queue");
+    bodies.push(JSON.parse(config.data));
+    return { data: {}, status: 200, statusText: "OK", headers: {}, config };
+  };
+  let mutation;
+  function Probe() { mutation = useCreateQueueItem(); return null; }
+  try {
+    renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    const result = await mutation.mutateAsync({ account_id: "eu", planCode: "24sk202", datacenters: ["gra", "rbx"], quantity: 2, options: ["ram-64g"], preorder: true, coupon: " Save10 " });
+    assert.equal(result.success, 4);
+    assert.deepEqual(bodies.map((b) => b.datacenter), ["gra", "gra", "rbx", "rbx"]);
+    for (const body of bodies) {
+      assert.equal(body.coupon, "Save10");
+      assert.equal(body.autoPay, false);
+      assert.equal(body.preorder, true);
+      assert.deepEqual(body.options, ["ram-64g"]);
+    }
+    await mutation.mutateAsync({ account_id: "eu", planCode: "24sk202", datacenters: ["gra"], coupon: "  " });
+    assert.equal(bodies.at(-1).coupon, undefined);
+  } finally {
+    api.defaults.adapter = adapter;
+    client.clear();
+  }
+});
+
+
+test("successful history keeps coupon fallback visible in desktop and mobile views", async () => {
+  const { Route: HistoryRoute } = await server.ssrLoadModule("/src/routes/history.tsx");
+  const client = new QueryClient();
+  const warning = "优惠码未生效，本次未使用优惠码";
+  client.setQueryData(["history"], [{ id: "order", accountId: "eu", planCode: "24sk202", datacenter: "gra", status: "success", purchaseTime: "2026-10-23T00:00:00Z", couponWarning: warning }]);
+  client.setQueryData(["accounts", "list"], []);
+  try {
+    const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(HistoryRoute.options.component)));
+    assert.equal(html.split(warning).length - 1, 2);
+  } finally {
+    client.clear();
+  }
+});
+
+test("task edits update one queue item and monitor edits retain exact empty configuration identity", async () => {
+  const { useUpdateQueueItem } = await server.ssrLoadModule("/src/hooks/use-queue.ts");
+  const { useUpdateMonitorSubscription, usePauseMonitorSubscription } = await server.ssrLoadModule("/src/hooks/use-monitor.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const client = new QueryClient();
+  const adapter = api.defaults.adapter;
+  const calls = [];
+  api.defaults.adapter = async (config) => {
+    calls.push({ method: config.method, url: config.url, params: config.params, body: JSON.parse(config.data) });
+    return { data: {}, status: 200, statusText: "OK", headers: {}, config };
+  };
+  let queue, monitor, pause;
+  function Probe() { queue = useUpdateQueueItem(); monitor = useUpdateMonitorSubscription(); pause = usePauseMonitorSubscription(); return null; }
+  try {
+    renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    await queue.mutateAsync({ id: "task", datacenter: "rbx", options: ["ram-64g", "custom-addon"], retryInterval: 17, autoPay: false, coupon: "Save10" });
+    await monitor.mutateAsync({ planCode: "plan", optionsKey: "", notifyAvailable: false, options: ["ram-32g"] });
+    await pause.mutateAsync({ planCode: "plan", optionsKey: "", paused: true });
+    assert.equal(calls.length, 3);
+    assert.equal(calls[0].method, "put");
+    assert.equal(calls[0].url, "/queue/task");
+    assert.deepEqual(calls[0].body.options, ["ram-64g", "custom-addon"]);
+    assert.equal(calls[1].params.optionsKey, "");
+    assert.equal(calls[1].body.notifyAvailable, false);
+    assert.equal(calls[1].body.optionsKey, undefined);
+    assert.equal(calls[2].body.optionsKey, "");
+    assert.equal(calls[2].body.paused, true);
+  } finally { api.defaults.adapter = adapter; client.clear(); }
+});

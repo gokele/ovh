@@ -16,6 +16,7 @@ export interface QueueItem {
   datacenter: string;
   /** 下单成功后用 OVH 默认支付方式自动付款(显式开关,默认关) */
   autoPay?: boolean;
+  coupon?: string;
   preorder?: boolean;
   options: string[];
   status: QueueStatus;
@@ -91,6 +92,7 @@ export function useCreateQueueItem() {
       retryInterval?: number;
       quantity?: number;
       autoPay?: boolean;
+      coupon?: string;
       preorder?: boolean;
     }) => {
       const dcs = payload.datacenters;
@@ -124,6 +126,7 @@ export function useCreateQueueItem() {
               options: payload.options || [],
               autoPay: payload.autoPay ?? false,
               preorder: payload.preorder ?? false,
+              coupon: payload.coupon?.trim() || undefined,
             });
             success++;
           } catch (e: any) {
@@ -140,6 +143,20 @@ export function useCreateQueueItem() {
       qc.invalidateQueries({ queryKey: qk.stats() });
     },
     onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.queue.addFailed")),
+  });
+}
+
+export function useUpdateQueueItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: { id: string; datacenter: string; options: string[]; retryInterval: number; autoPay: boolean; coupon: string }) =>
+      (await api.put(`/queue/${encodeURIComponent(id)}`, patch)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.queue.list() });
+      qc.invalidateQueries({ queryKey: qk.stats() });
+      toast.success(i18n.t("queue.editSaved"));
+    },
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("queue.editFailed")),
   });
 }
 

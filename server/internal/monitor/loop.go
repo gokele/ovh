@@ -133,7 +133,7 @@ func (m *Monitor) monitorLoopGen(gen int64) {
 			sem := make(chan struct{}, workers)
 			var wg sync.WaitGroup
 			for _, sub := range subsCopy {
-				if sub.Paused {
+				if sub.checkConfig().Paused {
 					continue // 暂停的订阅:保留配置与历史,本轮不检查
 				}
 				running := m.stillMine(gen)
@@ -200,6 +200,16 @@ func (m *Monitor) stillInSubscriptions(sub *Subscription) bool {
 	return false
 }
 
+// 配置改变或暂停后,旧一轮即使完成了网络请求也不能触发通知或下单。
+func (m *Monitor) checkCurrent(sub *Subscription, cfg subCheckConfig) bool {
+	if !m.stillInSubscriptions(sub) {
+		return false
+	}
+	sub.mu.Lock()
+	defer sub.mu.Unlock()
+	return !sub.Paused && sub.revision == cfg.Revision
+}
+
 func (m *Monitor) Start() bool {
 	m.subsMu.Lock()
 	if m.running {
@@ -242,7 +252,7 @@ func (m *Monitor) Stop() bool {
 // batchOrder 监控触发的批量下单:逐个调本地 quick-order 入队。
 // accountID:auto_order 账户;空时 batchOrder 不应该被调到(check.go 的 guard 已挡住),
 // 这里再做一次防御性检查。
-func (m *Monitor) batchOrder(planCode string, configInfo map[string]interface{}, targets []notification, quantity int, accountID string, autoPay bool) {
+func (m *Monitor) batchOrder(planCode string, configInfo map[string]interface{}, targets []notification, quantity int, accountID string, autoPay bool, shouldContinue func() bool) {
 	if accountID == "" {
 		m.state.Logger.Warn("[monitor->order] 跳过自动下单: 订阅未指定 auto_order 账户", "monitor")
 		return
@@ -285,6 +295,9 @@ func (m *Monitor) batchOrder(planCode string, configInfo map[string]interface{},
 	var successCount, failCount int64
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	postOne := func(t orderTask) {
+		if !shouldContinue() {
+			return
+		}
 		payload := map[string]interface{}{
 			"account_id":         accountID,
 			"planCode":           planCode,

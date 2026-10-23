@@ -1,9 +1,10 @@
 package monitor
 
 import (
+	"errors"
+	"fmt"
 	"sort"
 	"strings"
-	"fmt"
 	"time"
 )
 
@@ -28,6 +29,7 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 			// 必须持订阅自己的锁改:subsMu 只保护切片,而这条订阅此刻很可能
 			// 正被检查 goroutine 读着(它拿的是同一个指针)。
 			s.mu.Lock()
+			s.revision++
 			s.Datacenters = datacenters
 			s.NotifyAvailable = notifyAvailable
 			s.NotifyUnavailable = notifyUnavailable
@@ -128,49 +130,54 @@ func (m *Monitor) HasSubscriptionWithOptions(planCode, targetKey, ownKey string)
 	return false
 }
 
-// UpdateSubscriptionFields 按 planCode 定位第一条订阅,就地改字段(不新建,
-// 不重置 LastStatus / History)。编辑流程专用。
-func (m *Monitor) UpdateSubscriptionFields(planCode string, datacenters []string, notifyAvailable, notifyUnavailable bool,
-	autoOrder bool, quantity int, autoOrderAccountID string, autoPay bool, options []string) {
+var ErrSubscriptionNotFound = errors.New("订阅不存在")
+var ErrSubscriptionConflict = errors.New("已存在同型号同配置的订阅,无法改成重复配置")
+
+// UpdateSubscriptionFields 用原配置键定位,保留暂停状态、历史和库存基准。
+func (m *Monitor) UpdateSubscriptionFields(planCode string, originalKey *string, datacenters []string, notifyAvailable, notifyUnavailable bool,
+	autoOrder bool, quantity int, autoOrderAccountID string, autoPay bool, options []string) error {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
 	for _, s := range m.subscriptions {
-		if s.PlanCode != planCode {
+		if s.PlanCode != planCode || (originalKey != nil && OptionsKey(s.Options) != *originalKey) {
 			continue
 		}
+		for _, other := range m.subscriptions {
+			if other != s && other.PlanCode == planCode && OptionsKey(other.Options) == OptionsKey(options) {
+				return ErrSubscriptionConflict
+			}
+		}
 		s.mu.Lock()
-		s.Datacenters = datacenters
+		s.revision++
+		s.Datacenters = append([]string(nil), datacenters...)
 		s.NotifyAvailable = notifyAvailable
 		s.NotifyUnavailable = notifyUnavailable
 		s.AutoOrder = autoOrder
+		s.Quantity = 0
 		if autoOrder {
 			if quantity < 1 {
 				quantity = 1
 			}
 			s.Quantity = quantity
-		} else {
-			s.Quantity = 0
 		}
 		s.AutoOrderAccountID = autoOrderAccountID
 		s.AutoPay = autoPay && autoOrder
-		if options == nil {
-			options = []string{}
-		}
-		s.Options = options
+		s.Options = append([]string(nil), options...)
 		s.mu.Unlock()
-		m.state.Logger.Info(fmt.Sprintf("已就地更新订阅: %s(%s)", planCode, OptionsKey(options)), "monitor")
-		return
+		return nil
 	}
+	return ErrSubscriptionNotFound
 }
 
-// SetPaused 设置暂停/恢复。optionsKey 空 = 定位第一条(planCode 老入口兼容)。
+// SetPaused 设置暂停/恢复。nil 定位第一条;指向空串则精确定位全部配置订阅。
 // 返回 false = 没找到。
-func (m *Monitor) SetPaused(planCode, optionsKey string, paused bool) bool {
+func (m *Monitor) SetPaused(planCode string, optionsKey *string, paused bool) bool {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
 	for _, s := range m.subscriptions {
-		if s.PlanCode == planCode && (optionsKey == "" || OptionsKey(s.Options) == optionsKey) {
+		if s.PlanCode == planCode && (optionsKey == nil || OptionsKey(s.Options) == *optionsKey) {
 			s.mu.Lock()
+			s.revision++
 			s.Paused = paused
 			s.mu.Unlock()
 			return true
@@ -232,11 +239,11 @@ func (m *Monitor) ClearSubscriptions() int {
 // 不返回真身:调用方(handler 读 History、SubscriptionAsJSON 做 Marshal)都在 HTTP goroutine 里,
 // 而检查 goroutine 正并发地往同一条订阅上 append History —— 直接把指针递出去就是数据竞争。
 // 需要改订阅请走 AddSubscription / RemoveSubscription。
-func (m *Monitor) FindSubscription(planCode string) *Subscription {
+func (m *Monitor) FindSubscription(planCode string, optionsKey ...string) *Subscription {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
 	for _, s := range m.subscriptions {
-		if s.PlanCode == planCode {
+		if s.PlanCode == planCode && (len(optionsKey) == 0 || OptionsKey(s.Options) == optionsKey[0]) {
 			return s.snapshot()
 		}
 	}
@@ -397,11 +404,11 @@ func (m *Monitor) AddMessageUUID(id, planCode, datacenter string, options []stri
 // 为什么不直接把 *Subscription 交出去让调用方读字段:那些字段被检查 goroutine
 // 并发改着,裸读是数据竞争。这里在订阅自己的锁里拷一份出去。
 // 只拷配置字段 —— LastStatus / History 是状态,编辑接口不该碰。
-func (m *Monitor) SubscriptionConfig(planCode string) SubscriptionConfig {
+func (m *Monitor) SubscriptionConfig(planCode string, optionsKey ...string) SubscriptionConfig {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
 	for _, s := range m.subscriptions {
-		if s.PlanCode != planCode {
+		if s.PlanCode != planCode || (len(optionsKey) > 0 && OptionsKey(s.Options) != optionsKey[0]) {
 			continue
 		}
 		s.mu.Lock()

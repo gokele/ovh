@@ -17,6 +17,7 @@ export interface PurchaseHistory {
   orderId?: string;
   orderUrl?: string;
   errorMessage?: string;
+  couponWarning?: string;
   purchaseTime: string;
   /** 抢购到这单时一共尝试了几次（后端 attemptCount） */
   attemptCount?: number;

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -495,6 +496,44 @@ func (s *State) EnqueueItems(items []types.QueueItem, prepend bool) error {
 	}
 	s.Queue = next
 	return nil
+}
+
+var ErrQueueNotFound = errors.New("任务不存在")
+var ErrQueueNotEditable = errors.New("请先暂停任务再修改；已完成的任务不能修改")
+
+// UpdateQueueItem 仅编辑暂停/失败任务,落库成功后才发布新配置。
+func (s *State) UpdateQueueItem(id, datacenter string, options []string, retryInterval int, autoPay bool, coupon string) error {
+	if err := s.SaveBlocked("queue"); err != nil {
+		return err
+	}
+	s.saveQueueMu.Lock()
+	defer s.saveQueueMu.Unlock()
+	s.QueueMu.Lock()
+	defer s.QueueMu.Unlock()
+	next := append([]types.QueueItem(nil), s.Queue...)
+	for i := range next {
+		if next[i].ID != id {
+			continue
+		}
+		if next[i].Status != "paused" && next[i].Status != "failed" {
+			return ErrQueueNotEditable
+		}
+		next[i].Datacenter = datacenter
+		next[i].Options = append([]string(nil), options...)
+		next[i].RetryInterval = retryInterval
+		next[i].AutoPay = autoPay
+		next[i].Coupon = coupon
+		next[i].Status = "paused"
+		next[i].FailureCount = 0
+		next[i].LastCheckTime = 0
+		next[i].UpdatedAt = types.NowISO()
+		if err := s.DB.ReplaceQueue(next); err != nil {
+			return err
+		}
+		s.Queue = next
+		return nil
+	}
+	return ErrQueueNotFound
 }
 
 // MarkTaskDeleted 标记删除并中断本轮下单,所有删除入口统一调用。

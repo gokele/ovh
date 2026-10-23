@@ -420,12 +420,13 @@ function SubRow({
           <div className="flex items-center gap-1 flex-shrink-0">
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               aria-label={paused ? t("monitor.row.resumeAria") : t("monitor.row.pauseAria")}
               title={paused ? t("monitor.row.resumeAria") : t("monitor.row.pauseAria")}
               onClick={onTogglePause}
             >
               {paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+              <span>{paused ? t("queue.resume") : t("queue.pause")}</span>
             </Button>
             <Button
               variant="ghost"
@@ -441,12 +442,13 @@ function SubRow({
             </Button>
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={onEdit}
               aria-label={t("monitor.row.editAria")}
               title={t("monitor.row.editTitle")}
             >
               <Pencil className="w-4 h-4" />
+              <span>{t("queue.edit")}</span>
             </Button>
             <Button variant="ghost" size="icon" onClick={onDelete} aria-label={t("common.delete")}>
               <X className="w-4 h-4" />
@@ -592,7 +594,7 @@ function AddSubscriptionDialog({
   );
   /** 提交给后端的 addon 列表:目录里有这个型号就走 chip,没有就走手填,二选一不混用 */
   const chosenOptions = useMemo(() => {
-    if (matchedServer) return Object.values(picked).filter(Boolean) as string[];
+    if (matchedServer) return [...new Set([...(Object.values(picked).filter(Boolean) as string[]), ...splitList(extraOptions)])];
     return splitList(extraOptions);
   }, [matchedServer, picked, extraOptions]);
   // 订阅的下单账户 = 左侧菜单栏的全局账户,不再单独选
@@ -600,7 +602,7 @@ function AddSubscriptionDialog({
   const accountsQ = useAccounts();
   const allAccounts = accountsQ.data;
   const autoOrderAccountId =
-    globalAccountId || allAccounts?.find((a) => a.isDefault)?.id || allAccounts?.[0]?.id || "";
+    editing?.autoOrderAccountId || globalAccountId || allAccounts?.find((a) => a.isDefault)?.id || allAccounts?.[0]?.id || "";
   const activeAcc = findAccountByID(allAccounts, autoOrderAccountId);
   // 账户列表读失败 ≠ 一个账户都没配。两种情况以前都显示「未选择账户」,
   // 然后自动下单被静默拦掉 —— 用户看到的是一条没有理由的死路:
@@ -631,6 +633,8 @@ function AddSubscriptionDialog({
     if (!open) return;
     if (editing) {
       setPlanCode(editing.planCode);
+      setPicked({});
+      setExtraOptions((editing.options || []).join(", "));
       setDatacenters((editing.datacenters || []).join(", "));
       setNotifyAvailable(editing.notifyAvailable);
       setNotifyUnavailable(editing.notifyUnavailable);
@@ -725,7 +729,7 @@ function AddSubscriptionDialog({
         onOpenChange(false);
       },
     };
-    if (isEdit) update.mutate(payload, done);
+    if (isEdit) update.mutate({ ...payload, optionsKey: [...(editing.options || [])].sort().join(",") }, done);
     else create.mutate(payload, done);
   };
 
@@ -825,7 +829,7 @@ function AddSubscriptionDialog({
                 {chosenOptions.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => setPicked({})}
+                    onClick={() => { setPicked({}); setExtraOptions(""); }}
                     className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
                   >
                     {t("monitor.dialog.clearOptions")}
@@ -840,6 +844,8 @@ function AddSubscriptionDialog({
                 placeholder={t("monitor.dialog.optionsPlaceholder")}
               />
             )}
+            {matchedServer && (isEdit || extraOptions) && <Input aria-label={t("queue.extraOptionsPlaceholder")} placeholder={t("queue.extraOptionsPlaceholder")}
+              value={extraOptions} onChange={(e) => setExtraOptions(e.target.value)} />}
             <p className="text-[11px] text-muted-foreground mt-1">
               {chosenOptions.length > 0
                 ? t("monitor.dialog.optionsSelected", { n: chosenOptions.length })
@@ -894,9 +900,7 @@ function AddSubscriptionDialog({
                     </Button>
                   </div>
                 ) : (
-                  // 当前账户不在这里重复 —— 切换器在顶栏(手机)/侧栏(桌面)始终可见。
-                  // 只保留下面那句"触发时用这个账户下单",它说的是行为不是身份。
-                  null
+                  <AccountChip accountId={autoOrderAccountId} />
                 )}
                 <p className="text-[11px] text-muted-foreground mt-1">
                   {t("monitor.dialog.accountHint")}
@@ -919,12 +923,12 @@ function AddSubscriptionDialog({
                 <Input
                   type="number"
                   min={1}
-                  max={100}
+                  max={20}
                   value={quantity}
                   onChange={(e) => {
                     const v = Number(e.target.value);
                     if (Number.isFinite(v)) {
-                      setQuantity(Math.max(1, Math.min(100, Math.floor(v))));
+                      setQuantity(Math.max(1, Math.min(20, Math.floor(v))));
                     }
                   }}
                   placeholder={t("monitor.dialog.qtyPlaceholder")}
@@ -956,7 +960,7 @@ function AddSubscriptionDialog({
             </Button>
             <Button
               type="submit"
-              disabled={create.isPending || update.isPending || notifyBlocked || notifyChecking}
+              disabled={create.isPending || update.isPending || (!isEdit && (notifyBlocked || notifyChecking))}
               title={
                 notifyBlocked
                   ? notifyReason || t("monitor.dialog.blockedTitle")
@@ -965,7 +969,7 @@ function AddSubscriptionDialog({
             >
               {create.isPending || update.isPending
                 ? t("monitor.dialog.submitting")
-                : notifyChecking
+                : notifyChecking && !isEdit
                   ? t("monitor.dialog.checking")
                   : isEdit
                     ? t("monitor.dialog.save")

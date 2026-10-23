@@ -3,6 +3,7 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -49,7 +50,7 @@ func rowToMonitorSub(r monitorSubRow) types.Subscription {
 		Quantity:           r.Quantity,
 		AutoOrderAccountID: r.AutoOrderAccountID,
 		AutoPay:            r.AutoPay == 1,
-		Paused:            r.Paused == 1,
+		Paused:             r.Paused == 1,
 		Options:            opts,
 	}
 }
@@ -79,7 +80,9 @@ func monitorSubToRow(s types.Subscription) (monitorSubRow, error) {
 	if s.Options == nil {
 		s.Options = []string{}
 	}
-	optsJSON, err := json.Marshal(s.Options)
+	opts := append([]string{}, s.Options...)
+	sort.Strings(opts)
+	optsJSON, err := json.Marshal(opts)
 	if err != nil {
 		return monitorSubRow{}, err
 	}
@@ -102,7 +105,7 @@ func monitorSubToRow(s types.Subscription) (monitorSubRow, error) {
 		Quantity:           s.Quantity,
 		AutoOrderAccountID: s.AutoOrderAccountID,
 		AutoPay:            bi(s.AutoPay),
-		Paused:            bi(s.Paused),
+		Paused:             bi(s.Paused),
 		OptionsJSON:        string(optsJSON),
 	}, nil
 }
@@ -120,7 +123,7 @@ func (db *DB) ListMonitorSubscriptions() ([]types.Subscription, error) {
 	return out, nil
 }
 
-// UpsertMonitorSubscription 按 plan_code upsert
+// UpsertMonitorSubscription 按型号和规范化配置 upsert
 // auto_order_account_id 必须出现在 INSERT 列表里:ON CONFLICT 分支引用的 excluded.xxx
 // 取的是"这次 INSERT 尝试插入的值",列不在 INSERT 列表里时它等于列默认值(空串),
 // 于是每次更新都会把订阅的自动下单账户清空。
@@ -132,11 +135,11 @@ func (db *DB) UpsertMonitorSubscription(s types.Subscription) error {
 	_, err = db.NamedExec(`
 		INSERT INTO monitor_subscriptions
 		(plan_code, datacenters, notify_available, notify_unavailable, last_status,
-		 created_at, history, server_name, auto_order, quantity, auto_order_account_id, auto_pay, options)
+		 created_at, history, server_name, auto_order, quantity, auto_order_account_id, auto_pay, paused, options)
 		VALUES
 		(:plan_code, :datacenters, :notify_available, :notify_unavailable, :last_status,
-		 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id, :auto_pay, :options)
-		ON CONFLICT(plan_code) DO UPDATE SET
+		 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id, :auto_pay, :paused, :options)
+		ON CONFLICT(plan_code, options) DO UPDATE SET
 		  datacenters        = excluded.datacenters,
 		  notify_available   = excluded.notify_available,
 		  notify_unavailable = excluded.notify_unavailable,
@@ -147,6 +150,7 @@ func (db *DB) UpsertMonitorSubscription(s types.Subscription) error {
 		  quantity               = excluded.quantity,
 		  auto_order_account_id  = excluded.auto_order_account_id,
 		  auto_pay               = excluded.auto_pay,
+          paused                 = excluded.paused,
 		  options                = excluded.options
 	`, r)
 	if err != nil {
@@ -173,10 +177,10 @@ func (db *DB) ReplaceMonitorSubscriptions(subs []types.Subscription) error {
 		_, err = tx.NamedExec(`
 			INSERT INTO monitor_subscriptions
 			(plan_code, datacenters, notify_available, notify_unavailable, last_status,
-			 created_at, history, server_name, auto_order, quantity, auto_order_account_id, auto_pay, options)
+			 created_at, history, server_name, auto_order, quantity, auto_order_account_id, auto_pay, paused, options)
 			VALUES
 			(:plan_code, :datacenters, :notify_available, :notify_unavailable, :last_status,
-			 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id, :auto_pay, :options)
+			 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id, :auto_pay, :paused, :options)
 		`, r)
 		if err != nil {
 			return fmt.Errorf("insert monitor sub %s: %w", s.PlanCode, err)
@@ -198,4 +202,61 @@ func (db *DB) ClearMonitorSubscriptions() (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// migrateMonitorIdentity 保留旧订阅,允许同型号的不同配置分别保存。
+func (db *DB) migrateMonitorIdentity() error {
+	var cols []struct {
+		Name string `db:"name"`
+		PK   int    `db:"pk"`
+	}
+	// sqlx 严格映射 PRAGMA 的其余字段,因此这里只选需要的两列。
+	if err := db.Select(&cols, `SELECT name, pk FROM pragma_table_info('monitor_subscriptions')`); err != nil {
+		return err
+	}
+	for _, c := range cols {
+		if c.Name == "options" && c.PK > 0 {
+			return nil
+		}
+	}
+	tx, err := db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`CREATE TABLE monitor_subscriptions_v2 (
+ plan_code TEXT NOT NULL, datacenters TEXT NOT NULL DEFAULT '[]',
+ notify_available INTEGER NOT NULL DEFAULT 1, notify_unavailable INTEGER NOT NULL DEFAULT 0,
+ last_status TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL,
+ history TEXT NOT NULL DEFAULT '[]', server_name TEXT NOT NULL DEFAULT '',
+ auto_order INTEGER NOT NULL DEFAULT 0, quantity INTEGER NOT NULL DEFAULT 1,
+ auto_order_account_id TEXT NOT NULL DEFAULT '', auto_pay INTEGER NOT NULL DEFAULT 0,
+ paused INTEGER NOT NULL DEFAULT 0, options TEXT NOT NULL DEFAULT '[]',
+ PRIMARY KEY(plan_code, options))`); err != nil {
+		return err
+	}
+	const columns = `plan_code, datacenters, notify_available, notify_unavailable, last_status, created_at, history, server_name, auto_order, quantity, auto_order_account_id, auto_pay, paused, options`
+	if _, err = tx.Exec(`INSERT INTO monitor_subscriptions_v2 (` + columns + `) SELECT ` + columns + ` FROM monitor_subscriptions`); err != nil {
+		return err
+	}
+	var rows []monitorSubRow
+	if err = tx.Select(&rows, `SELECT * FROM monitor_subscriptions`); err != nil {
+		return err
+	}
+	for _, old := range rows {
+		normalized, e := monitorSubToRow(rowToMonitorSub(old))
+		if e != nil {
+			return e
+		}
+		if _, err = tx.Exec(`UPDATE monitor_subscriptions_v2 SET options=? WHERE plan_code=?`, normalized.OptionsJSON, old.PlanCode); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(`DROP TABLE monitor_subscriptions`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`ALTER TABLE monitor_subscriptions_v2 RENAME TO monitor_subscriptions`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

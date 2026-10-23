@@ -355,6 +355,9 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 	// 订阅配置在本轮开始时取一份快照,后面统一用它 ——
 	// 边跑边读 sub.X 既有竞争,也会让一轮检查横跨用户改配置的时刻。
 	cfg := sub.checkConfig()
+	if cfg.Paused || !m.checkCurrent(sub, cfg) {
+		return
+	}
 
 	// 查询账户必须按 planCode 所属大区选,不能一律落默认账户:
 	// 三个站点的库存视图独立,查错站点是 HTTP 200 + 空数组而不是报错(见 resolveQueryAccount 上的实测)。
@@ -384,6 +387,9 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 	// 监控用选中账户的 subsidiary 拉 catalog,这样跨子公司 multi-account
 	// 触发 auto-order 时,options 匹配能命中目标账户独有的项。
 	currentAvailability := catalog.CheckServerAvailabilityWithConfigs(m.state, planCode, choice.accountID)
+	if !m.checkCurrent(sub, cfg) {
+		return
+	}
 	if len(currentAvailability) == 0 {
 		// 区分两种"空":选到了区域正确的账户还是空 → OVH 侧问题;
 		// 用的账户其实在别的大区 → 区域配错,必须说清楚,不能只丢一句"无法获取"。
@@ -415,6 +421,9 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 	m.state.Logger.Info(fmt.Sprintf("订阅 %s - 当前发现 %d 个配置组合", planCode, len(currentAvailability)), "monitor")
 
 	for configKey, configData := range currentAvailability {
+		if !m.checkCurrent(sub, cfg) {
+			return
+		}
 		// 订阅指定了配置就只盯那一套。
 		//
 		// 这个循环下面的每一件事都是**按配置逐套**做的:发一条通知、触发一次
@@ -657,6 +666,9 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			}
 		}
 
+		if !m.checkCurrent(sub, cfg) {
+			return
+		}
 		// 分类。通知三兄弟只收 notify=true 的 —— 通知开关只管发不发消息;
 		// 下单走下面独立的一遍,不受通知开关影响。
 		var availables, unavailables, priceFailed []notification
@@ -705,7 +717,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 					"[monitor] %s 跳过自动下单:验价用的是账户 %q,而订阅指定的下单账户是 %q,两者不一致(下单账户可能已被删除)",
 					planCode, choice.accountID, cfg.AutoOrderAccountID), "monitor")
 			default:
-				m.batchOrder(planCode, configInfo, orderTargets, cfg.Quantity, cfg.AutoOrderAccountID, cfg.AutoPay)
+				m.batchOrder(planCode, configInfo, orderTargets, cfg.Quantity, cfg.AutoOrderAccountID, cfg.AutoPay, func() bool { return m.checkCurrent(sub, cfg) })
 			}
 		}
 
@@ -745,6 +757,9 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			if priceText == "" {
 				errIfNoPrice = priceFetchError
 			}
+			if !m.checkCurrent(sub, cfg) {
+				return
+			}
 			m.SendAvailabilityAlertGrouped(planCode, availDCs, configInfoWithPrice, cfg.ServerName,
 				errIfNoPrice, traceID, configTraceForNotif)
 
@@ -771,6 +786,9 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			if priceTextFailed != "" {
 				configInfoFailed["cached_price"] = priceTextFailed
 				configInfoFailed["price_check_error"] = n.priceCheckError
+			}
+			if !m.checkCurrent(sub, cfg) {
+				return
 			}
 			m.SendAvailabilityAlert(planCode, n.dc, "unavailable", "price_check_failed",
 				configInfoFailed, cfg.ServerName, "", n.priceCheckError, traceID, n.configTraceID, n.detectedTime)
@@ -803,6 +821,9 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			if len(unavailables) > 0 {
 				configTraceForNotif = unavailables[0].configTraceID
 			}
+			if !m.checkCurrent(sub, cfg) {
+				return
+			}
 			m.SendUnavailableAlertGrouped(planCode, unavailDCs, configInfo, cfg.ServerName,
 				traceID, configTraceForNotif)
 			entries := make([]HistoryEntry, 0, len(unavailables))
@@ -827,6 +848,9 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 	//   - 这些机房根本没做过价格校验,凭空写一条状态,等于让用户之后把它加进监控时
 	//     "首次检查"分支失效,当次有货既不通知也不触发 auto-order。
 	// 监控范围内的机房在上面的主循环里已经写过规范化状态了,所以这里不再补写。
+	if !m.checkCurrent(sub, cfg) {
+		return
+	}
 	sub.replaceLastStatus(lastStatus)
 	// 状态动过就标脏,循环末尾统一落一次库。不标的话 LastStatus 只活在内存里,
 	// 重启后当次有货会被当成"初始存量"吞掉(既不通知也不自动下单)。

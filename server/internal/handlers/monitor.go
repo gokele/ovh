@@ -231,17 +231,27 @@ func PauseSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		planCode := c.Param("planCode")
 		var body struct {
-			OptionsKey string `json:"optionsKey"`
-			Paused     *bool  `json:"paused"`
+			OptionsKey *string `json:"optionsKey"`
+			Paused     *bool   `json:"paused"`
 		}
-		_ = c.ShouldBindJSON(&body)
-		paused := body.Paused != nil && *body.Paused
+		if err := c.ShouldBindJSON(&body); err != nil || body.Paused == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "必须提供 paused 布尔值"})
+			return
+		}
+		paused := *body.Paused
 		if !mon.SetPaused(planCode, body.OptionsKey, paused) {
 			c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "订阅不存在", "code": "E5B2D91A4"})
 			return
 		}
-		mon.SaveToDB()
-		state.Logger.Info(fmt.Sprintf("订阅 %s(%s) 已%s监控", planCode, body.OptionsKey, map[bool]string{true: "暂停", false: "恢复"}[paused]), "monitor")
+		if err := mon.SaveToDB(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "本次运行状态已改变，但未能保存到数据库: " + err.Error()})
+			return
+		}
+		key := ""
+		if body.OptionsKey != nil {
+			key = *body.OptionsKey
+		}
+		state.Logger.Info(fmt.Sprintf("订阅 %s(%s) 已%s监控", planCode, key, map[bool]string{true: "暂停", false: "恢复"}[paused]), "monitor")
 		c.JSON(http.StatusOK, gin.H{"status": "success", "paused": paused})
 	}
 }

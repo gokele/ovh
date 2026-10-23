@@ -255,6 +255,7 @@ func main() {
 		api.POST("/queue", handlers.AddQueueItem(state))
 		api.DELETE("/queue/clear", handlers.ClearQueue(state))
 		api.DELETE("/queue/:id", handlers.RemoveQueueItem(state))
+		api.PUT("/queue/:id", handlers.UpdateQueueItem(state))
 		api.PUT("/queue/:id/status", handlers.UpdateQueueStatus(state))
 		api.PUT("/queue/:id/interval", handlers.UpdateQueueInterval(state))
 

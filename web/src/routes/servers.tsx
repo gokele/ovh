@@ -551,6 +551,7 @@ function DetailContent({
   const [retryInterval, setRetryInterval] = useState("60");
   // 默认不自动付款:自动扣钱必须是用户显式打开的
   const [autoPay, setAutoPay] = useState(false);
+  const [coupon, setCoupon] = useState("");
   const toggleDC = (code: string) =>
     setSelectedDCs((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
   // 和后端同一套上限:界面上先把数量收住,别让用户看到一个建不出来的数字。
@@ -804,6 +805,17 @@ function DetailContent({
           </h3>
           <div className="space-y-3">
             <div>
+              <label htmlFor="server-coupon" className="block text-[13px] font-medium mb-1.5">
+                {t("queue.couponLabel")}
+              </label>
+              <Input id="server-coupon" value={coupon} onChange={(e) => setCoupon(e.target.value)}
+                placeholder={t("queue.couponPlaceholder")} autoCapitalize="none" spellCheck={false}
+                aria-describedby="server-coupon-hint" />
+              <p id="server-coupon-hint" className="text-[11px] text-muted-foreground mt-1">
+                {t("queue.couponHint")}
+              </p>
+            </div>
+            <div>
               {/* 当前账户不在这里重复 —— 切换器在顶栏(手机)/侧栏(桌面)始终可见。
                   下面这句留着:它说的不是"账户是谁",而是"这些红绿点是按哪个站点查的",
                   库存判断的口径跟着账户走,这是本页独有的信息。 */}
@@ -934,6 +946,7 @@ function DetailContent({
               retryInterval: Number(retryInterval) || 60,
               options: selectedValues,
               autoPay,
+              coupon,
               preorder: !!server.prerelease,
             });
             if (result.success > 0) {

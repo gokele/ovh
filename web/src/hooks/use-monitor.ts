@@ -122,9 +122,10 @@ export function useUpdateMonitorSubscription() {
   return useMutation({
     mutationFn: async ({
       planCode,
+      optionsKey,
       ...patch
-    }: Partial<MonitorSubscription> & { planCode: string }) =>
-      (await api.put(`/monitor/subscriptions/${encodeURIComponent(planCode)}`, patch)).data,
+    }: Partial<MonitorSubscription> & { planCode: string; optionsKey?: string }) =>
+      (await api.put(`/monitor/subscriptions/${encodeURIComponent(planCode)}`, patch, { params: optionsKey === undefined ? undefined : { optionsKey } })).data,
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: qk.monitor.list() });
       qc.invalidateQueries({ queryKey: qk.monitor.status() });
@@ -145,7 +146,7 @@ export function usePauseMonitorSubscription() {
   return useMutation({
     mutationFn: async (v: { planCode: string; optionsKey?: string; paused: boolean }) =>
       (
-        await api.post(`/monitor/subscriptions/${v.planCode}/pause`, {
+        await api.post(`/monitor/subscriptions/${encodeURIComponent(v.planCode)}/pause`, {
           optionsKey: v.optionsKey,
           paused: v.paused,
         })
@@ -154,6 +155,7 @@ export function usePauseMonitorSubscription() {
       qc.invalidateQueries({ queryKey: qk.monitor.list() });
       qc.invalidateQueries({ queryKey: qk.monitor.status() });
     },
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.monitor.updateFailed")),
   });
 }
 

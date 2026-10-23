@@ -3349,6 +3349,32 @@
       ]
     }
   },
+  "POST /order/cart/{cartId}/coupon": {
+    "CA": {
+      "status": "PRODUCTION",
+      "response": "string[]",
+      "params": [
+        "body::order.cart.CouponCreation:true",
+        "path:cartId:string:true"
+      ]
+    },
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "string[]",
+      "params": [
+        "body::order.cart.CouponCreation:true",
+        "path:cartId:string:true"
+      ]
+    },
+    "US": {
+      "status": "PRODUCTION",
+      "response": "string[]",
+      "params": [
+        "body::order.cart.CouponCreation:true",
+        "path:cartId:string:true"
+      ]
+    }
+  },
   "POST /order/cart/{cartId}/eco": {
     "CA": {
       "status": "PRODUCTION",

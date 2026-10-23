@@ -78,6 +78,12 @@ func (db *DB) migrate() error {
 	if err := db.addColumnIfMissing("queue", "preorder", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
+	if err := db.addColumnIfMissing("queue", "coupon", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := db.addColumnIfMissing("history", "coupon_warning", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := db.addColumnIfMissing("monitor_subscriptions", "auto_pay", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
@@ -125,6 +131,9 @@ func (db *DB) migrate() error {
 	// 只加结构体字段不加列会让整个订阅列表报 missing destination name —— 必须同一次上线。
 	if err := db.addColumnIfMissing("monitor_subscriptions", "options", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
 		return err
+	}
+	if err := db.migrateMonitorIdentity(); err != nil {
+		return fmt.Errorf("migrate monitor identity: %w", err)
 	}
 	if err := db.addColumnIfMissing("vps_subscriptions", "auto_order_account_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
