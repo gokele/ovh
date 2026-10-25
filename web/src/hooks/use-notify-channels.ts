@@ -63,6 +63,12 @@ export function useNotifyGate(): [boolean, string, boolean] {
  */
 export function useTestNotification() {
   const qc = useQueryClient();
+  const saveResult = (channels?: NotifyChannel[]) => {
+    if (!Array.isArray(channels)) return;
+    qc.setQueryData<NotifyChannelsResult>(["notify", "channels", true], {
+      channels, anyAvailable: channels.some((c) => c.configured && c.ok), verified: true,
+    });
+  };
   return useMutation({
     mutationFn: async () =>
       (
@@ -71,8 +77,8 @@ export function useTestNotification() {
         )
       ).data,
     onSuccess: (d) => {
-      // 测试本身就是一次最真实的体检，顺手刷新上面的状态
-      qc.invalidateQueries({ queryKey: ["notify", "channels"] });
+      // 使用本次发送结果,不重新体检,否则 Webhook 又会收到一条测试通知。
+      saveResult(d.channels);
       const failed = (d.channels || []).filter((c) => c.configured && !c.ok);
       if (d.delivered === 0) {
         toast.error(d.message || i18n.t("hooksMsg.notify.noneDelivered"));
@@ -90,6 +96,13 @@ export function useTestNotification() {
         toast.success(d.message || i18n.t("hooksMsg.notify.sentToChannels", { count: d.delivered }));
       }
     },
-    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.notify.sendFailed")),
+    onError: (e: any) => {
+      const channels: NotifyChannel[] | undefined = e?.response?.data?.channels;
+      saveResult(channels);
+      const reason = Array.isArray(channels)
+        ? channels.filter((c) => c.configured && !c.ok).map((c) => c.detail).filter(Boolean).join(i18n.t("hooksMsg.notify.channelSeparator"))
+        : "";
+      toast.error(reason || apiMessage(e) || i18n.t("hooksMsg.notify.sendFailed"));
+    },
   });
 }

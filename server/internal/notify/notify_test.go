@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ovh-buy/server/internal/app"
@@ -48,6 +49,10 @@ func TestWebhookPayloadCarriesTextInEveryCommonField(t *testing.T) {
 	tc, _ := got["text_content"].(map[string]interface{})
 	if tc == nil || tc["text"] != "有货了" {
 		t.Errorf("text_content.text 不对: %v", got["text_content"])
+	}
+	fc, _ := got["content"].(map[string]interface{})
+	if got["msg_type"] != "text" || fc == nil || fc["text"] != "有货了" {
+		t.Errorf("飞书 msg_type/content.text 不对: %v", got)
 	}
 	if got["msgtype"] != "text" {
 		t.Errorf("msgtype 应该是 text,实际 %v", got["msgtype"])
@@ -129,4 +134,88 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// These requests never leave the process, including fixtures using vendor hostnames.
+type webhookTransport func(*http.Request) (*http.Response, error)
+
+func (f webhookTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestWebhookBusinessResponsesAndVendorPayloads(t *testing.T) {
+	original := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = original })
+	for _, tc := range []struct{ name, host, response, wantError string }{
+		{"feishu accepted", "open.feishu.cn", `{"code":0,"msg":"success"}`, ""},
+		{"lark accepted", "open.larksuite.com", `{"code":0}`, ""},
+		{"feishu rejected", "open.feishu.cn", `{"code":19002,"data":{},"msg":"params error, msg_type need"}`, "19002"},
+		{"feishu security rejected", "open.feishu.cn", `{"code":19021,"msg":"sign match fail"}`, "sign match fail"},
+		{"feishu legacy accepted", "open.feishu.cn", `{"StatusCode":0,"StatusMessage":"success"}`, ""},
+		{"feishu legacy rejected", "open.feishu.cn", `{"StatusCode":19024,"StatusMessage":"keyword missing"}`, "keyword missing"},
+		{"feishu malformed", "open.feishu.cn", `ok`, "无效"},
+		{"feishu missing result", "open.feishu.cn", `{}`, "缺少"},
+		{"feishu code 200 is not success", "open.feishu.cn", `{"code":200}`, "code 200"},
+		{"dingtalk accepted", "oapi.dingtalk.com", `{"errcode":0,"errmsg":"ok"}`, ""},
+		{"dingtalk rejected", "oapi.dingtalk.com", `{"errcode":310000,"errmsg":"keywords not in content"}`, "keywords not in content"},
+		{"quoted error code", "open.feishu.cn", `{"code":"19002","msg":"bad"}`, "19002"},
+		{"custom proxy feishu response", "hooks.invalid", `{"code":19002,"msg":"rejected"}`, "19002"},
+		{"custom proxy dingtalk response", "hooks.invalid", `{"errcode":310000,"errmsg":"rejected"}`, "310000"},
+		{"one successful field cannot mask failure", "hooks.invalid", `{"code":0,"errcode":310000,"errmsg":"rejected"}`, "310000"},
+		{"custom empty response", "hooks.invalid", ``, ""},
+		{"custom text response", "hooks.invalid", `ok`, ""},
+		{"custom JSON response", "hooks.invalid", `{"ok":true}`, ""},
+		{"custom textual code", "hooks.invalid", `{"code":"OK"}`, ""},
+		{"bark style code 200", "hooks.invalid", `{"code":200,"message":"success"}`, ""},
+		{"custom error with message", "hooks.invalid", `{"code":500,"message":"queue full"}`, "queue full"},
+		{"oversized response", "hooks.invalid", strings.Repeat(" ", (64<<10)+1), "过大"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			http.DefaultTransport = webhookTransport(func(r *http.Request) (*http.Response, error) {
+				var payload map[string]interface{}
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatal(err)
+				}
+				if r.Header.Get("Content-Type") != "application/json" {
+					t.Fatal("missing JSON header")
+				}
+				if tc.host == "oapi.dingtalk.com" {
+					text, _ := payload["text"].(map[string]interface{})
+					if text == nil || text["content"] != "有货了" || payload["msgtype"] != "text" {
+						t.Fatalf("invalid DingTalk payload: %v", payload)
+					}
+				} else if payload["text"] != "有货了" || payload["message"] != "有货了" {
+					t.Fatalf("legacy fields changed: %v", payload)
+				}
+				content, _ := payload["content"].(map[string]interface{})
+				if content == nil || content["text"] != "有货了" || payload["msg_type"] != "text" {
+					t.Fatalf("invalid Feishu payload: %v", payload)
+				}
+				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(tc.response)), Request: r}, nil
+			})
+			err := sendWebhook("https://"+tc.host+"/fixture", "有货了")
+			if tc.wantError == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("expected %q, got %v", tc.wantError, err)
+			}
+		})
+	}
+}
+
+func TestWebhookBusinessErrorNotCountedAsDelivered(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"code":19002,"msg":"msg_type need"}`)
+	}))
+	defer srv.Close()
+	state := testState(t)
+	state.Config.Set(types.Config{NotifyWebhookURL: srv.URL})
+	delivered, channels := BroadcastWithStatus(state, "测试", nil)
+	if delivered != 0 || len(channels) != 2 || channels[1].OK || !strings.Contains(channels[1].Detail, "19002") {
+		t.Fatalf("false success: %d %+v", delivered, channels)
+	}
+	if ok, reason := AnyAvailable(state, true); ok || !strings.Contains(reason, "19002") {
+		t.Fatalf("false healthy: %v %s", ok, reason)
+	}
 }

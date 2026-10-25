@@ -386,8 +386,7 @@ func TestNotification(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		msg := "🔔 OVH 控制台通知测试\n\n时间: " + time.Now().Format("2006-01-02 15:04:05") +
 			"\n\n收到这条说明该通道可用。"
-		delivered := notify.Broadcast(state, msg, nil)
-		chans := notify.Status(state, false)
+		delivered, chans := notify.BroadcastWithStatus(state, msg, nil)
 		if delivered > 0 {
 			state.Logger.Info(fmt.Sprintf("测试通知已送达 %d 个通道", delivered), "monitor")
 			c.JSON(http.StatusOK, gin.H{

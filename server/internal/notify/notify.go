@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -29,13 +30,16 @@ type Channel struct {
 	Detail     string `json:"detail,omitempty"`
 }
 
-// webhookPayload 发给自定义 webhook 的结构。
-// 字段名同时兼容几种常见接收端:钉钉/飞书的 text.content、以及大多数自建服务读的 text/message。
+// webhookPayload 保留自建服务原有字段,同时支持飞书的 msg_type/content。
 type webhookPayload struct {
-	Text    string `json:"text"`
-	Message string `json:"message"`
-	Title   string `json:"title"`
-	MsgType string `json:"msgtype"`
+	Text          interface{} `json:"text"`
+	Message       string      `json:"message"`
+	Title         string      `json:"title"`
+	MsgType       string      `json:"msgtype"`
+	FeishuMsgType string      `json:"msg_type"`
+	FeishuContent struct {
+		Text string `json:"text"`
+	} `json:"content"`
 	Content struct {
 		Text string `json:"text"`
 	} `json:"text_content"`
@@ -47,42 +51,65 @@ type webhookPayload struct {
 // 注意 replyMarkup 只有 Telegram 支持(一键下单按钮),webhook 那边只能收到纯文本。
 // 这是有意的:让按钮在 TG 上继续可用,同时保证 TG 挂掉时消息本身还能到达。
 func Broadcast(state *app.State, message string, replyMarkup map[string]interface{}) int {
+	delivered, _ := BroadcastWithStatus(state, message, replyMarkup)
+	return delivered
+}
+
+// BroadcastWithStatus 返回本次实际发送结果,避免测试通知拿配置状态冒充送达状态。
+func BroadcastWithStatus(state *app.State, message string, replyMarkup map[string]interface{}) (int, []Channel) {
 	delivered := 0
 	cfg := state.Config.Get()
-
-	if strings.TrimSpace(cfg.TgToken) != "" && strings.TrimSpace(cfg.TgChatID) != "" {
+	tg := Channel{Name: "Telegram", Configured: strings.TrimSpace(cfg.TgToken) != "" && strings.TrimSpace(cfg.TgChatID) != ""}
+	wh := Channel{Name: "Webhook", Configured: strings.TrimSpace(cfg.NotifyWebhookURL) != ""}
+	if tg.Configured {
 		if telegram.SendMessage(state, message, replyMarkup) {
 			delivered++
+			tg.OK = true
+		} else {
+			tg.Detail = "发送失败,请检查 Telegram 配置及网络"
 		}
 	}
-	if url := strings.TrimSpace(cfg.NotifyWebhookURL); url != "" {
-		if err := sendWebhook(url, message); err != nil {
+	if wh.Configured {
+		if err := sendWebhook(strings.TrimSpace(cfg.NotifyWebhookURL), message); err != nil {
+			wh.Detail = err.Error()
 			state.Logger.Warn("Webhook 通知发送失败: "+err.Error(), "notify")
 		} else {
 			delivered++
+			wh.OK = true
 		}
 	}
 	if delivered == 0 {
 		state.Logger.Error("这条通知一个通道都没送达,请检查 Telegram / Webhook 配置", "notify")
 	}
-	return delivered
+	return delivered, []Channel{tg, wh}
 }
 
-// sendWebhook POST 一条 JSON 到用户自定义地址。
-// 不猜对方的协议:同一条文本塞进几个最常见的字段名,钉钉/飞书/Bark/自建都能取到其中一个。
-func sendWebhook(url, message string) error {
+// sendWebhook 发文本消息,同时检查 HTTP 状态和常见的业务状态码。
+func sendWebhook(webhookURL, message string) error {
+	target, err := url.Parse(webhookURL)
+	if err != nil {
+		return err
+	}
+	host := strings.ToLower(target.Hostname())
+	feishu := host == "open.feishu.cn" || host == "open.larksuite.com"
+	dingtalk := host == "oapi.dingtalk.com"
 	var p webhookPayload
 	p.Text = message
 	p.Message = message
 	p.Title = "OVH 控制台"
 	p.MsgType = "text"
 	p.Content.Text = message
-
+	p.FeishuMsgType = "text"
+	p.FeishuContent.Text = message
+	// 钉钉的 text 必须是对象;自建服务保持原来的字符串字段。
+	if dingtalk {
+		p.Text = map[string]string{"content": message}
+	}
 	body, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -92,9 +119,61 @@ func sendWebhook(url, message string) error {
 		return err
 	}
 	defer resp.Body.Close()
+	const maxResponse = 64 << 10
+	response, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
+	if err != nil {
+		return fmt.Errorf("读取 Webhook 响应失败: %w", err)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		snippet := response
+		if len(snippet) > 300 {
+			snippet = snippet[:300]
+		}
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+	}
+	if len(response) > maxResponse {
+		return fmt.Errorf("Webhook 响应过大,无法确认发送结果")
+	}
+	var result struct {
+		Code          *json.Number `json:"code"`
+		ErrCode       *json.Number `json:"errcode"`
+		StatusCode    *json.Number `json:"StatusCode"`
+		Msg           string       `json:"msg"`
+		ErrMsg        string       `json:"errmsg"`
+		StatusMessage string       `json:"StatusMessage"`
+		Message       string       `json:"message"`
+	}
+	if err := json.Unmarshal(response, &result); err != nil {
+		if feishu || dingtalk {
+			return fmt.Errorf("Webhook 返回无效的业务响应: %w", err)
+		}
+		return nil // 自建服务允许空响应或纯文本。
+	}
+	if (feishu && result.Code == nil && result.StatusCode == nil) || (dingtalk && result.ErrCode == nil) {
+		return fmt.Errorf("Webhook 响应缺少业务状态码,无法确认发送结果")
+	}
+	for _, status := range []struct {
+		name    string
+		code    *json.Number
+		message string
+	}{
+		{"code", result.Code, result.Msg}, {"errcode", result.ErrCode, result.ErrMsg}, {"StatusCode", result.StatusCode, result.StatusMessage},
+	} {
+		if status.code == nil {
+			continue
+		}
+		code, err := status.code.Int64()
+		if err != nil {
+			return fmt.Errorf("Webhook 返回无效的 %s: %s", status.name, status.code.String())
+		}
+		// Bark 和部分自建服务用 code=200 表示成功;飞书、钉钉用 0。
+		if code != 0 && !(status.name == "code" && code == 200 && !feishu && !dingtalk) {
+			detail := status.message
+			if detail == "" {
+				detail = result.Message
+			}
+			return fmt.Errorf("Webhook 返回错误 (%s %d): %s", status.name, code, detail)
+		}
 	}
 	return nil
 }

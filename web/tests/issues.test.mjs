@@ -259,3 +259,39 @@ test("task edits update one queue item and monitor edits retain exact empty conf
     assert.equal(calls[2].body.paused, true);
   } finally { api.defaults.adapter = adapter; client.clear(); }
 });
+
+test("webhook tests cache actual delivery status on success and rejection without sending another probe", async () => {
+  const { useTestNotification } = await server.ssrLoadModule("/src/hooks/use-notify-channels.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const { AxiosError } = await import("axios");
+  const client = new QueryClient();
+  const adapter = api.defaults.adapter;
+  const key = ["notify", "channels", true];
+  let mutation, requestCount = 0, reject = false;
+  function Probe() { mutation = useTestNotification(); return null; }
+  api.defaults.adapter = async (config) => {
+    requestCount++;
+    assert.equal(config.method, "post");
+    assert.equal(config.url, "/monitor/test-notification");
+    const channels = [{ name: "Webhook", configured: true, ok: !reject, detail: reject ? "Webhook 返回错误 (code 19002): msg_type need" : "" }];
+    const response = { data: { channels, delivered: reject ? 0 : 1, message: "test result" }, status: reject ? 500 : 200, statusText: "fixture", headers: {}, config };
+    if (reject) throw new AxiosError("rejected", "ERR_BAD_RESPONSE", config, undefined, response);
+    return response;
+  };
+  try {
+    renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    await mutation.mutateAsync();
+    assert.equal(requestCount, 1);
+    assert.equal(client.getQueryData(key).anyAvailable, true);
+    assert.equal(client.getQueryState(key).isInvalidated, false);
+    reject = true;
+    await assert.rejects(mutation.mutateAsync());
+    const result = client.getQueryData(key);
+    assert.equal(requestCount, 2);
+    assert.equal(result.verified, true);
+    assert.equal(result.anyAvailable, false);
+    assert.equal(result.channels[0].ok, false);
+    assert.match(result.channels[0].detail, /19002/);
+    assert.equal(client.getQueryState(key).isInvalidated, false);
+  } finally { api.defaults.adapter = adapter; client.clear(); }
+});
