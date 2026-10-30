@@ -10,6 +10,18 @@
 @import "./pearl/layout.css";
 @import "./pearl/pages.css";
 
+/* 全局 button reset 在 Tailwind 层之外;恢复确认勾选框的边界和选中状态。 */
+[data-skin="pearl"] button[role="checkbox"] {
+  border: 1px solid hsl(var(--muted-foreground));
+  background: hsl(var(--background));
+}
+[data-skin="pearl"] button[role="checkbox"][data-state="checked"],
+[data-skin="pearl"] button[role="checkbox"][data-state="indeterminate"] {
+  border-color: hsl(var(--button-primary));
+  background: hsl(var(--button-primary));
+  color: hsl(var(--button-primary-foreground));
+}
+
 /* ── 皮肤作用域的 token 桥:把旧 tailwind 语义名映射到珍珠色板 ──
    经典皮肤的取值在 globals.css,不受这里影响;两套并存的关键。 */
 [data-skin="pearl"] {

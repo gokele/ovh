@@ -1,166 +1,124 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { LifeBuoy, AlertTriangle, Loader2 } from "lucide-react";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { LoadFailed } from "@/components/common/LoadFailed";
-import { useRescueStatus, useEnterRescue, useExitRescue } from "@/hooks/use-server-control";
+import { useRescueStatus, useEnterRescue, useExitRescue, type RescueStatus } from "@/hooks/use-server-control";
+import { useAccountScope } from "@/hooks/use-account";
 import { Trans, useTranslation } from "react-i18next";
 
-/**
- * 一键救援系统。
- *
- * 手动做这件事要在 OVH 后台点四步:进服务器 → 改 netboot 为救援 → 填收密码的邮箱
- * → 回去重启服务器。漏掉最后一步是最常见的错误 —— netboot 改了但没重启,
- * 机器还在正常系统里跑,用户对着 SSH 连不上发懵。
- * 这里把三个 API 调用合成一个按钮,并且明确告诉用户重启已经发出去了。
- */
-export function RescueDialog({
-  serviceName,
-  displayName,
-  open,
-  onOpenChange,
-}: {
+type RescueDialogProps = {
   serviceName: string;
   displayName?: string;
   open: boolean;
   onOpenChange: (v: boolean) => void;
-}) {
-  const status = useRescueStatus(serviceName, open);
-  const enter = useEnterRescue(serviceName);
-  const exit = useExitRescue(serviceName);
+};
+
+/** 每次打开或切换账户都创建独立会话,不复用上一次的邮箱和确认。 */
+export function RescueDialog(props: RescueDialogProps) {
+  const accountId = useAccountScope();
+  return props.open ? <RescueSession key={`${accountId}:${props.serviceName}`} {...props} accountId={accountId} /> : null;
+}
+
+/** 新鲜状态读取完成前不展示可编辑表单,查询失败时不允许重启。 */
+function RescueSession({ serviceName, displayName, onOpenChange, accountId }: RescueDialogProps & { accountId: string }) {
+  const status = useRescueStatus(serviceName, accountId);
   const { t } = useTranslation();
-  const [email, setEmail] = useState("");
-  const [confirming, setConfirming] = useState(false);
-
-  // 每次打开都重置二次确认,并把上次用过的邮箱带出来省得重填
-  useEffect(() => {
-    if (!open) return;
-    setConfirming(false);
-    setEmail(status.data?.rescueMail || "");
-  }, [open, status.data?.rescueMail]);
-
-  const inRescue = status.data?.inRescue === true;
-  const busy = enter.isPending || exit.isPending;
-  // 邮箱可以留空(用账户默认联系邮箱),填了就得像个邮箱 —— 填错等于收不到密码
-  const emailBad = email.trim() !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-
+  const [busy, setBusy] = useState(false);
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+    <Dialog open onOpenChange={(value) => { if (!busy) onOpenChange(value); }}>
+      <DialogContent className="max-w-lg" onEscapeKeyDown={(e) => { if (busy) e.preventDefault(); }} onPointerDownOutside={(e) => { if (busy) e.preventDefault(); }}>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <LifeBuoy className="w-4 h-4" />
-            {t("ctrl.rescue.title")}
-          </DialogTitle>
-          <DialogDescription>
-            {displayName ? <span className="font-mono">{displayName}</span> : serviceName}
-          </DialogDescription>
+          <DialogTitle className="flex items-center gap-2"><LifeBuoy className="h-4 w-4" />{t("ctrl.rescue.title")}</DialogTitle>
+          <DialogDescription className="break-all font-mono">{displayName || serviceName}</DialogDescription>
         </DialogHeader>
-
-        {status.isError ? (
-          <LoadFailed
-            compact
-            icon={LifeBuoy}
-            title={t("ctrl.rescue.loadFailed")}
-            error={status.error}
-            onRetry={() => status.refetch()}
-          />
+        {status.isPending || status.isFetching ? (
+          <div role="status" className="flex items-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{t("ctrl.rescue.statusLoading")}</div>
+        ) : status.isError ? (
+          <LoadFailed compact icon={LifeBuoy} title={t("ctrl.rescue.loadFailed")} error={status.error} onRetry={() => status.refetch()} />
         ) : (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-border bg-muted/40 px-3.5 py-3">
-              <p className="text-[12px]">
-                {t("ctrl.rescue.currentStatus")}
-                {status.isPending ? (
-                  <span className="text-muted-foreground">{t("ctrl.rescue.statusLoading")}</span>
-                ) : inRescue ? (
-                  <b className="text-warning">{t("ctrl.rescue.modeRescue")}</b>
-                ) : (
-                  <b>{t("ctrl.rescue.modeNormal")}</b>
-                )}
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                <Trans i18nKey="ctrl.rescue.whatIsRescue" components={{ b: <b /> }} />
-              </p>
-            </div>
-
-            {inRescue ? (
-              <div className="rounded-xl border border-border px-3.5 py-3 text-[12px] leading-relaxed">
-                <Trans i18nKey="ctrl.rescue.alreadyInRescue" components={{ b: <b /> }} />
-              </div>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-[13px] font-medium mb-1.5">
-                    {t("ctrl.rescue.mailLabel")}
-                    <span className="text-muted-foreground font-normal">{t("ctrl.rescue.optional")}</span>
-                  </label>
-                  <Input
-                    value={email}
-                    onChange={(e) => { setEmail(e.target.value); setConfirming(false); }}
-                    placeholder={t("ctrl.rescue.mailPlaceholder")}
-                    inputMode="email"
-                  />
-                  {emailBad ? (
-                    <p className="text-[11px] text-destructive mt-1">
-                      {t("ctrl.rescue.mailBad")}
-                    </p>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      {t("ctrl.rescue.mailHint")}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex items-start gap-2.5 rounded-xl border border-warning/40 bg-warning/5 px-3.5 py-3">
-                  <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
-                  <div className="text-[12px] leading-relaxed">
-                    <Trans i18nKey="ctrl.rescue.rebootWarn" components={{ b: <b /> }} />
-                  </div>
-                </div>
-
-                {confirming && (
-                  <p className="text-[12px] text-warning">
-                    {t("ctrl.rescue.confirmHint")}
-                  </p>
-                )}
-              </>
-            )}
-          </div>
+          <RescueForm key={status.dataUpdatedAt} serviceName={serviceName} accountId={accountId} status={status.data} onOpenChange={onOpenChange} onBusyChange={setBusy} />
         )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
-            {t("common.close")}
-          </Button>
-          {inRescue ? (
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={() => exit.mutate(undefined, { onSuccess: () => onOpenChange(false) })}
-            >
-              {exit.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
-              {t("ctrl.rescue.exitBtn")}
-            </Button>
-          ) : (
-            <Button
-              disabled={busy || status.isPending || emailBad}
-              onClick={() => {
-                if (!confirming) { setConfirming(true); return; }
-                enter.mutate(
-                  { email: email.trim() || undefined },
-                  { onSuccess: () => onOpenChange(false) }
-                );
-              }}
-            >
-              {enter.isPending && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
-              {confirming ? t("ctrl.rescue.confirmBtn") : t("ctrl.rescue.enterBtn")}
-            </Button>
-          )}
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+/** 邮箱变化会取消确认;只有有效收信方式与独立勾选同时满足才发送重启请求。 */
+function RescueForm({ serviceName, accountId, status, onOpenChange, onBusyChange }: {
+  serviceName: string; accountId: string; status: RescueStatus;
+  onOpenChange: (v: boolean) => void; onBusyChange: (v: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const enter = useEnterRescue(serviceName, accountId);
+  const exit = useExitRescue(serviceName, accountId);
+  const [email, setEmail] = useState(status.rescueMail || "");
+  const [useDefaultEmail, setUseDefaultEmail] = useState(false);
+  const [exiting, setExiting] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const submitted = useRef(false);
+  const busy = enter.isPending || exit.isPending;
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const recipientReady = useDefaultEmail || emailValid;
+
+  // ref 在 React 重渲染前也能挡住连点;失败后需重新勾选,不自动重试。
+  async function submit() {
+    if (submitted.current || !confirmed || (!exiting && !recipientReady)) return;
+    submitted.current = true;
+    onBusyChange(true);
+    try {
+      if (exiting) await exit.mutateAsync({ expectedBoot: status.currentBoot, confirm: true });
+      else await enter.mutateAsync({ email: useDefaultEmail ? undefined : email.trim(), useDefaultEmail, expectedBoot: status.currentBoot, confirm: true });
+      onOpenChange(false);
+    } catch {
+      setConfirmed(false);
+    } finally {
+      submitted.current = false;
+      onBusyChange(false);
+    }
+  }
+
+  return <>
+    <div className="space-y-4">
+      <div className="rounded-xl border bg-muted/40 p-3.5 text-sm leading-relaxed">
+        <p>{t("ctrl.rescue.currentStatus")}<b>{t(status.inRescue ? "ctrl.rescue.modeRescue" : "ctrl.rescue.modeNormal")}</b></p>
+        <p className="mt-1 text-xs text-muted-foreground">{t("ctrl.rescue.configOnly")}</p>
+        <p className="mt-2 text-xs text-muted-foreground"><Trans i18nKey="ctrl.rescue.whatIsRescue" components={{ b: <b /> }} /></p>
+      </div>
+      {exiting ? (
+        <p className="text-sm leading-relaxed">{t("ctrl.rescue.exitHint")}</p>
+      ) : <div className="space-y-3">
+        <div>
+          <label htmlFor="rescue-email" className="mb-1.5 block text-sm font-medium">{t("ctrl.rescue.mailLabel")}</label>
+          <Input id="rescue-email" type="email" inputMode="email" autoComplete="email" value={email} disabled={busy || useDefaultEmail}
+            onChange={(e) => { setEmail(e.target.value); setConfirmed(false); }} placeholder={t("ctrl.rescue.mailPlaceholder")}
+            aria-invalid={!useDefaultEmail && email !== "" && !emailValid} aria-describedby="rescue-mail-hint" />
+          <p id="rescue-mail-hint" className={`mt-1.5 text-xs ${email !== "" && !emailValid && !useDefaultEmail ? "text-destructive" : "text-muted-foreground"}`}>
+            {t(email !== "" && !emailValid && !useDefaultEmail ? "ctrl.rescue.mailBad" : "ctrl.rescue.mailHint")}
+          </p>
+        </div>
+        <div className="flex min-h-11 items-center gap-3">
+          <Checkbox id="rescue-default-email" checked={useDefaultEmail} disabled={busy} onCheckedChange={(v) => { setUseDefaultEmail(v === true); setConfirmed(false); }} />
+          <label htmlFor="rescue-default-email" className="cursor-pointer text-sm">{t("ctrl.rescue.useDefaultEmail")}</label>
+        </div>
+      </div>}
+      <div className="flex items-start gap-2.5 rounded-xl border border-warning/40 bg-warning/5 p-3.5 text-sm leading-relaxed">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+        <div><Trans i18nKey="ctrl.rescue.rebootWarn" components={{ b: <b /> }} /></div>
+      </div>
+      <div className="flex min-h-11 items-start gap-3 rounded-xl border p-3.5">
+        <Checkbox id="rescue-confirm" className="mt-0.5" checked={confirmed} disabled={busy || (!exiting && !recipientReady)} onCheckedChange={(v) => setConfirmed(v === true)} />
+        <label htmlFor="rescue-confirm" className="cursor-pointer text-sm leading-relaxed">{t(exiting ? "ctrl.rescue.exitAcknowledge" : "ctrl.rescue.enterAcknowledge", { email: useDefaultEmail ? t("ctrl.rescue.defaultRecipient") : email.trim() || t("ctrl.rescue.mailLabel") })}</label>
+      </div>
+    </div>
+    <DialogFooter className="sm:flex-wrap">
+      <Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>{t("common.close")}</Button>
+      {status.inRescue && <Button type="button" variant="outline" disabled={busy} onClick={() => { setExiting(!exiting); setConfirmed(false); }}>{t(exiting ? "ctrl.rescue.backToRescue" : "ctrl.rescue.exitBtn")}</Button>}
+      <Button type="button" variant="destructive" disabled={busy || !confirmed || (!exiting && !recipientReady)} onClick={submit}>
+        {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}{t(exiting ? "ctrl.rescue.confirmExitBtn" : "ctrl.rescue.confirmBtn")}
+      </Button>
+    </DialogFooter>
+  </>;
 }

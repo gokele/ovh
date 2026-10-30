@@ -677,3 +677,34 @@ test("cancelled chat authentication cannot navigate a late response", async () =
     await ready; controller.abort(); release(); await rejected;
   } finally { api.defaults.adapter = original; }
 });
+
+// 危险操作的确认与账户必须由弹窗传入,失败不自动重发。
+test("rescue and withdrawal mutations pin account, intent, recipient and reviewed order", async () => {
+  const { useEnterRescue, useExitRescue, useRequestRetraction } = await server.ssrLoadModule("/src/hooks/use-server-control.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const original = api.defaults.adapter;
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: 3 } } });
+  const calls = [];
+  let fail = false, enter, exit, retract;
+  api.defaults.adapter = async config => {
+    calls.push(config);
+    if (fail) throw new Error("ambiguous operation response");
+    return { data: { success: true }, status: 200, statusText: "OK", headers: {}, config };
+  };
+  function Probe() { enter = useEnterRescue("ns-fixture", "eu"); exit = useExitRescue("ns-fixture", "eu"); retract = useRequestRetraction("ns-fixture", "eu"); return null; }
+  try {
+    renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    await enter.mutateAsync({ email: "complete@example.com", useDefaultEmail: false, expectedBoot: 1, confirm: true });
+    await exit.mutateAsync({ expectedBoot: 2, confirm: true });
+    await retract.mutateAsync({ orderId: 123, confirm: true });
+    for (const call of calls) assert.equal(call.params.account, "eu");
+    assert.deepEqual(JSON.parse(calls[0].data), { email: "complete@example.com", useDefaultEmail: false, expectedBoot: 1, confirm: true });
+    assert.deepEqual(JSON.parse(calls[1].data), { expectedBoot: 2, confirm: true });
+    assert.deepEqual(JSON.parse(calls[2].data), { orderId: 123, confirm: true, reason: "other" });
+    fail = true;
+    await assert.rejects(retract.mutateAsync({ orderId: 123, confirm: true }), /ambiguous/);
+    await assert.rejects(enter.mutateAsync({ email: "complete@example.com", useDefaultEmail: false, expectedBoot: 1, confirm: true }), /ambiguous/);
+    await assert.rejects(exit.mutateAsync({ expectedBoot: 2, confirm: true }), /ambiguous/);
+    assert.equal(calls.length, 6);
+  } finally { api.defaults.adapter = original; client.clear(); }
+});

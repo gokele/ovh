@@ -102,28 +102,35 @@ func GetRescueStatus(state *app.State) gin.HandlerFunc {
 		}
 		rescueMail, _ := info["rescueMail"].(string)
 		c.JSON(http.StatusOK, gin.H{
-			"success":     true,
-			"inRescue":    inRescue,
-			"currentBoot": currentBoot,
-			"rescueMail":  rescueMail,
-			"boots":       boots,
+			"success": true,
+			// bootId 是下次启动配置,不是当前实际运行的操作系统。
+			"inRescue":         inRescue, // 兼容旧客户端,含义同 rescueConfigured。
+			"rescueConfigured": inRescue,
+			"currentBoot":      currentBoot,
+			"rescueMail":       rescueMail,
+			"boots":            boots,
 		})
 	}
 }
 
 // EnterRescue POST /api/server-control/:service_name/rescue
 //
-// body: { email?: string, sshKey?: string, bootId?: number, confirm: true }
+// body: { email?: string, useDefaultEmail?: bool, expectedBoot?: number, sshKey?: string, bootId?: number, confirm: true }
 func EnterRescue(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
 		var body struct {
-			Email   string `json:"email"`
-			SSHKey  string `json:"sshKey"`
-			BootID  int64  `json:"bootId"`
-			Confirm bool   `json:"confirm"`
+			Email           string `json:"email"`
+			SSHKey          string `json:"sshKey"`
+			BootID          int64  `json:"bootId"`
+			Confirm         bool   `json:"confirm"`
+			UseDefaultEmail bool   `json:"useDefaultEmail"`
+			ExpectedBoot    *int64 `json:"expectedBoot"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "救援请求格式不正确,未执行操作", "code": "RESCUE_INVALID_REQUEST"})
+			return
+		}
 		// 会重启机器 = 业务中断,和重装、终止同一档,必须显式确认
 		if !body.Confirm {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -133,12 +140,16 @@ func EnterRescue(state *app.State) gin.HandlerFunc {
 			return
 		}
 		body.Email = strings.TrimSpace(body.Email)
+		if body.Email == "" && !body.UseDefaultEmail && strings.TrimSpace(body.SSHKey) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请填写完整邮箱,或明确选择使用账户联系邮箱", "code": "RESCUE_EMAIL_REQUIRED"})
+			return
+		}
 		if body.Email != "" {
-			if _, err := mail.ParseAddress(body.Email); err != nil {
+			if !validRescueEmail(body.Email) {
 				// 邮箱写错的后果是密码发不到你手里,而机器已经重启进救援了 —— 先挡下来
 				c.JSON(http.StatusBadRequest, gin.H{
 					"success": false,
-					"error":   "邮箱格式不对:" + body.Email + "。救援系统的登录密码会发到这个地址,填错就收不到",
+					"error":   "请填写完整、有效的收信邮箱,未执行救援操作", "code": "RESCUE_EMAIL_REQUIRED",
 				})
 				return
 			}
@@ -149,14 +160,28 @@ func EnterRescue(state *app.State) gin.HandlerFunc {
 			noOVHResp(c)
 			return
 		}
-
-		bootID := body.BootID
-		if bootID <= 0 {
-			boots, err := rescueBoots(client, svc, "rescue")
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+		if !checkRescueBoot(c, client, svc, body.ExpectedBoot) {
+			return
+		}
+		if body.UseDefaultEmail {
+			var contact struct {
+				Email string `json:"email"`
+			}
+			if err := client.Get("/me", &contact); err != nil || !validRescueEmail(strings.TrimSpace(contact.Email)) {
+				c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "无法取得有效的账户联系邮箱,未执行操作", "code": "RESCUE_EMAIL_REQUIRED"})
 				return
 			}
+			// 省略 rescueMail 会保留旧地址,必须明确写入本账户的联系邮箱。
+			body.Email = strings.TrimSpace(contact.Email)
+		}
+
+		bootID := body.BootID
+		boots, err := rescueBoots(client, svc, "rescue")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
+			return
+		}
+		if bootID <= 0 {
 			id, _, ok := pickRescueBoot(boots)
 			if !ok {
 				c.JSON(http.StatusBadRequest, gin.H{
@@ -166,6 +191,18 @@ func EnterRescue(state *app.State) gin.HandlerFunc {
 				return
 			}
 			bootID = id
+		} else {
+			valid := false
+			for _, b := range boots {
+				if id, ok := numconv.ToInt64(b["bootId"]); ok && id == bootID {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "所选启动项不属于此服务器的救援启动列表", "code": "RESCUE_INVALID_REQUEST"})
+				return
+			}
 		}
 
 		// 只发要改的字段。PUT /dedicated/server/{sn} 的语义见 SetBootConfig 里的长注释。
@@ -210,10 +247,20 @@ func EnterRescue(state *app.State) gin.HandlerFunc {
 			"success": true,
 			"bootId":  bootID,
 			"task":    task,
-			"message": "已切到救援模式并重启。约 3~5 分钟后可用 root 登录;" +
+			"message": "已设置救援启动并提交重启请求，请等待 OVH 任务完成；" +
 				"密码会发到" + rescueMailHint(body.Email) + "。修好之后记得点「退出救援模式」",
 		})
 	}
+}
+
+// validRescueEmail 与表单一致,拒绝未写完的域名、显示名称和多行地址。
+func validRescueEmail(value string) bool {
+	addr, err := mail.ParseAddress(value)
+	if err != nil || addr.Address != value || strings.ContainsAny(value, "\r\n") {
+		return false
+	}
+	at := strings.LastIndex(value, "@")
+	return at > 0 && strings.Contains(value[at+1:], ".") && !strings.HasSuffix(value, ".")
 }
 
 func rescueMailHint(email string) string {
@@ -230,9 +277,13 @@ func ExitRescue(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		svc := c.Param("service_name")
 		var body struct {
-			Confirm bool `json:"confirm"`
+			Confirm      bool   `json:"confirm"`
+			ExpectedBoot *int64 `json:"expectedBoot"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "救援请求格式不正确,未执行操作", "code": "RESCUE_INVALID_REQUEST"})
+			return
+		}
 		if !body.Confirm {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
@@ -243,6 +294,9 @@ func ExitRescue(state *app.State) gin.HandlerFunc {
 		client, err := ovhClientFor(state, c)
 		if err != nil {
 			noOVHResp(c)
+			return
+		}
+		if !checkRescueBoot(c, client, svc, body.ExpectedBoot) {
 			return
 		}
 		boots, err := rescueBoots(client, svc, "harddisk")
@@ -292,3 +346,20 @@ func ExitRescue(state *app.State) gin.HandlerFunc {
 	}
 }
 
+// checkRescueBoot 发现确认期间启动配置发生变化时停止,避免按过期页面重启。
+func checkRescueBoot(c *gin.Context, client *ovhsdk.Client, svc string, expected *int64) bool {
+	if expected == nil { // 兼容已有 API 客户端;新界面始终携带已确认的 bootId。
+		return true
+	}
+	var info map[string]interface{}
+	if err := client.Get("/dedicated/server/"+svc, &info); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": "无法重新核对启动配置,未执行操作", "code": "RESCUE_BOOT_CHANGED"})
+		return false
+	}
+	current, ok := numconv.ToInt64(info["bootId"])
+	if !ok || current != *expected {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "error": "启动配置已变化,请重新打开窗口核对后再操作", "code": "RESCUE_BOOT_CHANGED"})
+		return false
+	}
+	return true
+}

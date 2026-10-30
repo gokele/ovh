@@ -6,6 +6,7 @@ import { qk } from "@/lib/query";
 import { apiMessage, bodyMessage } from "@/lib/api-error";
 import type { PartialList } from "./partial-list";
 import { useActiveAccount } from "@/hooks/use-active-account";
+import { useAccountScope } from "@/hooks/use-account";
 
 export interface OwnedServer {
   serviceName: string;
@@ -1558,6 +1559,7 @@ export function useRebootServer() {
 
 /** 14 天无理由撤单的资格。eligible=false 时 reason 区分几种完全不同的"不能退" */
 export interface RetractionInfo {
+  accountId?: string;
   eligible: boolean;
   /** waived=下单时弃权 / expired=过期 / order_not_found / order_lookup_failed / order_read_failed / bad_date */
   reason?: string;
@@ -1582,11 +1584,12 @@ export interface RetractionInfo {
  * 反复重试只会对着同一个冷缓存打空枪。
  */
 export function useRetraction(serviceName: string | null) {
+  const accountId = useAccountScope();
   return useQuery<RetractionInfo>({
-    queryKey: ["server-control", "retraction", serviceName],
+    queryKey: ["server-control", "retraction", serviceName, accountId],
     queryFn: async () =>
-      (await api.get<RetractionInfo>(`/server-control/${encodeURIComponent(serviceName!)}/retraction`)).data,
-    enabled: !!serviceName,
+      (await api.get<RetractionInfo>(`/server-control/${encodeURIComponent(serviceName!)}/retraction`, { params: { account: accountId } })).data,
+    enabled: !!serviceName && !!accountId,
     staleTime: 5 * 60_000,
     retry: false,
     refetchOnWindowFocus: false,
@@ -1594,16 +1597,17 @@ export function useRetraction(serviceName: string | null) {
 }
 
 /** 提交撤单申请。不可逆:订单退款 + 服务器注销 */
-export function useRequestRetraction(serviceName: string) {
+export function useRequestRetraction(serviceName: string, accountId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (p: { reason: string; comment: string }) =>
+    mutationFn: async (p: { orderId: number; confirm: true }) =>
       (
         await api.post(`/server-control/${encodeURIComponent(serviceName)}/retraction`, {
           ...p,
-          confirm: true,
-        })
+          reason: "other",
+        }, { params: { account: accountId } })
       ).data,
+    retry: false,
     onSuccess: (d: any) => {
       qc.invalidateQueries({ queryKey: ["server-control", "retraction"] });
       qc.invalidateQueries({ queryKey: ["server-control", "list"] });
@@ -1629,29 +1633,33 @@ export interface RescueStatus {
 }
 
 /** 这台机现在是不是救援启动 + 有哪些救援项可选 */
-export function useRescueStatus(serviceName: string | null, enabled = true) {
+export function useRescueStatus(serviceName: string | null, accountId: string, enabled = true) {
   return useQuery({
-    queryKey: qk.serverControl.rescue(serviceName || ""),
+    queryKey: [...qk.serverControl.rescue(serviceName || ""), accountId],
     queryFn: async (): Promise<RescueStatus> => {
-      const d = (await api.get(`/server-control/${serviceName}/rescue`)).data;
+      const d = (await api.get(`/server-control/${encodeURIComponent(serviceName!)}/rescue`, { params: { account: accountId } })).data;
       return {
-        inRescue: d?.inRescue === true,
+        inRescue: d?.rescueConfigured === true || d?.inRescue === true,
         currentBoot: Number(d?.currentBoot) || 0,
         rescueMail: d?.rescueMail || "",
         boots: Array.isArray(d?.boots) ? d.boots : [],
       };
     },
-    enabled: !!serviceName && enabled,
-    staleTime: 30_000,
+    enabled: !!serviceName && !!accountId && enabled,
+    staleTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 
 /** 进救援:改 netboot + 设收信邮箱 + 重启,一次做完 */
-export function useEnterRescue(serviceName: string) {
+export function useEnterRescue(serviceName: string, accountId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (v: { email?: string; sshKey?: string; bootId?: number }) =>
-      (await api.post(`/server-control/${serviceName}/rescue`, { ...v, confirm: true })).data,
+    mutationFn: async (v: { email?: string; useDefaultEmail: boolean; expectedBoot: number; confirm: true }) =>
+      (await api.post(`/server-control/${encodeURIComponent(serviceName)}/rescue`, v, { params: { account: accountId } })).data,
+    retry: false,
     onSuccess: (d: any) => {
       // netboot 切换改变 bootModes 的 active 标记
       qc.invalidateQueries({ queryKey: qk.serverControl.bootModes(serviceName) });
@@ -1663,11 +1671,12 @@ export function useEnterRescue(serviceName: string) {
 }
 
 /** 退出救援:切回硬盘启动 + 重启 */
-export function useExitRescue(serviceName: string) {
+export function useExitRescue(serviceName: string, accountId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () =>
-      (await api.post(`/server-control/${serviceName}/rescue/exit`, { confirm: true })).data,
+    mutationFn: async (v: { expectedBoot: number; confirm: true }) =>
+      (await api.post(`/server-control/${encodeURIComponent(serviceName)}/rescue/exit`, v, { params: { account: accountId } })).data,
+    retry: false,
     onSuccess: (d: any) => {
       // netboot 切换改变 bootModes 的 active 标记
       qc.invalidateQueries({ queryKey: qk.serverControl.bootModes(serviceName) });

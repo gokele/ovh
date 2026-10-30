@@ -218,7 +218,7 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 				"eligible": false,
 				"reason":   "region_unsupported",
 				"message":  "美区（OVHcloud US）的 API 没有撤单接口，这台机器不能从这里申请撤单。如需退款请联系 OVH 美区客服", "code": "E2D18BF55",
-				"reasons":  retractionReasons,
+				"reasons": retractionReasons,
 			})
 			return
 		}
@@ -326,6 +326,7 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"success":        true,
 			"eligible":       true,
+			"accountId":      acc.ID,
 			"orderId":        orderID,
 			"orderUrl":       orderURL,
 			"orderDate":      orderDate,
@@ -339,7 +340,8 @@ func GetRetraction(state *app.State) gin.HandlerFunc {
 }
 
 // PostRetraction POST /api/server-control/:service_name/retraction
-// body: { "reason": "expensive", "comment": "可选说明", "confirm": true }
+// body: { "orderId": 123, "confirm": true, "reason": "other", "comment": "可选说明" }
+// 与官网一致,省略 reason 时默认为 other。
 //
 // 申请无理由撤单。这一步会把订单退掉、服务器随之注销 —— 不可逆,
 // 所以要求 confirm:true,和重装、终止服务同一套把关。
@@ -366,6 +368,7 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 		}
 		svc := strings.TrimSpace(c.Param("service_name"))
 		var body struct {
+			OrderID int64  `json:"orderId"`
 			Reason  string `json:"reason"`
 			Comment string `json:"comment"`
 			Confirm bool   `json:"confirm"`
@@ -383,6 +386,10 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 			})
 			return
 		}
+		// 官网确认页不要求用户填理由,它固定发送 other;保留旧客户端的合法枚举。
+		if body.Reason == "" {
+			body.Reason = "other"
+		}
 		if !isValidRetractionReason(body.Reason) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
@@ -392,13 +399,14 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 			return
 		}
 
-		orderID, found, err := retractableOrderFor(state, c, client, acc.ID, svc)
-		if err != nil || !found {
-			msg := "没找到这台机器对应的订单"
-			if err != nil {
-				msg = "订单查询失败: " + ovh.Explain(err)
-			}
-			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": msg})
+		// 确认的是页面展示的订单,不能在提交时重新猜另一张订单。
+		orderID := body.OrderID
+		if orderID <= 0 || svc == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请重新打开撤单窗口,确认订单号后再提交", "code": "RETRACTION_ORDER_CHANGED"})
+			return
+		}
+		if err := validateRetractionOrder(client, orderID, svc); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"success": false, "error": "无法确认此订单仍可撤回,请刷新并在 OVH 订单页核对", "code": "RETRACTION_UNAVAILABLE"})
 			return
 		}
 
@@ -418,9 +426,40 @@ func PostRetraction(state *app.State) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"orderId": orderID,
-			"message": "撤单申请已提交。OVH 会审核并退款，服务器随之注销；进度可在控制面板的订单页查看", "code": "E8CF966E6",
+			"message": "订单撤回申请已提交，影响整张订单的所有产品及数据（含备份）。退款按 OVH 规则处理，可能扣除已使用天数；请在 OVH 订单页查看结果", "code": "RETRACTION_SUBMITTED",
 		})
 	}
+}
+
+// validateRetractionOrder 提交前重新确认期限与服务归属,不信任五分钟前的映射缓存。
+func validateRetractionOrder(client *ovhsdk.Client, orderID int64, svc string) error {
+	var order struct {
+		RetractionDate string `json:"retractionDate"`
+	}
+	if err := client.Get(fmt.Sprintf("/me/order/%d", orderID), &order); err != nil {
+		return err
+	}
+	deadline, ok := parseOVHTime(order.RetractionDate)
+	if !ok || !time.Now().Before(deadline) {
+		return fmt.Errorf("withdrawal period unavailable")
+	}
+	var ids []int64
+	if err := client.Get(fmt.Sprintf("/me/order/%d/details", orderID), &ids); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		var detail struct {
+			Domain    string `json:"domain"`
+			Cancelled bool   `json:"cancelled"`
+		}
+		if err := client.Get(fmt.Sprintf("/me/order/%d/details/%d", orderID, id), &detail); err != nil {
+			return err
+		}
+		if detail.Domain == svc && !detail.Cancelled {
+			return nil
+		}
+	}
+	return fmt.Errorf("service does not belong to an active order detail")
 }
 
 // parseOVHTime OVH 的 datetime 是 RFC3339(带时区)。
