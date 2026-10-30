@@ -85,3 +85,23 @@ func TestAddQueueRejectsPartiallyDecodedParameters(t *testing.T) {
 		}
 	}
 }
+
+// 已下单任务保留订单入口且 API 也不允许重新启动,避免绕过前端重复购买。
+func TestOrderedQueueItemIsVisibleAndCannotRestart(t *testing.T) {
+	st, _ := newWatchTestMonitor(t)
+	st.Queue = []types.QueueItem{{ID: "task", PlanCode: "plan", Status: "completed"}}
+	st.History = []types.PurchaseHistoryEntry{{ID: "history", TaskID: "task", Status: "success", OrderID: "123"}}
+	r := gin.New()
+	r.GET("/queue", GetQueue(st))
+	r.PUT("/queue/:id/status", UpdateQueueStatus(st))
+	w := payRequest(r, "GET", "/queue", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"orderId":"123"`) || !strings.Contains(w.Body.String(), `"status":"completed"`) {
+		t.Fatal(w.Code, w.Body)
+	}
+	for _, status := range []string{"running", "pending", "paused", "failed"} {
+		w = payRequest(r, "PUT", "/queue/task/status", `{"status":"`+status+`"}`)
+		if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "QUEUE_ALREADY_ORDERED") || st.Queue[0].Status != "completed" {
+			t.Fatal(status, w.Code, w.Body)
+		}
+	}
+}

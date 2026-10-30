@@ -101,6 +101,14 @@ export const snipePagesZh = {
     },
   },
   queue: {
+    filterLabel: "按抢购状态筛选",
+    allTasks: "全部任务",
+    retainedHint: "成功下单的任务会保留为“已下单”，不再重复抢购。付款及订单状态请到抢购历史核对。",
+    filterEmpty: "此状态下暂无任务",
+    filterEmptyHint: "切换到“全部任务”查看其他状态的任务。",
+    orderRecord: "查看订单 #{{id}}",
+    viewHistory: "查看抢购历史",
+
     title: "抢购队列",
     description: "管理自动抢购服务器的队列",
     refresh: "刷新",
@@ -195,7 +203,7 @@ export const snipePagesZh = {
       running: "运行中",
       pending: "等待中",
       paused: "已暂停",
-      completed: "已完成",
+      completed: "已下单",
       failed: "失败",
     },
     selectTaskAria: "选择任务 {{plan}} @ {{dc}}",

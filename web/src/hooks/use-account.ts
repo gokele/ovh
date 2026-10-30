@@ -1,8 +1,16 @@
+import { useDefaultAccount } from "@/hooks/use-accounts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { readPartialFailures, toPartialList, type PartialList } from "./partial-list";
 import { useActiveAccount } from "@/hooks/use-active-account";
+
+/** 默认账户也解析为实际 ID,切换默认账户后不能复用上一账户的缓存或付款窗口。 */
+export function useAccountScope(): string {
+  const [selected] = useActiveAccount();
+  const fallback = useDefaultAccount();
+  return selected || fallback?.id || "";
+}
 
 export interface AccountInfo {
   customerCode: string;
@@ -71,11 +79,11 @@ export interface AccountInfoResult {
 }
 
 export function useAccountInfo() {
-  const [accountId] = useActiveAccount();
+  const accountId = useAccountScope();
   return useQuery({
     queryKey: qk.account.info(accountId),
     queryFn: async (): Promise<AccountInfoResult> => {
-      const res = await api.get<AccountInfo>("/ovh/account/info");
+      const res = await api.get<AccountInfo>("/ovh/account/info", { params: { account: accountId } });
       const raw = (res.headers as Record<string, unknown> | undefined)?.["x-subsidiary-mismatch"];
       return { info: res.data, subsidiaryMismatch: String(raw ?? "") === "1" };
     },
@@ -88,11 +96,11 @@ export function useAccountInfo() {
  * 不读这个头的话「列表少了几条」对用户完全不可见，所以这里统一包成 PartialList。
  */
 export function useRefunds() {
-  const [accountId] = useActiveAccount();
+  const accountId = useAccountScope();
   return useQuery({
     queryKey: qk.account.refunds(accountId),
     queryFn: async (): Promise<PartialList<RefundRecord>> => {
-      const res = await api.get<RefundRecord[]>("/ovh/account/refunds");
+      const res = await api.get<RefundRecord[]>("/ovh/account/refunds", { params: { account: accountId } });
       return toPartialList(res.data, readPartialFailures(res.headers));
     },
   });
@@ -100,11 +108,11 @@ export function useRefunds() {
 
 /** 邮件历史。同 useRefunds：裸数组 + X-Partial-Failures 头 */
 export function useEmails() {
-  const [accountId] = useActiveAccount();
+  const accountId = useAccountScope();
   return useQuery({
     queryKey: qk.account.emails(accountId),
     queryFn: async (): Promise<PartialList<EmailHistoryEntry>> => {
-      const res = await api.get<EmailHistoryEntry[]>("/ovh/account/email-history");
+      const res = await api.get<EmailHistoryEntry[]>("/ovh/account/email-history", { params: { account: accountId } });
       return toPartialList(res.data, readPartialFailures(res.headers));
     },
   });
@@ -112,7 +120,7 @@ export function useEmails() {
 
 /** OVH 订单记录。同 useRefunds：裸数组 + X-Partial-Failures 头 */
 export function useOrders() {
-  const [accountId] = useActiveAccount();
+  const accountId = useAccountScope();
   return useQuery({
     queryKey: qk.account.orders(accountId),
     queryFn: async (): Promise<PartialList<OrderRecord>> => {

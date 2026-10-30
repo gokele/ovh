@@ -95,7 +95,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 	}
 	apiDC := ovh.ConvertDisplayDCToAPIDC(datacenter)
 
-	client, err := state.OVH.ClientFor(accountID)
+	client, err := state.OVH.IsolatedClientFor(accountID)
 	if err != nil {
 		return Result{Success: false, Error: "未配置OVH API密钥: " + ovh.Explain(err)}
 	}

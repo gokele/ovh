@@ -15,7 +15,7 @@ import { LoadFailed } from "@/components/common/LoadFailed";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PartialNotice } from "@/components/common/PartialNotice";
 import { Skeleton } from "@/components/common/Skeleton";
-import { useActiveAccount } from "@/hooks/use-active-account";
+import { useAccountScope } from "@/hooks/use-account";
 import { useSupportTickets, type SupportTicket } from "@/hooks/use-support";
 import { fmtDateTime } from "@/i18n/format";
 import { bodyMessage } from "@/lib/api-error";
@@ -25,7 +25,7 @@ import { TicketState } from "./TicketState";
 
 /** 切换账户时清除工单和草稿,后续操作固定实际账户。 */
 export function SupportTickets() {
-  const [accountId] = useActiveAccount();
+  const accountId = useAccountScope();
   return <SupportTicketsBody key={accountId} accountId={accountId} />;
 }
 

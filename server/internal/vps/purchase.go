@@ -62,7 +62,7 @@ func PurchaseVPS(state *app.State, sub types.VPSSubscription, dcCode string) Out
 	if strings.TrimSpace(sub.AutoOrderAccountID) == "" {
 		return Outcome{Fatal: true, Reason: "没有指定下单账户"}
 	}
-	client, err := state.OVH.ClientFor(sub.AutoOrderAccountID)
+	client, err := state.OVH.IsolatedClientFor(sub.AutoOrderAccountID)
 	if err != nil {
 		// 账户没了 / 凭据缺失 —— 重试一万次也一样
 		return Outcome{Fatal: true, Reason: fmt.Sprintf("账户 %s 不可用: %s", sub.AutoOrderAccountID, err)}

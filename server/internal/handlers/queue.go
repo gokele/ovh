@@ -256,6 +256,11 @@ func UpdateQueueStatus(state *app.State) gin.HandlerFunc {
 		state.QueueMu.Lock()
 		for i := range state.Queue {
 			if state.Queue[i].ID == id {
+				if state.Queue[i].Status == "completed" && body.Status != "completed" {
+					state.QueueMu.Unlock()
+					c.JSON(http.StatusConflict, gin.H{"error": "该任务已下单,不能再次启动。如需再买,请新建任务。", "code": "QUEUE_ALREADY_ORDERED"})
+					return
+				}
 				blockErr = state.SetAutomaticOrderBlockedLocked(state.Queue[i], body.Status != "running" && body.Status != "pending")
 				// 恢复必须先成功写入许可,失败时保持停止。
 				if blockErr != nil && (body.Status == "running" || body.Status == "pending") {

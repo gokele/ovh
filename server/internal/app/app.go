@@ -307,6 +307,9 @@ func (s *State) LoadAll() {
 	if s.History == nil {
 		s.History = []types.PurchaseHistoryEntry{}
 	}
+	if err := s.RestoreCompletedQueue(); err != nil {
+		s.Logger.Error("恢复已下单任务状态失败: "+err.Error(), "queue")
+	}
 
 	// servers
 	if plans, err := s.DB.ListServers(); err == nil && len(plans) > 0 {

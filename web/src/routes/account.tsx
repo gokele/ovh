@@ -1,6 +1,5 @@
 import { SupportTickets } from "@/components/support/SupportTickets";
 import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
-import { useActiveAccount } from "@/hooks/use-active-account";
 import { createFileRoute } from "@tanstack/react-router";
 import { User, Mail, RefreshCw, FileText, Inbox, ShieldCheck, ShoppingBag, ExternalLink, type LucideIcon } from "lucide-react";
 import { useState } from "react";
@@ -15,7 +14,7 @@ import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PartialNotice } from "@/components/common/PartialNotice";
 import { LoadFailed, LoadFailedBanner } from "@/components/common/LoadFailed";
-import { useAccountInfo, useRefunds, useEmails, useOrders, type EmailHistoryEntry, type OrderRecord } from "@/hooks/use-account";
+import { useAccountInfo, useAccountScope, useRefunds, useEmails, useOrders, type EmailHistoryEntry, type OrderRecord } from "@/hooks/use-account";
 
 /** 账户管理：顶部 3 张 KPI + Tabs (邮件 / 订单 / 退款) */
 export const Route = createFileRoute("/account")({
@@ -23,6 +22,8 @@ export const Route = createFileRoute("/account")({
 });
 
 function AccountPage() {
+  const accountId = useAccountScope();
+  // 只重置账户相关内容,保留用户正在查看的标签页。
   const { t } = useTranslation();
   const q = useAccountInfo();
   // 后端把 OVH /me 原样透传在 body 里,错配标记只能放响应头,所以 hook 返回 { info, subsidiaryMismatch }
@@ -92,15 +93,15 @@ function AccountPage() {
           <TabsTrigger value="support">{t("support.title")}</TabsTrigger>
         </TabsList>
         <TabsContent value="emails">
-          <EmailsTab />
+          <EmailsTab key={accountId} />
         </TabsContent>
         <TabsContent value="orders">
-          <OrdersTab />
+          <OrdersTab key={accountId} />
         </TabsContent>
         <TabsContent value="refunds">
-          <RefundsTab />
+          <RefundsTab key={accountId} />
         </TabsContent>
-      <TabsContent value="support"><SupportTickets /></TabsContent>
+      <TabsContent value="support"><SupportTickets key={accountId} /></TabsContent>
       </Tabs>
     </div>
   );
@@ -220,9 +221,9 @@ function EmailsTab() {
           </div>
           {selected ? (
             <>
-              <p className="text-[15px] font-semibold mb-1">{selected.subject}</p>
+              <p className="mb-1 text-base font-semibold [overflow-wrap:anywhere]">{selected.subject}</p>
               <p className="text-[12px] text-muted-foreground mb-4">{fmtDateTime(selected.date)}</p>
-              <pre className="text-[12px] font-mono whitespace-pre-wrap text-foreground bg-secondary rounded-lg p-3 max-h-[400px] overflow-y-auto">
+              <pre className="max-h-[400px] max-w-full overflow-y-auto whitespace-pre-wrap rounded-xl bg-muted/50 p-4 font-sans text-base leading-7 text-foreground [overflow-wrap:anywhere]">
                 {selected.body}
               </pre>
             </>
@@ -305,7 +306,7 @@ function RefundsTab() {
 }
 
 function OrdersTab() {
-  const [accountId] = useActiveAccount();
+  const accountId = useAccountScope();
   const { t } = useTranslation();
   const orders = useOrders();
   return (

@@ -1,3 +1,4 @@
+import { invalidateAccountQueries } from "@/lib/query";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getActiveAccount, setActiveAccount } from "@/lib/api";
@@ -37,18 +38,8 @@ export function useActiveAccount(): [string, (id: string) => void] {
     // servers/availability 是按账户所在站点拉的目录与库存,
     // server-control/vps-control/account 是该账户名下的资源,
     // catalog 是按账户子公司计价的。
-    for (const key of [
-      ["servers"],
-      ["availability"],
-      ["server-control"],
-      ["vps-control"],
-      ["account"],
-      ["accounts"],
-      ["catalog"],
-      ["ovh-catalog"],
-    ]) {
-      qc.invalidateQueries({ queryKey: key });
-    }
+    invalidateAccountQueries(qc);
+    qc.invalidateQueries({ queryKey: ["accounts"] });
   };
   return [accountId, set];
 }

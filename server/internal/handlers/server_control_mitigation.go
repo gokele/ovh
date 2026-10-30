@@ -63,6 +63,11 @@ func GetMitigation(state *app.State) gin.HandlerFunc {
 				encoded := strings.ReplaceAll(ipBlock, "/", "%2F")
 				// 1) 列出该 block 下处于 mitigation 的具体 IP
 				var ips []string
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					results[idx] = ipResult{block: ipBlock, err: err}
+					return
+				}
 				if err := client.Get("/ip/"+encoded+"/mitigation", &ips); err != nil {
 					results[idx] = ipResult{block: ipBlock, err: err}
 					return
@@ -79,6 +84,20 @@ func GetMitigation(state *app.State) gin.HandlerFunc {
 						defer dwg.Done()
 						defer func() { <-detailSem }()
 						var d map[string]interface{}
+						client, err := ovh.IsolateClient(client)
+						if err != nil {
+							state.Logger.Warn("[Mitigation] 获取 "+ipOnMitigation+" 缓解详情失败: "+err.Error(), "server_control")
+							// 占位要带齐前端会读的字段,否则 state/auto/permanent 是 undefined,
+							// 界面渲染出一个空白 Chip,看不出这行是"拉取失败"
+							details[jdx] = map[string]interface{}{
+								"ipOnMitigation": ipOnMitigation,
+								"state":          "unknown",
+								"auto":           false,
+								"permanent":      false,
+								"_detailError":   err.Error(),
+							}
+							return
+						}
 						if err := client.Get("/ip/"+encoded+"/mitigation/"+ipOnMitigation, &d); err != nil {
 							state.Logger.Warn("[Mitigation] 获取 "+ipOnMitigation+" 缓解详情失败: "+err.Error(), "server_control")
 							// 占位要带齐前端会读的字段,否则 state/auto/permanent 是 undefined,

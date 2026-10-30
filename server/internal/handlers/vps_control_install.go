@@ -161,6 +161,11 @@ func parallelGetVpsDetails(client *ovhsdk.Client, paths []string, concurrency in
 			defer wg.Done()
 			defer func() { <-sem }()
 			var d map[string]interface{}
+			client, err := ovh.IsolateClient(client)
+			if err != nil {
+				failed[idx] = true
+				return
+			}
 			if err := client.Get(p, &d); err != nil {
 				failed[idx] = true
 				return

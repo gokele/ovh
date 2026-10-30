@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { QueueStatusFilter, type QueueFilter } from "@/components/queue/QueueStatusFilter";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ClipboardList,
   RefreshCw,
@@ -176,6 +177,8 @@ function QueuePage() {
   }, [createPlanCode, createOptions]);
 
   const items = queue.data || [];
+  const [filter, setFilter] = useState<QueueFilter>("all");
+  const visibleItems = items.filter((item) => filter === "all" || item.status === filter || (filter === "running" && item.status === "pending"));
 
   // —— 批量操作 ——
   // 一条 /buy 或一次网页建单最多扇出 60 个任务(MAX_ORDER_FANOUT),
@@ -190,7 +193,7 @@ function QueuePage() {
   useEffect(() => {
     setSelected((prev) => {
       if (prev.size === 0) return prev;
-      const alive = new Set(items.map((i) => i.id));
+      const alive = new Set(visibleItems.map((i) => i.id));
       const next = new Set([...prev].filter((id) => alive.has(id)));
       return next.size === prev.size ? prev : next;
     });
@@ -203,7 +206,7 @@ function QueuePage() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  const allSelected = items.length > 0 && selected.size === items.length;
+  const allSelected = visibleItems.length > 0 && visibleItems.every((item) => selected.has(item.id));
 
   /** 逐条执行并汇总成一条结果,不要弹 N 个 toast。label 传已翻译的动词 */
   const runBatch = async (
@@ -252,12 +255,12 @@ function QueuePage() {
             onRetry={() => queue.refetch()}
           />
         </Card>
-      ) : items.length === 0 ? (
+      ) : visibleItems.length === 0 ? (
         <Card>
           <EmptyState
             icon={ClipboardList}
-            title={t("queue.emptyTitle")}
-            description={t("queue.emptyDesc")}
+            title={t(filter === "all" ? "queue.emptyTitle" : "queue.filterEmpty")}
+            description={t(filter === "all" ? "queue.emptyDesc" : "queue.filterEmptyHint")}
           />
         </Card>
       ) : (
@@ -307,7 +310,7 @@ function QueuePage() {
               </div>
             </div>
           )}
-          {items.map((q) => (
+          {visibleItems.map((q) => (
             <QueueRow
               key={q.id}
               item={q}
@@ -355,8 +358,8 @@ function QueuePage() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => setSelected(allSelected ? new Set() : new Set(items.map((i) => i.id)))}
-              disabled={items.length === 0}
+              onClick={() => setSelected(allSelected ? new Set() : new Set(visibleItems.map((i) => i.id)))}
+              disabled={visibleItems.length === 0}
             >
               {allSelected ? t("queue.unselectAll") : t("queue.selectAll")}
             </Button>
@@ -386,7 +389,8 @@ function QueuePage() {
         <PearlPanel>
           <PearlPanelHead eyebrow={t("queue.title")} meta={`${items.length}`} />
           <div className="panel-body" style={{ paddingTop: 14 }}>
-            <div className={dense ? "space-y-1.5 queue-dense" : "space-y-3"}>{queueBody}</div>
+            <div className={dense ? "space-y-1.5 queue-dense" : "space-y-3"}>{!queue.isPending && !queue.isError && <QueueStatusFilter items={items} value={filter} onChange={(next) => { setFilter(next); setSelected(new Set()); }} />}
+      {queueBody}</div>
           </div>
         </PearlPanel>
 
@@ -1030,7 +1034,7 @@ function CreateQueueDialog({
   );
 }
 
-function QueueRow({
+export function QueueRow({
   item,
   timing,
   selected,
@@ -1113,7 +1117,7 @@ function QueueRow({
                 {t("queue.autoPayChip")}
               </Chip>
             )}
-            <TimingChip totalMs={timing?.totalMs} phases={timing?.phases} />
+            {item.status !== "completed" && <TimingChip totalMs={timing?.totalMs} phases={timing?.phases} />}
           </div>
           <div className="text-[11px] text-muted-foreground flex items-center gap-2 flex-wrap">
             <Clock className="w-3 h-3" />
@@ -1122,7 +1126,7 @@ function QueueRow({
             {item.status === "failed" ? (
               <span>{t("queue.stoppedRetrying")}</span>
             ) : item.status === "completed" ? (
-              <span>{t("queue.status.completed")}</span>
+              <Link to="/history" className="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline">{item.orderId ? t("queue.orderRecord", { id: item.orderId }) : t("queue.viewHistory")}</Link>
             ) : item.status === "paused" ? (
               <span>{t("queue.waitingResume")}</span>
             ) : (
@@ -1138,7 +1142,7 @@ function QueueRow({
                 )}
               </span>
             )}
-            {timing && (
+            {timing && item.status !== "completed" && (
               <>
                 <span>·</span>
                 {/* 上一轮的结论。"没货"和"下单失败"是两件事:前者说明这台机器

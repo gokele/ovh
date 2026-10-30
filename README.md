@@ -31,7 +31,11 @@ docker pull ghcr.io/gokele/ovh:latest
 
 ## 订单付款与停止抢购
 
+抢购成功后,任务会保留在队列中并标记为“已下单”,可按状态筛选并进入抢购历史查看订单。已下单任务不再执行,也不能恢复为运行状态;需要再买时请新建任务。旧版本已经自动移除的任务仅保留在抢购历史中,不会重新加入活动队列。
+
 账户页面的订单记录会为 OVH 确认为未付款的订单提供“发起支付”。打开后核对账户、含税金额及可用的绑定支付方式,勾选确认后才扣款。已过期、已付款或没有可用方式的订单会给出提示。付款请求不自动重试;若结果未知,请到 OVH 控制台核对。需要银行验证时也在 OVH 完成。API 凭据须有订单及支付方式读取权限、`POST /me/order/*/pay` 权限。
+
+付款确认绑定当时的账户、订单、金额、币种和支付方式。刷新后金额或方式改变时,必须重新确认。切换账户后会清除原账户的邮件选择及付款窗口。
 
 监控列表显示该订阅保存的最近一次无货转有货时间,首次检查已有库存不算补货,没有记录时不推测历史。带宽/vRack 选项不再使内存/硬盘库存匹配失效,选定的完整配置仍用于询价与下单。
 
@@ -49,8 +53,8 @@ docker pull ghcr.io/gokele/ovh:latest
 
 | 层 | 技术 |
 |---|---|
-| 前端 | Vite 5 + React 18 + TypeScript + TanStack Router + TanStack Query + shadcn-ui + Tailwind + recharts + **react-i18next(中/英)** |
-| 后端 | Go 1.21+ + Gin + 官方 [go-ovh](https://github.com/ovh/go-ovh) SDK |
+| 前端 | Vite 7 + React 18 + TypeScript + TanStack Router + TanStack Query + shadcn-ui + Tailwind + recharts + **react-i18next(中/英)** |
+| 后端 | Go 1.26+ + Gin + 官方 [go-ovh](https://github.com/ovh/go-ovh) SDK |
 | 持久化 | SQLite(`modernc.org/sqlite` 纯 Go / `mattn/go-sqlite3` cgo 双 driver, build tag 自动选),凭据字段 AES-256-GCM 加密落盘 |
 | 通知 | Telegram Bot(长轮询,无需公网地址)+ 自定义 Webhook(钉钉 / 飞书 / Bark / 自建),多通道冗余 |
 | 部署 | 单二进制(前端 //go:embed 进 Go 二进制) 或前后端分开跑 |

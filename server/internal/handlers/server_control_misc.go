@@ -32,6 +32,11 @@ func miscParallelGetStringKeys(client *ovhsdk.Client, keys []string, pathFn func
 			defer wg.Done()
 			defer func() { <-sem }()
 			var d map[string]interface{}
+			client, err := ovh.IsolateClient(client)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
 			if err := client.Get(pathFn(key), &d); err != nil {
 				errs[idx] = err
 				return
@@ -59,6 +64,11 @@ func miscParallelGetDetails(client *ovhsdk.Client, keys []interface{}, pathFn fu
 			defer wg.Done()
 			defer func() { <-sem }()
 			var d map[string]interface{}
+			client, err := ovh.IsolateClient(client)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
 			if err := client.Get(pathFn(key), &d); err != nil {
 				errs[idx] = err
 				return

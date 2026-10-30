@@ -1,6 +1,6 @@
 module github.com/ovh-buy/server
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/gin-contrib/cors v1.7.2
@@ -11,7 +11,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/ovh/go-ovh v1.5.1
 	github.com/shirou/gopsutil/v4 v4.26.4
-	golang.org/x/net v0.25.0
+	golang.org/x/net v0.62.0
 	modernc.org/sqlite v1.50.1
 )
 
@@ -29,7 +29,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
-	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/kr/text v0.2.0 // indirect
@@ -48,11 +47,10 @@ require (
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.23.0 // indirect
-	golang.org/x/oauth2 v0.18.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.15.0 // indirect
-	google.golang.org/appengine v1.6.7 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/oauth2 v0.37.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

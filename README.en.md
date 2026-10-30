@@ -28,7 +28,11 @@ docker pull ghcr.io/gokele/ovh:latest
 
 ## Order payment and stopping purchases
 
+Successful purchase tasks remain in the queue as Ordered, with status filters and a link to purchase history. Ordered tasks cannot run or resume; create a new task for another purchase. Tasks already removed by earlier versions remain in purchase history and are not restored to the active queue.
+
 Account order records offer payment for orders OVH confirms as unpaid. Review the account, tax-inclusive amount and eligible saved payment method, then explicitly confirm. Expired orders and unavailable methods cannot be paid. Payment requests never retry automatically; check OVH Manager if the result is uncertain or bank verification is required. Credentials need order/payment-method read access and `POST /me/order/*/pay` access.
+
+Confirmation is bound to the account, order, amount, currency and payment method reviewed. Changes after refresh require confirmation again. Switching accounts clears the previous account's selected email and payment dialog.
 
 Monitoring shows the latest saved out-of-stock to in-stock transition for each subscription. Initial stock and price-check recovery do not count as restocks. Bandwidth/vRack options no longer hide matching hardware inventory and remain attached to pricing and ordering.
 
@@ -46,8 +50,8 @@ The editor preserves plain-text paragraphs and line breaks. Add attachments thro
 
 | Layer | Technology |
 |---|---|
-| Frontend | Vite 5 + React 18 + TypeScript + TanStack Router + TanStack Query + shadcn-ui + Tailwind + recharts + **react-i18next (zh/en)** |
-| Backend | Go 1.21+ + Gin + the official [go-ovh](https://github.com/ovh/go-ovh) SDK |
+| Frontend | Vite 7 + React 18 + TypeScript + TanStack Router + TanStack Query + shadcn-ui + Tailwind + recharts + **react-i18next (zh/en)** |
+| Backend | Go 1.26+ + Gin + the official [go-ovh](https://github.com/ovh/go-ovh) SDK |
 | Persistence | SQLite (`modernc.org/sqlite` pure-Go / `mattn/go-sqlite3` cgo dual drivers, auto-selected via build tag); credential fields encrypted at rest with AES-256-GCM |
 | Notifications | Telegram Bot (long polling, no public endpoint needed) + custom webhooks (DingTalk / Feishu / Bark / self-hosted), multi-channel redundancy |
 | Deployment | Single binary (frontend embedded into the Go binary via //go:embed), or run frontend and backend separately |

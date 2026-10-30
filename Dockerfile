@@ -27,7 +27,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---- 3. 构建后端 ----
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS gobuild
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS gobuild
 WORKDIR /app/server
 # 依赖单独一层：go.mod/go.sum 没变就命中缓存
 COPY server/go.mod server/go.sum ./

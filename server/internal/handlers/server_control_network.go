@@ -86,6 +86,11 @@ func perNICMRTG(client *ovhsdk.Client, svc string, macs []string, period, traffi
 			q.Set("period", period)
 			q.Set("type", trafficType)
 			path := "/dedicated/server/" + svc + "/networkInterfaceController/" + m + "/mrtg?" + q.Encode()
+			client, err := ovh.IsolateClient(client)
+			if err != nil {
+				results[idx] = mrtgResult{err: err}
+				return
+			}
 			if err := client.Get(path, &d); err != nil {
 				results[idx] = mrtgResult{err: err}
 				return
@@ -129,7 +134,7 @@ func GetNetworkInterfaces(state *app.State) gin.HandlerFunc {
 					"interfaces": []interface{}{},
 					"count":      0,
 					"message":    "该服务器暂无网卡信息", "code": "EF0DDE9F4",
-					"detail":     netOVHMessage(err),
+					"detail": netOVHMessage(err),
 				})
 				return
 			}

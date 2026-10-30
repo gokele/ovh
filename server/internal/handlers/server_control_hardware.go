@@ -40,6 +40,11 @@ func hardwareParallelGetDetails(client *ovhsdk.Client, keys []interface{}, pathF
 			defer wg.Done()
 			defer func() { <-sem }()
 			var d map[string]interface{}
+			client, err := ovh.IsolateClient(client)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
 			if err := client.Get(pathFn(key), &d); err != nil {
 				errs[idx] = err
 				return
@@ -228,6 +233,12 @@ func GetReverseDNS(state *app.State) gin.HandlerFunc {
 				defer func() { <-sem }()
 				encoded := strings.ReplaceAll(block, "/", "%2F")
 				var ips []string
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					blockErrs[idx] = err
+
+					return
+				}
 				if err := client.Get("/ip/"+encoded+"/reverse", &ips); err != nil {
 					blockErrs[idx] = err
 				}
@@ -259,6 +270,11 @@ func GetReverseDNS(state *app.State) gin.HandlerFunc {
 				defer func() { <-sem2 }()
 				encoded := strings.ReplaceAll(en.block, "/", "%2F")
 				var d map[string]interface{}
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					detailErrs[idx] = err
+					return
+				}
 				if err := client.Get("/ip/"+encoded+"/reverse/"+en.ip, &d); err != nil {
 					detailErrs[idx] = err
 					return
@@ -603,8 +619,8 @@ func ChangeContact(state *app.State) gin.HandlerFunc {
 		if region := srvRegionFor(state, c); region == srvRegionUS {
 			state.Logger.Warn("账户所在大区 "+region+" 不提供服务器联系人变更(changeContact),已拦截请求", "server_control")
 			c.JSON(http.StatusBadRequest, gin.H{
-				"success":     false,
-				"error":       "美区账户不支持通过 API 变更服务器联系人 —— OVHcloud US 没有 NIC 联系人系统,请在 OVHcloud US 控制台或联系客服办理", "code": "ED999C012",
+				"success": false,
+				"error":   "美区账户不支持通过 API 变更服务器联系人 —— OVHcloud US 没有 NIC 联系人系统,请在 OVHcloud US 控制台或联系客服办理", "code": "ED999C012",
 				"unsupported": true,
 				"region":      region,
 			})
@@ -1086,6 +1102,11 @@ func GetPartitionSchemes(state *app.State) gin.HandlerFunc {
 				defer func() { <-sem }()
 				es := url.PathEscape(sname)
 				var info map[string]interface{}
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					schemeResults[idx] = schemeResult{name: sname, missingInfo: true}
+					return
+				}
 				if err := client.Get("/dedicated/installationTemplate/"+encodedTpl+"/partitionScheme/"+es, &info); err != nil {
 					schemeResults[idx] = schemeResult{name: sname, missingInfo: true}
 					return
@@ -1119,6 +1140,10 @@ func GetPartitionSchemes(state *app.State) gin.HandlerFunc {
 					defer pWg.Done()
 					defer func() { <-pSem }()
 					var partInfo map[string]interface{}
+					client, err := ovh.IsolateClient(client)
+					if err != nil {
+						return
+					}
 					if err := client.Get("/dedicated/installationTemplate/"+encodedTpl+"/partitionScheme/"+encodedScheme+"/partition/"+url.PathEscape(p), &partInfo); err != nil {
 						return
 					}

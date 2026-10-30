@@ -13,6 +13,7 @@ export interface QueueItem {
   id: string;
   accountId: string;
   planCode: string;
+  orderId?: string;
   datacenter: string;
   /** 下单成功后用 OVH 默认支付方式自动付款(显式开关,默认关) */
   autoPay?: boolean;

@@ -19,6 +19,13 @@ export const queryClient = new QueryClient({
   },
 });
 
+/** 账户凭据、区域或默认账户变化后,所有依赖账户的目录和资源都需重新读取。 */
+export function invalidateAccountQueries(client: QueryClient) {
+  for (const root of ["servers", "availability", "server-control", "vps-control", "account", "support", "catalog", "ovh-catalog"]) {
+    client.invalidateQueries({ queryKey: [root] });
+  }
+}
+
 /**
  * 集中管理 query key factory，避免业务代码散写字符串 key。
  * 每个资源域一个对象，按"列表 / 详情 / 子资源"分层。

@@ -1,6 +1,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { qk } from "@/lib/query";
+import { api, getActiveAccount, setActiveAccount } from "@/lib/api";
+import { qk, invalidateAccountQueries } from "@/lib/query";
 import { toast } from "sonner";
 import { zoneStyle } from "@/lib/zone-color";
 import i18n from "@/i18n";
@@ -118,6 +118,7 @@ export function useUpdateAccount() {
       return res.data;
     },
     onSuccess: (data, vars) => {
+      invalidateAccountQueries(qc);
       qc.invalidateQueries({ queryKey: ACCOUNTS_KEY });
       qc.invalidateQueries({ queryKey: qk.accounts.proxyStatus() });
       // 出站配置可能刚改过,上一次测到的出口 IP 就不再对应现在生效的配置了。
@@ -145,6 +146,8 @@ export function useDeleteAccount() {
   return useMutation({
     mutationFn: async (id: string) => (await api.delete(`/accounts/${id}`)).data,
     onSuccess: (_d, id) => {
+      if (getActiveAccount() === id) setActiveAccount("");
+      invalidateAccountQueries(qc);
       qc.invalidateQueries({ queryKey: ACCOUNTS_KEY });
       qc.invalidateQueries({ queryKey: qk.accounts.proxyStatus() });
       qc.removeQueries({ queryKey: qk.accounts.proxyTest(id) });
@@ -164,6 +167,7 @@ export function useSetDefaultAccount() {
   return useMutation({
     mutationFn: async (id: string) => (await api.post(`/accounts/${id}/set-default`)).data,
     onSuccess: () => {
+      invalidateAccountQueries(qc);
       qc.invalidateQueries({ queryKey: ACCOUNTS_KEY });
       toast.success(i18n.t("hooksMsg.account.setDefault"));
     },

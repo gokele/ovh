@@ -560,3 +560,61 @@ test("OVH support 401 does not expire the application session", async () => {
     assert.equal(expired, 0);
   } finally { unregister(); api.defaults.adapter = original; }
 });
+
+// 完成记录仍属于总任务数,运行筛选同时计算待执行任务,避免数量变化让用户误认为丢单。
+test("queue status summary retains ordered tasks and accurate active counts", async () => {
+  const { QueueStatusFilter } = await server.ssrLoadModule("/src/components/queue/QueueStatusFilter.tsx");
+  const { default: i18n } = await server.ssrLoadModule("/src/i18n/index.ts");
+  const original = i18n.language;
+  try {
+    await i18n.changeLanguage("en");
+    const items = ["running", "pending", "paused", "completed", "completed", "failed"].map((status, n) => ({ id: String(n), status }));
+    const html = renderToStaticMarkup(createElement(QueueStatusFilter, { items, value: "all", onChange() {} }));
+    assert.match(html, /All tasks<\/span><span[^>]*>6/);
+    assert.match(html, /Running<\/span><span[^>]*>2/);
+    assert.match(html, /Ordered<\/span><span[^>]*>2/);
+    assert.match(html, /will not purchase again/);
+  } finally { await i18n.changeLanguage(original); }
+});
+
+// 切换默认账户或修改区域/凭据后,不能继续使用旧账户目录、订单、资源和工单缓存。
+test("account changes invalidate every account-scoped resource", async () => {
+  const { useSetDefaultAccount, useUpdateAccount } = await server.ssrLoadModule("/src/hooks/use-accounts.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const roots = ["servers", "availability", "server-control", "vps-control", "account", "support", "catalog", "ovh-catalog"];
+  const original = api.defaults.adapter;
+  api.defaults.adapter = async (config) => ({ data: { valid: true, account: { id: "eu" } }, status: 200, statusText: "OK", headers: {}, config });
+  try {
+    for (const operation of ["default", "update"]) {
+      const client = new QueryClient(); let change, update;
+      function Probe() { change = useSetDefaultAccount(); update = useUpdateAccount(); return null; }
+      roots.forEach((root) => client.setQueryData([root, "fixture"], []));
+      renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+      if (operation === "default") await change.mutateAsync("eu"); else await update.mutateAsync({ id: "eu", input: { zone: "FR" } });
+      for (const root of roots) assert.equal(client.getQueryState([root, "fixture"]).isInvalidated, true, root);
+      client.clear();
+    }
+  } finally { api.defaults.adapter = original; }
+});
+
+// 默认账户也固定为实际 ID,请求开始前全局账户切换不会把另一账户数据写进旧查询键。
+test("account readers pin the resolved default account through request dispatch", async () => {
+  const { useAccountInfo, useEmails, useRefunds } = await server.ssrLoadModule("/src/hooks/use-account.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const client = new QueryClient();
+  client.setQueryData(["accounts", "list"], [{ id: "eu", isDefault: true }]);
+  const original = api.defaults.adapter, originalWindow = globalThis.window;
+  let active = "";
+  globalThis.window = { localStorage: { getItem: () => active } };
+  const calls = [];
+  api.defaults.adapter = async (config) => { calls.push(config); return { data: [], status: 200, statusText: "OK", headers: {}, config }; };
+  let readers;
+  function Probe() { readers = [useAccountInfo(), useEmails(), useRefunds()]; return null; }
+  try {
+    renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    active = "us";
+    await Promise.all(readers.map((reader) => reader.refetch()));
+    assert.equal(calls.length, 3);
+    assert.deepEqual(calls.map((call) => call.params.account), ["eu", "eu", "eu"]);
+  } finally { api.defaults.adapter = original; client.clear(); if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow; }
+});

@@ -75,7 +75,7 @@ const pack: LangPack = {
     toggle: "Switch language, currently {{name}}",
   },
   // Backend error codes → English (mirrors api.* keys in zh.ts)
-  api: { ...(apiEn as unknown as typeof apiZh), ...supportApiEn },
+  api: { ...(apiEn as unknown as typeof apiZh), ...supportApiEn, QUEUE_ALREADY_ORDERED: "This task already placed an order and cannot be restarted. Create a new task to purchase again." },
   ...snipePagesEn,
   ...settingsPagesEn,
   ...supportEn,

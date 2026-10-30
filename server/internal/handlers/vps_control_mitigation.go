@@ -98,6 +98,11 @@ func GetVpsMitigation(state *app.State) gin.HandlerFunc {
 					results[idx] = ipResult{ip: ipAddr, block: ipAddr}
 					return
 				}
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					results[idx] = ipResult{ip: ipAddr, block: ipAddr, err: err}
+					return
+				}
 				block := resolveIPBlock(client, ipAddr)
 				encoded := strings.ReplaceAll(block, "/", "%2F")
 				var miti []string

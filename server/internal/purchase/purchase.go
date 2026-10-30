@@ -61,7 +61,7 @@ func cancelledOutcome(state *app.State, item *types.QueueItem, stage string) Out
 // 结账之前的每一次 OVH 调用都挂在它上面,取消即中断;结账本身例外,见那里的注释。
 func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem) Outcome {
 	attemptStart := time.Now() // checkout 对账用:transient 失败后按此时间查 /me/order
-	client, err := state.OVH.ClientFor(item.AccountID)
+	client, err := state.OVH.IsolatedClientFor(item.AccountID)
 	if err != nil {
 		// 账户不存在 / 凭据缺失 / endpoint 非法 —— 都是重试一万次也不会变的错。
 		// 以前这里连 history 都不写,任务就在后台每 retryInterval 秒静默失败一次。

@@ -96,6 +96,11 @@ func ListMyServers(state *app.State) gin.HandlerFunc {
 				defer wg.Done()
 				defer func() { <-sem }()
 				var info map[string]interface{}
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					results[idx].detailError = err
+					return
+				}
 				if err := client.Get("/dedicated/server/"+nm, &info); err != nil {
 					results[idx].detailError = err
 					return
@@ -260,6 +265,16 @@ func GetOSTemplates(state *app.State) gin.HandlerFunc {
 				defer wg.Done()
 				defer func() { <-sem }()
 				var detail map[string]interface{}
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					details[idx] = gin.H{
+						"templateName": name,
+						"distribution": name,
+						"family":       "unknown",
+						"bitFormat":    64,
+					}
+					return
+				}
 				if err := client.Get("/dedicated/installationTemplate/"+name, &detail); err != nil {
 					details[idx] = gin.H{
 						"templateName": name,
@@ -793,7 +808,7 @@ func InstallOS(state *app.State) gin.HandlerFunc {
 					"success": false,
 					"error": fmt.Sprintf("/var/lib/vz 容量 %dMB 超出可用范围：本机 RAID%d 下可用约 %dMB，扣除 /boot %dMB 和 swap %dMB 后，该值必须小于 %dMB",
 						vzSizeMB, raidLevel, usableCapacityMB, bootSizeMB, swapSizeMB, usableCapacityMB-bootSwapMB),
-					"code":   "ZFS_VZ_OVER_LIMIT",
+					"code": "ZFS_VZ_OVER_LIMIT",
 					"params": map[string]interface{}{
 						"vz": vzSizeMB, "level": raidLevel, "usable": usableCapacityMB,
 						"boot": bootSizeMB, "swap": swapSizeMB, "max": usableCapacityMB - bootSwapMB,
@@ -1177,6 +1192,11 @@ func GetServerTasks(state *app.State) gin.HandlerFunc {
 				defer wg.Done()
 				defer func() { <-sem }()
 				var d map[string]interface{}
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					detailErrs[idx] = err
+					return
+				}
 				if err := client.Get("/dedicated/server/"+svc+"/task/"+idToString(id), &d); err != nil {
 					detailErrs[idx] = err
 					return

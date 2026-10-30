@@ -261,6 +261,13 @@ func GetOrderMapping(state *app.State) gin.HandlerFunc {
 				defer wg.Done()
 				defer func() { <-sem }()
 				var status string
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					muVal.Lock()
+					statusFailed++
+					muVal.Unlock()
+					return
+				}
 				if err := ovhGetWithRetry(client, fmt.Sprintf("/me/order/%d/status", id), &status); err != nil {
 					muVal.Lock()
 					statusFailed++
@@ -331,6 +338,13 @@ func GetOrderMapping(state *app.State) gin.HandlerFunc {
 				defer wg2.Done()
 				defer func() { <-sem2 }()
 				var detailIDs []int64
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					muMap.Lock()
+					errorCount++
+					muMap.Unlock()
+					return
+				}
 				if err := ovhGetWithRetry(client, fmt.Sprintf("/me/order/%d/details", id), &detailIDs); err != nil {
 					muMap.Lock()
 					errorCount++
@@ -462,6 +476,13 @@ func fetchOrderDates(client *ovhsdk.Client, ids []int64, concurrency int) (map[i
 			defer wg.Done()
 			defer func() { <-sem }()
 			var info map[string]interface{}
+			client, err := ovh.IsolateClient(client)
+			if err != nil {
+				mu.Lock()
+				failed[id] = true
+				mu.Unlock()
+				return
+			}
 			if err := ovhGetWithRetry(client, fmt.Sprintf("/me/order/%d", id), &info); err != nil {
 				mu.Lock()
 				failed[id] = true

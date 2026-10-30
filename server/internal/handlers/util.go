@@ -21,7 +21,7 @@ import (
 // 大部分 handler 都是 `state.OVH.Client()` 模式,这个 helper 是 1:1 替换,
 // 把单账户改成多账户路由,语义最小化变化。
 func ovhClientFor(state *app.State, c *gin.Context) (*ovhsdk.Client, error) {
-	return state.OVH.ClientFor(c.Query("account"))
+	return state.OVH.IsolatedClientFor(c.Query("account"))
 }
 
 // ovhAccountFor 从请求 ?account=xxx 取账户实体(给需要原始凭据/endpoint 的 raw HTTP 调用用)。
@@ -83,6 +83,10 @@ func parallelGetDetails(client *ovhsdk.Client, keys []interface{}, pathFn func(i
 			defer wg.Done()
 			defer func() { <-sem }()
 			var d map[string]interface{}
+			client, err := ovh.IsolateClient(client)
+			if err != nil {
+				return
+			}
 			if err := client.Get(pathFn(key), &d); err == nil {
 				results[idx] = d
 			}
@@ -107,6 +111,10 @@ func parallelGetStringKeys(client *ovhsdk.Client, keys []string, pathFn func(str
 			defer wg.Done()
 			defer func() { <-sem }()
 			var d map[string]interface{}
+			client, err := ovh.IsolateClient(client)
+			if err != nil {
+				return
+			}
 			if err := client.Get(pathFn(key), &d); err == nil {
 				results[idx] = d
 			}
@@ -137,6 +145,11 @@ func parallelGetDetailsWithErrs(client *ovhsdk.Client, keys []interface{}, pathF
 			defer wg.Done()
 			defer func() { <-sem }()
 			var d map[string]interface{}
+			client, err := ovh.IsolateClient(client)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
 			if err := client.Get(pathFn(key), &d); err != nil {
 				errs[idx] = err
 				return

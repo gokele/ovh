@@ -63,7 +63,7 @@ func IsAvailableForOrder(availability string) bool {
 //   - monitor 检查 loop 没有"当前账户"概念,直接传 "",意味着只能保证默认账户 + 同 subsidiary 账户准确;
 //     quick-order / Telegram 这种已知 account_id 的调用方应该传具体 ID。
 func CheckServerAvailabilityWithConfigs(state *app.State, planCode string, accountID string) map[string]*ConfigAvailability {
-	client, err := state.OVH.ClientFor(accountID)
+	client, err := state.OVH.IsolatedClientFor(accountID)
 	if err != nil {
 		return map[string]*ConfigAvailability{}
 	}
@@ -376,7 +376,7 @@ func fqnSegmentsOf(item map[string]interface{}) []string {
 // /dedicated/server/datacenter/availabilities 库存视图,写死默认账户会让前端切账户后
 // 看到的是别的大区的库存。空 = 默认账户。
 func CheckServerAvailability(state *app.State, planCode string, options []string, accountID string) (map[string]string, error) {
-	client, err := state.OVH.ClientFor(accountID)
+	client, err := state.OVH.IsolatedClientFor(accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +642,7 @@ func lookupDCName(code string) (string, string, bool) {
 // 第二个返回值是"可用性预拉失败的 plan 数":这些 plan 的机房列会是空的,
 // 调用方据此决定要不要用这份结果覆盖缓存。
 func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int) {
-	client, err := state.OVH.ClientFor(accountID)
+	client, err := state.OVH.IsolatedClientFor(accountID)
 	if err != nil {
 		state.Logger.Error("Failed to load server list: "+err.Error(), "")
 		return nil, 0

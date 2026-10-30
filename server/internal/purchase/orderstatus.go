@@ -84,7 +84,7 @@ func RefreshOrderStatuses(state *app.State, force bool) int {
 				continue
 			}
 		}
-		client, err := state.OVH.ClientFor(t.accountID)
+		client, err := state.OVH.IsolatedClientFor(t.accountID)
 		if err != nil {
 			// 账户删了 —— 这单的状态永远查不到了,不用每轮都报
 			continue

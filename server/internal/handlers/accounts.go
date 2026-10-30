@@ -406,7 +406,7 @@ func VerifyAccount(state *app.State) gin.HandlerFunc {
 // 而账户里存的 zone 决定了目录站点和下单 region —— 两者不一致时凭据本身有效(valid=true),
 // 但这个账户的目录、价格、库存全是另一个子公司的。详见 SubsidiaryMismatchNote。
 func verifyAccountCreds(state *app.State, accountID string) (bool, string) {
-	cli, err := state.OVH.ClientFor(accountID)
+	cli, err := state.OVH.IsolatedClientFor(accountID)
 	if err != nil {
 		return false, ""
 	}

@@ -66,8 +66,8 @@ func featureBackupFTPUnavailable(state *app.State, c *gin.Context) bool {
 	}
 	state.Logger.Info("账户所在大区 "+region+" 不提供备份FTP功能，已拦截请求", "server_control")
 	payload := gin.H{
-		"success":      false,
-		"error":        "当前账户所在区域（US）不提供备份FTP功能，请改用云备份（Backup Cloud）", "code": "E192FDC9B",
+		"success": false,
+		"error":   "当前账户所在区域（US）不提供备份FTP功能，请改用云备份（Backup Cloud）", "code": "E192FDC9B",
 		"notAvailable": true,
 		"unsupported":  true,
 		"region":       region,
@@ -105,6 +105,11 @@ func featureParallelACLDetails(client *ovhsdk.Client, svc string, blocks []strin
 			defer wg.Done()
 			defer func() { <-sem }()
 			var d map[string]interface{}
+			client, err := ovh.IsolateClient(client)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
 			if err := client.Get(featureBackupFTPACLPath(svc, block), &d); err != nil {
 				errs[idx] = err
 				return
@@ -265,8 +270,8 @@ func GetBackupFTP(state *app.State) gin.HandlerFunc {
 				// 直接当成"未激活"并丢掉 body，unknownService/reason 根本到不了 UI，
 				// 用户会看到一个点下去必然失败的"激活"按钮。200 才会走 notAvailable 分支把原因显示出来。
 				c.JSON(http.StatusOK, gin.H{
-					"success":        false,
-					"error":          "服务器不存在或不属于当前账户", "code": "E834268F5",
+					"success": false,
+					"error":   "服务器不存在或不属于当前账户", "code": "E834268F5",
 					"unknownService": true,
 					"reason":         msg,
 				})
@@ -297,8 +302,8 @@ func ActivateBackupFTP(state *app.State) gin.HandlerFunc {
 			lower := strings.ToLower(err.Error())
 			if strings.Contains(lower, "cannot benefit") || strings.Contains(lower, "not available") {
 				c.JSON(http.StatusBadRequest, gin.H{
-					"success":      false,
-					"error":        "该服务器无法使用备份FTP服务", "code": "E826B0844",
+					"success": false,
+					"error":   "该服务器无法使用备份FTP服务", "code": "E826B0844",
 					"notAvailable": true,
 					"reason":       ovh.Explain(err),
 				})
@@ -533,8 +538,8 @@ func GetBackupCloud(state *app.State) gin.HandlerFunc {
 				}
 				state.Logger.Warn("查询服务器 "+svc+" 云备份：服务器不存在或不属于当前账户 - "+msg, "server_control")
 				c.JSON(http.StatusNotFound, gin.H{
-					"success":        false,
-					"error":          "服务器不存在或不属于当前账户", "code": "E834268F5",
+					"success": false,
+					"error":   "服务器不存在或不属于当前账户", "code": "E834268F5",
 					"unknownService": true,
 					"reason":         msg,
 				})
@@ -608,8 +613,8 @@ func DeleteBackupCloud(state *app.State) gin.HandlerFunc {
 				}
 				state.Logger.Warn("停用服务器 "+svc+" 云备份：服务器不存在或不属于当前账户 - "+msg, "server_control")
 				c.JSON(http.StatusNotFound, gin.H{
-					"success":        false,
-					"error":          "服务器不存在或不属于当前账户", "code": "E834268F5",
+					"success": false,
+					"error":   "服务器不存在或不属于当前账户", "code": "E834268F5",
 					"unknownService": true,
 					"reason":         msg,
 				})
@@ -645,8 +650,8 @@ func ChangeBackupCloudPassword(state *app.State) gin.HandlerFunc {
 				}
 				state.Logger.Warn("重置服务器 "+svc+" 云备份密码：服务器不存在或不属于当前账户 - "+msg, "server_control")
 				c.JSON(http.StatusNotFound, gin.H{
-					"success":        false,
-					"error":          "服务器不存在或不属于当前账户", "code": "E834268F5",
+					"success": false,
+					"error":   "服务器不存在或不属于当前账户", "code": "E834268F5",
 					"unknownService": true,
 					"reason":         msg,
 				})
@@ -683,8 +688,8 @@ func GetBackupCloudOfferDetails(state *app.State) gin.HandlerFunc {
 				}
 				state.Logger.Warn("查询服务器 "+svc+" 云备份报价：服务器不存在或不属于当前账户 - "+msg, "server_control")
 				c.JSON(http.StatusNotFound, gin.H{
-					"success":        false,
-					"error":          "服务器不存在或不属于当前账户", "code": "E834268F5",
+					"success": false,
+					"error":   "服务器不存在或不属于当前账户", "code": "E834268F5",
 					"unknownService": true,
 					"reason":         msg,
 				})

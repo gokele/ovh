@@ -6,9 +6,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/numconv"
+	"github.com/ovh-buy/server/internal/ovh"
 )
 
 // ── VPS 区域门控 ────────────────────────────────────────────────────────────
@@ -104,6 +104,11 @@ func ListVps(state *app.State) gin.HandlerFunc {
 				defer wg.Done()
 				defer func() { <-sem }()
 				var info map[string]interface{}
+				client, err := ovh.IsolateClient(client)
+				if err != nil {
+					results[idx].err = err
+					return
+				}
 				if err := client.Get("/vps/"+nm, &info); err != nil {
 					results[idx].err = err
 					return

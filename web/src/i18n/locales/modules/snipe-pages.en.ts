@@ -101,6 +101,14 @@ export const snipePagesEn = {
     },
   },
   queue: {
+    filterLabel: "Filter purchase tasks by status",
+    allTasks: "All tasks",
+    retainedHint: "Successful tasks stay here as Ordered and will not purchase again. Check order and payment status in purchase history.",
+    filterEmpty: "No tasks with this status",
+    filterEmptyHint: "Choose All tasks to see tasks with other statuses.",
+    orderRecord: "View order #{{id}}",
+    viewHistory: "View purchase history",
+
     title: "Sniping Queue",
     description: "Manage the queue of automated server sniping tasks",
     refresh: "Refresh",
@@ -195,7 +203,7 @@ export const snipePagesEn = {
       running: "Running",
       pending: "Pending",
       paused: "Paused",
-      completed: "Completed",
+      completed: "Ordered",
       failed: "Failed",
     },
     selectTaskAria: "Select task {{plan}} @ {{dc}}",
