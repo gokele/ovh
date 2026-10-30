@@ -384,6 +384,9 @@ function SubRow({
                 ? t("monitor.row.dcs", { dcs: sub.datacenters.join(", ") })
                 : t("monitor.row.allDcs")}
             </p>
+            <p className="text-xs text-muted-foreground mb-1.5" title={t("monitor.row.restockHint")}>
+              {sub.lastRestockAt ? t("monitor.row.lastRestock", { time: fmtDateTime(sub.lastRestockAt) }) : t("monitor.row.noRestock")}
+            </p>
             <div className="flex gap-1.5 flex-wrap items-center">
               {/* 盯全部配置 vs 只盯一套,是「会不会一次触发好几单」的分水岭,
                   必须在列表上一眼看得出来 */}

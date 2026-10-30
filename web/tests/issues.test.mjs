@@ -295,3 +295,63 @@ test("webhook tests cache actual delivery status on success and rejection withou
     assert.equal(client.getQueryState(key).isInvalidated, false);
   } finally { api.defaults.adapter = adapter; client.clear(); }
 });
+
+// Payment is read-only until the user explicitly submits the mutation.
+test("payment preflight stays read-only and pins the account through submission", async () => {
+  const { useOrderPaymentInfo, usePayAccountOrder } = await server.ssrLoadModule("/src/hooks/use-account.ts");
+  const { OrderPaymentButton } = await server.ssrLoadModule("/src/components/account/OrderPaymentButton.tsx");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const client = new QueryClient();
+  const original = api.defaults.adapter;
+  const calls = [];
+  api.defaults.adapter = async (config) => {
+    calls.push(config);
+    return { data: { accountId: "original", orderId: 123, status: "notPaid", methods: [] }, status: 200, statusText: "OK", headers: {}, config };
+  };
+  let pay;
+  function Probe() { useOrderPaymentInfo("original", 123, false); pay = usePayAccountOrder("original", 123); return createElement(OrderPaymentButton, { accountId: "original", orderId: 123 }); }
+  try {
+    const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    assert.match(html, /发起支付|Pay order/);
+    assert.equal(calls.length, 0);
+    const query = client.getQueryCache().find({ queryKey: ["account", "order-payment", "original", 123] });
+    assert.equal(query.options.enabled, false);
+    await query.options.queryFn();
+    assert.equal(calls[0].method, "get");
+    assert.equal(calls[0].params.account, "original");
+    await pay.mutateAsync({ accountId: "original", paymentMethodId: 7, paymentType: "CREDIT_CARD", amount: 39.98, currency: "EUR", confirm: true });
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].method, "post");
+    assert.equal(calls[1].params.account, "original");
+    assert.deepEqual(JSON.parse(calls[1].data), { paymentMethodId: 7, paymentType: "CREDIT_CARD", amount: 39.98, currency: "EUR", confirm: true });
+  } finally { api.defaults.adapter = original; client.clear(); }
+});
+
+test("payment mutation does not retry ambiguous failures", async () => {
+  const { usePayAccountOrder } = await server.ssrLoadModule("/src/hooks/use-account.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: 3 } } });
+  const original = api.defaults.adapter;
+  let calls = 0, pay;
+  api.defaults.adapter = async () => { calls++; throw new Error("ambiguous result"); };
+  function Probe() { pay = usePayAccountOrder("account", 123); return null; }
+  try {
+    renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    await assert.rejects(pay.mutateAsync({ accountId: "account", paymentMethodId: 7, paymentType: "CREDIT_CARD", amount: 39.98, currency: "EUR", confirm: true }), /ambiguous/);
+    assert.equal(calls, 1);
+  } finally { api.defaults.adapter = original; client.clear(); }
+});
+
+test("monitor displays saved last restock time and a truthful empty state", () => {
+  for (const lastRestockAt of ["2026-10-29T10:15:00Z", undefined]) {
+    const client = new QueryClient();
+    client.setQueryData(["monitor", "list"], [{ planCode: "24skstor01-v1", datacenters: ["gra"], notifyAvailable: true, notifyUnavailable: false, lastStatus: {}, createdAt: "2026-10-01T00:00:00Z", lastRestockAt }]);
+    client.setQueryData(["monitor", "status"], { running: false, subscriptions_count: 1, check_interval: 5, known_servers_count: 0 });
+    client.setQueryData(["accounts", "list"], []);
+    try {
+      const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Route.options.component)));
+      assert.match(html, lastRestockAt ? /最近检测到补货|Last observed restock/ : /暂无历史补货记录|No restock observed/);
+      assert.match(html, /OVH/);
+    } finally { client.clear(); }
+  }
+});

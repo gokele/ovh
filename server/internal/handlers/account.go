@@ -69,8 +69,13 @@ func parallelGetPaths(client *ovhsdk.Client, paths []string, concurrency int) ([
 		go func(idx int, path string) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			isolated, err := ovh.IsolateClient(client)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
 			var d map[string]interface{}
-			if err := ovhGetWithRetry(client, path, &d); err != nil {
+			if err := ovhGetWithRetry(isolated, path, &d); err != nil {
 				errs[idx] = err
 				return
 			}
@@ -666,7 +671,7 @@ func GetAccountBills(state *app.State) gin.HandlerFunc {
 			"failed":    failed,
 			"truncated": truncated,
 			// warning 为空字符串表示走的是正常窗口查询;非空说明是降级路径,前端可原样提示
-			"warning":   warn,
+			"warning": warn,
 		})
 	}
 }
@@ -684,7 +689,13 @@ func GetAccountBills(state *app.State) gin.HandlerFunc {
 // 响应是裸数组 + X-Partial-Failures 头(与 refunds 一致,前端 toPartialList 包装)。
 func GetAccountOrders(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		client, err := ovhClientFor(state, c)
+		acc, ok := ovhAccountFor(state, c)
+		if !ok {
+			noOVHRespAccount(c)
+			return
+		}
+		// 整次列表固定实际账户,不能在等待详情后重新读取默认账户。
+		client, err := state.OVH.IsolatedClientFor(acc.ID)
 		if err != nil {
 			noOVHRespAccount(c)
 			return
@@ -717,8 +728,9 @@ func GetAccountOrders(state *app.State) gin.HandlerFunc {
 			list = list[:accountBillingListSize]
 		}
 
-		acc, _ := ovhAccountFor(state, c)
+		accountOrderStatuses(c.Request.Context(), state, acc.ID, list)
 		for _, item := range list {
+			item["accountId"] = acc.ID
 			// billing.Order.password 是订单口令,页面用不到,不透传给前端
 			delete(item, "password")
 			// url 缺失时用控制台深链补上,保证每条订单都能点进去看 OVH 那边的原始状态

@@ -553,6 +553,8 @@ func main() {
 		api.GET("/ovh/account/info", handlers.GetAccountInfo(state))
 		api.GET("/ovh/account/refunds", handlers.GetAccountRefunds(state))
 		api.GET("/ovh/account/orders", handlers.GetAccountOrders(state))
+		api.GET("/ovh/account/orders/:order_id/payment", handlers.GetOrderPaymentOptions(state))
+		api.POST("/ovh/account/orders/:order_id/pay", handlers.PayAccountOrder(state))
 		api.GET("/ovh/account/credit-balance", handlers.GetCreditBalance(state))
 		api.GET("/ovh/account/email-history", handlers.GetEmailHistory(state))
 		api.GET("/ovh/contact-change-requests", handlers.GetContactChangeRequests(state))
@@ -608,7 +610,7 @@ func main() {
 	// 自动启动监控（如果有订阅）。VPS 侧与服务器侧同口径:
 	// 之前 VPS 循环只在手动添加订阅时才启动,重启/自更新重启后订阅还在但循环死了,
 	// 用户以为 VPS 抢购在跑,实际完全静默失效
-	if len(mon.Snapshot()) > 0 {
+	if len(mon.Snapshot()) > 0 && mon.AutoStartAllowed() {
 		mon.Start()
 		state.Logger.Info("自动启动服务器监控", "system")
 	}

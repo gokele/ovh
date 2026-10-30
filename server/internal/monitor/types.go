@@ -116,6 +116,7 @@ type Subscription struct {
 	// OVH 返回的是 HTTP 200 + 空数组而不是错误。没有这几个字段的时候,
 	// "订阅了美区机型但落到欧区账户去查"和"这台机器确实没货"在前端长得一模一样,
 	// 监控可以静默失效好几个月都没人发现。
+	LastRestockAt       string `json:"lastRestockAt,omitempty"`       // 已保存历史中最近一次从无货恢复的时间
 	LastCheckAt         string `json:"lastCheckAt,omitempty"`         // 最近一次查询时间
 	LastCheckAccountID  string `json:"lastCheckAccountId,omitempty"`  // 实际用来查库存的账户
 	LastCheckRegion     string `json:"lastCheckRegion,omitempty"`     // 该账户所属大区 EU / US / CA
@@ -257,7 +258,14 @@ func (s *Subscription) snapshot() *Subscription {
 	copy(hist, s.History)
 	opts := make([]string, len(s.Options))
 	copy(opts, s.Options)
+	lastRestock := ""
+	for _, entry := range hist {
+		if entry.ChangeType == "available" && entry.OldStatus == "unavailable" {
+			lastRestock = entry.Timestamp
+		}
+	}
 	return &Subscription{
+		LastRestockAt:      lastRestock,
 		PlanCode:           s.PlanCode,
 		Datacenters:        dcs,
 		Options:            opts,

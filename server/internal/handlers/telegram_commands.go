@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -340,17 +341,19 @@ func cancelText(state *app.State, args []string) string {
 	}
 	// 倒着删,避免前面的删除把后面的下标挪掉
 	killed := make([]string, 0, len(matched))
+	var blockErr error
 	for i := len(matched) - 1; i >= 0; i-- {
 		idx := matched[i]
 		it := state.Queue[idx]
 		killed = append(killed, it.PlanCode+" @ "+strings.ToUpper(orAny(it.Datacenter)))
+		blockErr = errors.Join(blockErr, state.SetAutomaticOrderBlockedLocked(it, true))
 		state.MarkTaskDeleted(it.ID) // 同时取消它正在进行的下单
 		state.Queue = append(state.Queue[:idx], state.Queue[idx+1:]...)
 	}
 	state.QueueMu.Unlock()
 
 	// 落库失败必须说 —— 不说的话用户以为取消了,重启后任务原地复活继续抢
-	if err := state.SaveQueue(); err != nil {
+	if err := errors.Join(blockErr, state.SaveQueue()); err != nil {
 		state.Logger.Error("Telegram 取消任务后保存队列失败: "+err.Error(), "telegram")
 		return fmt.Sprintf("⚠️ 已从运行中的队列移除 %d 个任务，但没能写进数据库，重启后会重新出现：\n%s",
 			len(killed), err.Error())

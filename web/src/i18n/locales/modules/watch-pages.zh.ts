@@ -14,7 +14,7 @@ export const watchPagesZh = {
     swimTitle: "今日机房时间线",
     heatTitle: "库存变化热力 7×24",
     title: "服务器监控",
-    description: "自动监控服务器可用性变化并推送通知",
+    description: "自动监控服务器可用性变化并推送通知。暂停监控后,已入队的抢购任务仍会执行,请到抢购队列单独暂停。",
     addAction: "添加订阅",
     clearAll: "清空全部",
     status: {
@@ -44,6 +44,10 @@ export const watchPagesZh = {
       confirm: "确认清空",
     },
     row: {
+      lastRestock: "最近检测到补货：{{time}}",
+      noRestock: "暂无历史补货记录",
+      restockHint: "根据此订阅保存的无货转有货记录统计,不代表 OVH 完整放货历史",
+
       dcs: "监控数据中心: {{dcs}}",
       allDcs: "监控所有数据中心",
       watchOnly: "只盯 {{options}}",

@@ -316,8 +316,10 @@ func StartMonitor(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 		if mon.Start() {
 			state.Logger.Info("用户启动服务器监控", "")
 			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "监控已启动", "code": "EE907CE94"})
-		} else {
+		} else if mon.Running() {
 			c.JSON(http.StatusOK, gin.H{"status": "info", "message": "监控已在运行中", "code": "EF366B077"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "监控未能启动,请检查数据库和服务日志"})
 		}
 	}
 }
@@ -335,7 +337,12 @@ func VerifyTelegram(state *app.State) gin.HandlerFunc {
 // StopMonitor POST /api/monitor/stop
 func StopMonitor(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if mon.Stop() {
+		stopped, err := mon.StopByUser()
+		if err != nil {
+			c.JSON(500, gin.H{"error": "监控已停止,但重启后可能恢复,保存停止状态失败: " + err.Error()})
+			return
+		}
+		if stopped {
 			state.Logger.Info("用户停止服务器监控", "")
 			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "监控已停止", "code": "E2B37887D"})
 		} else {

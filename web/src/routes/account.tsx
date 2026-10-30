@@ -1,3 +1,5 @@
+import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
+import { useActiveAccount } from "@/hooks/use-active-account";
 import { createFileRoute } from "@tanstack/react-router";
 import { User, Mail, RefreshCw, FileText, Inbox, ShieldCheck, ShoppingBag, ExternalLink, type LucideIcon } from "lucide-react";
 import { useState } from "react";
@@ -300,6 +302,7 @@ function RefundsTab() {
 }
 
 function OrdersTab() {
+  const [accountId] = useActiveAccount();
   const { t } = useTranslation();
   const orders = useOrders();
   return (
@@ -341,7 +344,7 @@ function OrdersTab() {
             <PartialNotice failedCount={orders.data?.failedCount || 0} what={t("account.ordersTab")} className="mb-3" />
             <div className="divide-y divide-border">
             {(orders.data?.items || []).map((o) => (
-              <OrderRow key={o.orderId} order={o} />
+              <OrderRow key={`${accountId}:${o.orderId}`} order={o} accountId={accountId} />
             ))}
             </div>
           </div>
@@ -351,7 +354,7 @@ function OrdersTab() {
   );
 }
 
-function OrderRow({ order }: { order: OrderRecord }) {
+function OrderRow({ order, accountId }: { order: OrderRecord; accountId: string }) {
   const { t } = useTranslation();
   // retractionDate 非空且还在未来 = 订单处于法定撤回期内,过期了就不显示
   const retractUntil =
@@ -359,9 +362,9 @@ function OrderRow({ order }: { order: OrderRecord }) {
       ? fmtDateTime(order.retractionDate)
       : null;
   return (
-    <div className="py-3 flex items-center justify-between gap-4">
+    <div className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div className="min-w-0">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className="font-mono text-sm font-semibold">#{order.orderId}</span>
           {retractUntil && (
             <Chip tone="warning">{t("account.orderRetractable", { date: retractUntil })}</Chip>
@@ -369,9 +372,11 @@ function OrderRow({ order }: { order: OrderRecord }) {
         </div>
         <p className="text-[11px] text-muted-foreground">{fmtDateTime(order.date)}</p>
       </div>
-      <div className="text-right flex-shrink-0">
+      <div className="sm:text-right flex-shrink-0">
         <p className="text-lg font-bold">{order.priceWithTax?.text || "—"}</p>
-        <div className="flex items-center justify-end gap-3">
+        {order.orderStatus === "notPaid" && <div className="my-2"><OrderPaymentButton accountId={order.accountId || accountId} orderId={order.orderId} managerUrl={order.url} /></div>}
+        {order.paymentStatusError && <p className="text-xs text-warning" title={order.paymentStatusError}>{t("account.payment.statusUnknown")}</p>}
+        <div className="flex flex-wrap items-center sm:justify-end gap-3">
           {order.url && (
             <a href={order.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-[11px] text-foreground hover:underline">
               <ExternalLink className="w-3 h-3" />

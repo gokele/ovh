@@ -17,7 +17,7 @@ const pack: WatchPagesPack = {
     swimTitle: "Today by datacenter",
     heatTitle: "Stock-change heat 7×24",
     title: "Server Monitor",
-    description: "Watch server availability changes automatically and push notifications",
+    description: "Watch availability and receive alerts. Pausing monitoring keeps queued purchase tasks running; pause those separately in the purchase queue.",
     addAction: "Add subscription",
     clearAll: "Clear all",
     status: {
@@ -47,6 +47,10 @@ const pack: WatchPagesPack = {
       confirm: "Clear",
     },
     row: {
+      lastRestock: "Last observed restock: {{time}}",
+      noRestock: "No restock observed yet",
+      restockHint: "Based on saved out-of-stock to in-stock transitions for this subscription, not OVH’s full restock history",
+
       dcs: "Monitoring datacenters: {{dcs}}",
       allDcs: "Monitoring all datacenters",
       watchOnly: "Watching only {{options}}",

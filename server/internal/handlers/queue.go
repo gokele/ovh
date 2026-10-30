@@ -109,19 +109,21 @@ func RemoveQueueItem(state *app.State) gin.HandlerFunc {
 
 		state.QueueMu.Lock()
 		var removed *types.QueueItem
+		var blockErr error
 		// 重新分配新 slice，避免 [:0] 与原 backing array 共享导致快照读到已被覆盖的元素
 		kept := make([]types.QueueItem, 0, len(state.Queue))
 		for i := range state.Queue {
 			if state.Queue[i].ID == id {
 				cp := state.Queue[i]
 				removed = &cp
+				blockErr = state.SetAutomaticOrderBlockedLocked(cp, true)
 				continue
 			}
 			kept = append(kept, state.Queue[i])
 		}
 		state.Queue = kept
 		state.QueueMu.Unlock()
-		if err := state.SaveQueue(); err != nil {
+		if err := errors.Join(blockErr, state.SaveQueue()); err != nil {
 			// 删除没落库 → 重启后这条任务会"复活"并继续抢。必须告诉用户。
 			state.Logger.Error("删除任务后保存队列失败: "+err.Error(), "queue")
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -212,12 +214,14 @@ func ClearQueue(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state.QueueMu.Lock()
 		count := len(state.Queue)
+		var blockErr error
 		for _, it := range state.Queue {
+			blockErr = errors.Join(blockErr, state.SetAutomaticOrderBlockedLocked(it, true))
 			state.MarkTaskDeleted(it.ID) // 同时取消正在进行的下单
 		}
 		state.Queue = []types.QueueItem{}
 		state.QueueMu.Unlock()
-		if err := state.SaveQueue(); err != nil {
+		if err := errors.Join(blockErr, state.SaveQueue()); err != nil {
 			state.Logger.Error("清空队列后保存失败: "+err.Error(), "queue")
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status": "error",
@@ -248,9 +252,17 @@ func UpdateQueueStatus(state *app.State) gin.HandlerFunc {
 			return
 		}
 		found := false
+		var blockErr error
 		state.QueueMu.Lock()
 		for i := range state.Queue {
 			if state.Queue[i].ID == id {
+				blockErr = state.SetAutomaticOrderBlockedLocked(state.Queue[i], body.Status != "running" && body.Status != "pending")
+				// 恢复必须先成功写入许可,失败时保持停止。
+				if blockErr != nil && (body.Status == "running" || body.Status == "pending") {
+					state.QueueMu.Unlock()
+					c.JSON(500, gin.H{"error": blockErr.Error()})
+					return
+				}
 				state.Queue[i].Status = body.Status
 				state.Queue[i].UpdatedAt = types.NowISO()
 				if body.Status != "running" {
@@ -266,7 +278,7 @@ func UpdateQueueStatus(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"status": "error", "error": "任务不存在", "code": "E10FEEC40"})
 			return
 		}
-		if err := state.SaveQueue(); err != nil {
+		if err := errors.Join(blockErr, state.SaveQueue()); err != nil {
 			state.Logger.Error("改任务状态后保存队列失败: "+err.Error(), "queue")
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status": "error",

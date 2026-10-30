@@ -253,7 +253,11 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 		// 落库失败以前是 `_ = state.SaveQueue()` —— 直接吞掉。
 		// 这条路是监控触发的自动下单:发现有货 → 建任务 → 落库失败无人知晓,
 		// 重启后任务没了,而用户以为一直在抢。入队和落库必须是一件事。
-		if err := state.EnqueueItems([]types.QueueItem{item}, true); err != nil {
+		enqueue := state.EnqueueItems
+		if body.FromMonitor {
+			enqueue = state.EnqueueAutomaticItems
+		}
+		if err := enqueue([]types.QueueItem{item}, true); err != nil {
 			state.Logger.Error("自动下单任务落库失败,已撤回: "+err.Error(), "queue")
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,

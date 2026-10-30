@@ -129,6 +129,8 @@ type State struct {
 
 	QueueMu sync.Mutex
 	Queue   []types.QueueItem
+	// QueueMu 同时保护用户对监控自动建单的停止记录。
+	automaticOrderBlocks map[string]bool
 
 	HistoryMu sync.Mutex
 	History   []types.PurchaseHistoryEntry
@@ -460,6 +462,16 @@ func (s *State) LoadFailures() map[string]string {
 //
 // prepend=true 把这批放到队首(快速下单要抢在别的任务前面)。
 func (s *State) EnqueueItems(items []types.QueueItem, prepend bool) error {
+	return s.enqueueItems(items, prepend, false)
+}
+
+// EnqueueAutomaticItems 不允许监控绕过已暂停或取消的同型号/账户/机房。
+func (s *State) EnqueueAutomaticItems(items []types.QueueItem, prepend bool) error {
+	return s.enqueueItems(items, prepend, true)
+}
+
+// enqueueItems 在同一队列锁内校验自动建单许可并持久化任务。
+func (s *State) enqueueItems(items []types.QueueItem, prepend, automatic bool) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -470,6 +482,13 @@ func (s *State) EnqueueItems(items []types.QueueItem, prepend bool) error {
 	defer s.saveQueueMu.Unlock()
 	s.QueueMu.Lock()
 	defer s.QueueMu.Unlock()
+	if automatic {
+		for _, item := range items {
+			if err := s.checkAutomaticOrderLocked(item); err != nil {
+				return err
+			}
+		}
+	}
 	// 队列总量闸门。放在这里是因为四条入队路径(网页新建 / 快速下单 / TG 文本下单 /
 	// 监控自动下单)全都汇到这个函数 —— 加一次就都受保护。
 	//
@@ -495,6 +514,13 @@ func (s *State) EnqueueItems(items []types.QueueItem, prepend bool) error {
 		return err
 	}
 	s.Queue = next
+	if !automatic {
+		for _, item := range items {
+			if err := s.SetAutomaticOrderBlockedLocked(item, false); err != nil {
+				s.Logger.Warn("任务已创建,自动建单仍保持停止: "+err.Error(), "queue")
+			}
+		}
+	}
 	return nil
 }
 

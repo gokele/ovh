@@ -26,6 +26,16 @@ A Docker image is also provided (`linux/amd64` + `linux/arm64`):
 docker pull ghcr.io/gokele/ovh:latest
 ```
 
+## Order payment and stopping purchases
+
+Account order records offer payment for orders OVH confirms as unpaid. Review the account, tax-inclusive amount and eligible saved payment method, then explicitly confirm. Expired orders and unavailable methods cannot be paid. Payment requests never retry automatically; check OVH Manager if the result is uncertain or bank verification is required. Credentials need order/payment-method read access and `POST /me/order/*/pay` access.
+
+Monitoring shows the latest saved out-of-stock to in-stock transition for each subscription. Initial stock and price-check recovery do not count as restocks. Bandwidth/vRack options no longer hide matching hardware inventory and remain attached to pricing and ordering.
+
+Pausing/deleting a purchase task blocks monitoring from recreating it for the same account, model and datacenter, including after restart. Explicitly resuming or creating a new manual task clears that block. A manually stopped monitor also stays stopped after restart.
+
+Monitoring and the purchase queue have independent lifecycles: **pausing monitoring does not cancel tasks already queued**. Pause/delete those in the purchase queue. Orders already submitted to OVH must be handled in OVH Manager. Tasks deleted before this update have no new persistent stop record; review existing auto-order subscriptions when upgrading.
+
 ## Tech Stack
 
 | Layer | Technology |

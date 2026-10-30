@@ -212,6 +212,14 @@ func (m *Monitor) checkCurrent(sub *Subscription, cfg subCheckConfig) bool {
 
 func (m *Monitor) Start() bool {
 	m.subsMu.Lock()
+	// 手动启动/新增订阅也会解除全局停止记录;失败时不启动。
+	if m.state.DB != nil {
+		if err := m.state.DB.SetKV("monitor-manually-stopped", false); err != nil {
+			m.subsMu.Unlock()
+			m.state.Logger.Error("保存监控启动状态失败: "+err.Error(), "monitor")
+			return false
+		}
+	}
 	if m.running {
 		m.subsMu.Unlock()
 		m.state.Logger.Warn("监控已在运行中", "monitor")
@@ -235,16 +243,38 @@ func (m *Monitor) Start() bool {
 	return true
 }
 
+// Stop 只停止本轮进程,内部健康检查也会调用。
 func (m *Monitor) Stop() bool {
 	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+	return m.stopLocked()
+}
+
+// StopByUser 将停止意图与循环停止串行化,避免并发启动覆盖持久状态。
+func (m *Monitor) StopByUser() (bool, error) {
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+	if m.state.DB == nil {
+		return m.stopLocked(), fmt.Errorf("数据库不可用,不能保存停止状态")
+	}
+	err := m.state.DB.SetKV("monitor-manually-stopped", true)
+	return m.stopLocked(), err
+}
+
+// stopLocked 使循环和已取出的所有检查快照同时失效。
+func (m *Monitor) stopLocked() bool {
 	if !m.running {
-		m.subsMu.Unlock()
 		m.state.Logger.Warn("监控未运行", "monitor")
 		return false
 	}
 	m.running = false
+	// 让正在等库存/询价结果的旧检查失效,快速重启也不能复活。
+	for _, sub := range m.subscriptions {
+		sub.mu.Lock()
+		sub.revision++
+		sub.mu.Unlock()
+	}
 	m.state.MonitorRunning = false
-	m.subsMu.Unlock()
 	m.state.Logger.Info("正在停止服务器监控...", "monitor")
 	return true
 }
@@ -360,4 +390,17 @@ func (m *Monitor) batchOrder(planCode string, configInfo map[string]interface{},
 
 	m.state.Logger.Info(fmt.Sprintf("[monitor->order] 批量下单完成: 成功=%d, 失败=%d, 总计=%d",
 		atomic.LoadInt64(&successCount), atomic.LoadInt64(&failCount), totalOrders), "monitor")
+}
+
+// AutoStartAllowed 重启遵守用户的全局停止记录,读库失败时不自动恢复。
+func (m *Monitor) AutoStartAllowed() bool {
+	if m.state.DB == nil {
+		return false
+	}
+	var stopped bool
+	if _, err := m.state.DB.GetKV("monitor-manually-stopped", &stopped); err != nil {
+		m.state.Logger.Error("读取监控停止状态失败,不自动启动: "+err.Error(), "monitor")
+		return false
+	}
+	return !stopped
 }

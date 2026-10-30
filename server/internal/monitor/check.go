@@ -436,6 +436,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 				planCode, configKey), "monitor")
 			continue
 		}
+		effectiveOptions := monitoringOptions(configData.Options, cfg.Options)
 		memory := configData.Memory
 		storage := configData.Storage
 		configDisplay := memory + " + " + storage
@@ -447,7 +448,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			"memory":  memory,
 			"storage": storage,
 			"display": configDisplay,
-			"options": configData.Options,
+			"options": effectiveOptions,
 		}
 		// 询价必须走上面选中的那个账户:验价账户和下单账户不一致时,
 		// endpoint 与 ovhSubsidiary 都会错(A 账户买得到 B 账户买不到,反之亦然)。
@@ -674,6 +675,8 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 		var availables, unavailables, priceFailed []notification
 		for _, n := range notifications {
 			if !n.notify {
+				// 关闭消息提醒仍保存状态变化,最近补货时间不能依赖通知开关。
+				sub.appendHistory([]HistoryEntry{{Timestamp: n.detectedTime, Datacenter: n.dc, Status: n.status, ChangeType: n.changeType, OldStatus: n.oldStatusJSON(), Config: copyMap(configInfo)}}, maxHistorySize)
 				continue
 			}
 			switch n.changeType {
@@ -732,7 +735,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			// 安装费从公开目录算(已缓存 2 小时,不占账户配额)。
 			// 不走询价接口:那个要真的建购物车再删,一次好几秒 ——
 			// 而补货通知的全部价值就在于"有货那一刻立刻发出去"。
-			if ip := m.installPriceText(planCode, choice.accountID, configData.Options); ip != "" {
+			if ip := m.installPriceText(planCode, choice.accountID, effectiveOptions); ip != "" {
 				configInfoWithPrice["install_price"] = ip
 			}
 			availDCs := make([]map[string]interface{}, 0, len(availables))
@@ -940,7 +943,7 @@ func (m *Monitor) calcDuration(sub *Subscription, dc, configDisplay string, targ
 // configMatchesFilter 判断一套配置是否落在订阅指定的配置范围内。
 //
 // want 为空 = 不筛,盯全部配置(老行为)。
-// 非空时要求 want 里的每一项都出现在这套配置的 options 里 —— 用"子集"而不是
+// 非空时要求硬件项都出现在库存 options 里;带宽/vRack 仅在询价及下单时校验 —— 用"子集"而不是
 // "完全相等":用户在 TG 上只会挑内存和存储两项,而一套配置的 options 还包含
 // 带宽、vRack 之类他没挑也不关心的东西,要求相等会一个都匹配不上。
 func configMatchesFilter(want, have []string) bool {
@@ -952,11 +955,31 @@ func configMatchesFilter(want, have []string) bool {
 		set[h] = struct{}{}
 	}
 	for _, w := range want {
+		// 库存仅区分硬件；网络 addon 留给询价和下单校验。
+		if strings.HasPrefix(w, "bandwidth-") || strings.HasPrefix(w, "vrack-") {
+			continue
+		}
 		if _, ok := set[w]; !ok {
 			return false
 		}
 	}
 	return true
+}
+
+// monitoringOptions 保留库存硬件及用户选定的带宽/vRack,避免按默认网络规格下单。
+func monitoringOptions(hardware, selected []string) []string {
+	result := append([]string(nil), hardware...)
+	seen := map[string]bool{}
+	for _, code := range result {
+		seen[code] = true
+	}
+	for _, code := range selected {
+		if !seen[code] {
+			result = append(result, code)
+			seen[code] = true
+		}
+	}
+	return result
 }
 
 // ConfigMatchesFilter 导出版，给测试和别的包用。语义见 configMatchesFilter。

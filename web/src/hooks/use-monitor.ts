@@ -27,6 +27,7 @@ export interface MonitorSubscription {
   options?: string[];
   paused?: boolean;
   lastStatus: Record<string, string>;
+  lastRestockAt?: string;
   createdAt: string;
 }
 

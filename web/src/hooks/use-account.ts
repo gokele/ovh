@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
 import { readPartialFailures, toPartialList, type PartialList } from "./partial-list";
@@ -33,7 +33,10 @@ export interface RefundRecord {
  * 展示一律用 text(带货币符号,后端格式化好的);retractionDate 非空且未过期 = 还在撤回期内。
  */
 export interface OrderRecord {
+  accountId?: string;
   orderId: number;
+  orderStatus?: string;
+  paymentStatusError?: string;
   date: string;
   expirationDate?: string | null;
   retractionDate?: string | null;
@@ -113,8 +116,47 @@ export function useOrders() {
   return useQuery({
     queryKey: qk.account.orders(accountId),
     queryFn: async (): Promise<PartialList<OrderRecord>> => {
-      const res = await api.get<OrderRecord[]>("/ovh/account/orders");
+      const res = await api.get<OrderRecord[]>("/ovh/account/orders", { params: { account: accountId } });
       return toPartialList(res.data, readPartialFailures(res.headers));
+    },
+  });
+}
+
+
+export interface OrderPaymentInfo {
+  accountId: string;
+  accountName: string;
+  orderId: number;
+  status: string;
+  amount: number | null;
+  currency: string;
+  priceText: string;
+  attempted: boolean;
+  methods: { id: number; type: string; label: string; default: boolean }[];
+}
+
+/** 打开付款窗口时只读取可用方式,不产生付款请求。 */
+export function useOrderPaymentInfo(accountId: string, orderId: number, open: boolean) {
+  return useQuery({
+    queryKey: qk.account.orderPayment(accountId, orderId),
+    queryFn: async () => (await api.get<OrderPaymentInfo>(`/ovh/account/orders/${orderId}/payment`, { params: { account: accountId } })).data,
+    enabled: open, staleTime: 0, retry: false, refetchOnWindowFocus: false,
+  });
+}
+
+/** 手动付款不自动重试;任何结果都刷新订单和付款登记。 */
+export function usePayAccountOrder(accountId: string, orderId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { accountId: string; paymentMethodId: number; paymentType: string; amount: number; currency: string; confirm: true }) => {
+      const { accountId: pinnedAccount, ...payload } = body;
+      return (await api.post(`/ovh/account/orders/${orderId}/pay`, payload, { params: { account: pinnedAccount } })).data;
+    },
+    retry: false,
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: qk.account.orders(accountId) });
+      qc.invalidateQueries({ queryKey: qk.account.orderPayment(accountId, orderId) });
+      qc.invalidateQueries({ queryKey: qk.history() });
     },
   });
 }

@@ -1823,6 +1823,15 @@
       ]
     }
   },
+  "GET /me/order/{orderId}/availablePaymentMethod": {
+    "US": {
+      "params": [
+        "path:orderId:long:true"
+      ],
+      "response": "billing.order.AvailablePaymentMethod[]",
+      "status": "PRODUCTION"
+    }
+  },
   "GET /me/order/{orderId}/details": {
     "CA": {
       "status": "PRODUCTION",
@@ -1864,6 +1873,29 @@
       ]
     }
   },
+  "GET /me/order/{orderId}/paymentMethods": {
+    "CA": {
+      "params": [
+        "path:orderId:long:true"
+      ],
+      "response": "billing.order.PaymentMethods",
+      "status": "BETA"
+    },
+    "EU": {
+      "params": [
+        "path:orderId:long:true"
+      ],
+      "response": "billing.order.PaymentMethods",
+      "status": "BETA"
+    },
+    "US": {
+      "params": [
+        "path:orderId:long:true"
+      ],
+      "response": "billing.order.PaymentMethods",
+      "status": "BETA"
+    }
+  },
   "GET /me/order/{orderId}/status": {
     "CA": {
       "status": "PRODUCTION",
@@ -1885,6 +1917,29 @@
       "params": [
         "path:orderId:long:true"
       ]
+    }
+  },
+  "GET /me/payment/method/{paymentMethodId}": {
+    "CA": {
+      "params": [
+        "path:paymentMethodId:long:true"
+      ],
+      "response": "me.payment.PaymentMethod",
+      "status": "PRODUCTION"
+    },
+    "EU": {
+      "params": [
+        "path:paymentMethodId:long:true"
+      ],
+      "response": "me.payment.PaymentMethod",
+      "status": "PRODUCTION"
+    },
+    "US": {
+      "params": [
+        "path:paymentMethodId:long:true"
+      ],
+      "response": "me.payment.PaymentMethod",
+      "status": "PRODUCTION"
     }
   },
   "GET /me/subAccount": {
@@ -3203,6 +3258,32 @@
         "body:reverse:string:true",
         "path:ip:ipBlock:true"
       ]
+    }
+  },
+  "POST /me/order/{orderId}/pay": {
+    "CA": {
+      "params": [
+        "body:paymentMethod:billing.order.PayWithPaymentMethod:true",
+        "path:orderId:long:true"
+      ],
+      "response": "void",
+      "status": "BETA"
+    },
+    "EU": {
+      "params": [
+        "body:paymentMethod:billing.order.PayWithPaymentMethod:true",
+        "path:orderId:long:true"
+      ],
+      "response": "void",
+      "status": "BETA"
+    },
+    "US": {
+      "params": [
+        "body::billing.order.PayWithPaymentMethod:true",
+        "path:orderId:long:true"
+      ],
+      "response": "void",
+      "status": "PRODUCTION"
     }
   },
   "POST /me/order/{orderId}/retraction": {
