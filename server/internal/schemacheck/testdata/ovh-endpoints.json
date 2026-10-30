@@ -2716,6 +2716,23 @@
       ]
     }
   },
+  "POST /auth/token": {
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "auth.Token",
+      "params": null
+    },
+    "CA": {
+      "status": "PRODUCTION",
+      "response": "auth.Token",
+      "params": null
+    },
+    "US": {
+      "status": "PRODUCTION",
+      "response": "auth.Token",
+      "params": null
+    }
+  },
   "POST /dedicated/server/{serviceName}/changeContact": {
     "CA": {
       "status": "PRODUCTION",

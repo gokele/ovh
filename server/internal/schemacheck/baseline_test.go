@@ -48,6 +48,7 @@ var namespaces = []string{
 	"me",
 	"services",
 	"support",
+	"auth",
 	"ip",
 }
 
@@ -106,6 +107,7 @@ var removedEndpoints = []string{
 }
 
 var usedEndpoints = []string{
+	"POST /auth/token",
 	"GET /support/tickets",
 	"POST /support/tickets/create",
 	"GET /support/tickets/{ticketId}",

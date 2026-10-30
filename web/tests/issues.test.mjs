@@ -618,3 +618,62 @@ test("account readers pin the resolved default account through request dispatch"
     assert.deepEqual(calls.map((call) => call.params.account), ["eu", "eu", "eu"]);
   } finally { api.defaults.adapter = original; client.clear(); if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow; }
 });
+
+// 官方窗口固定实际账户,返回值只保留身份摘要,一次性认证链接不进入缓存。
+test("official chat pins account and only navigates to the official endpoint", async () => {
+  const { authorizeOfficialChat } = await server.ssrLoadModule("/src/lib/official-chat.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const original = api.defaults.adapter;
+  let calls = 0, destination;
+  api.defaults.adapter = async (config) => {
+    calls++; assert.equal(config.params.account, "eu");
+    assert.deepEqual(JSON.parse(config.data), { product: "dedicated" });
+    return { data: { accountId: "eu", accountName: "EU fixture", customerCode: "fixture-eu", launchUrl: "https://agent-chat.ovhcloud.com/sn_va_web_client_app_embed.do?sysparm_queue=dedicated&sysparm_session_id=fictional-token" }, status: 200, statusText: "OK", headers: {}, config };
+  };
+  try {
+    const identity = await authorizeOfficialChat("eu", "dedicated", { closed: false, location: { replace(url) { destination = url; } } }, new AbortController().signal);
+    assert.deepEqual(identity, { accountName: "EU fixture", customerCode: "fixture-eu" });
+    assert.match(destination, /^https:\/\/agent-chat\.ovhcloud\.com\//);
+    assert.equal(calls, 1);
+    assert.equal("launchUrl" in identity, false);
+  } finally { api.defaults.adapter = original; }
+});
+
+// 跨账户响应、任意跳转或已关闭窗口,都不能把一次性链接导航到错误的窗口。
+test("official chat rejects mismatched accounts and unsafe URLs", async () => {
+  const { authorizeOfficialChat } = await server.ssrLoadModule("/src/lib/official-chat.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const original = api.defaults.adapter;
+  const base = { accountId: "eu", accountName: "EU fixture", customerCode: "fixture-eu", launchUrl: "https://agent-chat.ovhcloud.com/sn_va_web_client_app_embed.do?sysparm_queue=dedicated&sysparm_session_id=fictional-token" };
+  try {
+    for (const change of [
+      { accountId: "us" }, { launchUrl: "https://example.invalid/?token=fictional-token" },
+      { launchUrl: "https://agent-chat.ovhcloud.com/wrong-path" }, { launchUrl: "malformed" },
+      { launchUrl: base.launchUrl.replace("dedicated", "vps") }, { customerCode: "" },
+    ]) {
+      api.defaults.adapter = async (config) => ({ data: { ...base, ...change }, status: 200, statusText: "OK", headers: {}, config });
+      const target = { closed: false, location: { replace() { assert.fail("unsafe navigation"); } } };
+      await assert.rejects(authorizeOfficialChat("eu", "dedicated", target, new AbortController().signal), /CHAT_INVALID_RESPONSE/);
+    }
+    api.defaults.adapter = async (config) => ({ data: base, status: 200, statusText: "OK", headers: {}, config });
+    assert.equal(await authorizeOfficialChat("eu", "dedicated", { closed: true, location: { replace() { assert.fail("closed window navigated"); } } }, new AbortController().signal), null);
+  } finally { api.defaults.adapter = original; }
+});
+
+// 切换账户后取消旧请求,迟到的 EU 认证不能打开 US 会话。
+test("cancelled chat authentication cannot navigate a late response", async () => {
+  const { authorizeOfficialChat } = await server.ssrLoadModule("/src/lib/official-chat.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const original = api.defaults.adapter, controller = new AbortController();
+  let release, started;
+  const ready = new Promise((resolve) => { started = resolve; });
+  api.defaults.adapter = (config) => new Promise((resolve) => {
+    release = () => resolve({ data: { accountId: "eu", customerCode: "fixture-eu", launchUrl: "https://agent-chat.ovhcloud.com/sn_va_web_client_app_embed.do?sysparm_queue=dedicated&sysparm_session_id=fictional-token" }, status: 200, statusText: "OK", headers: {}, config });
+    started();
+  });
+  try {
+    const pending = authorizeOfficialChat("eu", "dedicated", { closed: false, location: { replace() { assert.fail("late navigation"); } } }, controller.signal);
+    const rejected = assert.rejects(pending, (error) => error.code === "ERR_CANCELED");
+    await ready; controller.abort(); release(); await rejected;
+  } finally { api.defaults.adapter = original; }
+});

@@ -1,3 +1,4 @@
+import { OfficialChat } from "@/components/support/OfficialChat";
 import { SupportTickets } from "@/components/support/SupportTickets";
 import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
 import { createFileRoute } from "@tanstack/react-router";
@@ -91,6 +92,7 @@ function AccountPage() {
           <TabsTrigger value="orders">{t("account.ordersTab")}</TabsTrigger>
           <TabsTrigger value="refunds">{t("account.refundsTab")}</TabsTrigger>
           <TabsTrigger value="support">{t("support.title")}</TabsTrigger>
+          <TabsTrigger value="chat">{t("liveChat.title")}</TabsTrigger>
         </TabsList>
         <TabsContent value="emails">
           <EmailsTab key={accountId} />
@@ -102,6 +104,7 @@ function AccountPage() {
           <RefundsTab key={accountId} />
         </TabsContent>
       <TabsContent value="support"><SupportTickets key={accountId} /></TabsContent>
+        <TabsContent value="chat"><OfficialChat key={accountId} /></TabsContent>
       </Tabs>
     </div>
   );

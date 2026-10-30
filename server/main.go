@@ -552,6 +552,7 @@ func main() {
 		// Account
 		api.GET("/ovh/account/info", handlers.GetAccountInfo(state))
 		api.GET("/ovh/account/refunds", handlers.GetAccountRefunds(state))
+		api.POST("/ovh/support/chat/session", handlers.OfficialChatSession(state))
 		api.GET("/ovh/support/options", handlers.GetSupportOptions(state))
 		api.GET("/ovh/support/services", handlers.GetSupportServices(state))
 		api.GET("/ovh/support/tickets", handlers.ListSupportTickets(state))

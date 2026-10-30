@@ -42,6 +42,14 @@ Pausing/deleting a purchase task blocks monitoring from recreating it for the sa
 
 Dedicated server and VPS renewal modes follow each service’s API capabilities, rather than a blanket account-region restriction. Eligible services can switch from automatic to manual renewal while keeping the current period. If capabilities cannot be read, the UI shows them as unknown and OVH validates the submitted change.
 
+## Official live chat
+
+Account → Live chat follows the global account selector and provides dedicated server and VPS support entries. Clicking the button pins the resolved account, reads its customer ID, requests a one-time token via `POST /auth/token`, and immediately opens the official OVH window. Switching accounts or leaving the tab cancels pending authentication and closes the old window. Credentials need `GET /me` and `POST /auth/token` access. Tokens are neither persisted nor cached.
+
+OVH restricts third-party iframe embedding, so this integration uses a separate window. The application UI supports Chinese and English; the official chat currently uses English. Agent availability depends on OVH’s response. Verify your customer identity in the official window. The Help Centre uses the browser’s own OVH website login, which can differ from the application’s selected account.
+
+Implementation references: [official authentication API](https://eu.api.ovh.com/1.0/auth.json), [official Manager chat component](https://github.com/ovh/manager/blob/master/packages/manager/apps/container/src/container/livechat/LiveChat.component.tsx). The official window integration may change. Development tests used mocked accounts and tokens. The public window loaded, but real-account authentication and agent connection have not been verified.
+
 ## Support tickets
 
 Account → Support tickets provides an account-scoped, paginated ticket list, conversations, creation, replies, closing and reopening. Filter by status or search subjects; conversations place support on the left and your messages on the right. Subjects, messages and reopening reasons include English writing guidance and examples. Text is submitted as written, without automatic translation. Choose the category (Assistance / Billing / Incident), product and optional subcategory. Dedicated server/VPS services can be selected from existing services or entered manually.
