@@ -40,6 +40,8 @@ Pausing/deleting a purchase task blocks monitoring from recreating it for the sa
 
 **Pausing monitoring also pauses matching queued purchase tasks** and cancels attempts that have not reached checkout. Matching uses the model, bound account, datacenters and selected options; an unbound subscription covers matching tasks across accounts. Stopping all monitoring pauses tasks matching any subscription. Resuming monitoring keeps purchase tasks paused until manually resumed in the queue. Orders already submitted to OVH must be handled in OVH Manager. Tasks deleted before this update have no new persistent stop record; review existing auto-order subscriptions when upgrading.
 
+Dedicated server and VPS renewal modes follow each service’s API capabilities, rather than a blanket account-region restriction. Eligible services can switch from automatic to manual renewal while keeping the current period. If capabilities cannot be read, the UI shows them as unknown and OVH validates the submitted change.
+
 ## Support tickets
 
 Account → Support tickets provides an account-scoped, paginated ticket list, conversations, creation, replies, closing and reopening. Filter by status or search subjects; conversations place support on the left and your messages on the right. Subjects, messages and reopening reasons include English writing guidance and examples. Text is submitted as written, without automatic translation. Choose the category (Assistance / Billing / Incident), product and optional subcategory. Dedicated server/VPS services can be selected from existing services or entered manually.

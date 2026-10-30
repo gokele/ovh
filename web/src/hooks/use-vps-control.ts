@@ -38,8 +38,10 @@ export interface VpsServiceInfo {
   renewalDeleteAtExpiration: boolean;
   renewalForced: boolean;
   renewalManualPayment: boolean;
-  /** US 区:OVH 已下线手动续费(Manager 源码实锤),前端禁用该选项 */
+  /** 仅由该服务的续费能力判断,不能按账户地区推断。 */
   renewalManualUnsupported?: boolean;
+  /** GET /services/{id} 的 billing.renew.capacities.mode;未取得时保持未知。 */
+  renewalModes?: string[];
   possibleRenewPeriod: number[];
   /** 终止状态权威来源(lifecycle.pendingActions);读不到时后端不下发 */
   terminationScheduled?: boolean;

@@ -12,6 +12,7 @@ import (
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/numconv"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -298,14 +299,32 @@ func (e *RenewDualError) Error() string {
 	return e.Attempts[len(e.Attempts)-1].Error
 }
 
-// putServiceRenew 修改单服务续费方式:
-// 路由 = 文档的两条等价端点:先老的 PUT .../{sn}/serviceInfos(载荷 = 文档的
-// service.RenewType 原样),被 400 拒时换新的 PUT /services/{serviceId} ——
-// 该路由 live 不认 renew.automatic(schema 第四处滞后),载荷按 live 契约去掉
-// automatic、保留 manualPayment(手动续费的正确表达)。
-// 两条都被拒 = OVH live 与其文档冲突,两级原始错误全部带回。
-// 非 400(权限/不存在/状态)直接冒泡,不换路由。
-func putServiceRenew(client *ovhsdk.Client, legacyPath string, serviceId *int64, next map[string]interface{}) error {
+// putServiceRenew 保留旧 serviceInfos 兼容路径;新 /services 接口使用 mode + ISO 8601 period。
+// 能力按具体服务判断;非载荷拒绝(权限、网络等)不换路由重试。
+func putServiceRenew(client *ovhsdk.Client, legacyPath string, serviceId *int64, next map[string]interface{}, periodSpecified bool) error {
+	mode := "automatic"
+	if manual, _ := next["manualPayment"].(bool); manual {
+		mode = "manual"
+	}
+	var billing *serviceBilling
+	if serviceId != nil {
+		// 新接口没有读取权限时仍可使用旧接口,不能把读取失败当成不支持。
+		billing, _ = readServiceBilling(client, *serviceId)
+		if billing != nil && billing.Billing.Renew != nil && billing.Billing.Renew.Capacities.Mode != nil {
+			allowed := false
+			for _, value := range billing.Billing.Renew.Capacities.Mode {
+				allowed = allowed || value == mode
+			}
+			if !allowed {
+				return &renewalValidationError{Code: "RENEWAL_MODE_UNAVAILABLE", Message: "OVH 当前未允许该服务使用所选续费方式"}
+			}
+		}
+	}
+	if !periodSpecified && billing != nil && billing.Billing.Renew != nil {
+		if months := renewalMonths(billing.Billing.Renew.Current.Period); months > 0 {
+			next["period"] = months
+		}
+	}
 	routes := []struct {
 		name string
 		path string
@@ -322,16 +341,19 @@ func putServiceRenew(client *ovhsdk.Client, legacyPath string, serviceId *int64,
 	for _, r := range routes {
 		payload := next
 		if r.name == "services" {
-			// 实测(US 独服 2026-10-12,OVH 按字母序逐键报 Unknown parameter):
-			// automatic ❌ → deleteAtExpiration ❌ → forced ❌,只剩
-			// {manualPayment, period} 未被拒 —— 新契约:manualPayment=false=自动/true=手动;
-			// 到期终止走独立 terminationPolicy,不在这个载荷里。
-			payload = make(map[string]interface{}, len(next))
-			for k, v := range next {
-				if k == "manualPayment" || k == "period" {
-					payload[k] = v
-				}
+			period := ""
+			if !periodSpecified && billing != nil && billing.Billing.Renew != nil {
+				period = billing.Billing.Renew.Current.Period
 			}
+			if months, ok := numconv.ToInt64(next["period"]); period == "" && ok && months > 0 {
+				period = fmt.Sprintf("P%dM", months)
+			} else if billing != nil && billing.Billing.Renew != nil {
+				period = billing.Billing.Renew.Current.Period
+			}
+			if period == "" {
+				return &renewalValidationError{Code: "RENEWAL_INVALID_REQUEST", Message: "无法确定续费周期,请重新选择后提交"}
+			}
+			payload = map[string]interface{}{"mode": mode, "period": period}
 		}
 		err := client.Put(r.path, map[string]interface{}{"renew": payload}, nil)
 		if err == nil {
@@ -357,6 +379,11 @@ func (e *ovhRouteErr) Error() string { return e.msg }
 // respondRenewError putServiceRenew 失败的统一出口:梯子全灭时把逐级组合与
 // 各级原始错误一并带回(前端提示仍用汇总文案),便于一次定位 OVH 校验的真实要求。
 func respondRenewError(c *gin.Context, state *app.State, svc string, err error) {
+	var invalid *renewalValidationError
+	if errors.As(err, &invalid) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": invalid.Message, "code": invalid.Code})
+		return
+	}
 	var dual *RenewDualError
 	if errors.As(err, &dual) {
 		state.Logger.Warn(fmt.Sprintf("renew 两条文档路由都被拒(%s): %+v", svc, dual.Attempts), "server_control")

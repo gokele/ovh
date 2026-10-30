@@ -146,6 +146,8 @@ export function RenewalDialog({
   };
 
   const busy = update.isPending || policyMut.isPending;
+  const chosenModeUnavailable = mode !== "delete" && info.renewalModes != null &&
+    !info.renewalModes.includes(mode === "auto" ? "automatic" : "manual");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -192,16 +194,17 @@ export function RenewalDialog({
             <div className="space-y-1.5">
               {MODE_OPTIONS.map((opt) => {
                 const selected = mode === opt.value;
-                // OVH 已下线 US 区手动续费(其 Manager 同样不提供)—— 禁用并说明,
-                // 不让用户点了才吃 400
-                const unsupported = opt.value === "manual" && !!(info as any).renewalManualUnsupported;
+                // 只使用具体服务的能力列表;旧版按地区生成的标记不代表 API 能力。
+                const unsupported = opt.value !== "delete" && info.renewalModes != null &&
+                  !info.renewalModes.includes(opt.value === "auto" ? "automatic" : "manual");
                 return (
                   <button
                     key={opt.value}
                     type="button"
-                    disabled={unsupported}
+                    aria-pressed={selected}
+                    disabled={unsupported || busy}
                     onClick={() => setMode(opt.value)}
-                    title={unsupported ? t("maint.renewal.manualUnsupported") : undefined}
+                    title={unsupported ? t("maint.renewal.mode.unavailable") : undefined}
                     className={[
                       "w-full text-left rounded-xl border px-3.5 py-2.5 transition-colors",
                       unsupported ? "opacity-50 cursor-not-allowed" : "",
@@ -227,18 +230,22 @@ export function RenewalDialog({
                       )}
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-1 ml-6">
-                      {unsupported ? t("maint.renewal.manualUnsupported") : t(opt.descKey)}
+                      {unsupported ? t("maint.renewal.mode.unavailable") : t(opt.descKey)}
                     </p>
                   </button>
                 );
               })}
             </div>
 
+            {info.renewalModes == null && (
+              <p className="text-xs leading-5 text-muted-foreground">{t("maint.renewal.capabilitiesUnknown")}</p>
+            )}
+
             {/* 续费周期(到期注销时隐藏) */}
             {mode !== "delete" && (
               <div className="pt-1">
                 <label className="text-[12px] font-semibold block mb-1.5">{t("maint.renewal.periodLabel")}</label>
-                <Select value={String(period)} onValueChange={(v) => setPeriod(Number(v))}>
+                <Select disabled={busy} value={String(period)} onValueChange={(v) => setPeriod(Number(v))}>
                   <SelectTrigger className="h-9">
                     <SelectValue />
                   </SelectTrigger>
@@ -279,7 +286,7 @@ export function RenewalDialog({
             <Button
               onClick={handleSubmit}
               disabled={
-                busy || (mode !== "delete" && mode === currentMode && period === info.renewalPeriod)
+                busy || chosenModeUnavailable || (mode !== "delete" && mode === currentMode && period === info.renewalPeriod)
               }
               variant={mode === "delete" ? "destructive" : "default"}
             >
