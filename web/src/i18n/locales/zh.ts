@@ -1,3 +1,4 @@
+import { supportZh, supportApiZh } from "./modules/support.zh";
 /**
  * 中文语言包(默认语言,文案的唯一事实来源 —— 英文包对照这里翻译)。
  * 按模块前缀组织;`api.*` 命名空间对应后端错误码(lib/api-error.ts),
@@ -69,9 +70,10 @@ export const zh = {
     toggle: "切换语言,当前{{name}}",
   },
   // 后端错误码 → 中文(由脚本生成,与 Go 端 message 默认值一致)
-  api: apiZh,
+  api: { ...apiZh, ...supportApiZh },
   ...snipePagesZh,
   ...settingsPagesZh,
+  ...supportZh,
   ...ctrlDialogsZh,
   ...watchPagesZh,
   ...maintDialogsZh,

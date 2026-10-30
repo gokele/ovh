@@ -24,6 +24,16 @@ export const queryClient = new QueryClient({
  * 每个资源域一个对象，按"列表 / 详情 / 子资源"分层。
  */
 export const qk = {
+  support: {
+    all: () => ["support"] as const,
+    list: (account: string, page: number, status: string, subject = "") =>
+      subject
+        ? ["support", "list", account, page, status, subject] as const
+        : ["support", "list", account, page, status] as const,
+    options: (account: string) => ["support", "options", account] as const,
+    services: (account: string, product: string) => ["support", "services", account, product] as const,
+    detail: (account: string, id: number) => ["support", "detail", account, id] as const,
+  },
   // 概览统计
   stats: () => ["stats"] as const,
 

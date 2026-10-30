@@ -40,6 +40,8 @@ yarn-error.log*
 pnpm-debug.log*
 
 # ---------- 二、本地脚本：不入库 ----------
+# 本地协作说明,保留在电脑上,不提交到 GitHub
+/CLAUDE.md
 # 打包/发布脚本是各人本机的活,不进仓库(仓库从 v0.0.1 起就是这个约定)
 build.sh
 build.ps1

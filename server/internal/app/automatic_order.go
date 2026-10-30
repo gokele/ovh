@@ -40,6 +40,17 @@ func (s *State) SetAutomaticOrderBlockedLocked(item types.QueueItem, blocked boo
 
 // checkAutomaticOrderLocked 将持久停止记录和旧版本暂停任务作为入队硬闸门。
 func (s *State) checkAutomaticOrderLocked(item types.QueueItem) error {
+	if err := s.SaveBlocked("monitor_subscriptions"); err != nil {
+		return err
+	}
+	if s.monitorManuallyStopped {
+		return fmt.Errorf("服务器监控已停止,禁止自动建单")
+	}
+	for _, scope := range s.pausedMonitorScopes {
+		if s.matchesMonitorScope(item, scope) {
+			return fmt.Errorf("对应的监控订阅已暂停,禁止自动创建抢购任务")
+		}
+	}
 	key := s.automaticOrderKey(item)
 	blocked := s.automaticOrderBlocks[key]
 	if s.DB == nil {
@@ -60,7 +71,7 @@ func (s *State) checkAutomaticOrderLocked(item types.QueueItem) error {
 		return fmt.Errorf("该账户/型号/机房已停止抢购,请手动恢复或新建任务后再自动下单")
 	}
 	for _, existing := range s.Queue {
-		if existing.Status == "paused" && s.automaticOrderKey(existing) == key {
+		if existing.Status == "paused" && s.automaticOrderKey(existing) == key && s.matchesMonitorScope(item, MonitorQueueScope{PlanCode: existing.PlanCode, Options: existing.Options}) {
 			return fmt.Errorf("该型号有已暂停的抢购任务,禁止监控重新建单")
 		}
 	}

@@ -47,6 +47,7 @@ var namespaces = []string{
 	"order",
 	"me",
 	"services",
+	"support",
 	"ip",
 }
 
@@ -105,6 +106,14 @@ var removedEndpoints = []string{
 }
 
 var usedEndpoints = []string{
+	"GET /support/tickets",
+	"POST /support/tickets/create",
+	"GET /support/tickets/{ticketId}",
+	"GET /support/tickets/{ticketId}/messages",
+	"POST /support/tickets/{ticketId}/reply",
+	"POST /support/tickets/{ticketId}/close",
+	"POST /support/tickets/{ticketId}/reopen",
+
 	"GET /me/order/{orderId}/paymentMethods",
 	"GET /me/order/{orderId}/availablePaymentMethod",
 	"GET /me/payment/method/{paymentMethodId}",

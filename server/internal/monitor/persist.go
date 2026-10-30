@@ -123,6 +123,19 @@ func (m *Monitor) LoadFromDB() {
 		knownSet[k] = struct{}{}
 	}
 	m.knownServers = knownSet
+	// 先恢复暂停闸门,再检查已入队任务;重启或代理配置重载都不会漏掉关联暂停。
+	m.publishPausedQueueScopesLocked()
+	var stopped bool
+	_, stopErr := m.state.DB.GetKV("monitor-manually-stopped", &stopped)
+	m.state.SetMonitorStopped(stopped || stopErr != nil)
+	scopes := m.queueScopesLocked(false)
+	if stopped || stopErr != nil {
+		scopes = m.queueScopesLocked(true)
+	}
+	if _, err := m.state.PauseMonitorQueues(scopes); err != nil {
+		m.state.Logger.Error("恢复关联抢购暂停状态失败: "+err.Error(), "monitor")
+	}
+
 	// 检查间隔从 kv 恢复;没存过或超出合法区间时夹回默认 5 秒
 	interval := MinCheckInterval
 	var saved int

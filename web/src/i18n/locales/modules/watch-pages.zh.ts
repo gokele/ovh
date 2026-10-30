@@ -14,7 +14,7 @@ export const watchPagesZh = {
     swimTitle: "今日机房时间线",
     heatTitle: "库存变化热力 7×24",
     title: "服务器监控",
-    description: "自动监控服务器可用性变化并推送通知。暂停监控后,已入队的抢购任务仍会执行,请到抢购队列单独暂停。",
+    description: "自动监控服务器可用性变化并推送通知。暂停监控会同时暂停关联抢购任务；恢复监控后,抢购任务需手动恢复。",
     addAction: "添加订阅",
     clearAll: "清空全部",
     status: {
@@ -61,7 +61,7 @@ export const watchPagesZh = {
       manualPayTitle: "只下单,需自己付款",
       autoNoAccount: "已勾自动下单但未选账户(只通知)",
       historyAria: "查看历史",
-      pauseAria: "暂停此订阅",
+      pauseAria: "暂停此订阅及关联抢购任务",
       resumeAria: "恢复此订阅",
       paused: "已暂停",
       editAria: "编辑订阅",

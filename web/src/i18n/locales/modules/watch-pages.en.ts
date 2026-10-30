@@ -17,7 +17,7 @@ const pack: WatchPagesPack = {
     swimTitle: "Today by datacenter",
     heatTitle: "Stock-change heat 7×24",
     title: "Server Monitor",
-    description: "Watch availability and receive alerts. Pausing monitoring keeps queued purchase tasks running; pause those separately in the purchase queue.",
+    description: "Watch availability and receive alerts. Pausing monitoring also pauses matching purchase tasks; resume those manually in the queue.",
     addAction: "Add subscription",
     clearAll: "Clear all",
     status: {
@@ -64,7 +64,7 @@ const pack: WatchPagesPack = {
       manualPayTitle: "Order only; you pay yourself",
       autoNoAccount: "Auto-order checked but no account selected (notify only)",
       historyAria: "View history",
-      pauseAria: "Pause this subscription",
+      pauseAria: "Pause this subscription and matching purchase tasks",
       resumeAria: "Resume this subscription",
       paused: "Paused",
       editAria: "Edit subscription",

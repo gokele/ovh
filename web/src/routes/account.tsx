@@ -1,3 +1,4 @@
+import { SupportTickets } from "@/components/support/SupportTickets";
 import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { createFileRoute } from "@tanstack/react-router";
@@ -84,10 +85,11 @@ function AccountPage() {
       </div>
 
       <Tabs defaultValue="emails">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="emails">{t("account.emailsTab")}</TabsTrigger>
           <TabsTrigger value="orders">{t("account.ordersTab")}</TabsTrigger>
           <TabsTrigger value="refunds">{t("account.refundsTab")}</TabsTrigger>
+          <TabsTrigger value="support">{t("support.title")}</TabsTrigger>
         </TabsList>
         <TabsContent value="emails">
           <EmailsTab />
@@ -98,6 +100,7 @@ function AccountPage() {
         <TabsContent value="refunds">
           <RefundsTab />
         </TabsContent>
+      <TabsContent value="support"><SupportTickets /></TabsContent>
       </Tabs>
     </div>
   );

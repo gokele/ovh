@@ -1,0 +1,170 @@
+import type { SupportPack, supportApiZh } from "./support.zh";
+export const supportEn: SupportPack = {
+  support: {
+    reopenPlaceholder: "The issue is still occurring because…",
+    bodyPlaceholder:
+      "Hello,\nI am experiencing [issue] on [service name].\nIt started at [date and time, timezone].\nI have tried [steps], but the issue persists.\nCould you please investigate?",
+    englishHint:
+      "Please write in English. Your text is sent to OVH as written, without automatic translation.",
+    allTickets: "All tickets",
+    searchTickets: "Search ticket subjects",
+    ticketColumn: "Ticket",
+    relatedService: "Related service",
+    updated: "Last updated",
+    product: "Product",
+    ticketInfo: "Ticket details",
+    serviceSuggestions: "Service suggestions",
+    serviceChoose: "Search or enter a service name",
+    searchService: "Search services or enter a name…",
+    noService: "No linked service",
+    useService: "Use “{{name}}”",
+    loadingServices: "Loading services…",
+    serviceSection: "Product and service",
+    moreClassification: "Add a subcategory (optional)",
+    descriptionSection: "Describe the issue",
+    subjectPlaceholder: "e.g. Unable to connect to my dedicated server",
+    replyPlaceholder:
+      "Thank you for your reply. Here are the additional details…",
+    closedHint:
+      "This ticket is closed. You can reopen it with a reason if you still need help.",
+    categoryHints: {
+      assistance: "Product setup and usage",
+      billing: "Bills, payments and renewals",
+      incident: "Service outage or disruption",
+    },
+    title: "Support tickets",
+    newTicket: "New ticket",
+    createHint:
+      "Choose a category and product, then describe your issue for OVH support.",
+    listHint: "Support tickets and conversations for the current OVH account",
+    choose: "Choose an option",
+    unspecified: "All / Not specified",
+    loading: "Loading tickets…",
+    account: "OVH account",
+    category: "Category",
+    categoryRequired: "Category *",
+    productRequired: "Product *",
+    subcategory: "Subcategory (optional)",
+    service: "Service (optional)",
+    servicePlaceholder: "Choose an existing service or enter its name",
+    servicesFailed:
+      "Could not load services. You can still enter a service name.",
+    subjectRequired: "Subject *",
+    bodyRequired: "Issue details *",
+    plainText:
+      "Paragraphs and line breaks are supported. Add attachments through the OVH Help Centre.",
+    sending: "Submitting…",
+    submit: "Submit ticket",
+    created: "Ticket #{{number}} created",
+    view: "View ticket",
+    status: "Status",
+    messages: "Conversation",
+    noMessages: "No messages yet",
+    detailHint: "View the conversation and ticket status",
+    detailUnavailable: "Details unavailable; open to retry",
+    ticketNumber: "Ticket #{{number}}",
+    reply: "Reply",
+    replyBody: "Your reply",
+    closeTicket: "Close ticket",
+    closeConfirm: "Close this ticket? Reply instead if you still need support.",
+    reopen: "Reopen ticket",
+    reopenReason: "Reason for reopening",
+    unknownState: "Status unknown. Refresh or check the OVH Help Centre.",
+    actionSubmitted: "Request submitted. Check the refreshed ticket status.",
+    helpCenter: "OVH Help Centre / Attachments",
+    empty: "No tickets",
+    emptyHint:
+      "No tickets match this filter. Change the filter or create a ticket.",
+    previous: "Previous",
+    next: "Next",
+    page: "Page {{page}}",
+    categories: {
+      assistance: "Assistance",
+      billing: "Billing",
+      incident: "Incident",
+    },
+    statuses: {
+      open: "Open",
+      closed: "Closed",
+      unknown: "Unknown",
+    },
+    senders: {
+      customer: "You",
+      support: "OVH support",
+    },
+    actions: {
+      reply: "Send reply",
+      close: "Confirm close",
+      reopen: "Submit and reopen",
+    },
+    subcategories: {
+      alerts: "Alerts",
+      autorenew: "Auto-renewal",
+      bill: "Bill",
+      down: "Service unavailable",
+      inProgress: "In progress",
+      new: "New request",
+      other: "Other",
+      perfs: "Performance",
+      start: "Provisioning / Startup",
+      usage: "Usage",
+    },
+    products: {
+      dedicated: "Dedicated server",
+      vps: "VPS",
+      "dedicated-billing": "Dedicated billing",
+      "dedicated-other": "Other dedicated services",
+      publiccloud: "Public Cloud",
+      network: "Network",
+      domain: "Domain",
+      hosting: "Web hosting",
+      storage: "Storage",
+      dedicatedcloud: "Hosted Private Cloud",
+      iaas: "IaaS",
+      cdn: "CDN",
+      exchange: "Exchange",
+      mail: "Email",
+      ssl: "SSL",
+      vac: "DDoS protection / VAC",
+      housing: "Colocation",
+      adsl: "ADSL",
+      fax: "Fax",
+      sms: "SMS",
+      voip: "VoIP",
+      "telecom-billing": "Telecom billing",
+      "telecom-other": "Other telecom services",
+      "web-billing": "Web billing",
+      "web-other": "Other web services",
+    },
+  },
+};
+
+// 工单错误码独立维护,不写入会被生成脚本覆盖的通用映射。
+export const supportApiEn: typeof supportApiZh = {
+  SUPPORT_ACCOUNT_NOT_FOUND:
+    "OVH account not found. Select another account or add one in Settings.",
+  SUPPORT_ACCOUNT_UNAVAILABLE:
+    "This OVH account is unavailable. Check its credentials and region in Settings.",
+  SUPPORT_PRODUCT_INVALID: "Choose a valid product.",
+  SUPPORT_PAGE_INVALID: "Invalid ticket page number.",
+  SUPPORT_STATUS_INVALID: "Invalid ticket status.",
+  SUPPORT_SEARCH_TOO_LONG:
+    "The ticket subject search cannot exceed 255 characters.",
+  SUPPORT_TICKET_ID_INVALID: "Invalid internal ticket ID.",
+  SUPPORT_DETAIL_INVALID:
+    "OVH returned ticket details with a missing or incorrect internal ID. Refresh and check the ticket.",
+  SUPPORT_PAYLOAD_INVALID:
+    "The ticket request is malformed or too large. Check the input and retry.",
+  SUPPORT_FIELDS_INVALID:
+    "Enter a subject and message, and select a valid category, product and subcategory.",
+  SUPPORT_CREATE_UNCONFIRMED:
+    "OVH returned a result without a valid ticket ID. Refresh the ticket list and check before submitting again.",
+  SUPPORT_ACTION_INVALID: "Invalid ticket action.",
+  SUPPORT_BODY_REQUIRED: "Enter a reply or a reason for reopening the ticket.",
+  SUPPORT_STATE_CONFLICT:
+    "The ticket status has changed or this action is unavailable. Refresh and retry.",
+  SUPPORT_REQUEST_FAILED:
+    "The OVH ticket request failed. Check the account permissions and ticket status. Details: {{detail}}",
+  SUPPORT_SUBMISSION_UNCONFIRMED:
+    "The submission result is unconfirmed. Refresh the tickets or check the OVH Help Centre before sending again. Details: {{detail}}",
+};

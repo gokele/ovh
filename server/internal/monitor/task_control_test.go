@@ -23,10 +23,10 @@ func TestPauseAndEditInvalidateInFlightCheck(t *testing.T) {
 		t.Fatal("fresh check rejected")
 	}
 	key := "ram-32g"
-	if !m.SetPaused("plan", &key, true) || m.checkCurrent(sub, cfg) {
+	if _, err := m.SetPaused("plan", &key, true); err != nil || m.checkCurrent(sub, cfg) {
 		t.Fatal("pause did not stop old check")
 	}
-	if !m.SetPaused("plan", &key, false) || m.checkCurrent(sub, cfg) {
+	if _, err := m.SetPaused("plan", &key, false); err != nil || m.checkCurrent(sub, cfg) {
 		t.Fatal("resume revived an old check")
 	}
 	cfg = sub.checkConfig()

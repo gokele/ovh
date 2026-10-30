@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -239,12 +240,13 @@ func PauseSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 			return
 		}
 		paused := *body.Paused
-		if !mon.SetPaused(planCode, body.OptionsKey, paused) {
+		pausedTasks, pauseErr := mon.SetPaused(planCode, body.OptionsKey, paused)
+		if errors.Is(pauseErr, monitor.ErrSubscriptionNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "订阅不存在", "code": "E5B2D91A4"})
 			return
 		}
-		if err := mon.SaveToDB(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "本次运行状态已改变，但未能保存到数据库: " + err.Error()})
+		if err := errors.Join(pauseErr, mon.SaveToDB()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "pausedTasks": pausedTasks, "message": "本次运行中已停止监控及关联抢购尝试,但未能完整保存到数据库: " + err.Error()})
 			return
 		}
 		key := ""
@@ -252,7 +254,7 @@ func PauseSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 			key = *body.OptionsKey
 		}
 		state.Logger.Info(fmt.Sprintf("订阅 %s(%s) 已%s监控", planCode, key, map[bool]string{true: "暂停", false: "恢复"}[paused]), "monitor")
-		c.JSON(http.StatusOK, gin.H{"status": "success", "paused": paused})
+		c.JSON(http.StatusOK, gin.H{"status": "success", "paused": paused, "pausedTasks": pausedTasks})
 	}
 }
 
@@ -337,16 +339,16 @@ func VerifyTelegram(state *app.State) gin.HandlerFunc {
 // StopMonitor POST /api/monitor/stop
 func StopMonitor(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		stopped, err := mon.StopByUser()
+		stopped, pausedTasks, err := mon.StopByUser()
 		if err != nil {
-			c.JSON(500, gin.H{"error": "监控已停止,但重启后可能恢复,保存停止状态失败: " + err.Error()})
+			c.JSON(500, gin.H{"pausedTasks": pausedTasks, "error": "监控及关联抢购已停止,但未能完整保存停止状态: " + err.Error()})
 			return
 		}
 		if stopped {
 			state.Logger.Info("用户停止服务器监控", "")
-			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "监控已停止", "code": "E2B37887D"})
+			c.JSON(http.StatusOK, gin.H{"status": "success", "pausedTasks": pausedTasks, "message": "监控及关联抢购任务已暂停", "code": "E2B37887D"})
 		} else {
-			c.JSON(http.StatusOK, gin.H{"status": "info", "message": "监控未运行", "code": "EE2744033"})
+			c.JSON(http.StatusOK, gin.H{"status": "info", "pausedTasks": pausedTasks, "message": "监控未运行,关联抢购任务已暂停", "code": "EE2744033"})
 		}
 	}
 }

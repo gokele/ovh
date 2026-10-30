@@ -34,7 +34,13 @@ Monitoring shows the latest saved out-of-stock to in-stock transition for each s
 
 Pausing/deleting a purchase task blocks monitoring from recreating it for the same account, model and datacenter, including after restart. Explicitly resuming or creating a new manual task clears that block. A manually stopped monitor also stays stopped after restart.
 
-Monitoring and the purchase queue have independent lifecycles: **pausing monitoring does not cancel tasks already queued**. Pause/delete those in the purchase queue. Orders already submitted to OVH must be handled in OVH Manager. Tasks deleted before this update have no new persistent stop record; review existing auto-order subscriptions when upgrading.
+**Pausing monitoring also pauses matching queued purchase tasks** and cancels attempts that have not reached checkout. Matching uses the model, bound account, datacenters and selected options; an unbound subscription covers matching tasks across accounts. Stopping all monitoring pauses tasks matching any subscription. Resuming monitoring keeps purchase tasks paused until manually resumed in the queue. Orders already submitted to OVH must be handled in OVH Manager. Tasks deleted before this update have no new persistent stop record; review existing auto-order subscriptions when upgrading.
+
+## Support tickets
+
+Account → Support tickets provides an account-scoped, paginated ticket list, conversations, creation, replies, closing and reopening. Filter by status or search subjects; conversations place support on the left and your messages on the right. Subjects, messages and reopening reasons include English writing guidance and examples. Text is submitted as written, without automatic translation. Choose the category (Assistance / Billing / Incident), product and optional subcategory. Dedicated server/VPS services can be selected from existing services or entered manually.
+
+The editor preserves plain-text paragraphs and line breaks. Add attachments through the OVH Help Centre. Closing requires explicit confirmation and a fresh eligibility check; reopening requires a reason. Creation and replies never retry automatically. Check the list or Help Centre if a result is uncertain. Credentials need the applicable `GET /support/*`, `POST /support/*` and service-list read permissions.
 
 ## Tech Stack
 

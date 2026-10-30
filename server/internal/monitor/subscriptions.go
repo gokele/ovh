@@ -3,6 +3,7 @@ package monitor
 import (
 	"errors"
 	"fmt"
+	"github.com/ovh-buy/server/internal/app"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
+	defer m.publishPausedQueueScopesLocked()
 
 	for _, s := range m.subscriptions {
 		// 同 planCode 的不同配置(options)是**不同的订阅** —— 用户抢同型号不同内存
@@ -138,6 +140,7 @@ func (m *Monitor) UpdateSubscriptionFields(planCode string, originalKey *string,
 	autoOrder bool, quantity int, autoOrderAccountID string, autoPay bool, options []string) error {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
+	defer m.publishPausedQueueScopesLocked()
 	for _, s := range m.subscriptions {
 		if s.PlanCode != planCode || (originalKey != nil && OptionsKey(s.Options) != *originalKey) {
 			continue
@@ -169,21 +172,45 @@ func (m *Monitor) UpdateSubscriptionFields(planCode string, originalKey *string,
 	return ErrSubscriptionNotFound
 }
 
-// SetPaused 设置暂停/恢复。nil 定位第一条;指向空串则精确定位全部配置订阅。
-// 返回 false = 没找到。
-func (m *Monitor) SetPaused(planCode string, optionsKey *string, paused bool) bool {
-	m.subsMu.Lock()
-	defer m.subsMu.Unlock()
-	for _, s := range m.subscriptions {
-		if s.PlanCode == planCode && (optionsKey == nil || OptionsKey(s.Options) == *optionsKey) {
-			s.mu.Lock()
-			s.revision++
-			s.Paused = paused
-			s.mu.Unlock()
-			return true
+// queueScopesLocked 生成独立快照,调用方持有 subsMu;all=false 仅取暂停订阅。
+func (m *Monitor) queueScopesLocked(all bool) []app.MonitorQueueScope {
+	scopes := []app.MonitorQueueScope{}
+	for _, sub := range m.subscriptions {
+		cfg := sub.checkConfig()
+		if all || cfg.Paused {
+			scopes = append(scopes, app.MonitorQueueScope{PlanCode: sub.PlanCode, AccountID: cfg.AutoOrderAccountID, Datacenters: cfg.Datacenters, Options: cfg.Options})
 		}
 	}
-	return false
+	return scopes
+}
+
+// publishPausedQueueScopesLocked 使迟到的本地 quick-order 在入队处也能看到暂停。
+func (m *Monitor) publishPausedQueueScopesLocked() {
+	m.state.SetPausedMonitorScopes(m.queueScopesLocked(false))
+}
+
+// SetPaused 暂停时联动关联队列;恢复只恢复监控,不自动继续扣款任务。
+// nil 定位第一条;指向空串则精确定位全部配置订阅。
+func (m *Monitor) SetPaused(planCode string, optionsKey *string, paused bool) (int, error) {
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+	for _, sub := range m.subscriptions {
+		if sub.PlanCode != planCode || (optionsKey != nil && OptionsKey(sub.Options) != *optionsKey) {
+			continue
+		}
+		sub.mu.Lock()
+		sub.revision++
+		sub.Paused = paused
+		sub.mu.Unlock()
+		// 先封住新自动任务,再暂停队列;封闸前已经入队的任务也会被下面覆盖。
+		m.publishPausedQueueScopesLocked()
+		if !paused {
+			return 0, nil
+		}
+		cfg := sub.checkConfig()
+		return m.state.PauseMonitorQueues([]app.MonitorQueueScope{{PlanCode: planCode, AccountID: cfg.AutoOrderAccountID, Datacenters: cfg.Datacenters, Options: cfg.Options}})
+	}
+	return 0, ErrSubscriptionNotFound
 }
 
 // RemoveSubscriptionExact 按 planCode+配置组合精确删除(卡片级删除);
@@ -191,6 +218,7 @@ func (m *Monitor) SetPaused(planCode string, optionsKey *string, paused bool) bo
 func (m *Monitor) RemoveSubscriptionExact(planCode, optionsKey string) bool {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
+	defer m.publishPausedQueueScopesLocked()
 	original := len(m.subscriptions)
 	kept := make([]*Subscription, 0, len(m.subscriptions))
 	removed := false
@@ -211,6 +239,7 @@ func (m *Monitor) RemoveSubscriptionExact(planCode, optionsKey string) bool {
 func (m *Monitor) RemoveSubscription(planCode string) bool {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
+	defer m.publishPausedQueueScopesLocked()
 	original := len(m.subscriptions)
 	kept := make([]*Subscription, 0, len(m.subscriptions))
 	for _, s := range m.subscriptions {
@@ -229,6 +258,7 @@ func (m *Monitor) RemoveSubscription(planCode string) bool {
 func (m *Monitor) ClearSubscriptions() int {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
+	defer m.publishPausedQueueScopesLocked()
 	count := len(m.subscriptions)
 	m.subscriptions = []*Subscription{}
 	m.state.Logger.Info(fmt.Sprintf("清空所有订阅 (%d 项)", count), "monitor")

@@ -70,6 +70,8 @@ export const commonLayerZh = {
       },
     },
     monitor: {
+      pausedWithQueue: "监控已暂停,同时暂停 {{count}} 个关联抢购任务",
+      resumedOnly: "监控已恢复；已暂停的抢购任务需到队列手动恢复",
       saved: "订阅已保存",
       saveFailed: "保存失败",
       updated: "订阅已更新",

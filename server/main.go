@@ -552,6 +552,12 @@ func main() {
 		// Account
 		api.GET("/ovh/account/info", handlers.GetAccountInfo(state))
 		api.GET("/ovh/account/refunds", handlers.GetAccountRefunds(state))
+		api.GET("/ovh/support/options", handlers.GetSupportOptions(state))
+		api.GET("/ovh/support/services", handlers.GetSupportServices(state))
+		api.GET("/ovh/support/tickets", handlers.ListSupportTickets(state))
+		api.POST("/ovh/support/tickets", handlers.CreateSupportTicket(state))
+		api.GET("/ovh/support/tickets/:ticket_id", handlers.GetSupportTicket(state))
+		api.POST("/ovh/support/tickets/:ticket_id", handlers.UpdateSupportTicket(state))
 		api.GET("/ovh/account/orders", handlers.GetAccountOrders(state))
 		api.GET("/ovh/account/orders/:order_id/payment", handlers.GetOrderPaymentOptions(state))
 		api.POST("/ovh/account/orders/:order_id/pay", handlers.PayAccountOrder(state))

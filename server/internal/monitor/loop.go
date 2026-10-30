@@ -3,6 +3,7 @@ package monitor
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -220,6 +221,7 @@ func (m *Monitor) Start() bool {
 			return false
 		}
 	}
+	m.state.SetMonitorStopped(false)
 	if m.running {
 		m.subsMu.Unlock()
 		m.state.Logger.Warn("监控已在运行中", "monitor")
@@ -251,14 +253,17 @@ func (m *Monitor) Stop() bool {
 }
 
 // StopByUser 将停止意图与循环停止串行化,避免并发启动覆盖持久状态。
-func (m *Monitor) StopByUser() (bool, error) {
+func (m *Monitor) StopByUser() (bool, int, error) {
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
+	m.state.SetMonitorStopped(true)
+	stopped := m.stopLocked()
+	count, pauseErr := m.state.PauseMonitorQueues(m.queueScopesLocked(true))
 	if m.state.DB == nil {
-		return m.stopLocked(), fmt.Errorf("数据库不可用,不能保存停止状态")
+		return stopped, count, errors.Join(pauseErr, fmt.Errorf("数据库不可用,不能保存停止状态"))
 	}
 	err := m.state.DB.SetKV("monitor-manually-stopped", true)
-	return m.stopLocked(), err
+	return stopped, count, errors.Join(pauseErr, err)
 }
 
 // stopLocked 使循环和已取出的所有检查快照同时失效。

@@ -1,3 +1,4 @@
+import { supportEn, supportApiEn } from "./modules/support.en";
 /**
  * English language pack. zh.ts is the source of truth — every key here must
  * mirror it (tsc enforces the shape via LangPack below). OVH terminology
@@ -74,9 +75,10 @@ const pack: LangPack = {
     toggle: "Switch language, currently {{name}}",
   },
   // Backend error codes → English (mirrors api.* keys in zh.ts)
-  api: apiEn as unknown as typeof apiZh,
+  api: { ...(apiEn as unknown as typeof apiZh), ...supportApiEn },
   ...snipePagesEn,
   ...settingsPagesEn,
+  ...supportEn,
   ...ctrlDialogsEn,
   ...watchPagesEn,
   ...maintDialogsEn,

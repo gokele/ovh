@@ -141,7 +141,7 @@ export function useUpdateMonitorSubscription() {
 /** 创建新订阅（对外更语义化的别名） */
 export const useCreateMonitorSubscription = useUpsertMonitorSubscription;
 
-/** 移除订阅 */
+/** 暂停订阅及关联队列,恢复监控时不自动恢复队列。 */
 export function usePauseMonitorSubscription() {
   const qc = useQueryClient();
   return useMutation({
@@ -152,9 +152,14 @@ export function usePauseMonitorSubscription() {
           paused: v.paused,
         })
       ).data,
-    onSuccess: () => {
+    onSuccess: (data: { paused?: boolean; pausedTasks?: number }) => {
+      if (data.paused) toast.success(i18n.t("hooksMsg.monitor.pausedWithQueue", { count: data.pausedTasks || 0 }));
+      else toast.success(i18n.t("hooksMsg.monitor.resumedOnly"));
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: qk.monitor.list() });
       qc.invalidateQueries({ queryKey: qk.monitor.status() });
+      qc.invalidateQueries({ queryKey: qk.queue.list() });
     },
     onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.monitor.updateFailed")),
   });

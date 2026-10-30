@@ -76,6 +76,8 @@ const pack: CommonLayerPack = {
       },
     },
     monitor: {
+      pausedWithQueue: "Monitoring paused; {{count}} matching purchase tasks paused",
+      resumedOnly: "Monitoring resumed. Resume paused purchase tasks manually in the queue.",
       saved: "Subscription saved",
       saveFailed: "Failed to save",
       updated: "Subscription updated",

@@ -355,3 +355,208 @@ test("monitor displays saved last restock time and a truthful empty state", () =
     } finally { client.clear(); }
   }
 });
+
+// 关联暂停改变了队列;保存失败也必须刷新真实内存状态,不能保留仍在抢购的旧显示。
+test("monitor pause refreshes queue and monitoring after success or persistence failure", async () => {
+  const { usePauseMonitorSubscription } = await server.ssrLoadModule("/src/hooks/use-monitor.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const original = api.defaults.adapter;
+  for (const fail of [false, true]) {
+    const client = new QueryClient();
+    const keys = [["monitor", "list"], ["monitor", "status"], ["queue", "list"]];
+    keys.forEach((key) => client.setQueryData(key, []));
+    api.defaults.adapter = async (config) => {
+      if (fail) throw new Error("pause persistence failure");
+      return { data: { paused: true, pausedTasks: 2 }, status: 200, statusText: "OK", headers: {}, config };
+    };
+    let pause;
+    function Probe() { pause = usePauseMonitorSubscription(); return null; }
+    try {
+      renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+      const pending = pause.mutateAsync({ planCode: "plan", optionsKey: "", paused: true });
+      if (fail) await assert.rejects(pending, /persistence/); else await pending;
+      for (const key of keys) assert.equal(client.getQueryState(key).isInvalidated, true);
+    } finally { api.defaults.adapter = original; client.clear(); }
+  }
+});
+
+// 新增标签页采用当前账户的工单列表,页面挂载不能发出真实工单操作。
+test("support list renders account-scoped tickets without submitting", async () => {
+  const { SupportTickets } = await server.ssrLoadModule("/src/components/support/SupportTickets.tsx");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const client = new QueryClient();
+  client.setQueryData(["support", "list", "", 0, ""], { accountId: "eu", accountName: "EU fixture", items: [{ ticketId: 123, ticketNumber: 987654, subject: "Disk issue", state: "open", category: "incident", product: "dedicated" }], page: 0, hasMore: false, failedCount: 0 });
+  const original = api.defaults.adapter;
+  let calls = 0;
+  api.defaults.adapter = async () => { calls++; throw new Error("unexpected request"); };
+  try {
+    const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(SupportTickets)));
+    assert.match(html, /客服工单|Support tickets/);
+    assert.match(html, /新建工单|New ticket/);
+    assert.match(html, /987654/);
+    assert.match(html, /Disk issue/);
+    assert.equal(calls, 0);
+  } finally { api.defaults.adapter = original; client.clear(); }
+});
+
+// 类别、产品、子类别和服务名称均传给后端,操作账户在窗口打开时即固定。
+test("support mutations preserve selected classifications and the pinned account", async () => {
+  const { useCreateSupportTicket, useSupportAction } = await server.ssrLoadModule("/src/hooks/use-support.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const client = new QueryClient();
+  const original = api.defaults.adapter;
+  const calls = [];
+  api.defaults.adapter = async (config) => { calls.push(config); return { data: { accountId: "eu", result: { ticketId: 123, ticketNumber: 987654 } }, status: 200, statusText: "OK", headers: {}, config }; };
+  let create, action;
+  function Probe() { create = useCreateSupportTicket("eu"); action = useSupportAction("eu", 123); return null; }
+  try {
+    renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    await create.mutateAsync({ subject: "Disk issue", body: "Line 1\n\nLine 2", category: "incident", product: "dedicated", subcategory: "down", serviceName: "ns-fixture" });
+    const body = JSON.parse(calls[0].data);
+    assert.equal(body.category, "incident");
+    assert.equal(body.product, "dedicated");
+    assert.equal(body.subcategory, "down");
+    assert.equal(body.serviceName, "ns-fixture");
+    assert.equal(body.body, "Line 1\n\nLine 2");
+    await action.mutateAsync({ action: "reply", body: "Follow-up" });
+    await action.mutateAsync({ action: "close" });
+    await action.mutateAsync({ action: "reopen", body: "Still unresolved" });
+    for (const call of calls) assert.equal(call.params.account, "eu");
+    assert.deepEqual(calls.slice(1).map((call) => call.url), Array(3).fill("/ovh/support/tickets/123"));
+    assert.equal(calls.length, 4);
+  } finally { api.defaults.adapter = original; client.clear(); }
+});
+
+// 真实对外通信失败时不自动重试,避免重复创建或回复。
+test("support create and reply do not retry ambiguous errors", async () => {
+  const { useCreateSupportTicket, useSupportAction } = await server.ssrLoadModule("/src/hooks/use-support.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: 3 } } });
+  const original = api.defaults.adapter;
+  let calls = 0, create, action;
+  api.defaults.adapter = async () => { calls++; throw new Error("unknown outcome"); };
+  function Probe() { create = useCreateSupportTicket("eu"); action = useSupportAction("eu", 123); return null; }
+  try {
+    renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    await assert.rejects(create.mutateAsync({ subject: "x", body: "x", category: "assistance", product: "vps" }), /unknown/);
+    assert.equal(calls, 1);
+    await assert.rejects(action.mutateAsync({ action: "reply", body: "x" }), /unknown/);
+    assert.equal(calls, 2);
+  } finally { api.defaults.adapter = original; client.clear(); }
+});
+
+// 显式空账户代表默认账户,不能在请求拦截时被后来的全局账户切换覆盖。
+test("explicit default account remains pinned when another account is active", async () => {
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const original = api.defaults.adapter;
+  const previousWindow = globalThis.window;
+  const accounts = [];
+  globalThis.window = { localStorage: { getItem: (key) => key === "ovh_active_server_control_account_id" ? "us" : null } };
+  api.defaults.adapter = async (config) => { accounts.push(config.params.account); return { data: {}, status: 200, statusText: "OK", headers: {}, config }; };
+  try {
+    await api.get("/ovh/support/tickets", { params: { account: "" } });
+    await api.get("/ovh/support/tickets", { params: { account: "eu" } });
+    await api.get("/ovh/support/tickets");
+    assert.deepEqual(accounts, ["", "eu", "us"]);
+  } finally { api.defaults.adapter = original; if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow; }
+});
+
+// 搜索、账户和页码均进入查询键,不同筛选不能复用旧列表缓存。
+test("support subject search keeps filter and account scope before pagination", async () => {
+  const { useSupportTickets } = await server.ssrLoadModule("/src/hooks/use-support.ts");
+  const { qk } = await server.ssrLoadModule("/src/lib/query.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const client = new QueryClient();
+  const original = api.defaults.adapter;
+  const calls = [];
+  api.defaults.adapter = async (config) => { calls.push(config); return { data: { accountId: "us", items: [] }, status: 200, statusText: "OK", headers: {}, config }; };
+  let list;
+  function Probe() { list = useSupportTickets("us", 2, "open", "Disk issue"); return null; }
+  try {
+    renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    await list.refetch();
+    assert.deepEqual(calls[0].params, { account: "us", page: 2, status: "open", subject: "Disk issue" });
+    assert.notDeepEqual(qk.support.list("us", 2, "open", "Disk issue"), qk.support.list("us", 2, "open", "Other issue"));
+    assert.notDeepEqual(qk.support.list("eu", 2, "open", "Disk issue"), qk.support.list("us", 2, "open", "Disk issue"));
+  } finally { api.defaults.adapter = original; client.clear(); }
+});
+
+// 聊天正文保持原文和换行,上游消息中的 HTML 只能作为文字显示。
+test("support conversation keeps plain text for both senders", async () => {
+  const { TicketMessage } = await server.ssrLoadModule("/src/components/support/TicketMessage.tsx");
+  for (const from of ["support", "customer"]) {
+    const html = renderToStaticMarkup(createElement(TicketMessage, { message: { messageId: 1, from, creationDate: "2026-10-30T01:00:00Z", body: "Please investigate.\n<script>alert('x')</script>" } }));
+    assert.match(html, /Please investigate\.\n/);
+    assert.match(html, /&lt;script&gt;/);
+    assert.doesNotMatch(html, /<script>/);
+    assert.match(html, from === "customer" ? /我方|You/ : /OVH 支持团队|OVH support/);
+  }
+});
+
+// 覆盖所有支持的语言、工单静态文案、官方枚举和后端错误码,防止新增提示漏接。
+test("support translations cover every app language and backend error code", async () => {
+  const { readFile, readdir } = await import("node:fs/promises");
+  const { default: i18n, SUPPORTED_LANGUAGES } = await server.ssrLoadModule("/src/i18n/index.ts");
+  const go = await readFile(new URL("../../server/internal/handlers/support.go", import.meta.url), "utf8");
+  const keys = new Set([...go.matchAll(/"(SUPPORT_\w+)"/g)].map((m) => `api.${m[1]}`));
+  const components = new URL("../src/components/support/", import.meta.url);
+  for (const file of await readdir(components)) {
+    const source = await readFile(new URL(file, components), "utf8");
+    for (const match of source.matchAll(/\bt\(\s*"((?:support|common)\.[^"]+)"/g)) keys.add(match[1]);
+  }
+  for (const [name, group] of [["supportCategories", "categories"], ["supportProducts", "products"], ["supportSubcategories", "subcategories"]]) {
+    const choices = go.match(new RegExp(`var ${name} = \\[\\]string\\{([^}]+)\\}`))[1];
+    for (const value of choices.matchAll(/"([^"]+)"/g)) keys.add(`support.${group}.${value[1]}`);
+  }
+  for (const lang of SUPPORTED_LANGUAGES) {
+    for (const key of keys) {
+      assert.equal(i18n.exists(key, { lng: lang, fallbackLng: false }), true, `${lang}: missing ${key}`);
+      const text = i18n.t(key, { lng: lang });
+      assert.ok(text && text !== key, `${lang}: empty ${key}`);
+      if (lang === "en") assert.doesNotMatch(text, /\p{Script=Han}/u, `${key} leaks Chinese`);
+    }
+  }
+  // 英文是工单内容偏好,界面语言切换不会把填写示例翻译成中文。
+  for (const field of ["subjectPlaceholder", "bodyPlaceholder", "replyPlaceholder", "reopenPlaceholder"]) {
+    assert.equal(i18n.t(`support.${field}`, { lng: "zh" }), i18n.t(`support.${field}`, { lng: "en" }));
+  }
+});
+
+// 错误翻译保留上游原文,且列表中的单条错误跟随切换而不是缓存译文。
+test("support errors and partial rows update with language while keeping OVH details", async () => {
+  const { default: i18n } = await server.ssrLoadModule("/src/i18n/index.ts");
+  const { apiMessage, bodyMessage } = await server.ssrLoadModule("/src/lib/api-error.ts");
+  const { SupportTickets } = await server.ssrLoadModule("/src/components/support/SupportTickets.tsx");
+  const originalLanguage = i18n.language;
+  const client = new QueryClient();
+  const failure = { error: "中文默认错误", code: "SUPPORT_REQUEST_FAILED", params: { detail: "OVH 403 Fixture rejection (query: fixture-123)" } };
+  client.setQueryData(["support", "list", "", 0, ""], { accountId: "eu", accountName: "Fixture", items: [{ ticketId: 124, ...failure }], page: 0, hasMore: false, failedCount: 1 });
+  try {
+    for (const lang of ["en", "zh"]) {
+      await i18n.changeLanguage(lang);
+      const message = apiMessage({ response: { data: { error: "fallback", code: "SUPPORT_SUBMISSION_UNCONFIRMED", params: failure.params } } });
+      assert.match(message, lang === "en" ? /before sending again/ : /避免重复发送/);
+      assert.ok(message.includes(failure.params.detail));
+      assert.equal(apiMessage({ response: { data: { error: "Vendor original", code: "FUTURE_CODE" } } }), "Vendor original");
+      assert.equal(bodyMessage({ message: "Legacy message" }), "Legacy message");
+      const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(SupportTickets)));
+      assert.ok(html.includes(failure.params.detail));
+      assert.doesNotMatch(html, /中文默认错误/);
+      assert.match(html, lang === "en" ? /ticket request failed/ : /工单请求失败/);
+    }
+  } finally { await i18n.changeLanguage(originalLanguage); client.clear(); }
+});
+
+// OVH 工单账户的凭据失效是业务错误,不能清除控制台会话或触发登录覆盖层。
+test("OVH support 401 does not expire the application session", async () => {
+  const { api, onAuthFailure } = await server.ssrLoadModule("/src/lib/api.ts");
+  const original = api.defaults.adapter;
+  let expired = 0;
+  const unregister = onAuthFailure(() => { expired++; });
+  const error = Object.assign(new Error("OVH credential rejection"), { response: { status: 401, data: { success: false, code: "SUPPORT_REQUEST_FAILED", error: "OVH credential rejection", params: { detail: "OVH 401" } } } });
+  api.defaults.adapter = async () => { throw error; };
+  try {
+    await assert.rejects(api.get("/ovh/support/tickets", { params: { account: "eu" } }), /credential rejection/);
+    assert.equal(expired, 0);
+  } finally { unregister(); api.defaults.adapter = original; }
+});

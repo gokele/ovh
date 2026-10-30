@@ -103,7 +103,7 @@ function createApiClient(): AxiosInstance {
       url.startsWith("/ovh/") ||
       url.startsWith("/servers") ||
       url.startsWith("/availability");
-    if (needsAccount && !(config.params && (config.params as Record<string, unknown>).account)) {
+    if (needsAccount && (!config.params || typeof (config.params as Record<string, unknown>).account !== "string")) {
       const acc = getActiveAccount();
       if (acc) {
         config.params = { ...(config.params || {}), account: acc };

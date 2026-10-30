@@ -130,7 +130,9 @@ type State struct {
 	QueueMu sync.Mutex
 	Queue   []types.QueueItem
 	// QueueMu 同时保护用户对监控自动建单的停止记录。
-	automaticOrderBlocks map[string]bool
+	automaticOrderBlocks   map[string]bool
+	pausedMonitorScopes    []MonitorQueueScope
+	monitorManuallyStopped bool
 
 	HistoryMu sync.Mutex
 	History   []types.PurchaseHistoryEntry
