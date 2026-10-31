@@ -256,6 +256,8 @@ var usedEndpoints = []string{
 	"GET /order/cart/{cartId}/summary",
 	"GET /order/cart/{cartId}/vps",
 	"POST /order/cart/{cartId}/vps",
+	"GET /order/cart/{cartId}/vps/options",
+	"POST /order/cart/{cartId}/vps/options",
 	"GET /order/catalog/public/eco",
 	"GET /order/catalog/public/vps",
 
