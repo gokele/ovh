@@ -35,13 +35,15 @@ const (
 // 只识别本工具支持的 Eco 系列候选;是否存在仍须由库存接口确认。
 var ecoStockPlanCode = regexp.MustCompile(`(?i)^[0-9]{2}(sk|sys|rise)[a-z0-9]*(-v[0-9]+)?(-[a-z]+)?$`)
 
+const preorderCatalogTTL = 30 * time.Second
+
 // PreorderReady 用短缓存等上架,避免普通目录两小时缓存错过开售;并发刷新仍合并。
 func PreorderReady(state *app.State, accountID, planCode string) (bool, error) {
 	acc, ok := state.FindAccount(accountID)
 	if !ok {
 		return false, fmt.Errorf("下单账户不存在")
 	}
-	cat, err := loadSubsidiaryCatalogWithTTL(state, SubsidiaryOfAccount(acc), 30*time.Second)
+	cat, err := loadSubsidiaryCatalogWithTTL(state, SubsidiaryOfAccount(acc), preorderCatalogTTL)
 	if err != nil {
 		return false, err
 	}

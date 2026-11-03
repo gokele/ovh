@@ -404,9 +404,22 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 		return
 	}
 
-	// 走到这里说明本轮真正拿到了库存 —— 现在才允许说"已恢复"(issue #2:
-	// 以前在查询前就报恢复,持续失败的型号每轮"恢复→又失败"刷屏)。
-	if prevErr != "" {
+	// 库存可能在开售前就显示 1H-low。销售目录缺失时保持可见诊断,
+	// 不能清掉错误后又通过价格失败通知反复宣称"有货"(issue #12)。
+	catalogWarning := ""
+	for _, configData := range currentAvailability {
+		if configData.AwaitingCatalog(planCode) {
+			catalogWarning = fmt.Sprintf("当前账户的销售目录尚不包含机型 %s；库存可用性不代表已开售。"+
+				"继续检查目录,暂不发送有货通知或自动下单。请确认账户地区及产品系列", planCode)
+			break
+		}
+	}
+	if catalogWarning != "" {
+		sub.setCheckError(catalogWarning)
+		if catalogWarning != prevErr {
+			m.state.Logger.Warn(catalogWarning, "monitor")
+		}
+	} else if prevErr != "" {
 		sub.clearCheckError()
 		m.state.Logger.Info(fmt.Sprintf("[monitor/region] 订阅 %s 的区域问题已恢复,改用 %s 站点(子公司 %s)查询",
 			planCode, choice.region, choice.subsidiary), "monitor")
@@ -423,6 +436,16 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 	for configKey, configData := range currentAvailability {
 		if !m.checkCurrent(sub, cfg) {
 			return
+		}
+		if configData.AwaitingCatalog(planCode) {
+			// 不做购物车询价、不通知、不建单,库存抖动也不会产生反复提醒。
+			// 用无货作基准,进入目录并验价通过后仍会触发一次正常补货。
+			for dc := range configData.Datacenters {
+				if len(monitoredDCs) == 0 || containsString(monitoredDCs, dc) {
+					lastStatus[dc+"|"+configKey] = "unavailable"
+				}
+			}
+			continue
 		}
 		// 订阅指定了配置就只盯那一套。
 		//

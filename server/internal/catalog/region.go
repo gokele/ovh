@@ -326,6 +326,15 @@ func AddonFamiliesForPlan(state *app.State, accountID, planCode string) (map[str
 	}
 	pc, ok := cat.plans[planCode]
 	if !ok {
+		// 库存会先于销售目录公布。未命中的型号沿用预订的短 TTL,
+		// 避免监控继续使用两小时前的目录,开售后仍被判成不能购买。
+		cat, err = loadSubsidiaryCatalogWithTTL(state, subsidiary, preorderCatalogTTL)
+		if err != nil {
+			return nil, err
+		}
+		pc, ok = cat.plans[planCode]
+	}
+	if !ok {
 		return nil, fmt.Errorf("%w: %s(子公司 %s / %s 站点)", ErrPlanNotInCatalog, planCode, subsidiary, ovh.SubsidiaryRegion(subsidiary))
 	}
 	return pc.addonFamilies, nil

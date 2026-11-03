@@ -30,14 +30,17 @@ type ConfigAvailability struct {
 	// "这个配置确实没有可匹配 addon",否则会把 OVH 瞬断报成"该机房无可定价配置"。
 	CatalogError string `json:"catalogError,omitempty"`
 	// CatalogMissing:目录拉到了,但这个 planCode 不在该账户子公司的目录里。
-	// 与 CatalogError(网络/OVH 故障,重试有用)必须分开:这种情况重试一万次也没用,
-	// 是拿错区的 planCode 了 —— 美区目录的机型一律带 -us/-ca/-eu/-sgp 后缀
-	// (US 143 个 plan 全部带后缀,欧区的裸 planCode 在美区目录里根本不存在)。
+	// 可能是预上架、其他产品系列或地区不同,不能直接当成跨区错误。
 	CatalogMissing bool `json:"catalogMissing,omitempty"`
 	// OptionsNote:目录和 planCode 都在,但这一条 FQN 的内存/存储在该子公司目录里
 	// 没有对应 addon(实测 US 35 条、EU/CA 各 18 条)。这类配置在本子公司买不到,
 	// 不是"目录挂了",调用方应该照实说而不是报错。
 	OptionsNote string `json:"optionsNote,omitempty"`
+}
+
+// AwaitingCatalog 与预订判定使用同一 Eco 系列范围;其他系列仍保留库存通知。
+func (c *ConfigAvailability) AwaitingCatalog(planCode string) bool {
+	return c.CatalogMissing && ecoStockPlanCode.MatchString(planCode)
 }
 
 // ErrPlanNotInRegion:该 planCode 在这个账户所属站点没有任何可用性记录。
@@ -111,13 +114,13 @@ func CheckServerAvailabilityWithConfigs(state *app.State, planCode string, accou
 	catalogMissing := false
 	if addonErr != nil {
 		catalogErr = addonErr.Error()
-		// "目录里没有这个 planCode" 和 "目录拉取失败" 是两码事:前者是跨区拿错 planCode,
-		// 重试无用,得换带本区后缀的机型;后者是 OVH/网络瞬断,重试就好。
+		// 目录缺失也可能是预上架或非 Eco 系列,不能据此断言跨区;
+		// 与目录请求失败分开,供调用方决定等待开售或提示诊断。
 		// 调用方(quick_order / telegram)据此给用户不同的提示。
 		catalogMissing = errors.Is(addonErr, ErrPlanNotInCatalog)
 		if catalogMissing {
-			catalogErr = fmt.Sprintf("%s 子公司(%s 站点)的目录里没有 planCode %s —— "+
-				"三个站点的目录互不相通,美区机型带 -us/-ca/-eu/-sgp 后缀,请换本区的 planCode",
+			catalogErr = fmt.Sprintf("%s 子公司(%s 站点)的销售目录尚不包含 planCode %s；"+
+				"预上架机型需等待开售,也请确认账户地区及产品系列。库存记录本身不代表当前账户可以下单",
 				subsidiary, region, planCode)
 			state.Logger.Warn("[配置监控] "+catalogErr, "monitor")
 		} else {
