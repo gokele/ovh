@@ -1,6 +1,9 @@
 package vps
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func labels(cfgs []kv) map[string]string {
 	m := map[string]string{}
@@ -78,15 +81,20 @@ func TestBuildVPSConfig_不提交购物车没要的项(t *testing.T) {
 	}
 }
 
-// 用户没选系统就不提交,让 OVH 用默认镜像
-func TestBuildVPSConfig_没选系统就不提交(t *testing.T) {
+// 用户没选系统也必须提交 vps_os:checkout 缺它就 400,不存在"OVH 默认镜像"
+func TestBuildVPSConfig_没选系统就挑一个(t *testing.T) {
 	req := []requiredItem{
 		{Label: "vps_datacenter", Required: true},
 		{Label: "vps_os", AllowedValues: []string{"Ubuntu 24.04", "Debian 12"}},
 	}
 	got := labels(buildVPSConfig(req, "GRA", ""))
-	if _, ok := got["vps_os"]; ok {
-		t.Error("没选系统不该提交 vps_os")
+	if got["vps_os"] != "Debian 12" {
+		t.Errorf("没选系统应按偏好挑 Debian 12,实际 %q", got["vps_os"])
+	}
+	req[1].AllowedValues = []string{"Fedora 44", "Rocky Linux 9"}
+	got = labels(buildVPSConfig(req, "GRA", ""))
+	if got["vps_os"] != "Fedora 44" {
+		t.Errorf("偏好都没有时应取第一个,实际 %q", got["vps_os"])
 	}
 }
 
@@ -117,5 +125,44 @@ func TestDCRegion表与OVH目录一致(t *testing.T) {
 		if dcRegion[dc] != "united_states" {
 			t.Errorf("%s 应该属于 united_states,实际 %q", dc, dcRegion[dc])
 		}
+	}
+}
+
+// 2027 系列的 automatedBackup / storage 是必选家族:每个家族挑同计价方式下最便宜的,
+// os 家族交给 vps_os,非必选的(snapshot)一个都不加
+func TestPickMandatoryAddons(t *testing.T) {
+	var opts []vpsOption
+	if err := json.Unmarshal([]byte(`[
+	 {"family":"automatedBackup","mandatory":true,"planCode":"backup-7","prices":[
+	  {"duration":"P1M","pricingMode":"default","capacities":["renew"],"price":{"value":1.1}}]},
+	 {"family":"automatedBackup","mandatory":true,"planCode":"backup-1","prices":[
+	  {"duration":"P0D","pricingMode":"default","capacities":["installation"],"price":{"value":0}},
+	  {"duration":"P1M","pricingMode":"default","capacities":["renew"],"price":{"value":0.35}}]},
+	 {"family":"storage","mandatory":true,"planCode":"storage-remote","prices":[
+	  {"duration":"P1M","pricingMode":"default","capacities":["renew"],"price":{"value":0}}]},
+	 {"family":"os","mandatory":true,"planCode":"option-linux","prices":[
+	  {"duration":"P1M","pricingMode":"default","capacities":["renew"],"price":{"value":0}}]},
+	 {"family":"snapshot","mandatory":false,"planCode":"snap","prices":[
+	  {"duration":"P1M","pricingMode":"default","capacities":["renew"],"price":{"value":0.3}}]}
+	]`), &opts); err != nil {
+		t.Fatal(err)
+	}
+	picks, missing := pickMandatoryAddons(opts, "P1M", "default")
+	if len(missing) != 0 {
+		t.Fatalf("不该有缺失家族: %v", missing)
+	}
+	got := map[string]string{}
+	for _, p := range picks {
+		got[p.family] = p.planCode
+	}
+	want := map[string]string{"automatedBackup": "backup-1", "storage": "storage-remote"}
+	if len(got) != len(want) || got["automatedBackup"] != "backup-1" || got["storage"] != "storage-remote" {
+		t.Errorf("挑选结果不对: %v", got)
+	}
+
+	// 计价方式对不上 → 报缺失,而不是硬塞一个会被 checkout 拒的
+	_, missing = pickMandatoryAddons(opts, "P1Y", "upfront12")
+	if len(missing) != 2 {
+		t.Errorf("P1Y 下两个必选家族都该缺失,实际 %v", missing)
 	}
 }
