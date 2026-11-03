@@ -636,37 +636,6 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			lastStatus[ds.statusKey] = actualStatus
 		}
 
-		// 价格查询（同一配置只查一次）
-		var priceText string
-		var priceFetchError string
-		hasAvail := false
-		for _, n := range notifications {
-			if n.changeType == "available" {
-				hasAvail = true
-				break
-			}
-		}
-		if hasAvail {
-			firstDC := ""
-			for _, n := range notifications {
-				if n.changeType == "available" && n.status != "unavailable" {
-					firstDC = n.dc
-					break
-				}
-			}
-			if firstDC != "" {
-				priceText, priceFetchError = m.getPriceWithTimeout(planCode, firstDC, priceCfg, 30*time.Second)
-				if priceText != "" {
-					m.state.Logger.Debug(fmt.Sprintf("配置 %s 价格获取成功: %s，将在所有通知中复用", configDisplay, priceText), "monitor")
-				} else {
-					m.state.Logger.Warn(fmt.Sprintf("配置 %s 价格获取失败，通知中不包含价格信息", configDisplay), "monitor")
-					if priceFetchError == "" {
-						priceFetchError = "价格接口未返回结果"
-					}
-				}
-			}
-		}
-
 		if !m.checkCurrent(sub, cfg) {
 			return
 		}
@@ -721,6 +690,37 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 					planCode, choice.accountID, cfg.AutoOrderAccountID), "monitor")
 			default:
 				m.batchOrder(planCode, configInfo, orderTargets, cfg.Quantity, cfg.AutoOrderAccountID, cfg.AutoPay, func() bool { return m.checkCurrent(sub, cfg) })
+			}
+		}
+
+		// 价格查询（同一配置只查一次）
+		var priceText string
+		var priceFetchError string
+		hasAvail := false
+		for _, n := range notifications {
+			if n.changeType == "available" {
+				hasAvail = true
+				break
+			}
+		}
+		if hasAvail {
+			firstDC := ""
+			for _, n := range notifications {
+				if n.changeType == "available" && n.status != "unavailable" {
+					firstDC = n.dc
+					break
+				}
+			}
+			if firstDC != "" {
+				priceText, priceFetchError = m.getPriceWithTimeout(planCode, firstDC, priceCfg, 30*time.Second)
+				if priceText != "" {
+					m.state.Logger.Debug(fmt.Sprintf("配置 %s 价格获取成功: %s，将在所有通知中复用", configDisplay, priceText), "monitor")
+				} else {
+					m.state.Logger.Warn(fmt.Sprintf("配置 %s 价格获取失败，通知中不包含价格信息", configDisplay), "monitor")
+					if priceFetchError == "" {
+						priceFetchError = "价格接口未返回结果"
+					}
+				}
 			}
 		}
 

@@ -127,8 +127,11 @@ type State struct {
 	AccountsMu sync.RWMutex
 	Accounts   []types.OVHAccount
 
-	QueueMu sync.Mutex
-	Queue   []types.QueueItem
+	monitorEnqueueMu sync.Mutex
+	queueWake        chan struct{}
+	QueueMu          sync.Mutex
+	Queue            []types.QueueItem
+	StockSignals     StockSignals
 	// QueueMu 同时保护用户对监控自动建单的停止记录。
 	automaticOrderBlocks   map[string]bool
 	pausedMonitorScopes    []MonitorQueueScope
@@ -190,6 +193,7 @@ func NewState(paths storage.Paths, cfg *config.Store, lg *logger.Logger, sqliteD
 		DB:                    sqliteDB,
 		DeletedTaskIDs:        make(map[string]struct{}),
 		taskCancel:            make(map[string]context.CancelFunc),
+		queueWake:             make(chan struct{}, 1),
 		Accounts:              []types.OVHAccount{},
 		Queue:                 []types.QueueItem{},
 		History:               []types.PurchaseHistoryEntry{},
@@ -406,6 +410,7 @@ func (s *State) CountPurchase() (success, failed int) {
 // 每类数据一把独立的保存锁:历史和队列互不阻塞。
 // 注意这把锁必须包住整个"快照+写库",而不只是写库。
 func (s *State) SaveQueue() error {
+	defer s.WakeQueue()
 	if err := s.SaveBlocked("queue"); err != nil {
 		return err
 	}
@@ -477,6 +482,7 @@ func (s *State) EnqueueAutomaticItems(items []types.QueueItem, prepend bool) err
 
 // enqueueItems 在同一队列锁内校验自动建单许可并持久化任务。
 func (s *State) enqueueItems(items []types.QueueItem, prepend, automatic bool) error {
+	defer s.WakeQueue()
 	if len(items) == 0 {
 		return nil
 	}

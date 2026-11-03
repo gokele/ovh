@@ -73,3 +73,20 @@ func TestTransientNetTimeout(t *testing.T) {
 		t.Fatal("net.Error.Timeout()==true 应当算 transient")
 	}
 }
+
+// POST 已发出后,未知传输/JSON 错误和重定向必须走暂停/对账,不能直接重试。
+func TestCheckoutUncertaintyIsConservative(t *testing.T) {
+	for _, code := range []int{307, 408, 429, 500, 503} {
+		if !checkoutUncertain(&ovhsdk.APIError{Code: code}) {
+			t.Fatal("uncertain checkout classified as rejected", code)
+		}
+	}
+	for _, code := range []int{400, 401, 403, 404, 409} {
+		if checkoutUncertain(&ovhsdk.APIError{Code: code}) {
+			t.Fatal("explicit rejection classified as ambiguous", code)
+		}
+	}
+	if !checkoutUncertain(errors.New("unexpected response body")) {
+		t.Fatal("unknown checkout error can be retried")
+	}
+}

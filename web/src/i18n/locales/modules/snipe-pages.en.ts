@@ -101,6 +101,12 @@ export const snipePagesEn = {
     },
   },
   queue: {
+    dispatchDelay: "Detection → write {{us}} µs",
+    cartPrewarmed: "Prebuilt cart reused",
+    cartCold: "Includes cart preparation",
+    connectionReused: "Connection reused",
+    connectionCold: "Connection was not reused",
+
     filterLabel: "Filter purchase tasks by status",
     allTasks: "All tasks",
     retainedHint: "Successful tasks stay here as Ordered and will not purchase again. Check order and payment status in purchase history.",

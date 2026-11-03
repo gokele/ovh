@@ -122,9 +122,9 @@ export const watchPagesZh = {
     },
     interval: {
       label: "检查间隔",
-      editLabel: "检查间隔（5-3600s）",
+      editLabel: "检查间隔（1-3600s）",
       unknownTitle: "监控状态没读到,当前间隔未知 —— 先把状态读回来再改",
-      editTitle: "点击修改（5-3600 秒）",
+      editTitle: "点击修改（1-3600 秒）",
       needPositive: "请输入正整数秒数",
     },
   },

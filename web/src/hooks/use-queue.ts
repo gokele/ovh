@@ -50,6 +50,7 @@ export function useQueueList() {
 }
 
 export interface PurchaseTiming {
+ dispatch?: { wroteRequest: boolean; detectionToWriteUs: number; connectionReused: boolean; prewarmed: boolean };
   at: string;
   totalMs: number;
   phases: { name: string; ms: number }[];
@@ -58,7 +59,7 @@ export interface PurchaseTiming {
 }
 
 /**
- * 每条抢购链路（机型@机房）最近一轮的阶段耗时。
+ * 每个任务（兼容旧版机型@机房键）最近一轮的阶段耗时。
  *
  * 抢购还在跑的时候，用户最想知道的是"我到底卡在哪一步" ——
  * 是 OVH 一直没货（那就换机型），还是每轮建购物车要 3 秒（那就换台机器）。

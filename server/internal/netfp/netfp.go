@@ -203,8 +203,9 @@ func Client(o Options) (*http.Client, error) {
 // Transport 构造 RoundTripper。
 func Transport(o Options) (http.RoundTripper, error) {
 	tlsCfg := &tls.Config{
-		MinVersion: o.Profile.MinTLS,
-		MaxVersion: o.Profile.MaxTLS,
+		MinVersion:         o.Profile.MinTLS,
+		MaxVersion:         o.Profile.MaxTLS,
+		ClientSessionCache: tls.NewLRUClientSessionCache(128),
 	}
 	if tlsCfg.MinVersion == 0 {
 		// 不给默认值的话 Go 会允许 TLS 1.0/1.1;明确抬到 1.2
@@ -225,7 +226,9 @@ func Transport(o Options) (http.RoundTripper, error) {
 	base := &http.Transport{
 		TLSClientConfig:       tlsCfg,
 		ForceAttemptHTTP2:     o.Profile.HTTP2,
-		MaxIdleConns:          100,
+		MaxIdleConns:          128,
+		MaxIdleConnsPerHost:   64,
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   15 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,

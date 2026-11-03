@@ -121,6 +121,7 @@ func (f *Factory) ClientFor(accountID string) (*ovh.Client, error) {
 			acc.Name, netfp.ScrubProxyURL(acc.ProxyURL), herr)
 	}
 	cli.Client = httpCli
+	cli.Timeout = 60 * time.Second
 
 	f.cache[acc.ID] = cli
 	return cli, nil

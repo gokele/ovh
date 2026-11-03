@@ -314,7 +314,7 @@ function QueuePage() {
             <QueueRow
               key={q.id}
               item={q}
-              timing={timings.data?.[`${q.planCode}@${q.datacenter}`]}
+              timing={timings.data?.[q.id] ?? timings.data?.[`${q.planCode}@${q.datacenter}`]}
               selected={selected.has(q.id)}
               onSelect={() => toggleSelect(q.id)}
               onToggle={() =>
@@ -1154,6 +1154,14 @@ export function QueueRow({
                     : timing.outcome === "ordered"
                       ? t("queue.outcome.ordered")
                       : t("queue.outcome.error")}
+                </span>
+              </>
+            )}
+            {timing?.dispatch?.wroteRequest && (
+              <>
+                <span>·</span>
+                <span title={`${t(timing.dispatch.prewarmed ? "queue.cartPrewarmed" : "queue.cartCold")} · ${t(timing.dispatch.connectionReused ? "queue.connectionReused" : "queue.connectionCold")}`}>
+                  {t("queue.dispatchDelay", { us: timing.dispatch.detectionToWriteUs })}
                 </span>
               </>
             )}

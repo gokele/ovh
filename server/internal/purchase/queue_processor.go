@@ -2,18 +2,18 @@ package purchase
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ovh-buy/server/internal/app"
-	"github.com/ovh-buy/server/internal/notify"
+	"github.com/ovh-buy/server/internal/catalog"
+	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 )
 
-const concurrentBatchSize = 10
+const maxConcurrentTasks = 64
 
 // failNotice 把同一批任务的终止通知合并成一条。
 //
@@ -118,326 +118,183 @@ func ProcessQueueLoop(state *app.State) {
 	processQueueLoop(context.Background(), state, PurchaseServer)
 }
 
-// processQueueLoop 支持停止后台循环,购买入口可用离线替身验证恰好执行一次。
+// processQueueLoop 为每个任务维护独立 worker,慢查询/落库/通知不再挡住其它机房。
 func processQueueLoop(loopCtx context.Context, state *app.State, purchase func(context.Context, *app.State, *types.QueueItem) Outcome) {
-	for loopCtx.Err() == nil {
-		// 历史未读出时不能确认是否已下单,停止调度以免重复购买。
-		if state.SaveBlocked("history") != nil || state.SaveBlocked("queue") != nil {
-			select {
-			case <-loopCtx.Done():
-				return
-			case <-time.After(time.Second):
+	ctx, cancel := context.WithCancel(loopCtx)
+	var wg sync.WaitGroup
+	defer func() { cancel(); wg.Wait() }()
+	wg.Add(1)
+	go func() { defer wg.Done(); transportWarmLoop(ctx, state) }()
+	type worker struct {
+		cancel context.CancelFunc
+		done   chan struct{}
+	}
+	active := map[string]worker{}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	nextRestore := time.Time{}
+	for ctx.Err() == nil {
+		if state.SaveBlocked("history") == nil && state.SaveBlocked("queue") == nil {
+			if !time.Now().Before(nextRestore) {
+				if err := state.RestoreCompletedQueue(); err != nil {
+					state.Logger.Error("修复已下单任务失败: "+err.Error(), "queue")
+				}
+				nextRestore = time.Now().Add(time.Second)
 			}
-			continue
-		}
-		if err := state.RestoreCompletedQueue(); err != nil {
-			state.Logger.Error("修复已下单任务状态失败: "+err.Error(), "queue")
-		}
-		state.QueueMu.Lock()
-		queueEmpty := len(state.Queue) == 0
-		state.QueueMu.Unlock()
-		if queueEmpty {
-			// 队列为空：清理删除标记
+			state.QueueMu.Lock()
+			items := append([]types.QueueItem(nil), state.Queue...)
+			state.QueueMu.Unlock()
+			sort.SliceStable(items, func(i, j int) bool {
+				if items[i].QuickOrder != items[j].QuickOrder {
+					return items[i].QuickOrder
+				}
+				return items[i].CreatedAt > items[j].CreatedAt
+			})
+			running := map[string]bool{}
+			allIDs := map[string]bool{}
+			for _, item := range items {
+				allIDs[item.ID] = true
+				if item.Status == "running" {
+					running[item.ID] = true
+				}
+			}
+			for id, w := range active {
+				select {
+				case <-w.done:
+					delete(active, id)
+				default:
+					if !running[id] {
+						w.cancel()
+					}
+				}
+			}
 			state.DeletedTaskIDsMu.Lock()
-			if len(state.DeletedTaskIDs) > 0 {
-				state.DeletedTaskIDs = make(map[string]struct{})
-				state.Logger.Debug("队列为空，清理删除标记集合", "queue")
+			for id := range state.DeletedTaskIDs {
+				if _, busy := active[id]; !allIDs[id] && !busy {
+					delete(state.DeletedTaskIDs, id)
+				}
 			}
 			state.DeletedTaskIDsMu.Unlock()
-			select {
-			case <-loopCtx.Done():
-				return
-			case <-time.After(time.Second):
+			// 一次下单最多扇出 60 个任务;64 个独立 worker 覆盖整批且限制资源占用。
+			for _, item := range items {
+				if !running[item.ID] || state.IsTaskDeleted(item.ID) {
+					continue
+				}
+				if _, ok := active[item.ID]; ok {
+					continue
+				}
+				if len(active) >= maxConcurrentTasks {
+					break
+				}
+				workerCtx, stop := context.WithCancel(ctx)
+				done := make(chan struct{})
+				active[item.ID] = worker{stop, done}
+				wg.Add(1)
+				go func(item types.QueueItem) {
+					defer wg.Done()
+					defer close(done)
+					defer stop()
+					taskWorker(workerCtx, state, item, purchase)
+				}(item)
 			}
-			continue
-		}
-
-		// 清理已从队列移除的删除标记
-		state.QueueMu.Lock()
-		currentIDs := map[string]struct{}{}
-		for _, it := range state.Queue {
-			currentIDs[it.ID] = struct{}{}
-		}
-		state.QueueMu.Unlock()
-		state.DeletedTaskIDsMu.Lock()
-		removed := 0
-		for id := range state.DeletedTaskIDs {
-			if _, ok := currentIDs[id]; !ok {
-				delete(state.DeletedTaskIDs, id)
-				removed++
-			}
-		}
-		state.DeletedTaskIDsMu.Unlock()
-		if removed > 0 {
-			state.Logger.Debug("清理 N 个已从队列移除的删除标记", "queue")
-		}
-
-		// 按优先级排序：quickOrder 优先，其次按创建时间倒序
-		state.QueueMu.Lock()
-		sorted := make([]types.QueueItem, len(state.Queue))
-		copy(sorted, state.Queue)
-		state.QueueMu.Unlock()
-		sort.SliceStable(sorted, func(i, j int) bool {
-			a, b := sorted[i], sorted[j]
-			ap, bp := 1, 1
-			if a.QuickOrder {
-				ap = 0
-			}
-			if b.QuickOrder {
-				bp = 0
-			}
-			if ap != bp {
-				return ap < bp
-			}
-			// CreatedAt 是 types.NowISO() 写的,不带时区,RFC3339Nano 解不出来。
-			// 以前这里两个 t 都是零值 → at.After(bt) 恒 false → 同优先级的任务
-			// 排序完全没生效,先入队的不一定先跑。ParseTS 两种历史格式都认。
-			at, _ := types.ParseTS(a.CreatedAt)
-			bt, _ := types.ParseTS(b.CreatedAt)
-			return at.After(bt)
-		})
-
-		current := time.Now().Unix()
-		ready := []types.QueueItem{}
-		state.DeletedTaskIDsMu.Lock()
-		deletedSnap := make(map[string]struct{}, len(state.DeletedTaskIDs))
-		for k := range state.DeletedTaskIDs {
-			deletedSnap[k] = struct{}{}
-		}
-		state.DeletedTaskIDsMu.Unlock()
-
-		// 再快照一次 queue id 集合，用于复核"任务是否还在队列中"
-		state.QueueMu.Lock()
-		queueIDs := make(map[string]struct{}, len(state.Queue))
-		for _, q := range state.Queue {
-			queueIDs[q.ID] = struct{}{}
-		}
-		state.QueueMu.Unlock()
-
-		for _, it := range sorted {
-			if _, del := deletedSnap[it.ID]; del {
-				continue
-			}
-			// 复核：sorted 是 snapshot，与此同时用户可能删过；如果不在 queue 里则标记 deleted 并跳过
-			if _, exists := queueIDs[it.ID]; !exists {
-				state.MarkTaskDeleted(it.ID)
-				continue
-			}
-			if it.Status != "running" {
-				continue
-			}
-			// 间隔 <= 0 一律按全局默认算(ClampRetryInterval 里兜住)。
-			// 不兜的话 `now - last >= 0` 恒真,任务每秒重试一次把 OVH 刷到 429 ——
-			// 旧库里 retry_interval 列后加的行会是 0,忘了设这个字段的入队路径也会是 0。
-			interval := types.ClampRetryInterval(it.RetryInterval, state.Config.RetryInterval())
-			if it.LastCheckTime == 0 || float64(current)-it.LastCheckTime >= float64(interval) {
-				ready = append(ready, it)
+		} else {
+			for _, w := range active {
+				w.cancel()
 			}
 		}
-
-		if len(ready) > 0 {
-			state.Logger.Debug("准备并发处理 N 个订单", "queue")
-
-			processSingle := func(it types.QueueItem) {
-				if state.IsTaskDeleted(it.ID) {
-					return
-				}
-
-				// 更新检查时间、重试次数
-				state.QueueMu.Lock()
-				var current *types.QueueItem
-				for i := range state.Queue {
-					if state.Queue[i].ID == it.ID {
-						current = &state.Queue[i]
-						break
-					}
-				}
-				if current == nil {
-					state.QueueMu.Unlock()
-					return
-				}
-				// 快照后用户可能已暂停/删除:不复核会照走完整下单链路(结账=真实扣款)
-				if current.Status != "running" {
-					state.QueueMu.Unlock()
-					return
-				}
-				isFirstAttempt := current.LastCheckTime == 0
-				// 自愈:间隔为 0 的老任务把有效值写回去,界面上就不再显示"0 秒后",
-				// 下一次 SaveQueue 顺带落库,以后也不用每轮再兜底
-				if current.RetryInterval <= 0 {
-					current.RetryInterval = state.Config.RetryInterval()
-				}
-				current.LastCheckTime = float64(time.Now().Unix())
-				current.RetryCount++
-				current.UpdatedAt = types.NowISO()
-				finalRetry := current.RetryCount
-				snapshot := *current
-				// 与暂停操作共用 QueueMu,避免状态检查后、登记取消函数前被暂停。
-				ctx, cancel := context.WithCancel(loopCtx)
-				state.RegisterTaskCancel(it.ID, cancel)
-				state.QueueMu.Unlock()
-				defer state.UnregisterTaskCancel(it.ID)
-
-				if isFirstAttempt {
-					state.Logger.Info("首次尝试任务 "+it.ID+": "+it.PlanCode+" 在 "+it.Datacenter, "queue")
-				} else {
-					state.Logger.Info("重试检查任务 "+it.ID+": "+it.PlanCode+" 在 "+it.Datacenter, "queue")
-				}
-
-				// 给这一轮下单挂一个可取消的 ctx 并登记到 State。用户从任何入口删任务
-				// 都会经由 MarkTaskDeleted 调 cancel,正在进行的 OVH 调用立刻中断。
-				// 登记后复核:上面那次 IsTaskDeleted 到这里之间被删的话,
-				// MarkTaskDeleted 当时还找不到 cancel 函数,ctx 不会被取消。
-				if state.IsTaskDeleted(it.ID) {
-					return
-				}
-
-				outcome := purchase(ctx, state, &snapshot)
-				if outcome.PauseTask {
-					// 结账不确定:暂停而不是重试(重试可能买两台)。不计失败次数
-					state.QueueMu.Lock()
-					for i := range state.Queue {
-						if state.Queue[i].ID == it.ID {
-							state.Queue[i].Status = "paused"
-							state.Queue[i].UpdatedAt = types.NowISO()
-							break
-						}
-					}
-					state.QueueMu.Unlock()
-					_ = state.SaveQueue()
-					state.Logger.Info("任务已暂停(结账结果不确定,等人工确认): "+it.PlanCode, "queue")
-					return
-				}
-				if outcome.Cancelled {
-					// 用户删除或暂停,不计失败,不覆盖用户选择的队列状态。
-					return
-				}
-				if outcome.WaitingForCatalog {
-					return
-				}
-				if outcome.Success {
-					state.QueueMu.Lock()
-					for i := range state.Queue {
-						if state.Queue[i].ID == it.ID {
-							state.Queue[i].Status = "completed"
-							state.Queue[i].UpdatedAt = types.NowISO()
-							break
-						}
-					}
-					state.QueueMu.Unlock()
-					// 成功即落库,不等轮末:checkout 成功到 SaveQueue 之间崩溃的话,
-					// 重启后任务复活再买一台(真金白银)。失败轮不落 —— 高频且可重建
-					_ = state.SaveQueue()
-					if finalRetry == 1 {
-						state.Logger.Info("首次尝试购买成功: "+it.PlanCode, "queue")
-					} else {
-						state.Logger.Info("重试购买成功: "+it.PlanCode, "queue")
-					}
-					return
-				}
-
-				// 失败路径:先把"真的提交过并失败"计进 FailureCount(无货轮次不计),
-				// MaxRetries 封顶用的是它。
-				failureCount := snapshot.FailureCount
-				if outcome.Attempted {
-					state.QueueMu.Lock()
-					for i := range state.Queue {
-						if state.Queue[i].ID == it.ID {
-							state.Queue[i].FailureCount++
-							failureCount = state.Queue[i].FailureCount
-							break
-						}
-					}
-					state.QueueMu.Unlock()
-				}
-
-				// 以前这里只打一行日志就完了:任务状态永远停在 running,
-				// MaxRetries 全项目只写不读,于是跨区 planCode / 账户被删这类
-				// **重试一万次也不会变**的任务会按 retryInterval 永远刷下去,
-				// 而且每一轮都往 history 写一条失败记录,把抢购历史刷满。
-				// 现在两道闸:确定性失败直接终止,其余按 MaxRetries 封顶。
-				if finalRetry == 1 {
-					state.Logger.Info("首次尝试购买失败或服务器暂无货: "+it.PlanCode, "queue")
-				} else {
-					state.Logger.Info("重试购买失败或服务器仍无货: "+it.PlanCode, "queue")
-				}
-
-				stopReason := ""
-				switch {
-				case outcome.Fatal:
-					// 确定性失败(跨区机型 / 非 Eco 机型 / planCode 不存在 / 账户已删):
-					// 换个时间点重试必然还是同一个结果,再重试只是白刷 OVH 和 history。
-					// 失败原因 PurchaseServer 已经写进 history 了,这里只负责终止任务。
-					stopReason = "确定性失败，重试无用：" + outcome.Reason
-				case snapshot.MaxRetries > 0 && failureCount >= snapshot.MaxRetries:
-					// MaxRetries 封顶的是**真正提交并失败的次数**,不是检查轮次。
-					// 抢购的常态就是绝大多数轮次都无货(那些轮次 Attempted=false,不计数),
-					// 拿轮次封顶会让任务在还没真正试过几次时就被判死。
-					// 0 / 缺省 = 不封顶,保持 /api/queue 入队任务"一直抢到有货为止"的语义。
-					stopReason = fmt.Sprintf("连续 %d 次下单尝试均失败，停止重试", snapshot.MaxRetries)
-				}
-				if stopReason == "" {
-					return
-				}
-				if !outcome.Fatal {
-					// 确定性失败的原因 PurchaseServer 已经写进 history 了;
-					// 用尽 MaxRetries 这条没人写过,补一条,否则任务会莫名其妙停在 failed
-					// 而历史里一个字都没有。
-					recordFailure(state, &snapshot, stopReason)
-				}
-				state.QueueMu.Lock()
-				for i := range state.Queue {
-					if state.Queue[i].ID == it.ID {
-						state.Queue[i].Status = "failed"
-						state.Queue[i].UpdatedAt = types.NowISO()
-						break
-					}
-				}
-				state.QueueMu.Unlock()
-				// 任务死了必须告诉用户。
-				//
-				// 以前这里只写日志:成功会 Broadcast 一条通知,失败终止却完全静默 ——
-				// 而下单时承诺的是"系统会一直重试到抢到为止"。跨区 planCode、
-				// 账户被删这类 Fatal 判定通常发生在第一轮,用户那边看到的是
-				// "已加入队列"之后再无音讯,以为还在抢,实际早就停了。
-				// 越是确定性失败越要说:它永远不会自己好。
-				if msg, ok := failNotice.take(&snapshot, stopReason, outcome.Fatal); ok {
-					notify.Broadcast(state, msg, nil)
-				}
-				state.Logger.Warn(fmt.Sprintf("任务 %s (%s @ %s) 置为 failed：%s",
-					it.ID, it.PlanCode, it.Datacenter, stopReason), "queue")
-			}
-
-			// 分批并发
-			totalBatches := (len(ready) + concurrentBatchSize - 1) / concurrentBatchSize
-			for batchIdx := 0; batchIdx < totalBatches; batchIdx++ {
-				start := batchIdx * concurrentBatchSize
-				end := start + concurrentBatchSize
-				if end > len(ready) {
-					end = len(ready)
-				}
-				batch := ready[start:end]
-				var wg sync.WaitGroup
-				for _, it := range batch {
-					wg.Add(1)
-					go func(item types.QueueItem) {
-						defer wg.Done()
-						processSingle(item)
-					}(it)
-				}
-				wg.Wait()
-				state.Logger.Debug("批次完成", "queue")
-			}
-
-			// 已下单任务留在队列,处理入口只调度 running 状态,不会重复下单。
-
-			_ = state.SaveQueue()
-		}
-
 		select {
-		case <-loopCtx.Done():
+		case <-ctx.Done():
 			return
-		case <-time.After(time.Second):
+		case <-ticker.C:
+		case <-state.QueueChanges():
 		}
 	}
+}
+
+// taskWorker 的直接信箱可以在重试定时器之前唤醒已预装的无货任务。
+func taskWorker(ctx context.Context, state *app.State, item types.QueueItem, purchase func(context.Context, *app.State, *types.QueueItem) Outcome) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	session := &cartSession{}
+	defer session.discard()
+	account := item.AccountID
+	if acc, ok := state.FindAccount(account); ok {
+		account = acc.ID
+	}
+	signals, unsubscribe := state.StockSignals.Subscribe(account, item.PlanCode)
+	defer unsubscribe()
+	state.QueueMu.Lock()
+	if ctx.Err() != nil {
+		state.QueueMu.Unlock()
+		return
+	}
+	for i := range state.Queue {
+		if state.Queue[i].ID == item.ID && state.Queue[i].AccountID == "" && account != "" {
+			state.Queue[i].AccountID = account
+			break
+		}
+	}
+	state.RegisterTaskCancel(item.ID, cancel)
+	state.QueueMu.Unlock()
+	defer state.UnregisterTaskCancel(item.ID)
+	ctx = context.WithValue(ctx, cartSessionKey{}, session)
+	var signal *app.StockSignal
+	for ctx.Err() == nil {
+		state.QueueMu.Lock()
+		var current *types.QueueItem
+		for _, it := range state.Queue {
+			if it.ID == item.ID {
+				copy := it
+				current = &copy
+				break
+			}
+		}
+		state.QueueMu.Unlock()
+		if current == nil || current.Status != "running" || state.IsTaskDeleted(item.ID) {
+			return
+		}
+		attemptCtx := ctx
+		if signal != nil {
+			attemptCtx = context.WithValue(ctx, stockSignalKey{}, *signal)
+			signal = nil
+		}
+		outcome := runQueueAttempt(attemptCtx, state, *current, purchase)
+		if outcome.Success || outcome.Fatal || outcome.PauseTask || outcome.Cancelled {
+			return
+		}
+		interval := time.Duration(types.ClampRetryInterval(current.RetryInterval, state.Config.RetryInterval())) * time.Second
+		timer := time.NewTimer(interval)
+		waiting := true
+		for waiting {
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+				waiting = false
+			case observed := <-signals:
+				if outcome.WaitingForStock && stockSignalOrderable(observed, *current) && time.Since(observed.DetectedAt) < time.Second {
+					timer.Stop()
+					signal = &observed
+					waiting = false
+				}
+			}
+		}
+	}
+}
+
+// stockSignalOrderable 只唤醒确实出现可购买库存的目标机房;最终硬件匹配仍由 PurchaseServer 复核。
+func stockSignalOrderable(signal app.StockSignal, item types.QueueItem) bool {
+	for _, variant := range signal.Variants {
+		dcs, _ := variant["datacenters"].([]interface{})
+		for _, raw := range dcs {
+			dc, _ := raw.(map[string]interface{})
+			name, _ := dc["datacenter"].(string)
+			status, _ := dc["availability"].(string)
+			if name == ovh.ConvertDisplayDCToAPIDC(item.Datacenter) && catalog.IsAvailableForOrder(status) {
+				return true
+			}
+		}
+	}
+	return false
 }

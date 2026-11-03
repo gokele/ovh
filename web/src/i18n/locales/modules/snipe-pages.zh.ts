@@ -101,6 +101,12 @@ export const snipePagesZh = {
     },
   },
   queue: {
+    dispatchDelay: "探测→写出 {{us}} µs",
+    cartPrewarmed: "命中预装购物车",
+    cartCold: "本次包含购物车准备",
+    connectionReused: "复用连接",
+    connectionCold: "未复用连接",
+
     filterLabel: "按抢购状态筛选",
     allTasks: "全部任务",
     retainedHint: "成功下单的任务会保留为“已下单”，不再重复抢购。付款及订单状态请到抢购历史核对。",

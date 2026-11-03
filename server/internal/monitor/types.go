@@ -305,7 +305,7 @@ func New(state *app.State) *Monitor {
 		state:               state,
 		subscriptions:       []*Subscription{},
 		knownServers:        map[string]struct{}{},
-		checkInterval:       5,
+		checkInterval:       DefaultCheckInterval,
 		maxWorkers:          4,
 		optionsCache:        map[string]*CachedOptions{},
 		optionsCacheTTL:     24 * time.Hour,
@@ -374,11 +374,12 @@ func (m *Monitor) Running() bool {
 }
 
 // MinCheckInterval / MaxCheckInterval 检查间隔的合法区间。
-// 下限 5 秒:再快没有意义(OVH 可用性接口本身有缓存),而且多订阅并发会撞 OVH 限流;
+// 用户可选择 1 秒探测;同账户/型号并发合并,默认仍为 5 秒。
 // 上限 1 小时:比这更慢的话补货基本抢不到,不如关掉监控。
 const (
-	MinCheckInterval = 5
-	MaxCheckInterval = 3600
+	MinCheckInterval     = 1
+	DefaultCheckInterval = 5
+	MaxCheckInterval     = 3600
 )
 
 // ClampCheckInterval 把用户输入夹到合法区间

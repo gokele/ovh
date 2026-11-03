@@ -708,3 +708,25 @@ test("rescue and withdrawal mutations pin account, intent, recipient and reviewe
     assert.equal(calls.length, 6);
   } finally { api.defaults.adapter = original; client.clear(); }
 });
+
+// 网络写出须有真实回调才显示数字;中英文都标明预装与连接复用,不能把未写入当作 0µs 成绩。
+test("queue dispatch timings render only observed writes in both languages", async () => {
+  const { QueueRow } = await server.ssrLoadModule("/src/routes/queue.tsx");
+  const { default: i18n } = await server.ssrLoadModule("/src/i18n/index.ts");
+  const original = i18n.language;
+  const client = new QueryClient();
+  try {
+    for (const language of ["zh", "en"]) {
+      await i18n.changeLanguage(language);
+      for (const wrote of [false, true]) {
+        const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(QueueRow, {
+          item: { id: "warm", accountId: "eu", planCode: "plan", datacenter: "gra", options: [], status: "running", createdAt: "2026-11-03T00:00:00Z", retryCount: 0, retryInterval: 60 },
+          timing: { at: "2026-11-03T00:00:00Z", totalMs: 5, phases: [], outcome: "unavailable", dispatch: { wroteRequest: wrote, detectionToWriteUs: 123, connectionReused: true, prewarmed: true } },
+          selected: false, onSelect() {}, onEdit() {}, onToggle() {}, onDelete() {},
+        })));
+        assert.equal(/123 µs/.test(html), wrote);
+        if (wrote) assert.match(html, language === "zh" ? /命中预装购物车.*复用连接/ : /Prebuilt cart reused.*Connection reused/);
+      }
+    }
+  } finally { await i18n.changeLanguage(original); client.clear(); }
+});

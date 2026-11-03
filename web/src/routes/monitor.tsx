@@ -995,7 +995,7 @@ function Stat({ label, value }: { label: string; value: number | string }) {
 }
 
 /**
- * 检查间隔：点一下就地改。后端合法区间 5-3600 秒，越界会被夹紧并回传真实生效值。
+ * 检查间隔：点一下就地改。后端合法区间 1-3600 秒，越界会被夹紧并回传真实生效值。
  *
  * current 可能是 undefined —— 状态接口挂了的时候。这时候显示 0s 是在编数字
  * （0 秒是个根本不存在的间隔），点进去编辑框还会预填 0,一保存就把一个
@@ -1062,7 +1062,7 @@ function IntervalStat({
         <input
           autoFocus
           type="number"
-          min={5}
+          min={1}
           max={3600}
           value={value}
           onChange={(e) => setValue(e.target.value)}

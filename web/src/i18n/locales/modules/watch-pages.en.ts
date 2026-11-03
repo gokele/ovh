@@ -126,9 +126,9 @@ const pack: WatchPagesPack = {
     },
     interval: {
       label: "Check interval",
-      editLabel: "Check interval (5-3600s)",
+      editLabel: "Check interval (1-3600s)",
       unknownTitle: "Monitor status not read; current interval unknown — read the status back before changing it",
-      editTitle: "Click to edit (5-3600 seconds)",
+      editTitle: "Click to edit (1-3600 seconds)",
       needPositive: "Enter a positive integer number of seconds",
     },
   },

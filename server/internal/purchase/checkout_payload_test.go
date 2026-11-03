@@ -26,7 +26,7 @@ import (
 // 源码层面看得更直接,也不会因为上游流程重构而失效。
 func TestCheckoutNeverWaivesRetraction(t *testing.T) {
 	files := map[string]string{
-		"独服":  "purchase.go",
+		"独服":  "prepare_cart.go",
 		"VPS": "../vps/purchase.go",
 	}
 	for label, path := range files {
@@ -55,7 +55,7 @@ func TestCheckoutNeverWaivesRetraction(t *testing.T) {
 // 相对的,autoPay 必须跟着用户的开关走,不能写死。
 // 它和撤回权是同一类东西:都是"替用户做花钱决定"。
 func TestCheckoutAutoPayFollowsUserSetting(t *testing.T) {
-	src, err := os.ReadFile("purchase.go")
+	src, err := os.ReadFile("prepare_cart.go")
 	if err != nil {
 		t.Fatal(err)
 	}

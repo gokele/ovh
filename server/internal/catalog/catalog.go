@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -76,13 +77,18 @@ func CheckServerAvailabilityWithConfigs(state *app.State, planCode string, accou
 
 	state.Logger.Info(fmt.Sprintf("[配置监控] 查询 %s 的所有配置组合(%s 站点 / 子公司 %s)...", planCode, region, subsidiary), "monitor")
 
-	var availabilities []map[string]interface{}
 	q := url.Values{}
 	q.Set("planCode", planCode)
-	if err := client.Get("/dedicated/server/datacenter/availabilities?"+q.Encode(), &availabilities); err != nil {
-		state.Logger.Error(fmt.Sprintf("[配置监控] 获取配置可用性失败: %s", err.Error()), "monitor")
+	observation, err := state.StockSignals.Fetch(context.Background(), acc.ID, planCode, func() ([]map[string]interface{}, error) {
+		var variants []map[string]interface{}
+		err := client.Get("/dedicated/server/datacenter/availabilities?"+q.Encode(), &variants)
+		return variants, err
+	})
+	if err != nil {
+		state.Logger.Error("读取库存失败: "+err.Error(), "monitor")
 		return map[string]*ConfigAvailability{}
 	}
+	availabilities := observation.Variants
 
 	if len(availabilities) == 0 {
 		// 空数组 ≠ 无货:OVH 对"不属于本站点的 planCode"就是回 200 + [](实测三区互查都如此),

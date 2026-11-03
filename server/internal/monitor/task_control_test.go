@@ -112,3 +112,11 @@ func TestSnapshotRestockUsesOnlyRealTransitions(t *testing.T) {
 		t.Fatal("initial stock reported as restock")
 	}
 }
+
+// 高频探测需显式选择 1 秒;新建监控和旧库缺省仍使用 5 秒。
+func TestFastMonitorIntervalKeepsDefault(t *testing.T) {
+	monitor := New(nil)
+	if monitor.CheckInterval() != 5 || ClampCheckInterval(1) != 1 || ClampCheckInterval(0) != 1 || ClampCheckInterval(9999) != 3600 {
+		t.Fatal("incorrect monitor interval contract", monitor.CheckInterval())
+	}
+}

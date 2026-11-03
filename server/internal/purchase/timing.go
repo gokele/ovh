@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 )
 
@@ -28,9 +29,10 @@ type phase struct {
 // timeline 按顺序累积各阶段耗时。
 // 不用加锁:PurchaseServer 是单 goroutine 顺序执行的。
 type timeline struct {
-	start time.Time
-	last  time.Time
-	items []phase
+	start    time.Time
+	last     time.Time
+	items    []phase
+	dispatch *ovh.DispatchSnapshot
 }
 
 func newTimeline() *timeline {
@@ -91,10 +93,11 @@ func (t *timeline) entries() []types.PhaseTiming {
 // 真正值得回看的是"最后那次到底卡在哪"。
 
 type lastTiming struct {
-	At      string              `json:"at"`
-	Total   int64               `json:"totalMs"`
-	Phases  []types.PhaseTiming `json:"phases"`
-	Outcome string              `json:"outcome"` // ordered / unavailable / failed
+	At       string                `json:"at"`
+	Total    int64                 `json:"totalMs"`
+	Phases   []types.PhaseTiming   `json:"phases"`
+	Dispatch *ovh.DispatchSnapshot `json:"dispatch,omitempty"`
+	Outcome  string                `json:"outcome"` // ordered / unavailable / failed
 }
 
 var (
@@ -113,10 +116,11 @@ func recordTiming(key string, t *timeline, outcome string) {
 		lastTimings = map[string]lastTiming{}
 	}
 	lastTimings[key] = lastTiming{
-		At:      types.NowISO(),
-		Total:   t.total().Milliseconds(),
-		Phases:  t.entries(),
-		Outcome: outcome,
+		At:       types.NowISO(),
+		Total:    t.total().Milliseconds(),
+		Phases:   t.entries(),
+		Outcome:  outcome,
+		Dispatch: t.dispatch,
 	}
 }
 
@@ -144,7 +148,7 @@ func recordTimingToHistory(state *app.State, taskID string, t *timeline) {
 	state.HistoryMu.Lock()
 	defer func() {
 		state.HistoryMu.Unlock()
-		_ = state.SaveHistory()  // 同步:耗时数据丢了不影响下单,但排查慢在哪全靠它
+		_ = state.SaveHistory() // 同步:耗时数据丢了不影响下单,但排查慢在哪全靠它
 	}()
 	for i := range state.History {
 		if state.History[i].TaskID == taskID {

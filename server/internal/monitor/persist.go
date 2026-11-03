@@ -137,7 +137,7 @@ func (m *Monitor) LoadFromDB() {
 	}
 
 	// 检查间隔从 kv 恢复;没存过或超出合法区间时夹回默认 5 秒
-	interval := MinCheckInterval
+	interval := DefaultCheckInterval
 	var saved int
 	if ok, _ := m.state.DB.GetKV(kvMonitorInterval, &saved); ok && saved > 0 {
 		interval = ClampCheckInterval(saved)
