@@ -285,7 +285,9 @@ func ReinstallVps(state *app.State) gin.HandlerFunc {
 			SSHKey            []string    `json:"sshKey"`
 			DoNotSendPassword bool        `json:"doNotSendPassword"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.TemplateID == nil {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 templateId", "code": "EBC5B68EC"})
 			return

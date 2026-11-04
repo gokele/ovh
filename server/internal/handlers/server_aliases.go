@@ -49,7 +49,9 @@ func SetServerAlias(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Alias string `json:"alias"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		alias := strings.TrimSpace(body.Alias)
 		if err := state.DB.UpsertAlias(acc.ID, svc, alias); err != nil {
 			state.Logger.Error("set alias: "+err.Error(), "server_control")

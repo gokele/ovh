@@ -60,7 +60,9 @@ func CreateVpsSnapshot(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Description string `json:"description"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		params := map[string]interface{}{}
 		if body.Description != "" {
 			params["description"] = body.Description
@@ -110,7 +112,9 @@ func UpdateVpsSnapshotDescription(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Description string `json:"description"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		// vps.Snapshot 里只有 description 可写(id / creationDate / region 只读),
 		// 所以直接发这一个字段。以前是 GET 回整个对象再 merge 回去,
 		// 那会把只读字段一并发回,被 OVH 400 掉
@@ -145,7 +149,9 @@ func RevertVpsSnapshot(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Confirm bool `json:"confirm"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if !body.Confirm {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,

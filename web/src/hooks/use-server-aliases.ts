@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, getActiveAccount } from "@/lib/api";
+import { useAccountApi } from "@/hooks/use-account-api";
+import { useAccountScope } from "@/hooks/use-account";
 import { toast } from "sonner";
 import i18n from "@/i18n";
 import { apiMessage } from "@/lib/api-error";
@@ -10,8 +11,10 @@ import { apiMessage } from "@/lib/api-error";
  *  - alias 为空字符串等于"未设置",后端会去删除该行
  */
 export function useServerAliases() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery<Record<string, string>>({
-    queryKey: ["server-control", "aliases", getActiveAccount()],
+    queryKey: ["server-control", "aliases", accountId],
     queryFn: async () => (await api.get<Record<string, string>>("/server-control/aliases")).data,
     staleTime: 30 * 60_000,
     gcTime: 60 * 60_000,
@@ -21,6 +24,8 @@ export function useServerAliases() {
 
 /** 设置 / 删除一台机器的别名 */
 export function useSetServerAlias() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ serviceName, alias }: { serviceName: string; alias: string }) => {

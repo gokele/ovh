@@ -4,6 +4,20 @@
  * 顶层 key 与页面对应,值与抽取前的原文一致;英文包对照这里翻译。
  */
 export const snipePagesZh = {
+  prewarm: {
+    preparing: "正在后台准备购物车…",
+    ready: "购物车已就绪 · {{ready}} / {{total}}",
+    waiting: "备车暂未完成，稍后自动重试",
+    description: "仅准备购物车，确认创建抢购任务后才会下单。",
+    estimated: "无货期间按目录核价，最终金额以 OVH 结账结果为准。",
+    fallback: "可以照常创建任务，任务会在需要时自行备车。",
+    keep: "保留备车 45 分钟",
+    retained: "已保留至 {{time}}，关闭窗口后仍会保留。",
+    standbyTitle: "待命购物车",
+    expires: "保留至 {{time}}",
+    cancel: "取消 {{plan}} 的备车",
+    cancelFailed: "取消备车失败，请重试。",
+  },
   servers: {
     title: "服务器列表",
     description: "包含在售与库存接口已公开的预上架型号；目录缓存 2 小时，库存独立刷新",
@@ -102,6 +116,8 @@ export const snipePagesZh = {
   },
   queue: {
     dispatchDelay: "探测→写出 {{us}} µs",
+    dispatchPercentiles: "P50 {{p50}} / P99 {{p99}} µs · {{n}} 次",
+    dispatchWindow: "同账户、型号与机房最近最多 256 次实际结账请求的派发耗时；不含 OVH 处理时间。",
     cartPrewarmed: "命中预装购物车",
     cartCold: "本次包含购物车准备",
     connectionReused: "复用连接",
@@ -237,6 +253,7 @@ export const snipePagesZh = {
     allStatuses: "所有状态",
     success: "成功",
     failed: "失败",
+    uncertain: "待核对",
     loadFailedTitle: "抢购历史读取失败 —— 不是「你没有订单」,是我们没读到",
     loadFailedHint:
       "未付款的订单仍在走 15 天倒计时,别把这片空白当成\"没有订单\"。请重试,或直接去 OVH 管理面板确认待付款的订单。",

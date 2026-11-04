@@ -41,7 +41,6 @@ type Monitor struct {
 
 	running       bool
 	checkInterval int // 检查间隔(秒),可配,见 SetCheckInterval
-	thread        *sync.WaitGroup
 	maxWorkers    int
 
 	// Options 缓存（旧机制，兼容性保留）

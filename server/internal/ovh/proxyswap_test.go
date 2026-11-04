@@ -6,6 +6,27 @@ import (
 	"github.com/ovh-buy/server/internal/types"
 )
 
+func TestClientCacheChecksCurrentConfigurationWithoutInvalidation(t *testing.T) {
+	account := types.OVHAccount{ID: "changed", Endpoint: "ovh-eu", Zone: "IE", AppKey: "test", AppSecret: "old", ConsumerKey: "test"}
+	factory := NewFactory(nil, func(string) (types.OVHAccount, bool) { return account, true })
+	old, err := factory.ClientFor(account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.Name, account.IsDefault = "renamed", true
+	if same, err := factory.ClientFor(account.ID); err != nil || same != old {
+		t.Fatal("display/default changes rebuilt the transport")
+	}
+	account.AppSecret = "new"
+	current, err := factory.ClientFor(account.ID)
+	if err != nil || current == old || current.AppSecret != account.AppSecret {
+		t.Fatal("stale credentials remained cached")
+	}
+	if again, err := factory.ClientFor(account.ID); err != nil || again != current {
+		t.Fatal("unchanged configuration lost connection reuse")
+	}
+}
+
 // client 是按 accountID 缓存的。改了代理如果不让缓存失效，
 // 旧 client 会继续用旧出口跑，而界面上显示的是新配置 ——
 // 用户以为换了代理，实际一直从原来那个 IP 出去。

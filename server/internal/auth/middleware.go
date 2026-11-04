@@ -24,11 +24,11 @@ type Config struct {
 // DefaultWhitelist 不需要 X-API-Key 即可访问的路径
 func DefaultWhitelist() map[string]struct{} {
 	return map[string]struct{}{
-		"/health":                     {},
-		"/api/health":                 {},
-		"/api/version":                {}, // 前端启动时拉版本号,登录前可见
-		"/api/version/check-update":   {}, // 更新检查也免鉴权,登录前可提示
-		"/api/app/pair":               {}, // App 配对兑换:凭 2 分钟一次性码,不需要密钥
+		"/health":                   {},
+		"/api/health":               {},
+		"/api/version":              {}, // 前端启动时拉版本号,登录前可见
+		"/api/version/check-update": {}, // 更新检查也免鉴权,登录前可提示
+		"/api/app/pair":             {}, // App 配对兑换:凭 2 分钟一次性码,不需要密钥
 	}
 }
 
@@ -69,7 +69,7 @@ func Middleware(cfg Config) gin.HandlerFunc {
 				"error": "Too many failed attempts",
 				"message": "API 密钥连续错误次数过多,已暂时拒绝该来源的请求。" +
 					"请等待约 " + strconv.Itoa(secs) + " 秒后再试;" +
-					"如果忘了密钥,它在服务器的 .env 文件里(API_SECRET_KEY)",
+					"请核对 API_SECRET_KEY 配置;自动生成的密钥在数据目录的 .api-secret 文件中",
 				"code":       "AUTH_RATE_LIMITED",
 				"retryAfter": secs,
 			})
@@ -118,7 +118,7 @@ func Middleware(cfg Config) gin.HandlerFunc {
 			recordAuthFailure(c.ClientIP(), time.Now())
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error":   "Invalid API key",
-				"message": "API 密钥无效。它在服务器的 .env 文件里(API_SECRET_KEY);连续错误多次后会被暂时锁定",
+				"message": "API 密钥无效。请核对 API_SECRET_KEY 配置或数据目录的 .api-secret 文件;连续错误多次后会被暂时锁定",
 				"code":    "INVALID_API_KEY",
 			})
 			return

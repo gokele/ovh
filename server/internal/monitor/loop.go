@@ -82,14 +82,6 @@ func (m *Monitor) runSubscriptionCheck(sub *Subscription, traceID string) {
 	m.state.Logger.Info("完成处理订阅: "+planCode, "monitor")
 }
 
-// monitorLoop 兼容入口:按当前代际号跑
-func (m *Monitor) monitorLoop() {
-	m.subsMu.Lock()
-	gen := m.generation
-	m.subsMu.Unlock()
-	m.monitorLoopGen(gen)
-}
-
 // stillMine 这个循环该不该继续:running 为真且代际号还是自己那一代
 func (m *Monitor) stillMine(gen int64) bool {
 	m.subsMu.Lock()
@@ -237,6 +229,9 @@ func (m *Monitor) Start() bool {
 	m.lastTGCheck = time.Time{}
 	m.tgCheckMu.Unlock()
 	go m.monitorLoopGen(gen)
+	if m.state.OrderPrewarm != nil {
+		go m.syncPrewarm()
+	}
 	m.state.Logger.Info(fmt.Sprintf("服务器监控已启动 (检查间隔: %d秒)", interval), "monitor")
 	return true
 }
@@ -269,6 +264,10 @@ func (m *Monitor) stopLocked() bool {
 		return false
 	}
 	m.running = false
+	if m.state.OrderPrewarm != nil {
+		m.state.OrderPrewarm.CancelPrefix("monitor:")
+		m.state.OrderPrewarm.CancelPrefix("notify:")
+	}
 	// 让正在等库存/询价结果的旧检查失效,快速重启也不能复活。
 	for _, sub := range m.subscriptions {
 		sub.mu.Lock()

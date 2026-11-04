@@ -17,6 +17,22 @@ import (
 	"github.com/ovh-buy/server/internal/types"
 )
 
+func saveMonitorSubscriptions(c *gin.Context, mon *monitor.Monitor) bool {
+	if paused, err := persistMonitorChanges(mon); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "pausedTasks": paused, "message": "保存配置失败,监控已停止,请检查存储后重试: " + err.Error()})
+		return false
+	}
+	return true
+}
+
+func persistMonitorChanges(mon *monitor.Monitor) (int, error) {
+	if err := mon.SaveToDB(); err != nil {
+		_, paused, stopErr := mon.StopByUser()
+		return paused, errors.Join(err, stopErr)
+	}
+	return 0, nil
+}
+
 // GetSubscriptions GET /api/monitor/subscriptions
 func GetSubscriptions(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -48,7 +64,9 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 			// 按配置逐套触发的 —— 不筛的话"抢 1 台"会变成"每套配置各抢 1 台"。
 			Options []string `json:"options"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		body.PlanCode = strings.TrimSpace(body.PlanCode)
 		// 一条订阅一个型号(issue #2):整串"plan-a,plan-b"会被当成一个型号存进库,
 		// 永远匹配不到库存,界面上却显示创建成功。半/全角逗号、顿号、空白、换行都拒。
@@ -109,7 +127,9 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 		mon.AddSubscription(body.PlanCode, body.Datacenters, notifyAvailable, notifyUnavailable,
 			serverName, nil, nil, body.AutoOrder, body.Quantity, body.AutoOrderAccountID, body.AutoPay,
 			body.Options)
-		mon.SaveToDB()
+		if !saveMonitorSubscriptions(c, mon) {
+			return
+		}
 
 		if !mon.Running() {
 			mon.Start()
@@ -157,7 +177,9 @@ func BatchAddAll(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 			AutoOrder          bool   `json:"autoOrder"`
 			AutoOrderAccountID string `json:"autoOrderAccountId"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.AutoOrderAccountID != "" {
 			if _, ok := state.FindAccount(body.AutoOrderAccountID); !ok {
 				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "autoOrderAccountId 不存在", "code": "EB5C2D1BB"})
@@ -200,7 +222,9 @@ func BatchAddAll(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 			added++
 			state.Logger.Debug("批量添加订阅: "+pc+" ("+server.Name+")", "monitor")
 		}
-		mon.SaveToDB()
+		if !saveMonitorSubscriptions(c, mon) {
+			return
+		}
 		if !mon.Running() {
 			mon.Start()
 			state.Logger.Info("批量添加订阅后自动启动监控", "monitor")
@@ -266,7 +290,9 @@ func RemoveSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 		// 不传 = 删该 planCode 第一条(TG 等老入口兼容)
 		optionsKey := c.Query("optionsKey")
 		if mon.RemoveSubscriptionExact(planCode, optionsKey) {
-			mon.SaveToDB()
+			if !saveMonitorSubscriptions(c, mon) {
+				return
+			}
 			state.Logger.Info("删除服务器订阅: "+planCode, "")
 			c.JSON(http.StatusOK, gin.H{"status": "success", "message": "已取消订阅 " + planCode})
 			return
@@ -279,7 +305,9 @@ func RemoveSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 func ClearSubscriptions(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		count := mon.ClearSubscriptions()
-		mon.SaveToDB()
+		if !saveMonitorSubscriptions(c, mon) {
+			return
+		}
 		state.Logger.Info("清空所有订阅 ("+strconv.Itoa(count)+" 项)", "")
 		c.JSON(http.StatusOK, gin.H{"status": "success", "count": count, "message": "已清空 " + strconv.Itoa(count) + " 个订阅"})
 	}
@@ -380,7 +408,9 @@ func SetMonitorInterval(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 			return
 		}
 		applied := mon.SetCheckInterval(*v)
-		mon.SaveToDB()
+		if !saveMonitorSubscriptions(c, mon) {
+			return
+		}
 		msg := fmt.Sprintf("检查间隔已设置为 %d 秒", applied)
 		if applied != *v {
 			msg = fmt.Sprintf("检查间隔已调整为 %d 秒(合法范围 %d-%d 秒)", applied, monitor.MinCheckInterval, monitor.MaxCheckInterval)

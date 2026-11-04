@@ -173,7 +173,7 @@ function ServerControlPage() {
             </div>
 
             {/* Tabs */}
-            {selected && <ServerTabs server={selected} />}
+            {selected && <ServerTabs key={`${activeAccount}:${selected.serviceName}`} server={selected} />}
           </CardContent>
         </Card>
       )}

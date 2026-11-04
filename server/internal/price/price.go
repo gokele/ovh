@@ -58,14 +58,20 @@ type cacheEntry struct {
 const priceCacheTTL = 20 * time.Second
 
 func priceCacheKey(accountID, planCode, datacenter string, options []string) string {
-	sort.Strings(options)
-	return accountID + "|" + planCode + "@" + datacenter + "|" + strings.Join(options, ",")
+	ordered := append([]string(nil), options...)
+	sort.Strings(ordered)
+	return accountID + "|" + planCode + "@" + datacenter + "|" + strings.Join(ordered, ",")
 }
 
 // GetInternalCached 带短 TTL 缓存的 GetInternal(监控轮询/批量入队路径用;
 // 用户显式点击的询价仍走无缓存的 GetInternal,保证手查永远新鲜)
 func GetInternalCached(state *app.State, accountID, planCode, datacenter string, options []string) Result {
-	key := priceCacheKey(accountID, planCode, datacenter, options)
+	acc, ok := state.FindAccount(accountID)
+	if !ok {
+		return Result{Success: false, Error: "下单账户不存在"}
+	}
+	accountID = acc.ID
+	key := priceCacheKey(acc.ID+"|"+acc.Endpoint+"|"+strings.ToUpper(acc.Zone), planCode, datacenter, options)
 	internalPriceCache.Lock()
 	if e, ok := internalPriceCache.m[key]; ok && time.Since(e.at) < priceCacheTTL {
 		internalPriceCache.Unlock()
@@ -95,11 +101,15 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 	}
 	apiDC := ovh.ConvertDisplayDCToAPIDC(datacenter)
 
-	client, err := state.OVH.IsolatedClientFor(accountID)
+	acc, ok := state.FindAccount(accountID)
+	if !ok {
+		return Result{Success: false, Error: "下单账户不存在"}
+	}
+	accountID = acc.ID
+	client, err := state.OVH.IsolatedClientForAccount(acc)
 	if err != nil {
 		return Result{Success: false, Error: "未配置OVH API密钥: " + ovh.Explain(err)}
 	}
-	acc, _ := state.FindAccount(accountID)
 	subsidiary := orderSubsidiary(state, acc)
 
 	state.Logger.Info(fmt.Sprintf("查询 %s 的配置价格，数据中心: %s (原始: %s), 选项: %v",

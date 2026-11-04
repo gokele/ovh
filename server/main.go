@@ -77,10 +77,10 @@ func main() {
 	}
 
 	// 落盘加密:必须在打开数据库**之前**初始化,否则第一次读账户时解不开。
-	// 拿不到密钥不致命 —— 退化成明文(与升级前一致),但要明确告警,
-	// 不能让用户以为自己开了加密其实没开。
+	// 密钥读取失败时停止启动,避免用空凭据或明文写入覆盖已有密文。
 	if err := secret.Init(paths.DataDir, envPath); err != nil {
-		console.Warn("凭据加密未启用，数据库里的 OVH 密钥与 Telegram Token 将以明文存储", "err", err)
+		console.Error("无法初始化数据库加密密钥,已停止启动；请检查密钥文件及权限", "err", err)
+		os.Exit(1)
 	} else if secret.KeyWasGenerated() {
 		console.Info("已自动生成数据库加密密钥并写入 " + secret.KeySource())
 		console.Info("请把它连同配置文件一起备份 —— 丢了这把钥匙，已保存的 OVH 凭据和 Telegram Token 就再也解不开了")
@@ -121,11 +121,15 @@ func main() {
 	lg := logger.New(paths.LogFile("app.log.json"), console)
 	cfgStore := config.New(sqliteDB)
 	state := app.NewState(paths, cfgStore, lg, sqliteDB)
-	state.APIKey = os.Getenv("API_SECRET_KEY")
-	usingDefaultAPIKey := false
-	if state.APIKey == "" {
-		state.APIKey = "123456"
-		usingDefaultAPIKey = true
+	state.OrderPrewarm = purchase.NewCartPool(state)
+	apiKey, generatedAPIKey, err := auth.ResolveAPIKey(paths.DataDir, os.Getenv("API_SECRET_KEY"))
+	if err != nil {
+		console.Error("无法安全初始化 API 密钥,已停止启动", "err", err)
+		os.Exit(1)
+	}
+	state.APIKey = apiKey
+	if generatedAPIKey {
+		console.Info("已生成随机 API 密钥,请从数据目录的 .api-secret 文件读取后登录", "dataDir", paths.DataDir)
 	}
 	state.Port = os.Getenv("PORT")
 	if state.Port == "" {
@@ -197,9 +201,11 @@ func main() {
 		}
 	}
 	if err := r.SetTrustedProxies(trusted); err != nil {
+		_ = r.SetTrustedProxies(nil)
 		console.Warn("SetTrustedProxies 失败,将按不信任代理处理", "err", err)
 	}
 	r.Use(gin.Recovery())
+	r.Use(auth.LimitRequestBody(4 << 20))
 	// CORS 只放行同机来源。
 	//
 	// 以前是 AllowAllOrigins:true,配上「API_SECRET_KEY 未设时默认 123456」和
@@ -217,7 +223,7 @@ func main() {
 		AllowHeaders: []string{"Content-Type", "Authorization", "X-API-Key", "X-Request-Time"},
 		// X-Partial-Failures:部分明细拉取失败的计数(账单/退款/邮件等走响应头下发),
 		// 跨源部署时不列进 ExposeHeaders 浏览器就读不到,前端的"部分失败"提示会恒不显示
-		ExposeHeaders:    []string{"X-Cache-Warning", "X-Partial-Failures", "X-Cache-Age-Seconds"},
+		ExposeHeaders:    []string{"X-Cache-Warning", "X-Partial-Failures", "X-Cache-Age-Seconds", "X-Subsidiary-Mismatch"},
 		AllowCredentials: false,
 	}))
 
@@ -253,6 +259,9 @@ func main() {
 		api.GET("/queue", handlers.GetQueue(state))
 		api.GET("/queue/timings", handlers.GetPurchaseTimings(state))
 		api.POST("/queue", handlers.AddQueueItem(state))
+		api.POST("/purchase/prewarm", handlers.PrepareOrderCart(state))
+		api.GET("/purchase/prewarm", handlers.GetOrderPrewarm(state))
+		api.DELETE("/purchase/prewarm/:id", handlers.CancelOrderPrewarm(state))
 		api.DELETE("/queue/clear", handlers.ClearQueue(state))
 		api.DELETE("/queue/:id", handlers.RemoveQueueItem(state))
 		api.PUT("/queue/:id", handlers.UpdateQueueItem(state))
@@ -621,7 +630,7 @@ func main() {
 		mon.Start()
 		state.Logger.Info("自动启动服务器监控", "system")
 	}
-	if len(state.VPSSubscriptions) > 0 {
+	if len(state.VPSSubscriptions) > 0 && vps.AutoStartAllowed(state) {
 		if vps.Start(state) {
 			state.Logger.Info("自动启动 VPS 监控", "system")
 		}
@@ -639,13 +648,13 @@ func main() {
 	// 装完就是一台任何人都能操作 OVH 账户的机器,而启动日志一个字都不提。
 	if !enableAuth {
 		console.Error("⚠️  API 密钥校验已关闭(ENABLE_API_KEY_AUTH=false):任何人都能调用全部接口,包括下单和重装。仅限本地调试")
-	} else if usingDefaultAPIKey {
+	} else if state.APIKey == "123456" {
 		console.Error("⚠️  正在使用默认 API 密钥 123456 —— 请立刻在 .env 里设置 API_SECRET_KEY")
 		if host == "" {
 			console.Error("⚠️  并且监听所有网卡(LISTEN_HOST 为空):同网段任何人都能用默认密钥操作你的 OVH 账户")
 		}
 	}
-	srv := &http.Server{Addr: addr, Handler: r}
+	srv := &http.Server{Addr: addr, Handler: r, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute}
 
 	// 端口真正 Listen 成功之后才标记"这一版能跑" —— 此时数据库已打开、路由已注册、
 	// 端口也占上了。太早标记等于没验证:启动就 panic、端口被占、数据库损坏,
@@ -797,6 +806,9 @@ func gracefulShutdown(srv *http.Server, sqlDB io.Closer, lg *logger.Logger, cons
 		monitorState.Stop()
 	}
 	vps.Stop(appStateForShutdown)
+	if appStateForShutdown != nil && appStateForShutdown.OrderPrewarm != nil {
+		appStateForShutdown.OrderPrewarm.Close()
+	}
 	lg.Info("后台循环已停止(TG 轮询/服务器监控/VPS 监控)", "system")
 
 	// 给在途请求留出收尾时间。抢购链路最长的一步是结账,实测几秒级;

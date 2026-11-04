@@ -292,6 +292,7 @@ type Subscription struct {
 
 // VPSSubscription VPS 监控订阅
 type VPSSubscription struct {
+	Revision           uint64                   `json:"-"`
 	ID                 string                   `json:"id"`
 	PlanCode           string                   `json:"planCode"`
 	OvhSubsidiary      string                   `json:"ovhSubsidiary"`
@@ -311,7 +312,7 @@ type VPSSubscription struct {
 	Quantity int `json:"quantity,omitempty"`
 	// AutoPay 下单成功后用 OVH 默认支付方式自动付款(用户显式开关)
 	AutoPay bool `json:"autoPay,omitempty"`
-	// OS 装什么系统。空 = 用 OVH 的默认值。
+	// OS 装什么系统。空 = 从购物车允许的镜像中选择。
 	// VPS 和独服不同:系统是下单时就要定的配置项,不是买完再装。
 	OS string `json:"os,omitempty"`
 }

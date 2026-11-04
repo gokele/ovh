@@ -132,6 +132,7 @@ type State struct {
 	QueueMu          sync.Mutex
 	Queue            []types.QueueItem
 	StockSignals     StockSignals
+	OrderPrewarm     OrderPrewarmer
 	// QueueMu 同时保护用户对监控自动建单的停止记录。
 	automaticOrderBlocks   map[string]bool
 	pausedMonitorScopes    []MonitorQueueScope

@@ -26,17 +26,17 @@ func TestPurchaseCouponBeforeCheckout(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
 	for _, tc := range []struct {
-		name, coupon                          string
-		status                                int
-		preorder, cancel, reconciled, network bool
-		checkout, warning                     bool
+		name, coupon                         string
+		status                               int
+		preorder, cancel, uncertain, network bool
+		checkout, warning                    bool
 	}{
 		{name: "blank", coupon: "  ", checkout: true},
 		{name: "accepted", coupon: " Save10 ", status: 200, checkout: true},
 		{name: "preorder", coupon: "Save10", status: 200, preorder: true, checkout: true},
 		{name: "invalid", coupon: "Save10", status: 400, checkout: true, warning: true},
 		{name: "forbidden", coupon: "Save10", status: 403, checkout: true, warning: true},
-		{name: "reconciled after rejection", coupon: "Save10", status: 400, checkout: true, warning: true, reconciled: true},
+		{name: "uncertain checkout after coupon rejection", coupon: "Save10", status: 400, checkout: true, warning: true, uncertain: true},
 		{name: "rate limited", coupon: "Save10", status: 429},
 		{name: "server error", coupon: "Save10", status: 503},
 		{name: "unrecognized transport error", coupon: "Save10", network: true},
@@ -55,7 +55,7 @@ func TestPurchaseCouponBeforeCheckout(t *testing.T) {
 			cfg := st.Config.Get()
 			cfg.NotifyWebhookURL = "https://coupon-notify.invalid/test"
 			st.Config.Set(cfg)
-			if tc.reconciled {
+			if tc.uncertain {
 				st.History = []types.PurchaseHistoryEntry{{ID: "previous", TaskID: "coupon-task", Status: "failed"}}
 			}
 			ctx, cancel := context.WithCancel(context.Background())
@@ -75,7 +75,11 @@ func TestPurchaseCouponBeforeCheckout(t *testing.T) {
 					message, _ := payload["message"].(string)
 					messages = append(messages, message)
 				case strings.HasSuffix(path, "/me/order"):
-					body = `[{"orderId":123,"url":"https://example.invalid/order"}]`
+					body = `[123]`
+				case strings.HasSuffix(path, "/me/order/123/status"):
+					body = `"notPaid"`
+				case strings.HasSuffix(path, "/me/order/123"):
+					body = `{"orderId":123}`
 				case strings.HasSuffix(path, "/auth/time"):
 					body = fmt.Sprint(time.Now().Unix())
 				case strings.Contains(path, "/order/catalog/public/eco"):
@@ -124,9 +128,8 @@ func TestPurchaseCouponBeforeCheckout(t *testing.T) {
 					if payload["autoPayWithPreferredPaymentMethod"] != false {
 						t.Error("coupon changed auto-pay default")
 					}
-					// No real order; omit ID so the fixture also starts no detail-fetch goroutine.
-					body = `{}`
-					if tc.reconciled {
+					body = `{"orderId":123}`
+					if tc.uncertain {
 						status = http.StatusServiceUnavailable
 						body = `{"message":"checkout timeout"}`
 					}
@@ -153,10 +156,15 @@ func TestPurchaseCouponBeforeCheckout(t *testing.T) {
 			if tc.checkout {
 				wantCheckout = 1
 			}
-			if couponCalls != wantCoupon || checkoutCalls != wantCheckout || outcome.Success != tc.checkout || outcome.PauseTask || outcome.Attempted || outcome.Cancelled != tc.cancel {
+			if couponCalls != wantCoupon || checkoutCalls != wantCheckout || outcome.Success != (tc.checkout && !tc.uncertain) || outcome.PauseTask != tc.uncertain || outcome.Attempted || outcome.Cancelled != tc.cancel {
 				t.Fatalf("unexpected flow: outcome=%+v coupon=%d checkout=%d steps=%v", outcome, couponCalls, checkoutCalls, steps)
 			}
-			if tc.checkout {
+			if tc.uncertain {
+				history, err := st.DB.ListHistory()
+				if err != nil || len(history) != 1 || history[0].Status != "uncertain" || history[0].ErrorMessage == nil || !strings.Contains(*history[0].ErrorMessage, "未使用优惠码") {
+					t.Fatal("uncertain checkout lost the coupon warning", history, err)
+				}
+			} else if tc.checkout {
 				history, err := st.DB.ListHistory()
 				if err != nil || len(history) != 1 || history[0].Status != "success" || (history[0].CouponWarning != "") != tc.warning {
 					t.Fatalf("coupon warning not persisted with successful order: %+v %v", history, err)

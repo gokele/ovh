@@ -50,6 +50,7 @@ export function useQueueList() {
 }
 
 export interface PurchaseTiming {
+  dispatchStats?: { samples: number; p50Us: number; p99Us: number };
  dispatch?: { wroteRequest: boolean; detectionToWriteUs: number; connectionReused: boolean; prewarmed: boolean };
   at: string;
   totalMs: number;

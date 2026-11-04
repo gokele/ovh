@@ -1,11 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useAccountApi } from "@/hooks/use-account-api";
 import { toast } from "sonner";
 import i18n from "@/i18n";
-import { qk } from "@/lib/query";
+import { qk, accountQueryKey } from "@/lib/query";
 import { apiMessage, bodyMessage } from "@/lib/api-error";
 import type { PartialList } from "./partial-list";
-import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAccountScope } from "@/hooks/use-account";
 
 export interface OwnedServer {
@@ -111,7 +110,8 @@ export interface ServiceInfo {
  * 过滤逻辑照搬旧前端：只显示 state === 'ok' | 'active'，排除 expired / suspended / error
  */
 export function useOwnedServers() {
-  const [accountId] = useActiveAccount();
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
     queryKey: qk.serverControl.list(accountId),
     queryFn: async () => {
@@ -145,8 +145,10 @@ interface HardwareEnvelope {
 // 纯 HardwareInfo,useHardwareLottery 再读同一份缓存,.checked 永远是 undefined,
 // 中奖横幅一次都不会显示。改成共用 queryFn + 各自 select 投影:一份缓存各取所需。
 function useHardwareQuery<T>(serviceName: string | null, select: (d: HardwareEnvelope) => T) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.hardware(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.hardware(serviceName || ""), accountId),
     queryFn: async (): Promise<HardwareEnvelope> => {
       const res = await api.get(`/server-control/${serviceName}/hardware`);
       return res.data as HardwareEnvelope;
@@ -170,8 +172,10 @@ export function useServerHardware(serviceName: string | null) {
 
 /** 服务信息（后端返回 { success, serviceInfo: {...} }） */
 export function useServerServiceInfo(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.serviceInfo(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.serviceInfo(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/serviceinfo`);
       return (res.data?.serviceInfo || null) as ServiceInfo | null;
@@ -185,6 +189,8 @@ export function useServerServiceInfo(serviceName: string | null) {
  * 后端代为 GET + merge + PUT,前端只传 mode + 可选 period。
  */
 export function useUpdateRenewal(serviceName: string) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: { mode: "auto" | "manual" | "delete"; period?: number }) => {
@@ -192,7 +198,7 @@ export function useUpdateRenewal(serviceName: string) {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.serviceInfo(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.serviceInfo(serviceName), accountId) });
       // 列表行带 renewalType(60s staleTime),不失效会继续显示旧模式
       qc.invalidateQueries({ queryKey: ["server-control", "list"] });
     },
@@ -265,6 +271,8 @@ export function terminationLabel(info: {
  *   terminateAtEngagementDate  合同期结束时终止
  */
 export function useUpdateTerminationPolicy(serviceName: string) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: { policy: string }) =>
@@ -273,7 +281,7 @@ export function useUpdateTerminationPolicy(serviceName: string) {
         message: string;
       },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.serviceInfo(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.serviceInfo(serviceName), accountId) });
     },
   });
 }
@@ -307,8 +315,10 @@ export interface EngagementRequest {
 
 /** 当前 engagement(无合同期返回 null) */
 export function useEngagement(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.engagement(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.engagement(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/engagement`);
       return (res.data?.engagement || null) as EngagementInfo | null;
@@ -319,8 +329,10 @@ export function useEngagement(serviceName: string | null) {
 
 /** 可订购的 engagement 选项列表 */
 export function useEngagementAvailable(serviceName: string | null, enabled = true) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.engagementAvailable(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.engagementAvailable(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/engagement/available`);
       return (res.data?.pricings || []) as EngagementPricing[];
@@ -331,8 +343,10 @@ export function useEngagementAvailable(serviceName: string | null, enabled = tru
 
 /** 进行中的 engagement 变更请求 */
 export function useEngagementRequest(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.engagementRequest(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.engagementRequest(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/engagement/request`);
       return (res.data?.request || null) as EngagementRequest | null;
@@ -343,6 +357,8 @@ export function useEngagementRequest(serviceName: string | null) {
 
 /** 提交新的 engagement 请求 */
 export function useCreateEngagementRequest(serviceName: string) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: { pricingMode: string }) => {
@@ -350,14 +366,16 @@ export function useCreateEngagementRequest(serviceName: string) {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.engagement(serviceName) });
-      qc.invalidateQueries({ queryKey: qk.serverControl.engagementRequest(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.engagement(serviceName), accountId) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.engagementRequest(serviceName), accountId) });
     },
   });
 }
 
 /** 撤销进行中的 engagement 请求 */
 export function useDeleteEngagementRequest(serviceName: string) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
@@ -365,7 +383,7 @@ export function useDeleteEngagementRequest(serviceName: string) {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.engagementRequest(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.engagementRequest(serviceName), accountId) });
     },
   });
 }
@@ -383,6 +401,8 @@ export type EngagementEndStrategy =
  * 组件必须先弹二次确认框拿到用户明确同意，再传 confirm。其余三个策略不需要 confirm。
  */
 export function useUpdateEngagementEndRule(serviceName: string) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: { strategy: EngagementEndStrategy | string; confirm?: boolean }) => {
@@ -390,7 +410,7 @@ export function useUpdateEngagementEndRule(serviceName: string) {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.engagement(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.engagement(serviceName), accountId) });
     },
   });
 }
@@ -411,8 +431,10 @@ export interface MitigationBlock {
 }
 
 export function useMitigation(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.mitigation(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.mitigation(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/mitigation`);
       return (res.data?.ips || []) as MitigationBlock[];
@@ -431,6 +453,8 @@ export function useMitigation(serviceName: string | null) {
 }
 
 export function useEnableMitigation(serviceName: string) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: { ip: string; block: string }) => {
@@ -438,12 +462,14 @@ export function useEnableMitigation(serviceName: string) {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.mitigation(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.mitigation(serviceName), accountId) });
     },
   });
 }
 
 export function useDisableMitigation(serviceName: string) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: { ip: string; block: string }) => {
@@ -451,15 +477,17 @@ export function useDisableMitigation(serviceName: string) {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.mitigation(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.mitigation(serviceName), accountId) });
     },
   });
 }
 
 /** IP 列表（后端返回 { success, ips: [{ ip, type, ... }] }） */
 export function useServerIps(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.ips(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.ips(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/ips`);
       return (res.data?.ips || []) as Array<{ ip: string; type: string }>;
@@ -470,8 +498,10 @@ export function useServerIps(serviceName: string | null) {
 
 /** 维护记录（后端返回 { success, interventions: [...] }） */
 export function useServerInterventions(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.interventions(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.interventions(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/interventions`);
       return (res.data?.interventions || []) as any[];
@@ -505,8 +535,10 @@ export interface NetworkInterface extends DetailErrorMarked {
 
 /** 网络接口（后端返回 { success, interfaces, partial, failedCount }） */
 export function useServerNetworkInterfaces(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.networkInterfaces(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.networkInterfaces(serviceName || ""), accountId),
     queryFn: async (): Promise<PartialList<NetworkInterface>> => {
       const res = await api.get(`/server-control/${serviceName}/network-interfaces`);
       return readPartialList<NetworkInterface>(res.data, "interfaces");
@@ -532,8 +564,10 @@ export interface BootMode {
 
 /** 启动模式（后端返回 { success, bootModes: [...] }） */
 export function useServerBootModes(serviceName: string | null, enabled = true) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.bootModes(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.bootModes(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/boot-mode`);
       return (res.data?.bootModes || []) as BootMode[];
@@ -544,6 +578,8 @@ export function useServerBootModes(serviceName: string | null, enabled = true) {
 
 /** 切换启动模式（旧前端会随后自动调 reboot；这里把 reboot 留给调用方决定） */
 export function useSetServerBootMode() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ serviceName, bootId }: { serviceName: string; bootId: number }) => {
@@ -551,7 +587,7 @@ export function useSetServerBootMode() {
       return res.data;
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.bootModes(vars.serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.bootModes(vars.serviceName), accountId) });
     },
   });
 }
@@ -573,8 +609,10 @@ export interface ServerTask {
 
 /** 服务器运维任务列表（后端返回 { success, tasks: [...] }） */
 export function useServerTasks(serviceName: string | null, enabled = true) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.tasks(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.tasks(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/tasks`);
       return (res.data?.tasks || []) as ServerTask[];
@@ -608,12 +646,17 @@ export interface OSTemplate {
  */
 const TEMPLATES_LS_PREFIX = "ovh_sniper_templates_";
 export function useServerTemplates(serviceName: string | null, enabled = true) {
-  const lsKey = serviceName ? TEMPLATES_LS_PREFIX + serviceName : "";
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
+  const lsKey = serviceName && accountId ? TEMPLATES_LS_PREFIX + JSON.stringify([accountId, serviceName]) : "";
   return useQuery({
-    queryKey: qk.serverControl.osTemplates(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.osTemplates(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/templates`);
-      const list = (res.data?.templates || []) as OSTemplate[];
+      const list = res.data?.templates;
+      if (!Array.isArray(list) || !list.every((item: unknown) => item && typeof item === "object" && typeof (item as OSTemplate).templateName === "string")) {
+        throw new Error(i18n.t("commons.templateResponseInvalid"));
+      }
       if (lsKey) {
         try {
           localStorage.setItem(lsKey, JSON.stringify(list));
@@ -626,7 +669,8 @@ export function useServerTemplates(serviceName: string | null, enabled = true) {
       if (!lsKey) return undefined;
       try {
         const raw = localStorage.getItem(lsKey);
-        return raw ? (JSON.parse(raw) as OSTemplate[]) : undefined;
+        const list = raw ? JSON.parse(raw) : undefined;
+        return Array.isArray(list) && list.every(item => item && typeof item.templateName === "string") ? list as OSTemplate[] : undefined;
       } catch {
         return undefined;
       }
@@ -635,7 +679,8 @@ export function useServerTemplates(serviceName: string | null, enabled = true) {
       if (!lsKey) return undefined;
       try {
         const at = localStorage.getItem(lsKey + "_at");
-        return at ? Number(at) : undefined;
+        const timestamp = Number(at);
+        return at && Number.isFinite(timestamp) && timestamp > 0 ? timestamp : undefined;
       } catch {
         return undefined;
       }
@@ -670,8 +715,10 @@ export interface DiskGroup {
 }
 
 export function useServerDiskInfo(serviceName: string | null, enabled = true) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.diskInfo(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.diskInfo(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/hardware-disk-info`);
       return (res.data?.diskGroups || {}) as Record<string, DiskGroup>;
@@ -683,8 +730,10 @@ export function useServerDiskInfo(serviceName: string | null, enabled = true) {
 
 /** 硬件 RAID 支持情况（后端返回 { success, supported, profiles }） */
 export function useServerRaidProfiles(serviceName: string | null, enabled = true) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.raidProfiles(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.raidProfiles(serviceName || ""), accountId),
     queryFn: async () => {
       try {
         const res = await api.get(`/server-control/${serviceName}/hardware-raid-profiles`);
@@ -715,8 +764,10 @@ export interface PartitionScheme {
   priority: number;
 }
 export function useServerPartitionSchemes(serviceName: string | null, templateName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.partitionSchemes(serviceName || "", templateName || ""),
+    queryKey: accountQueryKey(qk.serverControl.partitionSchemes(serviceName || "", templateName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(
         `/server-control/${serviceName}/partition-schemes?templateName=${encodeURIComponent(templateName || "")}`
@@ -784,6 +835,8 @@ export interface ReinstallResult {
 }
 
 export function useReinstallServer() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useMutation({
     mutationFn: async (args: ReinstallArgs) => {
       const installData: any = {
@@ -939,8 +992,10 @@ export interface InstallStatus {
 
 /** 安装进度（前端轮询用，旧前端每 5s 轮一次）（后端返回 { success, hasInstallation, status: {...} }） */
 export function useInstallStatus(serviceName: string | null, enabled = true) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.installStatus(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.installStatus(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/install/status`);
       return {
@@ -958,8 +1013,10 @@ export function useInstallStatus(serviceName: string | null, enabled = true) {
 
 /** BIOS 设置（response.data 即结果对象） */
 export function useServerBiosSettings(serviceName: string | null, enabled = true) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.biosSettings(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.biosSettings(serviceName || ""), accountId),
     queryFn: async () => {
       try {
         const res = await api.get(`/server-control/${serviceName}/bios-settings`);
@@ -986,8 +1043,10 @@ export function useServerBiosSettings(serviceName: string | null, enabled = true
 
 /** OVH 监控开关（res.data.monitoring → boolean） */
 export function useServerMonitoring(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.monitoring(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.monitoring(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/monitoring`);
       return !!res.data?.monitoring;
@@ -997,6 +1056,8 @@ export function useServerMonitoring(serviceName: string | null) {
 }
 
 export function useToggleMonitoring() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ serviceName, enabled }: { serviceName: string; enabled: boolean }) => {
@@ -1004,7 +1065,7 @@ export function useToggleMonitoring() {
       return res.data;
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.monitoring(vars.serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.monitoring(vars.serviceName), accountId) });
     },
   });
 }
@@ -1013,8 +1074,10 @@ export function useToggleMonitoring() {
 
 /** Burst：res.data.burst（结构含 status / capacity 等）；某些服务器不支持，会返回 404 */
 export function useServerBurst(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.burst(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.burst(serviceName || ""), accountId),
     queryFn: async () => {
       try {
         const res = await api.get(`/server-control/${serviceName}/burst`);
@@ -1032,6 +1095,8 @@ export function useServerBurst(serviceName: string | null) {
 }
 
 export function useSetBurst() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ serviceName, status }: { serviceName: string; status: string }) => {
@@ -1039,15 +1104,17 @@ export function useSetBurst() {
       return res.data;
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.burst(vars.serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.burst(vars.serviceName), accountId) });
     },
   });
 }
 
 /** 防火墙：res.data.firewall（结构含 state / mode / model 等）；某些服务器不支持，会返回 404 */
 export function useServerFirewall(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.firewall(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.firewall(serviceName || ""), accountId),
     queryFn: async () => {
       try {
         const res = await api.get(`/server-control/${serviceName}/firewall`);
@@ -1065,6 +1132,8 @@ export function useServerFirewall(serviceName: string | null) {
 }
 
 export function useSetFirewall() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ serviceName, enabled }: { serviceName: string; enabled: boolean }) => {
@@ -1072,7 +1141,7 @@ export function useSetFirewall() {
       return res.data;
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.firewall(vars.serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.firewall(vars.serviceName), accountId) });
     },
   });
 }
@@ -1109,8 +1178,10 @@ export interface BackupFtpResult {
 
 /** Backup FTP：可能 notAvailable / notActivated / unknownService / 正常对象 */
 export function useServerBackupFtp(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.backupFtp(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.backupFtp(serviceName || ""), accountId),
     queryFn: async (): Promise<BackupFtpResult> => {
       try {
         const res = await api.get(`/server-control/${serviceName}/backup-ftp`);
@@ -1155,6 +1226,8 @@ export function useServerBackupFtp(serviceName: string | null) {
 }
 
 export function useActivateBackupFtp() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (serviceName: string) => {
@@ -1162,13 +1235,15 @@ export function useActivateBackupFtp() {
       return res.data;
     },
     onSuccess: (_, serviceName) => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.backupFtp(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.backupFtp(serviceName), accountId) });
     },
   });
 }
 
 /** 关闭备份FTP服务（会删掉里面的备份，调用方必须先二次确认） */
 export function useDeleteBackupFtp() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (serviceName: string) => {
@@ -1176,13 +1251,15 @@ export function useDeleteBackupFtp() {
       return res.data;
     },
     onSuccess: (_, serviceName) => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.backupFtp(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.backupFtp(serviceName), accountId) });
     },
   });
 }
 
 /** 重置备份FTP密码（新密码由 OVH 发到账户邮箱，接口不返回明文） */
 export function useResetBackupFtpPassword() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useMutation({
     mutationFn: async (serviceName: string) => {
       const res = await api.post(`/server-control/${serviceName}/backup-ftp/password`);
@@ -1193,8 +1270,10 @@ export function useResetBackupFtpPassword() {
 
 /** 可授权的 IP 段列表（给「添加访问 IP」做候选） */
 export function useBackupFtpAuthorizableBlocks(serviceName: string | null, enabled = true) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: [...qk.serverControl.backupFtpAccess(serviceName || ""), "authorizable"] as const,
+    queryKey: [...accountQueryKey(qk.serverControl.backupFtpAccess(serviceName || ""), accountId), "authorizable"] as const,
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/backup-ftp/authorizable-blocks`);
       return (res.data?.blocks || []) as string[];
@@ -1205,6 +1284,8 @@ export function useBackupFtpAuthorizableBlocks(serviceName: string | null, enabl
 
 /** 添加备份FTP访问 IP。ftp 默认 true，nfs/cifs 默认 false（与后端一致） */
 export function useAddBackupFtpAccess() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: {
@@ -1223,7 +1304,7 @@ export function useAddBackupFtpAccess() {
       return res.data;
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.backupFtp(vars.serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.backupFtp(vars.serviceName), accountId) });
     },
   });
 }
@@ -1234,6 +1315,8 @@ export function useAddBackupFtpAccess() {
  * 所以走 ?ipBlock= query 形式 —— 后端的路径形式只作兼容兜底。
  */
 export function useDeleteBackupFtpAccess() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (vars: { serviceName: string; ipBlock: string }) => {
@@ -1243,7 +1326,7 @@ export function useDeleteBackupFtpAccess() {
       return res.data;
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.backupFtp(vars.serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.backupFtp(vars.serviceName), accountId) });
     },
   });
 }
@@ -1270,8 +1353,10 @@ export interface VrackEntry extends DetailErrorMarked {
 }
 
 export function useServerSecondaryDns(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.secondaryDns(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.secondaryDns(serviceName || ""), accountId),
     queryFn: async (): Promise<PartialList<SecondaryDnsDomain>> => {
       const res = await api.get(`/server-control/${serviceName}/secondary-dns`);
       return readPartialList<SecondaryDnsDomain>(res.data, "domains");
@@ -1281,8 +1366,10 @@ export function useServerSecondaryDns(serviceName: string | null) {
 }
 
 export function useServerVirtualMac(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.virtualMac(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.virtualMac(serviceName || ""), accountId),
     queryFn: async (): Promise<PartialList<VirtualMacEntry>> => {
       const res = await api.get(`/server-control/${serviceName}/virtual-mac`);
       return readPartialList<VirtualMacEntry>(res.data, "virtualMacs");
@@ -1292,8 +1379,10 @@ export function useServerVirtualMac(serviceName: string | null) {
 }
 
 export function useServerVrack(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.vrack(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.vrack(serviceName || ""), accountId),
     queryFn: async (): Promise<PartialList<VrackEntry>> => {
       const res = await api.get(`/server-control/${serviceName}/vrack`);
       return readPartialList<VrackEntry>(res.data, "vracks");
@@ -1306,8 +1395,10 @@ export function useServerVrack(serviceName: string | null) {
 
 /** 可订购服务：并发取 bandwidth / traffic / ip 三项 */
 export function useServerOrderable(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.orderable(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.orderable(serviceName || ""), accountId),
     queryFn: async () => {
       const [bw, tr, ip] = await Promise.all([
         api.get(`/server-control/${serviceName}/orderable/bandwidth`).catch(() => ({ data: { success: false } })),
@@ -1331,8 +1422,10 @@ export interface ServerOptionEntry extends DetailErrorMarked {
 }
 
 export function useServerOptions(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.options(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.options(serviceName || ""), accountId),
     queryFn: async (): Promise<PartialList<ServerOptionEntry>> => {
       const res = await api.get(`/server-control/${serviceName}/options`);
       return readPartialList<ServerOptionEntry>(res.data, "options");
@@ -1342,8 +1435,10 @@ export function useServerOptions(serviceName: string | null) {
 }
 
 export function useServerIpSpecs(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.ipSpecs(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.ipSpecs(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/ip-specs`);
       return (res.data?.ipSpecs || null) as any;
@@ -1353,8 +1448,10 @@ export function useServerIpSpecs(serviceName: string | null) {
 }
 
 export function useServerNetworkSpecs(serviceName: string | null, enabled = true) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.networkSpecs(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.networkSpecs(serviceName || ""), accountId),
     queryFn: async () => {
       const res = await api.get(`/server-control/${serviceName}/network-specs`);
       return (res.data?.network || null) as any;
@@ -1383,6 +1480,8 @@ export interface FaultyDisk {
  *  两种模式都不能空列表:空 + inverse=true 等于申请更换整机每一块硬盘。
  *  返回里带 OVH 的工单号(support.NewMessageInfo.ticketNumber),用户拿它去帮助中心跟进。 */
 export function useCreateIntervention() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args: {
@@ -1410,7 +1509,7 @@ export function useCreateIntervention() {
       return res.data;
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.interventions(vars.serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.interventions(vars.serviceName), accountId) });
     },
   });
 }
@@ -1420,6 +1519,8 @@ export function useCreateIntervention() {
 /** 提交变更联系人请求(POST /change-contact)
  *  字段名要跟 OVH API 一致: contactAdmin / contactTech / contactBilling */
 export function useChangeContact() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useMutation({
     mutationFn: async (args: { serviceName: string; admin?: string; tech?: string; billing?: string }) => {
       const res = await api.post(`/server-control/${args.serviceName}/change-contact`, {
@@ -1447,7 +1548,8 @@ export interface ContactChangeRequestList {
 
 /** 查询所有变更联系人请求（用户全局而非按服务器）。后端返回 { status, data, total, failed } */
 export function useContactChangeRequests(enabled = true) {
-  const [accountId] = useActiveAccount();
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
     queryKey: qk.serverControl.contactRequests(accountId),
     queryFn: async (): Promise<ContactChangeRequestList> => {
@@ -1477,6 +1579,8 @@ export function useContactChangeRequests(enabled = true) {
 
 /** 操作单个变更请求（接受 / 拒绝 / 重发邮件） */
 export function useContactRequestAction() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args: { id: number | string; action: "accept" | "refuse" | "resend"; token?: string }) => {
@@ -1505,8 +1609,10 @@ export function useTaskTimeslots(
   periodEnd: string,
   enabled = true
 ) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.taskTimeslots(serviceName || "", taskId || 0, periodStart, periodEnd),
+    queryKey: accountQueryKey(qk.serverControl.taskTimeslots(serviceName || "", taskId || 0, periodStart, periodEnd), accountId),
     queryFn: async () => {
       const res = await api.get(
         `/server-control/${serviceName}/tasks/${taskId}/available-timeslots?periodStart=${encodeURIComponent(periodStart)}&periodEnd=${encodeURIComponent(periodEnd)}`
@@ -1526,6 +1632,8 @@ export function useTaskTimeslots(
  * 未备份也照实转发给 OVH（后端记警告日志），前端替用户勾上等于替他做担保。
  */
 export function useScheduleTask() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args: {
@@ -1542,13 +1650,15 @@ export function useScheduleTask() {
       return res.data;
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: qk.serverControl.tasks(vars.serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.tasks(vars.serviceName), accountId) });
     },
   });
 }
 
 /** 重启服务器（mutation 封装） */
 export function useRebootServer() {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useMutation({
     mutationFn: async (serviceName: string) => {
       const res = await api.post(`/server-control/${serviceName}/reboot`);
@@ -1585,6 +1695,7 @@ export interface RetractionInfo {
  */
 export function useRetraction(serviceName: string | null) {
   const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery<RetractionInfo>({
     queryKey: ["server-control", "retraction", serviceName, accountId],
     queryFn: async () =>
@@ -1598,6 +1709,7 @@ export function useRetraction(serviceName: string | null) {
 
 /** 提交撤单申请。不可逆:订单退款 + 服务器注销 */
 export function useRequestRetraction(serviceName: string, accountId: string) {
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (p: { orderId: number; confirm: true }) =>
@@ -1634,8 +1746,9 @@ export interface RescueStatus {
 
 /** 这台机现在是不是救援启动 + 有哪些救援项可选 */
 export function useRescueStatus(serviceName: string | null, accountId: string, enabled = true) {
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: [...qk.serverControl.rescue(serviceName || ""), accountId],
+    queryKey: [...accountQueryKey(qk.serverControl.rescue(serviceName || ""), accountId), accountId],
     queryFn: async (): Promise<RescueStatus> => {
       const d = (await api.get(`/server-control/${encodeURIComponent(serviceName!)}/rescue`, { params: { account: accountId } })).data;
       return {
@@ -1655,6 +1768,7 @@ export function useRescueStatus(serviceName: string | null, accountId: string, e
 
 /** 进救援:改 netboot + 设收信邮箱 + 重启,一次做完 */
 export function useEnterRescue(serviceName: string, accountId: string) {
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (v: { email?: string; useDefaultEmail: boolean; expectedBoot: number; confirm: true }) =>
@@ -1662,9 +1776,9 @@ export function useEnterRescue(serviceName: string, accountId: string) {
     retry: false,
     onSuccess: (d: any) => {
       // netboot 切换改变 bootModes 的 active 标记
-      qc.invalidateQueries({ queryKey: qk.serverControl.bootModes(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.bootModes(serviceName), accountId) });
       toast.success(bodyMessage(d) || i18n.t("hooksMsg.server.rescueEntered"));
-      qc.invalidateQueries({ queryKey: qk.serverControl.rescue(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.rescue(serviceName), accountId) });
     },
     onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.server.rescueEnterFailed")),
   });
@@ -1672,6 +1786,7 @@ export function useEnterRescue(serviceName: string, accountId: string) {
 
 /** 退出救援:切回硬盘启动 + 重启 */
 export function useExitRescue(serviceName: string, accountId: string) {
+  const api = useAccountApi(accountId);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (v: { expectedBoot: number; confirm: true }) =>
@@ -1679,9 +1794,9 @@ export function useExitRescue(serviceName: string, accountId: string) {
     retry: false,
     onSuccess: (d: any) => {
       // netboot 切换改变 bootModes 的 active 标记
-      qc.invalidateQueries({ queryKey: qk.serverControl.bootModes(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.bootModes(serviceName), accountId) });
       toast.success(bodyMessage(d) || i18n.t("hooksMsg.server.rescueExited"));
-      qc.invalidateQueries({ queryKey: qk.serverControl.rescue(serviceName) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.rescue(serviceName), accountId) });
     },
     onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.server.rescueExitFailed")),
   });
@@ -1704,8 +1819,10 @@ export interface SplaListResult {
 }
 
 export function useSplaList(serviceName: string | null, enabled = true) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
   return useQuery({
-    queryKey: qk.serverControl.spla(serviceName || ""),
+    queryKey: accountQueryKey(qk.serverControl.spla(serviceName || ""), accountId),
     queryFn: async (): Promise<SplaListResult> => {
       const d = (await api.get(`/server-control/${serviceName}/spla`)).data;
       return {

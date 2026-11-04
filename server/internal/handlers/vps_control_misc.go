@@ -31,7 +31,9 @@ func ChangeVpsContact(state *app.State) gin.HandlerFunc {
 			return
 		}
 		var body map[string]interface{}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		params := map[string]interface{}{}
 		if v, ok := body["contactAdmin"].(string); ok && v != "" {
 			params["contactAdmin"] = v
@@ -91,7 +93,9 @@ func ConfirmVpsTermination(state *app.State) gin.HandlerFunc {
 			Reason     string `json:"reason"`
 			Commentary string `json:"commentary"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Token == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 token", "code": "E7C3C8E46"})
 			return
@@ -161,7 +165,9 @@ func AddVpsSecondaryDns(state *app.State) gin.HandlerFunc {
 			Domain string `json:"domain"`
 			IP     string `json:"ip"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Domain == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "domain 必填", "code": "E19126073"})
 			return

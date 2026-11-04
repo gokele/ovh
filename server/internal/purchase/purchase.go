@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
+	"github.com/ovh-buy/server/internal/db"
 	"github.com/ovh-buy/server/internal/notify"
 	"github.com/ovh-buy/server/internal/numconv"
 	"github.com/ovh-buy/server/internal/ovh"
@@ -42,9 +44,10 @@ type Outcome struct {
 	// 不是失败:不写 history、不计 FailureCount、不算 Attempted。
 	// 结账之前的任何一步都可能落到这里;结账一旦发出就不再接受取消(见 checkout 处注释)。
 	Cancelled bool
-	// PauseTask:结账结果不确定(超时+对账也失败),暂停任务等人工确认。
+	// PauseTask:结账登记或响应无法确认,暂停任务等人工核对。
 	// 不计 FailureCount(不是确定性失败);不发 Fatal(用户确认无单后可恢复)
-	PauseTask bool
+	PauseTask        bool
+	RetryImmediately bool
 }
 
 // cancelledOutcome 下单途中任务被删除时的返回。
@@ -60,7 +63,14 @@ func cancelledOutcome(state *app.State, item *types.QueueItem, stage string) Out
 // ctx 由队列处理器给,用户删任务时会被取消(app.State.MarkTaskDeleted)。
 // 结账之前的每一次 OVH 调用都挂在它上面,取消即中断;结账本身例外,见那里的注释。
 func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem) Outcome {
-	attemptStart := time.Now() // checkout 对账用:transient 失败后按此时间查 /me/order
+	if state.DB == nil || item.ID == "" {
+		return Outcome{Fatal: true, Reason: "数据库或任务 ID 不可用,未发起下单"}
+	}
+	if found, err := state.DB.GetKV(db.QueueCheckoutKey(item.ID), &map[string]interface{}{}); err != nil {
+		return Outcome{PauseTask: true, Reason: "无法核对结账登记,未发起下单: " + err.Error()}
+	} else if found {
+		return Outcome{PauseTask: true, Reason: "此任务已有结账登记,请先核对 OVH 订单后再决定是否恢复任务"}
+	}
 	session, managed := ctx.Value(cartSessionKey{}).(*cartSession)
 	if !managed {
 		session = &cartSession{}
@@ -76,6 +86,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		recordFailure(state, item, errMsg)
 		return Outcome{Fatal: true, Reason: errMsg}
 	}
+	item.AccountID = session.accountID
 	if item.Preorder && session.cart == nil {
 		ready, err := catalog.PreorderReady(state, item.AccountID, item.PlanCode)
 		if ctx.Err() != nil {
@@ -92,6 +103,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 
 	// 每一轮都打点。抢购的胜负常常只差几百毫秒,而"差在哪"没有数字就只能靠猜。
 	tl := newTimeline()
+	tl.dispatchKey = item.AccountID + "\x00" + TimingKey(item.PlanCode, ovh.ConvertDisplayDCToAPIDC(item.Datacenter))
 	timingKey := item.ID
 	if timingKey == "" {
 		timingKey = TimingKey(item.PlanCode, item.Datacenter)
@@ -230,18 +242,19 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	// 决定本次下单使用的硬件 options：
 	// - 用户显式指定了 options → 直接用（fail-fast 由后面的 eco/options 处理）
 	// - 用户没指定 → 从可用 FQN 推断 addon planCode，确保订单走"实际有货的那套配置"
-	effectiveOptions := item.Options
-	if (len(effectiveOptions) == 0 || item.Preorder) && availableFQN != "" {
-		parts := strings.Split(availableFQN, ".")
-		if len(parts) > 1 {
-			// 第一段是 base planCode，其余是 addon 段。注意这些段是"短前缀"
-			// （ram-128g-noecc-2933），不是 eco/options 里带机型后缀的完整 planCode
-			// （ram-128g-noecc-2933-rise），下面匹配 addon 时要允许前缀命中。
-			effectiveOptions = parts[1:]
+	effectiveOptions := configurationOptions(availableFQN, item.Options)
 
+	if session.cart == nil {
+		if pool, ok := state.OrderPrewarm.(*CartPool); ok {
+			if prepared := pool.Take(*item); prepared != nil {
+				if prepared.fqn == availableFQN {
+					session.cart, session.client, client = prepared, prepared.client, prepared.client
+				} else {
+					prepared.cleanup()
+				}
+			}
 		}
 	}
-
 	ready := session.cart != nil && session.cart.fqn == availableFQN && time.Now().Before(session.cart.expires)
 	prewarmed := ready && session.cart.preparedAt.Before(detectedAt)
 	if !ready {
@@ -250,7 +263,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		}
 		session.nextPrepare = time.Now().Add(30 * time.Second)
 		session.discard()
-		prepared, outcome := prepareCart(ctx, state, item, client, effectiveOptions, apiDC, tl, timingKey, !foundAvailable)
+		prepared, outcome := prepareCart(ctx, state, item, session.account, client, effectiveOptions, apiDC, tl, timingKey, !foundAvailable)
 		if prepared == nil {
 			if !foundAvailable && !outcome.Cancelled {
 				return Outcome{WaitingForStock: true}
@@ -267,7 +280,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		recordTiming(timingKey, tl, "unavailable")
 		return Outcome{WaitingForStock: true}
 	}
-	// 直接结账 —— 跳过 /summary(它只是日志用的价格,2 秒开销),
+	// 直接结账 —— 不在库存命中后重复读取 /summary,
 	// 价格 + 过期时间下面 checkout 成功后用 /me/order 异步补,不阻塞主流程。
 	// 结账前最后一次复核。这是整条链路里唯一真正花钱的一步,也是取消能起作用的
 	// 最后一个点 —— 从这里往下,结账请求一旦发出就**不再接受取消**:
@@ -276,18 +289,45 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	if ctx.Err() != nil || state.IsTaskDeleted(item.ID) {
 		return cancelledOutcome(state, item, "结账前复核")
 	}
+	currentAccount, exists := state.FindAccount(cart.account.ID)
+	if !exists || !ovh.SameClientConfiguration(currentAccount, cart.account) || currentAccount.Zone != cart.account.Zone {
+		return cancelledOutcome(state, item, "账户配置已变化")
+	}
+	claimed, err := state.DB.ClaimQueueCheckout(item.ID)
+	if err != nil || !claimed {
+		return Outcome{PauseTask: true, Reason: "结账登记失败或任务已有结账请求,请先核对 OVH 订单"}
+	}
+	if ctx.Err() != nil || state.IsTaskDeleted(item.ID) {
+		_ = state.DB.DeleteKV(db.QueueCheckoutKey(item.ID))
+		return cancelledOutcome(state, item, "结账登记后复核")
+	}
 	var checkoutResult map[string]interface{}
 	trace := &ovh.DispatchTrace{DetectedAt: detectedAt}
-	// 一旦发出 checkout,保留原来的不可取消/对账语义,不重试不确定请求。
+	// 结账一旦发出就等待结果,不取消或重试结果不确定的请求。
 	session.cart = nil
 
 	checkoutErr := cart.call.Send(context.WithoutCancel(ctx), trace, &checkoutResult)
+	orderID := numconv.ToString(checkoutResult["orderId"])
+	if checkoutErr == nil {
+		if id, err := strconv.ParseInt(orderID, 10, 64); err != nil || id <= 0 {
+			checkoutErr = fmt.Errorf("结账响应缺少有效订单号,请到 OVH 控制台核对订单")
+		}
+	}
 	dispatch := trace.Snapshot(prewarmed)
 	tl.dispatch = &dispatch
 	state.Logger.Info(fmt.Sprintf("[派发] task=%s account=%s %s@%s detection_to_write=%dus wrote=%t reused=%t prewarmed=%t", item.ID, item.AccountID, item.PlanCode, item.Datacenter, dispatch.DetectionToWriteUS, dispatch.WroteRequest, dispatch.ConnectionReused, dispatch.Prewarmed), "purchase")
 	if err := checkoutErr; err != nil {
+		retryPrepared := ready && expiredCartError(err)
 		if !checkoutUncertain(err) {
-			cart.cleanup()
+			if retryPrepared {
+				cart.cleanupInBackground()
+			} else {
+				cart.cleanup()
+			}
+			if releaseErr := state.DB.DeleteKV(db.QueueCheckoutKey(item.ID)); releaseErr != nil {
+				recordFailureStatus(state, item, "结账被拒绝但登记未能清除,请人工核对: "+releaseErr.Error(), "uncertain")
+				return Outcome{PauseTask: true}
+			}
 		}
 		// POST /item/{id}/configuration 对取值不做任何校验 —— 实测在 EU 车上把
 		// dedicated_datacenter 设成 "hil"、region 设成 "usa" 都会 200 返回配置项 id,
@@ -307,22 +347,10 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		if couponWarning != "" {
 			errMsg += "；" + couponWarning
 		}
-		recordFailure(state, item, errMsg)
-
-		// checkout 超时/传输层失败 ≠ 下单失败:请求可能已经到达 OVH 且订单已建,
-		// 只是我方没等到响应。这时任务会重试 → 新车再 checkout → **买两台**
-		// (autoPay 开着就是重复扣款)。所以 transient 失败先对账:
-		// GET /me/order?dateFrom=本轮开始 查有没有本机型的新订单,有就按成功处理
+		// /me/order 返回 ID 列表,也不支持按 planCode 筛选,不能据此猜测本次订单。
 		if checkoutUncertain(err) {
-			if oid, url := reconcileOrder(state, client, item, attemptStart); oid != "" {
-				state.Logger.Warn(fmt.Sprintf("checkout 报 transient 失败但对账发现订单已建(#%s),按成功处理,不再重试", oid), "purchase")
-				return handleReconciledOrder(state, item, oid, url, tl, timingKey, couponWarning)
-			}
-			// 对账也失败(429/超时/panic 兜底返回空):OVH 侧订单状态未知。
-			// 直接重试 = 可能买两台(第一单已建但 history 没记,120s 闸门也不认识它)。
-			// 暂停任务 + 通知用户去 OVH 订单页人工确认 —— 比自动重试安全:
-			// 最多错过一台,不会多买一台
-			state.Logger.Warn("checkout transient 失败且对账未能确认,暂停任务等待人工确认(防重复下单)", "purchase")
+			recordFailureStatus(state, item, errMsg, "uncertain")
+			state.Logger.Warn("checkout 结果未能确认,暂停任务等待人工确认(防重复下单)", "purchase")
 			notify.Broadcast(state, fmt.Sprintf(
 				"⚠️ 抢购 %s@%s 结账结果不明确,无法确认订单是否已创建\n\n"+
 					"任务已暂停。请到 OVH 订单页查看是否已有一笔未付订单:\n"+
@@ -330,14 +358,19 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 					"- 没有:在队列页把任务恢复运行", item.PlanCode, item.Datacenter), nil)
 			return Outcome{Attempted: false, PauseTask: true}
 		}
+		recordFailure(state, item, errMsg)
 		// checkout 这一步最要紧:补货瞬间大家都在下单,429 是常态。
 		// 把它记成一次"真正的失败尝试"会让任务在唯一有货的那一分钟里自己判死。
-		return attemptOutcome(err)
+		outcome := attemptOutcome(err)
+		outcome.RetryImmediately = retryPrepared
+		if outcome.RetryImmediately {
+			outcome.Attempted = false
+		}
+		return outcome
 	}
 	tl.mark("下单")
 	recordTiming(timingKey, tl, "ordered")
 
-	orderID := numconv.ToString(checkoutResult["orderId"])
 	orderURL, _ := checkoutResult["url"].(string)
 
 	// checkout 已返回订单 ID,cart 已成功转 order,标记成功阻止 defer 删除
@@ -351,8 +384,8 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		go backfillOrderDetail(state, client, item.ID, orderID)
 	}
 
-	state.Logger.Info(fmt.Sprintf("成功购买 %s 在 %s (订单ID: %s, URL: %s)",
-		item.PlanCode, item.Datacenter, orderID, orderURL), "purchase")
+	state.Logger.Info(fmt.Sprintf("成功购买 %s 在 %s (订单ID: %s)",
+		item.PlanCode, item.Datacenter, orderID), "purchase")
 
 	// 成功通知走统一通知层(Telegram + Webhook 至少一条可达就发)。
 	// 以前被 TG 配置判断包住:Webhook-only 用户收不到"抢到了但没付款",
@@ -476,6 +509,25 @@ func fqnSegmentMatchesOption(seg, opt string) bool {
 		return false
 	}
 	return s == o || strings.HasPrefix(o, s+"-") || strings.HasPrefix(s, o+"-")
+}
+
+// Preserve explicit addons and fill unspecified hardware from the selected stock variant.
+func configurationOptions(fqn string, explicit []string) []string {
+	options := append([]string(nil), explicit...)
+	parts := strings.Split(fqn, ".")
+	for _, segment := range parts[1:] {
+		covered := false
+		for _, option := range explicit {
+			if fqnSegmentMatchesOption(segment, option) {
+				covered = true
+				break
+			}
+		}
+		if !covered && segment != "" {
+			options = append(options, segment)
+		}
+	}
+	return options
 }
 
 // fqnRelevantOptions 从用户提交的 options 里挑出真正参与 FQN 库存判定的硬件项。
@@ -713,6 +765,10 @@ func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, e
 }
 
 func recordFailure(state *app.State, item *types.QueueItem, errMsg string) {
+	recordFailureStatus(state, item, errMsg, "failed")
+}
+
+func recordFailureStatus(state *app.State, item *types.QueueItem, errMsg, status string) {
 	state.HistoryMu.Lock()
 	defer func() {
 		state.HistoryMu.Unlock()
@@ -722,7 +778,10 @@ func recordFailure(state *app.State, item *types.QueueItem, errMsg string) {
 
 	for i := range state.History {
 		if state.History[i].TaskID == item.ID {
-			state.History[i].Status = "failed"
+			if state.History[i].Status == "success" && state.History[i].OrderID != "" {
+				return
+			}
+			state.History[i].Status = status
 			state.History[i].AccountID = item.AccountID
 			state.History[i].OrderID = ""
 			state.History[i].OrderURL = ""
@@ -743,7 +802,7 @@ func recordFailure(state *app.State, item *types.QueueItem, errMsg string) {
 		PlanCode:     item.PlanCode,
 		Datacenter:   item.Datacenter,
 		Options:      item.Options,
-		Status:       "failed",
+		Status:       status,
 		ErrorMessage: &em,
 		PurchaseTime: now,
 		AttemptCount: item.RetryCount,
@@ -881,12 +940,12 @@ func backfillOrderDetail(state *app.State, client *ovhsdk.Client, taskID, orderI
 // 用户看到 🎉 就睡了,第二天机器没了还以为是我们没抢到。
 func BuildOrderSuccessMessage(item *types.QueueItem, orderID, managerURL string) string {
 	payNote := "⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n" +
-		"(订单未付款前处于 14 天撤销期内,可在 OVH 订单页撤回)\n"
+		"(撤回资格与退款金额以 OVH 订单页面显示为准)\n"
 	if item.AutoPay {
 		// 只承诺我们真正知道的:已请求自动付款 ≠ 扣款一定成功
 		// (默认支付方式失效/余额不足时 OVH 不会扣成),让用户去核对
 		payNote = "💳 已请求用账户默认支付方式自动付款,请打开订单链接核对扣款是否成功。\n" +
-			"(下单时已按惯例放弃 14 天撤销期)\n"
+			"(申请撤回的资格和退款金额以 OVH 订单页为准)\n"
 	}
 	// 发控制面板深链,不发 checkout 返回的那个 url ——
 	// 后者是带凭证的下载链接(OVH 的 billing.Order 里 url 旁边就是 password),
@@ -903,58 +962,4 @@ func BuildOrderSuccessMessage(item *types.QueueItem, orderID, managerURL string)
 	}
 	msg += "\n抢购任务ID: " + item.ID
 	return msg
-}
-
-// reconcileOrder checkout 报 transient 失败(超时/429/5xx)后查 /me/order 对账:
-// 请求可能已到达 OVH 且订单已建,直接重试会买两台。dateFrom 取本轮开始时间,
-// 只认这之后出现的同 planCode 订单 —— 之前的历史订单不算本轮的。
-func reconcileOrder(state *app.State, client *ovhsdk.Client, item *types.QueueItem, since time.Time) (orderID, orderURL string) {
-	state.QueueMu.Lock()
-	ambiguous := false
-	for _, other := range state.Queue {
-		if other.ID != item.ID && other.AccountID == item.AccountID && other.PlanCode == item.PlanCode && (other.Status == "running" || other.Status == "completed") {
-			ambiguous = true
-			break
-		}
-	}
-	state.QueueMu.Unlock()
-	if ambiguous {
-		return "", ""
-	}
-	planCode := item.PlanCode
-	defer func() {
-		if r := recover(); r != nil {
-			// 对账本身失败不能影响主流程:宁可按原逻辑重试(有 120s 成功史闸门兜底)
-			state.Logger.Warn(fmt.Sprintf("checkout 对账 panic(已忽略): %v", r), "purchase")
-			orderID, orderURL = "", ""
-		}
-	}()
-	var orders []map[string]interface{}
-	q := "/me/order?dateFrom=" + url.QueryEscape(since.UTC().Format("2006-01-02")) + "&planCode=" + url.QueryEscape(planCode)
-	if err := client.Get(q, &orders); err != nil {
-		state.Logger.Warn("checkout 对账查询失败(按未建单处理): "+err.Error(), "purchase")
-		return "", ""
-	}
-	for _, o := range orders {
-		if id := numconv.ToString(o["orderId"]); id != "" {
-			u, _ := o["url"].(string)
-			return id, u
-		}
-	}
-	return "", ""
-}
-
-// handleReconciledOrder 对账发现订单已建:按成功路径走完(记成功/异步补详情/通知)
-func handleReconciledOrder(state *app.State, item *types.QueueItem, orderID, orderURL string, tl *timeline, timingKey string, couponWarning string) Outcome {
-	recordSuccess(state, item, orderID, orderURL, "", nil, couponWarning)
-	recordTimingToHistory(state, item.ID, tl)
-	state.Logger.Info("[耗时] "+item.PlanCode+"@"+item.Datacenter+" 对账确认成功 "+tl.String(), "purchase")
-	if couponWarning != "" {
-		notify.Broadcast(state, fmt.Sprintf("⚠️ 订单 #%s: %s", orderID, couponWarning), nil)
-	}
-	if orderID != "" {
-		// client 由调用方闭包持有;这里从 state 重新取太绕,对账成功后只补记,详情由 backfill 的另一个触发点补
-		_ = orderID // backfill 在 handleReconciledOrder 外由调用方触发
-	}
-	return Outcome{Success: true}
 }

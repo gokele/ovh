@@ -25,18 +25,26 @@ type monitorSubRow struct {
 	OptionsJSON        string `db:"options"`
 }
 
-func rowToMonitorSub(r monitorSubRow) types.Subscription {
+func rowToMonitorSub(r monitorSubRow) (types.Subscription, error) {
 	var dcs []string
-	_ = json.Unmarshal([]byte(r.DatacentersJSON), &dcs)
+	if err := json.Unmarshal([]byte(r.DatacentersJSON), &dcs); err != nil {
+		return types.Subscription{}, fmt.Errorf("monitor %s datacenters: %w", r.PlanCode, err)
+	}
 	if dcs == nil {
 		dcs = []string{}
 	}
 	last := map[string]string{}
-	_ = json.Unmarshal([]byte(r.LastStatusJSON), &last)
+	if err := json.Unmarshal([]byte(r.LastStatusJSON), &last); err != nil {
+		return types.Subscription{}, fmt.Errorf("monitor %s status: %w", r.PlanCode, err)
+	}
 	hist := []types.SubscriptionHistoryEntry{}
-	_ = json.Unmarshal([]byte(r.HistoryJSON), &hist)
+	if err := json.Unmarshal([]byte(r.HistoryJSON), &hist); err != nil {
+		return types.Subscription{}, fmt.Errorf("monitor %s history: %w", r.PlanCode, err)
+	}
 	var opts []string
-	_ = json.Unmarshal([]byte(r.OptionsJSON), &opts)
+	if err := json.Unmarshal([]byte(r.OptionsJSON), &opts); err != nil {
+		return types.Subscription{}, fmt.Errorf("monitor %s options: %w", r.PlanCode, err)
+	}
 	return types.Subscription{
 		PlanCode:           r.PlanCode,
 		Datacenters:        dcs,
@@ -52,7 +60,7 @@ func rowToMonitorSub(r monitorSubRow) types.Subscription {
 		AutoPay:            r.AutoPay == 1,
 		Paused:             r.Paused == 1,
 		Options:            opts,
-	}
+	}, nil
 }
 
 func monitorSubToRow(s types.Subscription) (monitorSubRow, error) {
@@ -118,7 +126,11 @@ func (db *DB) ListMonitorSubscriptions() ([]types.Subscription, error) {
 	}
 	out := make([]types.Subscription, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, rowToMonitorSub(r))
+		item, err := rowToMonitorSub(r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }
@@ -244,7 +256,11 @@ func (db *DB) migrateMonitorIdentity() error {
 		return err
 	}
 	for _, old := range rows {
-		normalized, e := monitorSubToRow(rowToMonitorSub(old))
+		item, e := rowToMonitorSub(old)
+		if e != nil {
+			return e
+		}
+		normalized, e := monitorSubToRow(item)
 		if e != nil {
 			return e
 		}

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -11,9 +12,10 @@ import (
 
 // Store 配置存取（线程安全）
 type Store struct {
-	mu  sync.RWMutex
-	cfg types.Config
-	db  *db.DB
+	mu      sync.RWMutex
+	cfg     types.Config
+	db      *db.DB
+	loadErr error
 }
 
 const kvConfigKey = "config"
@@ -54,8 +56,9 @@ func New(database *db.DB) *Store {
 		db:  database,
 	}
 	if _, err := s.db.GetKV(kvConfigKey, &s.cfg); err != nil {
-		// 加载失败时退回默认值（避免阻塞启动）
+		// 可读取默认值,但不允许用它覆盖未成功加载的原配置。
 		s.cfg = types.DefaultConfig()
+		s.loadErr = err
 	} else {
 		s.cfg = decryptConfig(s.cfg)
 	}
@@ -101,13 +104,18 @@ func (s *Store) Get() types.Config {
 // Set 覆盖整个配置并落盘
 func (s *Store) Set(c types.Config) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.loadErr != nil {
+		return fmt.Errorf("原配置读取失败,禁止覆盖保存,请先恢复数据库并重启: %w", s.loadErr)
+	}
 	if c.IAM == "" {
 		c.IAM = "go-ovh-" + strings.ToLower(c.Zone)
 	}
+	if err := s.db.SetKV(kvConfigKey, encryptConfig(c)); err != nil {
+		return err
+	}
 	s.cfg = c
-	snapshot := s.cfg
-	s.mu.Unlock()
-	return s.db.SetKV(kvConfigKey, encryptConfig(snapshot))
+	return nil
 }
 
 // HasCredentials 判断是否已配置 OVH 凭据

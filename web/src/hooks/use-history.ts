@@ -13,7 +13,7 @@ export interface PurchaseHistory {
   planCode: string;
   datacenter: string;
   options?: string[];
-  status: "success" | "failed";
+  status: "success" | "failed" | "uncertain";
   orderId?: string;
   orderUrl?: string;
   errorMessage?: string;

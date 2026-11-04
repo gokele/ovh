@@ -21,6 +21,11 @@ func transportWarmLoop(ctx context.Context, state *app.State) {
 			}
 		}
 		state.QueueMu.Unlock()
+		if state.OrderPrewarm != nil {
+			for _, preparation := range state.OrderPrewarm.Status("") {
+				accounts[preparation.AccountID] = true
+			}
+		}
 		for account := range accounts {
 			if ctx.Err() != nil {
 				return

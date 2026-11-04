@@ -122,7 +122,7 @@ function HistoryPage() {
   const clear = useClearHistory();
   const refreshStatus = useRefreshOrderStatus();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "success" | "failed">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "success" | "failed" | "uncertain">("all");
   const [confirmClear, setConfirmClear] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -187,6 +187,7 @@ function HistoryPage() {
               <SelectItem value="all">{t("history.allStatuses")}</SelectItem>
               <SelectItem value="success">{t("history.success")}</SelectItem>
               <SelectItem value="failed">{t("history.failed")}</SelectItem>
+              <SelectItem value="uncertain">{t("history.uncertain")}</SelectItem>
             </SelectContent>
           </Select>
         </PearlSearchForm>
@@ -302,7 +303,7 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
             {t(st.labelKey)}
           </Chip>
         ) : (
-          <Chip tone="danger">{t("history.failed")}</Chip>
+          <Chip tone={item.status === "uncertain" ? "warning" : "danger"}>{t(item.status === "uncertain" ? "history.uncertain" : "history.failed")}</Chip>
         )}
       </td>
       <td className="px-4 py-3 text-[11px] text-muted-foreground font-mono whitespace-nowrap">
@@ -332,7 +333,7 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
             <ExternalLink className="w-3 h-3" />
             {t("history.orderLink")}
           </a>
-        ) : item.status === "failed" && item.errorMessage ? (
+        ) : item.status !== "success" && item.errorMessage ? (
           <button
             type="button"
             onClick={() => toast.info(item.errorMessage)}
@@ -371,7 +372,7 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
             {t(st.labelKey)}
           </Chip>
           ) : (
-            <Chip tone="danger">{t("history.failed")}</Chip>
+            <Chip tone={item.status === "uncertain" ? "warning" : "danger"}>{t(item.status === "uncertain" ? "history.uncertain" : "history.failed")}</Chip>
           )}
         </div>
         <div className={`text-[11px] text-muted-foreground break-all ${isExpired ? "line-through" : ""}`}>
@@ -400,7 +401,7 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
               <ExternalLink className="w-3 h-3" />
               {t("history.orderLink")}
             </a>
-          ) : item.status === "failed" && item.errorMessage ? (
+          ) : item.status !== "success" && item.errorMessage ? (
             <button
               type="button"
               onClick={() => toast.info(item.errorMessage)}

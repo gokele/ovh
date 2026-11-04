@@ -206,7 +206,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "void",
       "params": [
         "path:domain:string:true",
@@ -230,7 +230,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.Task",
       "params": [
         "path:serviceName:string:true"
@@ -1825,11 +1825,11 @@
   },
   "GET /me/order/{orderId}/availablePaymentMethod": {
     "US": {
+      "status": "PRODUCTION",
+      "response": "billing.order.AvailablePaymentMethod[]",
       "params": [
         "path:orderId:long:true"
-      ],
-      "response": "billing.order.AvailablePaymentMethod[]",
-      "status": "PRODUCTION"
+      ]
     }
   },
   "GET /me/order/{orderId}/details": {
@@ -1875,25 +1875,25 @@
   },
   "GET /me/order/{orderId}/paymentMethods": {
     "CA": {
+      "status": "BETA",
+      "response": "billing.order.PaymentMethods",
       "params": [
         "path:orderId:long:true"
-      ],
-      "response": "billing.order.PaymentMethods",
-      "status": "BETA"
+      ]
     },
     "EU": {
+      "status": "BETA",
+      "response": "billing.order.PaymentMethods",
       "params": [
         "path:orderId:long:true"
-      ],
-      "response": "billing.order.PaymentMethods",
-      "status": "BETA"
+      ]
     },
     "US": {
+      "status": "BETA",
+      "response": "billing.order.PaymentMethods",
       "params": [
         "path:orderId:long:true"
-      ],
-      "response": "billing.order.PaymentMethods",
-      "status": "BETA"
+      ]
     }
   },
   "GET /me/order/{orderId}/status": {
@@ -1921,25 +1921,25 @@
   },
   "GET /me/payment/method/{paymentMethodId}": {
     "CA": {
+      "status": "PRODUCTION",
+      "response": "me.payment.PaymentMethod",
       "params": [
         "path:paymentMethodId:long:true"
-      ],
-      "response": "me.payment.PaymentMethod",
-      "status": "PRODUCTION"
+      ]
     },
     "EU": {
+      "status": "PRODUCTION",
+      "response": "me.payment.PaymentMethod",
       "params": [
         "path:paymentMethodId:long:true"
-      ],
-      "response": "me.payment.PaymentMethod",
-      "status": "PRODUCTION"
+      ]
     },
     "US": {
+      "status": "PRODUCTION",
+      "response": "me.payment.PaymentMethod",
       "params": [
         "path:paymentMethodId:long:true"
-      ],
-      "response": "me.payment.PaymentMethod",
-      "status": "PRODUCTION"
+      ]
     }
   },
   "GET /me/subAccount": {
@@ -2113,6 +2113,32 @@
       ]
     }
   },
+  "GET /order/cart/{cartId}/vps/options": {
+    "CA": {
+      "status": "PRODUCTION",
+      "response": "order.cart.GenericOptionDefinition[]",
+      "params": [
+        "path:cartId:string:true",
+        "query:planCode:string:true"
+      ]
+    },
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "order.cart.GenericOptionDefinition[]",
+      "params": [
+        "path:cartId:string:true",
+        "query:planCode:string:true"
+      ]
+    },
+    "US": {
+      "status": "PRODUCTION",
+      "response": "order.cart.GenericOptionDefinition[]",
+      "params": [
+        "path:cartId:string:true",
+        "query:planCode:string:true"
+      ]
+    }
+  },
   "GET /order/catalog/public/eco": {
     "CA": {
       "status": "PRODUCTION",
@@ -2275,7 +2301,7 @@
     }
   },
   "GET /support/tickets": {
-    "EU": {
+    "CA": {
       "status": "PRODUCTION",
       "response": "long[]",
       "params": [
@@ -2294,7 +2320,7 @@
         "query:ticketNumber:string:false"
       ]
     },
-    "CA": {
+    "EU": {
       "status": "PRODUCTION",
       "response": "long[]",
       "params": [
@@ -2334,14 +2360,14 @@
     }
   },
   "GET /support/tickets/{ticketId}": {
-    "EU": {
+    "CA": {
       "status": "PRODUCTION",
       "response": "support.Ticket",
       "params": [
         "path:ticketId:long:true"
       ]
     },
-    "CA": {
+    "EU": {
       "status": "PRODUCTION",
       "response": "support.Ticket",
       "params": [
@@ -2357,14 +2383,14 @@
     }
   },
   "GET /support/tickets/{ticketId}/messages": {
-    "EU": {
+    "CA": {
       "status": "PRODUCTION",
       "response": "support.Message[]",
       "params": [
         "path:ticketId:long:true"
       ]
     },
-    "CA": {
+    "EU": {
       "status": "PRODUCTION",
       "response": "support.Message[]",
       "params": [
@@ -2395,7 +2421,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "string[]",
       "params": [
         "query:iamTags:map[string][]iam.resource.TagFilter:false"
@@ -2422,7 +2448,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.order.rule.Datacenters",
       "params": [
         "query:os:string:false",
@@ -2447,7 +2473,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.VPSWithIAM",
       "params": [
         "path:serviceName:string:true"
@@ -2470,7 +2496,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.AutomatedBackup",
       "params": [
         "path:serviceName:string:true"
@@ -2493,7 +2519,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.Datacenter",
       "params": [
         "path:serviceName:string:true"
@@ -2562,7 +2588,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "ip[]",
       "params": [
         "path:serviceName:string:true"
@@ -2585,7 +2611,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.VpsOptionEnum[]",
       "params": [
         "path:serviceName:string:true"
@@ -2608,7 +2634,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "string[]",
       "params": [
         "path:serviceName:string:true"
@@ -2631,7 +2657,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "services.Service",
       "params": [
         "path:serviceName:string:true"
@@ -2654,7 +2680,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.Snapshot",
       "params": [
         "path:serviceName:string:true"
@@ -2681,7 +2707,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "long[]",
       "params": [
         "path:serviceName:string:true",
@@ -2708,7 +2734,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.Task",
       "params": [
         "path:id:long:true",
@@ -2717,20 +2743,17 @@
     }
   },
   "POST /auth/token": {
-    "EU": {
-      "status": "PRODUCTION",
-      "response": "auth.Token",
-      "params": null
-    },
     "CA": {
       "status": "PRODUCTION",
-      "response": "auth.Token",
-      "params": null
+      "response": "auth.Token"
+    },
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "auth.Token"
     },
     "US": {
       "status": "PRODUCTION",
-      "response": "auth.Token",
-      "params": null
+      "response": "auth.Token"
     }
   },
   "POST /dedicated/server/{serviceName}/changeContact": {
@@ -3384,28 +3407,28 @@
   },
   "POST /me/order/{orderId}/pay": {
     "CA": {
+      "status": "BETA",
+      "response": "void",
       "params": [
         "body:paymentMethod:billing.order.PayWithPaymentMethod:true",
         "path:orderId:long:true"
-      ],
-      "response": "void",
-      "status": "BETA"
+      ]
     },
     "EU": {
+      "status": "BETA",
+      "response": "void",
       "params": [
         "body:paymentMethod:billing.order.PayWithPaymentMethod:true",
         "path:orderId:long:true"
-      ],
-      "response": "void",
-      "status": "BETA"
+      ]
     },
     "US": {
+      "status": "PRODUCTION",
+      "response": "void",
       "params": [
         "body::billing.order.PayWithPaymentMethod:true",
         "path:orderId:long:true"
-      ],
-      "response": "void",
-      "status": "PRODUCTION"
+      ]
     }
   },
   "POST /me/order/{orderId}/retraction": {
@@ -3685,6 +3708,32 @@
       ]
     }
   },
+  "POST /order/cart/{cartId}/vps/options": {
+    "CA": {
+      "status": "PRODUCTION",
+      "response": "order.cart.Item",
+      "params": [
+        "body::order.cart.GenericOptionCreation:true",
+        "path:cartId:string:true"
+      ]
+    },
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "order.cart.Item",
+      "params": [
+        "body::order.cart.GenericOptionCreation:true",
+        "path:cartId:string:true"
+      ]
+    },
+    "US": {
+      "status": "PRODUCTION",
+      "response": "order.cart.Item",
+      "params": [
+        "body::order.cart.GenericOptionCreation:true",
+        "path:cartId:string:true"
+      ]
+    }
+  },
   "POST /services/{serviceId}/billing/engagement/request": {
     "CA": {
       "status": "BETA",
@@ -3712,7 +3761,7 @@
     }
   },
   "POST /support/tickets/create": {
-    "EU": {
+    "CA": {
       "status": "PRODUCTION",
       "response": "support.NewMessageInfo",
       "params": [
@@ -3728,7 +3777,7 @@
         "body:watchers:string[]:false"
       ]
     },
-    "CA": {
+    "EU": {
       "status": "PRODUCTION",
       "response": "support.NewMessageInfo",
       "params": [
@@ -3762,14 +3811,14 @@
     }
   },
   "POST /support/tickets/{ticketId}/close": {
-    "EU": {
+    "CA": {
       "status": "PRODUCTION",
       "response": "void",
       "params": [
         "path:ticketId:long:true"
       ]
     },
-    "CA": {
+    "EU": {
       "status": "PRODUCTION",
       "response": "void",
       "params": [
@@ -3785,7 +3834,7 @@
     }
   },
   "POST /support/tickets/{ticketId}/reopen": {
-    "EU": {
+    "CA": {
       "status": "PRODUCTION",
       "response": "void",
       "params": [
@@ -3793,7 +3842,7 @@
         "path:ticketId:long:true"
       ]
     },
-    "CA": {
+    "EU": {
       "status": "PRODUCTION",
       "response": "void",
       "params": [
@@ -3811,7 +3860,7 @@
     }
   },
   "POST /support/tickets/{ticketId}/reply": {
-    "EU": {
+    "CA": {
       "status": "PRODUCTION",
       "response": "void",
       "params": [
@@ -3819,7 +3868,7 @@
         "path:ticketId:long:true"
       ]
     },
-    "CA": {
+    "EU": {
       "status": "PRODUCTION",
       "response": "void",
       "params": [
@@ -3872,7 +3921,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "string",
       "params": [
         "body::services.confirmTermination:true",
@@ -3898,7 +3947,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.Task",
       "params": [
         "body::vps.createSnapshot.post:true",
@@ -3922,7 +3971,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "string",
       "params": [
         "path:serviceName:string:true"
@@ -3945,7 +3994,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.Task",
       "params": [
         "path:serviceName:string:true"
@@ -3996,7 +4045,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "void",
       "params": [
         "body::vps.secondaryDnsDomains.post:true",
@@ -4020,7 +4069,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.Task",
       "params": [
         "path:serviceName:string:true"
@@ -4043,7 +4092,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.Task",
       "params": [
         "path:serviceName:string:true"
@@ -4066,7 +4115,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "vps.Task",
       "params": [
         "path:serviceName:string:true"
@@ -4089,7 +4138,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "string",
       "params": [
         "path:serviceName:string:true"
@@ -4270,7 +4319,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "void",
       "params": [
         "body::vps.VPS:true",
@@ -4298,7 +4347,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "void",
       "params": [
         "body::vps.Ip:true",
@@ -4325,7 +4374,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "void",
       "params": [
         "body::services.Service:true",
@@ -4351,7 +4400,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "void",
       "params": [
         "body::vps.Snapshot:true",

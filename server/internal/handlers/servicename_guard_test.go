@@ -51,6 +51,8 @@ func TestValidateServiceName(t *testing.T) {
 
 	// 这些都会把 OVH 请求打歪或打到别处
 	block := map[string]string{
+		".":     "当前目录路径段",
+		"..":    "上级目录路径段",
 		"a#b":   "井号:后面的路径会变成片段",
 		"a?b":   "问号:后面的路径会变成查询串",
 		"a b":   "空格",

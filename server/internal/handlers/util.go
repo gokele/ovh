@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"sync"
@@ -17,18 +18,39 @@ import (
 	"github.com/ovh-buy/server/internal/types"
 )
 
+// Optional bodies retain empty-request compatibility, but malformed fields must never reach a mutation.
+func bindOptionalJSON(c *gin.Context, body interface{}) bool {
+	if err := c.ShouldBindJSON(body); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "status": "error", "message": "请求体格式错误", "code": "E289C1A13"})
+		return false
+	}
+	return true
+}
+
 // ovhClientFor 从请求 ?account=xxx 取账户 ID 拿对应 OVH client;
 // 空时(没传 ?account)走默认账户;凭据缺失返回 error,调用方按原 Client() 错误流程处理。
 // 大部分 handler 都是 `state.OVH.Client()` 模式,这个 helper 是 1:1 替换,
 // 把单账户改成多账户路由,语义最小化变化。
 func ovhClientFor(state *app.State, c *gin.Context) (*ovhsdk.Client, error) {
-	return state.OVH.IsolatedClientFor(c.Query("account"))
+	account, ok := ovhAccountFor(state, c)
+	if !ok {
+		return nil, fmt.Errorf("OVH account not found")
+	}
+	return state.OVH.IsolatedClientForAccount(account)
 }
 
 // ovhAccountFor 从请求 ?account=xxx 取账户实体(给需要原始凭据/endpoint 的 raw HTTP 调用用)。
 // 空 → 默认账户;不存在 → ok=false。
 func ovhAccountFor(state *app.State, c *gin.Context) (types.OVHAccount, bool) {
-	return state.FindAccount(c.Query("account"))
+	if value, ok := c.Get("ovh-account-snapshot"); ok {
+		account, valid := value.(types.OVHAccount)
+		return account, valid
+	}
+	account, ok := state.FindAccount(c.Query("account"))
+	if ok {
+		c.Set("ovh-account-snapshot", account)
+	}
+	return account, ok
 }
 
 // knownEndpoints go-ovh 支持的 endpoint 名 → REST API base URL。
@@ -49,22 +71,6 @@ var knownEndpoints = map[string]string{
 func IsKnownEndpoint(endpoint string) bool {
 	_, ok := knownEndpoints[endpoint]
 	return ok
-}
-
-// ovhAPIBaseURL 把 endpoint 映射成 OVH REST API base URL。
-// 未知 endpoint 返回 ok=false,调用方必须报错而不是猜一个大区。
-func ovhAPIBaseURLChecked(endpoint string) (string, bool) {
-	u, ok := knownEndpoints[endpoint]
-	return u, ok
-}
-
-// ovhAPIBaseURL 兼容旧调用点:未知 endpoint 仍回落 EU,但会被 ovhAPIBaseURLChecked
-// 的调用方拦在前面。新代码请用 ovhAPIBaseURLChecked。
-func ovhAPIBaseURL(endpoint string) string {
-	if u, ok := knownEndpoints[endpoint]; ok {
-		return u
-	}
-	return "https://eu.api.ovh.com"
 }
 
 // parallelGetDetails 通用并发 GET helper。对 keys[i] 用 pathFn(keys[i]) 拼出路径，
@@ -205,16 +211,6 @@ func ovhAPICode(err error) int {
 // ovhIsNotFound OVH 是否明确回了 404
 func ovhIsNotFound(err error) bool { return ovhAPICode(err) == http.StatusNotFound }
 
-// ovhIsGone OVH 是否表示端点已不存在(404 或 410)。
-// 2026-10 OVH 把 VPS 的一批旧端点标记废弃、删除日期 2026-10-15
-// (reinstall/setPassword/status/templates/distribution),到期后调用会得到
-// 404/410 —— 这类失败要和"这台机器没有该资源"区分开:前者是功能没了,
-// 后者是数据状态。DELETE /vps/{sn}/option/{option} 则已经直接从 schema 消失。
-func ovhIsGone(err error) bool {
-	code := ovhAPICode(err)
-	return code == http.StatusNotFound || code == http.StatusGone
-}
-
 // defaultZero 数字字段缺失时返回 0 而不是 null（OVH 偶尔不返回某些字段）
 func defaultZero(v interface{}) interface{} {
 	if v == nil {
@@ -256,10 +252,6 @@ func isNonEmptyStorage(v interface{}) bool {
 		return x != ""
 	}
 	return true
-}
-
-func jsonUnmarshal(data []byte, v interface{}) error {
-	return json.Unmarshal(data, v)
 }
 
 // idToString 把 OVH 返回的 ID（可能是 string 或数字）转成字符串

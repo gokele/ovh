@@ -448,7 +448,6 @@ func handleTelegramMessage(state *app.State, mon *monitor.Monitor, u *updateCtx,
 	}
 	askOrderConfirm(state, chatID, int64(messageID), orderInfo, ra, alt)
 	u.JSON(http.StatusOK, gin.H{"ok": true, "handled": "order_confirm"})
-	return
 }
 
 // parseUpdateID 从 update JSON 里取 update_id（JSON 数字解出来可能是 float64 / json.Number）

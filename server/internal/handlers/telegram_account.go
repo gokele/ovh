@@ -76,52 +76,6 @@ func resolveOrderAccount(state *app.State, mon *monitor.Monitor, planCode string
 	return resolvedAccount{Account: acc, Region: region, Confident: true}
 }
 
-// explainAccountChoice 一句话说明这单为什么落在这个账户上。
-//
-// 必须说：账户选错的后果是"永远抢不到"且 OVH 不报错，
-// 用户唯一能发现的机会就是下单那一刻看到它落在哪儿了。
-//
-// 尤其是"没能确认"那一支 —— 那正是最可能出错的情况，更要说。
-func explainAccountChoice(r resolvedAccount, planCode string) string {
-	if r.Account.ID == "" {
-		return ""
-	}
-	if r.Confident {
-		return fmt.Sprintf("账户：%s\n（%s 在这个账户的目录里，已自动选定）",
-			telegram.AccountLabel(r.Account), planCode)
-	}
-	return fmt.Sprintf("账户：%s\n"+
-		"⚠️ 没能确认 %s 属于哪个区，用的是当前账户。\n"+
-		"   OVH 三个站点互不相通，用错区的账户下单不会报错，只会一直抢不到。\n"+
-		"   要换账户发 /accounts。",
-		telegram.AccountLabel(r.Account), planCode)
-}
-
-// askOrderAccount 同一大区有多个账户时，让用户挑一次。
-//
-// 挑完会记成当前账户，所以这个问题在同一个区里只会问一次；
-// 换到别的区的机型时又会自动解析，不需要再切回来。
-func askOrderAccount(state *app.State, chatID interface{}, messageID int64,
-	info *telegram.OrderInfo, ra resolvedAccount) {
-
-	f := &watchFlow{
-		Step:     stepOrderAccount,
-		Accounts: ra.Ambiguous,
-		PlanCode: info.PlanCode,
-		Order:    info,
-	}
-	tok := putFlow(f)
-
-	labels := make([]string, 0, len(ra.Ambiguous))
-	for _, a := range ra.Ambiguous {
-		labels = append(labels, telegram.AccountLabel(a))
-	}
-	telegram.SendKeyboard(state, chatID, messageID, fmt.Sprintf(
-		"👤 %s 属于 %s 区，而你在这个区有 %d 个账户 —— 用哪个下单？\n\n"+
-			"（选完会记住，同一个区之后不再问；换别的区的机型会自动切）",
-		info.PlanCode, ra.Region, len(ra.Ambiguous)), flowKeyboard(tok, labels))
-}
-
 // accountShortName 账户的短名，用在 `@xxx` 里。
 //
 // 用子公司而不是账户名：名字可能是中文、带空格、或者两个账户叫得很像，
@@ -265,6 +219,14 @@ func askOrderConfirm(state *app.State, chatID interface{}, messageID int64,
 		Confirm:  []types.OVHAccount{ra.Account},
 	}
 	tok := putFlow(f)
+	seen := map[string]bool{}
+	for _, account := range append([]types.OVHAccount{ra.Account}, alt...) {
+		if seen[account.ID] {
+			continue
+		}
+		seen[account.ID] = true
+		go telegram.PrewarmOrder(state, "tg:"+tok+":"+account.ID, account.ID, o.PlanCode, o.Datacenter, o.Quantity, append([]string(nil), o.Options...), flowTTL)
+	}
 
 	var b strings.Builder
 	b.WriteString("📋 确认一下\n\n")

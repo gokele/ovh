@@ -75,7 +75,9 @@ func terminationPolicyHandler(
 		var body struct {
 			Policy string `json:"policy"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if !terminationPolicies[body.Policy] {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false,
 				"error": "policy 必须是 empty / terminateAtExpirationDate / terminateAtEngagementDate 之一", "code": "EC1E20146"})

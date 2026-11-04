@@ -14,6 +14,7 @@ import (
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/db"
 	"github.com/ovh-buy/server/internal/ovh"
+	"github.com/ovh-buy/server/internal/types"
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 )
 
@@ -24,6 +25,8 @@ type orderPaymentMethod struct {
 	Default bool   `json:"default"`
 }
 type orderPaymentInfo struct {
+	account        types.OVHAccount
+	client         *ovhsdk.Client
 	AccountID      string               `json:"accountId"`
 	AccountName    string               `json:"accountName"`
 	OrderID        int64                `json:"orderId"`
@@ -87,10 +90,12 @@ func loadOrderPayment(ctx context.Context, state *app.State, accountID string, o
 		return info, fmt.Errorf("下单账户不存在")
 	}
 	info.AccountID, info.AccountName = acc.ID, acc.Name
-	client, err := state.OVH.IsolatedClientFor(acc.ID)
+	client, err := state.OVH.IsolatedClientForAccount(acc)
 	if err != nil {
 		return info, err
 	}
+	info.account, info.client = acc, client
+	client.Client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	path := fmt.Sprintf("/me/order/%d", orderID)
 	var order struct {
 		OrderID        int64  `json:"orderId"`
@@ -242,6 +247,11 @@ func PayAccountOrder(state *app.State) gin.HandlerFunc {
 			c.JSON(409, gin.H{"error": "订单已过期或该支付方式不可用,请刷新后重新选择"})
 			return
 		}
+		current, exists := state.FindAccount(info.AccountID)
+		if c.Request.Context().Err() != nil || !exists || !ovh.SameClientConfiguration(current, info.account) || current.Zone != info.account.Zone {
+			c.JSON(http.StatusConflict, gin.H{"error": "账户配置已变化或请求已取消,未发起付款,请重新打开付款窗口核对"})
+			return
+		}
 		claimed, err := state.DB.ClaimOrderPayment(info.AccountID, id)
 		if err != nil {
 			c.JSON(500, gin.H{"error": "付款请求未能登记,没有发起扣款"})
@@ -251,20 +261,14 @@ func PayAccountOrder(state *app.State) gin.HandlerFunc {
 			c.JSON(409, gin.H{"error": "已有付款请求,请在 OVH 控制台核对,不要重复付款"})
 			return
 		}
-		client, err := state.OVH.IsolatedClientFor(info.AccountID)
-		if err != nil {
-			c.JSON(500, gin.H{"error": "账户不可用,付款未发起"})
-			return
-		}
 		method := map[string]interface{}{"id": body.MethodID}
-		acc, _ := state.FindAccount(info.AccountID)
-		if ovh.EndpointRegion(acc.Endpoint) == "US" {
+		if ovh.EndpointRegion(info.account.Endpoint) == "US" {
 			method["type"] = body.MethodType
 		}
 		// 客户端断开后仍等 OVH 返回;结果不明确时保留登记,重启后也不重发。
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
-		err = client.PostWithContext(ctx, fmt.Sprintf("/me/order/%d/pay", id), map[string]interface{}{"paymentMethod": method}, nil)
+		err = info.client.PostWithContext(ctx, fmt.Sprintf("/me/order/%d/pay", id), map[string]interface{}{"paymentMethod": method}, nil)
 		if err != nil {
 			var apiErr *ovhsdk.APIError
 			if errors.As(err, &apiErr) && apiErr.Code >= 400 && apiErr.Code < 500 && apiErr.Code != 408 && apiErr.Code != 409 && apiErr.Code != 429 {

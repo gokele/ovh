@@ -523,7 +523,9 @@ func AcceptContactChangeRequest(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Token string `json:"token"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Token == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少必需的 token 参数。请从邮件中获取 token 并输入。", "code": "EBC948D95"})
 			return
@@ -561,7 +563,9 @@ func RefuseContactChangeRequest(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Token string `json:"token"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Token == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "缺少必需的 token 参数。请从邮件中获取 token 并输入。", "code": "EBC948D95"})
 			return

@@ -256,7 +256,9 @@ func ConfigureOLAAggregation(state *app.State) gin.HandlerFunc {
 			Name                     string   `json:"name"`
 			VirtualNetworkInterfaces []string `json:"virtualNetworkInterfaces"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Name == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少聚合名称(name)参数", "code": "E5DFC8606"})
 			return
@@ -291,7 +293,9 @@ func ResetOLAConfiguration(state *app.State) gin.HandlerFunc {
 		var body struct {
 			VirtualNetworkInterface string `json:"virtualNetworkInterface"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.VirtualNetworkInterface == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少虚拟网络接口UUID(virtualNetworkInterface)参数", "code": "EAD1397D5"})
 			return
@@ -329,7 +333,9 @@ func OLAGroup(state *app.State) gin.HandlerFunc {
 			Name                     string   `json:"name"`
 			VirtualNetworkInterfaces []string `json:"virtualNetworkInterfaces"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Name == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少聚合名称(name)参数", "code": "E5DFC8606"})
 			return
@@ -370,7 +376,9 @@ func OLAUngroup(state *app.State) gin.HandlerFunc {
 		var body struct {
 			VirtualNetworkInterface string `json:"virtualNetworkInterface"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.VirtualNetworkInterface == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少虚拟网络接口UUID(virtualNetworkInterface)参数", "code": "EAD1397D5"})
 			return

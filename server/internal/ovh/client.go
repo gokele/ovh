@@ -2,6 +2,7 @@ package ovh
 
 import (
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -18,6 +19,15 @@ import (
 //	id == "x" → 精确找 x
 type AccountLookup func(id string) (types.OVHAccount, bool)
 
+func clientAccountSettings(a types.OVHAccount) types.OVHAccount {
+	return types.OVHAccount{Endpoint: a.Endpoint, AppKey: a.AppKey, AppSecret: a.AppSecret,
+		ConsumerKey: a.ConsumerKey, ProxyURL: a.ProxyURL, Fingerprint: a.Fingerprint}
+}
+
+func SameClientConfiguration(a, b types.OVHAccount) bool {
+	return clientAccountSettings(a) == clientAccountSettings(b)
+}
+
 // Factory OVH client 工厂。按 accountID 缓存 client 实例;
 // 同一账户多次取拿到同一个 client;Invalidate 失效特定账户的缓存。
 //
@@ -31,8 +41,9 @@ type Factory struct {
 	// onProxyError 代理层面失败时回调(accountID, err)。由 main 接到 proxyguard。
 	onProxyError func(accountID string, err error)
 
-	mu    sync.Mutex
-	cache map[string]*ovh.Client // accountID → client
+	mu            sync.Mutex
+	cache         map[string]*ovh.Client // accountID → client
+	cacheAccounts map[string]types.OVHAccount
 }
 
 // NewFactory 构造工厂。lookup 由 State 闭包注入。
@@ -57,6 +68,7 @@ func (f *Factory) SetProxyErrorHook(fn func(accountID string, err error)) {
 	f.mu.Lock()
 	f.onProxyError = fn
 	f.cache = map[string]*ovh.Client{} // 让已缓存的 client 重建,带上钩子
+	f.cacheAccounts = map[string]types.OVHAccount{}
 	f.mu.Unlock()
 }
 
@@ -74,13 +86,20 @@ func (f *Factory) ClientFor(accountID string) (*ovh.Client, error) {
 		}
 		return nil, fmt.Errorf("ovh account %s not found", accountID)
 	}
+	return f.ClientForAccount(acc)
+}
+
+// ClientForAccount preserves the account snapshot selected for a multi-step workflow.
+func (f *Factory) ClientForAccount(acc types.OVHAccount) (*ovh.Client, error) {
 	if acc.AppKey == "" || acc.AppSecret == "" || acc.ConsumerKey == "" {
 		return nil, fmt.Errorf("ovh account %s missing credentials", acc.ID)
 	}
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if cli, ok := f.cache[acc.ID]; ok {
+	// Labels and default-account selection do not change the transport or credentials.
+	settings := clientAccountSettings(acc)
+	if cli, ok := f.cache[acc.ID]; ok && f.cacheAccounts[acc.ID] == settings {
 		return cli, nil
 	}
 	cli, err := ovh.NewClient(acc.Endpoint, acc.AppKey, acc.AppSecret, acc.ConsumerKey)
@@ -121,9 +140,14 @@ func (f *Factory) ClientFor(accountID string) (*ovh.Client, error) {
 			acc.Name, netfp.ScrubProxyURL(acc.ProxyURL), herr)
 	}
 	cli.Client = httpCli
+	cli.Client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	cli.Timeout = 60 * time.Second
 
 	f.cache[acc.ID] = cli
+	if f.cacheAccounts == nil {
+		f.cacheAccounts = map[string]types.OVHAccount{}
+	}
+	f.cacheAccounts[acc.ID] = settings
 	return cli, nil
 }
 
@@ -131,6 +155,7 @@ func (f *Factory) ClientFor(accountID string) (*ovh.Client, error) {
 func (f *Factory) Invalidate(accountID string) {
 	f.mu.Lock()
 	delete(f.cache, accountID)
+	delete(f.cacheAccounts, accountID)
 	f.mu.Unlock()
 }
 
@@ -138,6 +163,7 @@ func (f *Factory) Invalidate(accountID string) {
 func (f *Factory) InvalidateAll() {
 	f.mu.Lock()
 	f.cache = map[string]*ovh.Client{}
+	f.cacheAccounts = map[string]types.OVHAccount{}
 	f.mu.Unlock()
 }
 
@@ -165,5 +191,7 @@ func (f *Factory) Client() (*ovh.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	cli.Timeout = 60 * time.Second
+	cli.Client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return cli, nil
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/ovh-buy/server/internal/netfp"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
+	"github.com/ovh-buy/server/internal/vps"
 )
 
 // ── 输入 / 输出 DTO ────────────────────────────────────────────────────────
@@ -347,9 +348,20 @@ func UpdateAccount(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		state.OVH.Invalidate(acc.ID)
+		previous, _ := state.FindAccount(acc.ID)
+		connectionChanged := !ovh.SameClientConfiguration(previous, acc) || previous.Zone != acc.Zone
+		if connectionChanged {
+			vps.InvalidateAccountChecks(state, acc.ID)
+		}
 		invalidateOrderMappingCache(acc.ID) // 换了凭据/endpoint,旧缓存里的订单可能已经不属于这个账户了
-		_ = state.ReloadAccounts()
+		if err := state.ReloadAccounts(); err != nil {
+			state.OVH.Invalidate(acc.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "账户已保存,但重新加载失败: " + err.Error()})
+			return
+		}
+		if connectionChanged {
+			state.OVH.Invalidate(acc.ID)
+		}
 		RefreshSharedProxy(state)
 
 		valid, subsidiaryWarning := verifyAccountCreds(state, acc.ID)
@@ -485,6 +497,20 @@ func reloadAfterAccountDelete(state *app.State, accountID string) {
 	}
 	if subs, err := state.DB.ListVPSSubscriptions(); err == nil {
 		state.VPSSubsMu.Lock()
+		previous := make(map[string]types.VPSSubscription, len(state.VPSSubscriptions))
+		for _, sub := range state.VPSSubscriptions {
+			previous[sub.ID] = sub
+			if sub.AutoOrderAccountID == accountID {
+				state.UnregisterTaskCancel("vps:" + sub.ID)
+			}
+		}
+		for i := range subs {
+			old := previous[subs[i].ID]
+			subs[i].Revision = old.Revision
+			if old.AutoOrderAccountID == accountID {
+				subs[i].Revision++
+			}
+		}
 		state.VPSSubscriptions = subs
 		if state.VPSSubscriptions == nil {
 			state.VPSSubscriptions = []types.VPSSubscription{}

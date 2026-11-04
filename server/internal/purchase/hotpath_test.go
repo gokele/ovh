@@ -113,12 +113,18 @@ func hotFixture(t *testing.T) (*app.State, *atomic.Int32, *atomic.Int32, *atomic
 			fmt.Fprint(w, `[{"label":"region","required":true,"allowedValues":["europe"]}]`)
 		case strings.HasSuffix(path, "/eco/options") && r.Method == "GET":
 			fmt.Fprint(w, `[{"planCode":"ram-32g","prices":[{"duration":"P1M","pricingMode":"default"}]}]`)
+		case strings.HasSuffix(path, "/summary") && r.Method == "GET":
+			fmt.Fprint(w, `{"prices":{"withTax":{"value":39.98,"currencyCode":"EUR"}}}`)
 		case strings.HasSuffix(path, "/checkout"):
 			if !stock.Load() {
 				t.Error("preparation created an order before stock")
 			}
 			checkouts.Add(1)
-			fmt.Fprint(w, `{}`)
+			fmt.Fprint(w, `{"orderId":123}`)
+		case path == "/me/order/123":
+			fmt.Fprint(w, `{"orderId":123}`)
+		case path == "/me/order/123/status":
+			fmt.Fprint(w, `"notPaid"`)
 		case strings.HasSuffix(path, "/assign") || strings.HasSuffix(path, "/configuration") || strings.HasSuffix(path, "/eco/options") || r.Method == "DELETE":
 			fmt.Fprint(w, `{}`)
 		default:
@@ -132,7 +138,7 @@ func hotFixture(t *testing.T) (*app.State, *atomic.Int32, *atomic.Int32, *atomic
 		if !strings.Contains(r.URL.Path, "/order/catalog/public/eco") {
 			return nil, fmt.Errorf("unexpected outbound public request %s", r.URL)
 		}
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"plans":[{"planCode":"plan"}]}`)), Request: r}, nil
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"locale":{"currencyCode":"EUR"},"plans":[{"planCode":"plan","pricings":[{"mode":"default","intervalUnit":"month","interval":1,"price":3998000000}]}],"addons":[{"planCode":"ram-32g","pricings":[{"mode":"default","intervalUnit":"month","interval":1,"price":0}]}]}`)), Request: r}, nil
 	})
 	t.Cleanup(func() { http.DefaultTransport = original })
 	state.Accounts = []types.OVHAccount{{ID: "hot-eu", Endpoint: server.URL, Zone: "IE", AppKey: "fixture", AppSecret: "fixture", ConsumerKey: "fixture"}}

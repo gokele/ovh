@@ -9,6 +9,7 @@ package numconv
 
 import (
 	"encoding/json"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -29,7 +30,10 @@ func ToInt64(v interface{}) (int64, bool) {
 	case int64:
 		return x, true
 	case uint:
-		return int64(x), true
+		if uint64(x) <= math.MaxInt64 {
+			return int64(x), true
+		}
+		return 0, false
 	case uint8:
 		return int64(x), true
 	case uint16:
@@ -37,17 +41,18 @@ func ToInt64(v interface{}) (int64, bool) {
 	case uint32:
 		return int64(x), true
 	case uint64:
-		return int64(x), true
-	case float32:
-		return int64(x), true
-	case float64:
-		return int64(x), true
-	case json.Number:
-		if n, err := x.Int64(); err == nil {
-			return n, true
+		if x <= math.MaxInt64 {
+			return int64(x), true
 		}
-		if f, err := x.Float64(); err == nil {
-			return int64(f), true
+		return 0, false
+	case float32:
+		return floatToInt64(float64(x))
+	case float64:
+		return floatToInt64(x)
+	case json.Number:
+		n, err := x.Int64()
+		if err == nil {
+			return n, true
 		}
 		return 0, false
 	case string:
@@ -55,15 +60,21 @@ func ToInt64(v interface{}) (int64, bool) {
 		if s == "" {
 			return 0, false
 		}
-		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err == nil {
 			return n, true
-		}
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			return int64(f), true
 		}
 		return 0, false
 	}
 	return 0, false
+}
+
+// Floating-point IDs must be finite, integral and within the exact int64 bounds.
+func floatToInt64(v float64) (int64, bool) {
+	if math.IsNaN(v) || math.IsInf(v, 0) || math.Trunc(v) != v || v < math.MinInt64 || v >= -float64(math.MinInt64) {
+		return 0, false
+	}
+	return int64(v), true
 }
 
 // ToFloat64 把任意数字/数字字符串转 float64

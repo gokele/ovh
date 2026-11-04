@@ -78,8 +78,8 @@ func TestReadKeyTakesLastLine(t *testing.T) {
 	if err := os.WriteFile(envPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, ok := readKeyFromEnvFile(envPath)
-	if !ok {
+	got, ok, err := readKeyFromEnvFile(envPath)
+	if !ok || err != nil {
 		t.Fatal("应当读到密钥")
 	}
 	want := normalizeKey("secondkey")
@@ -91,12 +91,34 @@ func TestReadKeyTakesLastLine(t *testing.T) {
 // 文件不存在 / 里面没有密钥时要如实返回 false，不能瞎编一把
 func TestReadKeyMissing(t *testing.T) {
 	dir := t.TempDir()
-	if _, ok := readKeyFromEnvFile(filepath.Join(dir, "nope.env")); ok {
+	if _, ok, err := readKeyFromEnvFile(filepath.Join(dir, "nope.env")); ok || err != nil {
 		t.Fatal("文件不存在时不该返回密钥")
 	}
 	p := filepath.Join(dir, ".env")
 	os.WriteFile(p, []byte("# 只有注释\nOTHER=1\n"), 0o600)
-	if _, ok := readKeyFromEnvFile(p); ok {
+	if _, ok, err := readKeyFromEnvFile(p); ok || err != nil {
 		t.Fatal("没有密钥行时不该返回密钥")
+	}
+}
+
+func TestUnreadableKeySourceDoesNotGenerateReplacement(t *testing.T) {
+	t.Setenv(KeyEnv, "")
+	for _, name := range []string{keyFile, ".env"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Mkdir(filepath.Join(dir, name), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := resolveKey(dir, filepath.Join(dir, ".env")); err == nil {
+				t.Fatal("unreadable key source was silently replaced")
+			}
+			other := ".env"
+			if name == other {
+				other = keyFile
+			}
+			if _, err := os.Stat(filepath.Join(dir, other)); !os.IsNotExist(err) {
+				t.Fatal("replacement key was written", err)
+			}
+		})
 	}
 }

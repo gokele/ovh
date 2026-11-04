@@ -10,6 +10,7 @@
 # ---------- 一、机密：泄漏 = 账户失守 ----------
 # 后端密钥(API_SECRET_KEY 等)。只放行 *.env.example 样板
 .env
+.api-secret
 .env.*
 *.env
 !.env.example

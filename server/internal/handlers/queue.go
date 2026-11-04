@@ -253,6 +253,25 @@ func UpdateQueueStatus(state *app.State) gin.HandlerFunc {
 		}
 		found := false
 		var blockErr error
+		if body.Status == "running" || body.Status == "pending" {
+			if err := state.RestoreCompletedQueue(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "无法核对已下单记录,未恢复任务: " + err.Error()})
+				return
+			}
+			if err := state.ResumeQueueItem(id, body.Status); err != nil {
+				switch {
+				case errors.Is(err, app.ErrQueueAlreadyOrdered):
+					c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "code": "QUEUE_ALREADY_ORDERED"})
+				case errors.Is(err, app.ErrQueueNotFound):
+					c.JSON(http.StatusNotFound, gin.H{"error": err.Error(), "code": "E10FEEC40"})
+				default:
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "恢复失败,任务保持原状态: " + err.Error()})
+				}
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"status": "success"})
+			return
+		}
 		state.QueueMu.Lock()
 		for i := range state.Queue {
 			if state.Queue[i].ID == id {
@@ -262,12 +281,6 @@ func UpdateQueueStatus(state *app.State) gin.HandlerFunc {
 					return
 				}
 				blockErr = state.SetAutomaticOrderBlockedLocked(state.Queue[i], body.Status != "running" && body.Status != "pending")
-				// 恢复必须先成功写入许可,失败时保持停止。
-				if blockErr != nil && (body.Status == "running" || body.Status == "pending") {
-					state.QueueMu.Unlock()
-					c.JSON(500, gin.H{"error": blockErr.Error()})
-					return
-				}
 				state.Queue[i].Status = body.Status
 				state.Queue[i].UpdatedAt = types.NowISO()
 				if body.Status != "running" {

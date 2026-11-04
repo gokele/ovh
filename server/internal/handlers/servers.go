@@ -266,7 +266,9 @@ func GetAvailability(state *app.State) gin.HandlerFunc {
 			var body struct {
 				Options interface{} `json:"options"`
 			}
-			_ = c.ShouldBindJSON(&body)
+			if !bindOptionalJSON(c, &body) {
+				return
+			}
 			switch v := body.Options.(type) {
 			case []interface{}:
 				for _, o := range v {
@@ -302,13 +304,13 @@ func GetAvailability(state *app.State) gin.HandlerFunc {
 				// 和"所有机房都没货"长得一模一样。这里明确告诉调用方是拿错区了。
 				state.Logger.Warn("查询 "+planCode+" 可用性: "+err.Error(), "availability")
 				c.JSON(http.StatusNotFound, gin.H{
-					"error":   "planCode 不属于该账户所在站点", "code": "E5F67A422",
+					"error": "planCode 不属于该账户所在站点", "code": "E5F67A422",
 					"message": err.Error(),
 				})
 			case errors.Is(err, catalog.ErrConfigNotMatched):
 				state.Logger.Warn("查询 "+planCode+" 可用性: "+err.Error(), "availability")
 				c.JSON(http.StatusNotFound, gin.H{
-					"error":   "该 plan 没有这套配置组合", "code": "E8B5F5226",
+					"error": "该 plan 没有这套配置组合", "code": "E8B5F5226",
 					"message": err.Error(),
 				})
 			default:
@@ -343,7 +345,9 @@ func MonitorPrice(state *app.State) gin.HandlerFunc {
 			Datacenter string   `json:"datacenter"`
 			Options    []string `json:"options"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.PlanCode == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 plan_code 参数", "code": "E036D6AFA"})
 			return
@@ -380,7 +384,9 @@ func ServerPrice(state *app.State) gin.HandlerFunc {
 			Datacenter string   `json:"datacenter"`
 			Options    []string `json:"options"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 
 		accountID := c.Query("account")
 		if accountID == "" {
@@ -467,7 +473,9 @@ func ClearCache(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Type string `json:"type"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		cacheType := body.Type
 		if cacheType == "" {
 			cacheType = "all"

@@ -730,3 +730,152 @@ test("queue dispatch timings render only observed writes in both languages", asy
     }
   } finally { await i18n.changeLanguage(original); client.clear(); }
 });
+
+test("service details and mutations remain scoped to the account that owns the view", async () => {
+  const { useServerServiceInfo } = await server.ssrLoadModule("/src/hooks/use-server-control.ts");
+  const { useUpdateVpsRenewal } = await server.ssrLoadModule("/src/hooks/use-vps-control.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const original = api.defaults.adapter;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const euKey = ["server-control", "service-info", "same-service", { accountId: "eu" }];
+  const usKey = ["server-control", "service-info", "same-service", { accountId: "us" }];
+  const calls = [];
+  let mutation;
+  api.defaults.adapter = async config => {
+    calls.push(config);
+    return { data: { success: true }, status: 200, statusText: "OK", headers: {}, config };
+  };
+  function Probe() {
+    const info = useServerServiceInfo("same-service");
+    mutation = useUpdateVpsRenewal("same-service");
+    return createElement("span", null, info.data?.status || "loading");
+  }
+  try {
+    client.setQueryData(["accounts", "list"], [{ id: "eu", isDefault: true }, { id: "us" }]);
+    client.setQueryData(euKey, { status: "eu-only" });
+    assert.match(renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe))), /eu-only/);
+    // An operation created for EU must retain that account after the selected default changes.
+    client.setQueryData(["accounts", "list"], [{ id: "eu" }, { id: "us", isDefault: true }]);
+    await mutation.mutateAsync({ mode: "manual" });
+    assert.equal(calls[0].params.account, "eu");
+    const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    assert.ok(html.includes("loading") && !html.includes("eu-only"));
+    assert.ok(client.getQueryState(usKey));
+    assert.ok(client.getQueryData(euKey));
+  } finally { api.defaults.adapter = original; client.clear(); }
+});
+
+test("OS template storage is account-scoped and rejects malformed responses", async () => {
+  const { useServerTemplates } = await server.ssrLoadModule("/src/hooks/use-server-control.ts");
+  const { api } = await server.ssrLoadModule("/src/lib/api.ts");
+  const originalAdapter = api.defaults.adapter;
+  const originalStorage = globalThis.localStorage;
+  const entries = new Map([
+    ["ovh_sniper_templates_same-service", JSON.stringify([{ templateName: "legacy-other-account" }])],
+    ['ovh_sniper_templates_["eu","same-service"]', JSON.stringify([{ templateName: "eu-only" }])],
+    ['ovh_sniper_templates_["us","same-service"]', JSON.stringify({ invalid: true })],
+  ]);
+  globalThis.localStorage = { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value) };
+  const client = new QueryClient();
+  api.defaults.adapter = async config => ({ data: { templates: {} }, status: 200, statusText: "OK", headers: {}, config });
+  function Probe() {
+    const query = useServerTemplates("same-service", false);
+    return createElement("span", null, query.data?.map(item => item.templateName).join(",") || "loading");
+  }
+  try {
+    client.setQueryData(["accounts", "list"], [{ id: "eu", isDefault: true }, { id: "us" }]);
+    assert.match(renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe))), /eu-only/);
+    client.setQueryData(["accounts", "list"], [{ id: "eu" }, { id: "us", isDefault: true }]);
+    const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
+    assert.ok(html.includes("loading") && !html.includes("eu-only") && !html.includes("legacy-other-account"));
+    const query = client.getQueryCache().find({ queryKey: ["server-control", "os-templates", "same-service", { accountId: "us" }] });
+    await assert.rejects(query.options.queryFn(), /模板列表响应格式错误|Invalid OS template response/);
+  } finally {
+    api.defaults.adapter = originalAdapter;
+    if (originalStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = originalStorage;
+    client.clear();
+  }
+});
+
+test("ambiguous checkout history is labeled as needing verification in both languages", async () => {
+  const { Route: HistoryRoute } = await server.ssrLoadModule("/src/routes/history.tsx");
+  const { default: i18n } = await server.ssrLoadModule("/src/i18n/index.ts");
+  const language = i18n.language;
+  const client = new QueryClient();
+  client.setQueryData(["history"], [{ id: "uncertain", accountId: "eu", planCode: "vps-fixture", datacenter: "DE", status: "uncertain", errorMessage: "Check the order in OVH", purchaseTime: "2026-11-03T00:00:00Z" }]);
+  try {
+    for (const lang of ["zh", "en"]) {
+      await i18n.changeLanguage(lang);
+      const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(HistoryRoute.options.component)));
+      assert.match(html, lang === "zh" ? /待核对/ : /Needs verification/);
+      assert.ok(html.includes("vps-fixture"));
+    }
+  } finally { await i18n.changeLanguage(language); client.clear(); }
+});
+
+test("a delayed 401 cannot erase a newly entered API key", async () => {
+  const { api, onAuthFailure } = await server.ssrLoadModule("/src/lib/api.ts");
+  const originalAdapter = api.defaults.adapter, originalWindow = globalThis.window;
+  let key = "old-key", expired = 0, rejectResponse, entered;
+  const ready = new Promise(resolve => { entered = resolve; });
+  globalThis.window = { localStorage: { getItem: name => name === "ovh_sniper_api_key" ? key : null, removeItem: () => { key = null; } } };
+  const unregister = onAuthFailure(() => { expired++; });
+  api.defaults.adapter = config => new Promise((resolve, reject) => {
+    rejectResponse = () => reject(Object.assign(new Error("expired request"), { config, response: { status: 401, data: { code: "INVALID_API_KEY" } } }));
+    entered();
+  });
+  try {
+    const request = api.get("/ovh/account/info");
+    await ready;
+    key = "new-key";
+    rejectResponse();
+    await assert.rejects(request, /expired request/);
+    assert.equal(key, "new-key");
+    assert.equal(expired, 0);
+    api.defaults.adapter = async config => { throw Object.assign(new Error("current request rejected"), { config, response: { status: 401, data: { code: "INVALID_API_KEY" } } }); };
+    await assert.rejects(api.get("/ovh/account/info"), /current request rejected/);
+    assert.equal(expired, 1);
+    assert.equal(key, null);
+  } finally {
+    unregister(); api.defaults.adapter = originalAdapter;
+    if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;
+  }
+});
+
+test("prewarm identity includes account, payment and coupon while normalizing selection order", async () => {
+  const { prewarmIdentity } = await server.ssrLoadModule("/src/lib/order-prewarm.ts");
+  const request = { account_id: "eu", planCode: "plan", datacenters: ["mum", "bhs"], options: ["ram-32g", "storage"], quantity: 1, autoPay: false, coupon: "SAVE", preorder: false };
+  const key = prewarmIdentity(request);
+  assert.equal(key, prewarmIdentity({ ...request, datacenters: ["bhs", "ynm", "mum"], options: ["storage", "ram-32g", "storage"], coupon: " SAVE " }));
+  for (const change of [{ account_id: "us" }, { autoPay: true }, { coupon: "OTHER" }, { options: ["ram-64g"] }, { quantity: 2 }]) {
+    assert.notEqual(key, prewarmIdentity({ ...request, ...change }));
+  }
+});
+
+test("prewarm UI explains readiness, fallback and standby without ordering in both languages", async () => {
+  const { OrderPrewarm, StandbyCarts } = await server.ssrLoadModule("/src/components/queue/OrderPrewarm.tsx");
+  const { default: i18n } = await server.ssrLoadModule("/src/i18n/index.ts");
+  const language = i18n.language;
+  const client = new QueryClient();
+  client.setQueryData(["accounts", "list"], [{ id: "eu", name: "Europe" }]);
+  const status = { id: "web:unique-request", accountId: "eu", planCode: "KS-5", datacenters: ["bhs"], ready: 1, total: 1, state: "ready", standby: true, expiresAt: "2026-11-04T02:00:00Z" };
+  client.setQueryData(["purchase", "prewarm"], [status, { ...status, id: "monitor:hidden", planCode: "hidden" }]);
+  try {
+    for (const lang of ["zh", "en"]) {
+      await i18n.changeLanguage(lang);
+      const html = renderToStaticMarkup(createElement(OrderPrewarm, { preparation: { enabled: true, status, pin() {}, submitted() {} } }));
+      assert.match(html, lang === "zh" ? /购物车已就绪/ : /Carts ready/);
+      assert.match(html, lang === "zh" ? /确认创建抢购任务后才会下单/ : /Ordering starts after you confirm/);
+      assert.ok(html.includes('role="status"'));
+      const estimate = renderToStaticMarkup(createElement(OrderPrewarm, { preparation: { enabled: true, status: { ...status, estimated: true }, pin() {}, submitted() {} } }));
+      assert.match(estimate, lang === "zh" ? /无货期间按目录核价/ : /Priced from the catalog while out of stock/);
+      assert.doesNotMatch(html, /prewarm\.[a-z]/);
+      const waiting = renderToStaticMarkup(createElement(OrderPrewarm, { preparation: { enabled: true, error: "offline", pin() {}, submitted() {} } }));
+      assert.match(waiting, lang === "zh" ? /可以照常创建任务/ : /You can still create a task/);
+      const list = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(StandbyCarts)));
+      assert.ok(list.includes("KS-5") && list.includes("Europe") && !list.includes("hidden"));
+      assert.match(list, lang === "zh" ? /取消 KS-5 的备车/ : /Discard standby carts for KS-5/);
+    }
+  } finally { await i18n.changeLanguage(language); client.clear(); }
+});

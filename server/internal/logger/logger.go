@@ -21,6 +21,7 @@ const (
 
 // Logger 内存累积 + 批量刷盘 + 控制台输出
 type Logger struct {
+	flushMu      sync.Mutex
 	mu           sync.Mutex
 	entries      []types.LogEntry
 	writeCounter int
@@ -78,11 +79,10 @@ func (l *Logger) Add(level, message, source string) {
 	}
 	l.writeCounter++
 	shouldWrite := l.writeCounter >= writeThreshold || level == "ERROR"
-	snapshot := l.entries // 直接引用，下面 Flush 会复制
 	l.mu.Unlock()
 
 	if shouldWrite {
-		l.flush(snapshot)
+		l.Flush()
 	}
 
 	// 控制台输出
@@ -107,24 +107,20 @@ func (l *Logger) Debug(msg, source string) { l.Add("DEBUG", msg, source) }
 
 // Flush 强制刷盘
 func (l *Logger) Flush() {
+	l.flushMu.Lock()
+	defer l.flushMu.Unlock()
 	l.mu.Lock()
 	snapshot := make([]types.LogEntry, len(l.entries))
 	copy(snapshot, l.entries)
+	writes := l.writeCounter
 	l.writeCounter = 0
 	l.mu.Unlock()
-	l.flush(snapshot)
-}
-
-func (l *Logger) flush(entries []types.LogEntry) {
-	// 复制后写盘，避免与 Add 竞争
-	cp := make([]types.LogEntry, len(entries))
-	copy(cp, entries)
-	if err := storage.WriteJSON(l.logsFile, cp); err != nil {
+	if err := storage.WriteJSON(l.logsFile, snapshot); err != nil {
 		l.stdlog.Error("write logs file", "err", err)
+		l.mu.Lock()
+		l.writeCounter += writes
+		l.mu.Unlock()
 	}
-	l.mu.Lock()
-	l.writeCounter = 0
-	l.mu.Unlock()
 }
 
 // Snapshot 取当前内存中的日志副本
@@ -138,11 +134,16 @@ func (l *Logger) Snapshot() []types.LogEntry {
 
 // Clear 清空所有日志（含文件）
 func (l *Logger) Clear() error {
+	l.flushMu.Lock()
+	defer l.flushMu.Unlock()
 	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := storage.WriteJSON(l.logsFile, []types.LogEntry{}); err != nil {
+		return err
+	}
 	l.entries = l.entries[:0]
 	l.writeCounter = 0
-	l.mu.Unlock()
-	return storage.WriteJSON(l.logsFile, []types.LogEntry{})
+	return nil
 }
 
 // MarshalEntries 调试用：序列化全部条目

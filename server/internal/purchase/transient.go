@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/ovh-buy/server/internal/ovh"
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 )
 
@@ -80,9 +81,17 @@ func attemptOutcome(err error) Outcome {
 
 // checkoutUncertain 只有明确的业务 4xx 才证明请求被拒绝;其余错误不能安全重发结账。
 func checkoutUncertain(err error) bool {
+	return ovh.CheckoutUncertain(err)
+}
+
+func expiredCartError(err error) bool {
 	var apiErr *ovhsdk.APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.Code < 400 || apiErr.Code >= 500 || apiErr.Code == 408 || apiErr.Code == 429
+	if !errors.As(err, &apiErr) {
+		return false
 	}
-	return true
+	if apiErr.Code == 404 {
+		return true
+	}
+	message := strings.ToLower(apiErr.Message)
+	return apiErr.Code == 400 && strings.Contains(message, "cart") && (strings.Contains(message, "expired") || strings.Contains(message, "invalid") || strings.Contains(message, "not found"))
 }

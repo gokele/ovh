@@ -135,7 +135,9 @@ func resolveKey(dataDir, envPath string) ([]byte, error) {
 	//     godotenv 会跳过不覆盖（main 里已经 unset 掉了，这里再兜一层）
 	//   · Load 的路径和写入的路径分叉
 	// 所以在生成之前，再直接读一次文件确认。
-	if k, ok := readKeyFromEnvFile(envPath); ok {
+	if k, ok, err := readKeyFromEnvFile(envPath); err != nil {
+		return nil, fmt.Errorf("读取配置文件中的数据库密钥失败,禁止生成新密钥: %w", err)
+	} else if ok {
 		keySource = "配置文件 " + envPath
 		return k, nil
 	}
@@ -149,6 +151,8 @@ func resolveKey(dataDir, envPath string) ([]byte, error) {
 		}
 		return nil, fmt.Errorf("密钥文件 %s 内容不合法(应为 base64 的 32 字节);"+
 			"如果它被改坏了,已加密的账户凭据将无法解开,需要重新录入", legacy)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("读取数据库密钥失败,禁止生成新密钥: %w", err)
 	}
 
 	key := make([]byte, 32)
@@ -268,13 +272,16 @@ func IsEncrypted(stored string) bool { return strings.HasPrefix(stored, prefix) 
 //
 // 文件里有多行同名 key 时取**最后一行** —— 和 shell / dotenv 的惯例一致，
 // 而且历史上已经因为上面那个 bug 追加过重复行，取最后一行才是"最新那把"。
-func readKeyFromEnvFile(envPath string) ([]byte, bool) {
+func readKeyFromEnvFile(envPath string) ([]byte, bool, error) {
 	if strings.TrimSpace(envPath) == "" {
-		return nil, false
+		return nil, false, nil
 	}
 	f, err := os.Open(envPath)
 	if err != nil {
-		return nil, false
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
 	}
 	defer f.Close()
 
@@ -295,10 +302,13 @@ func readKeyFromEnvFile(envPath string) ([]byte, bool) {
 			last = v
 		}
 	}
-	if last == "" {
-		return nil, false
+	if err := sc.Err(); err != nil {
+		return nil, false, err
 	}
-	return normalizeKey(last), true
+	if last == "" {
+		return nil, false, nil
+	}
+	return normalizeKey(last), true, nil
 }
 
 // normalizeKey 和环境变量那条路用同一套解析：hex / base64 / 任意口令。

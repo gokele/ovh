@@ -323,7 +323,9 @@ func ChangeBootMode(state *app.State) gin.HandlerFunc {
 		var body struct {
 			BootID int64 `json:"bootId"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.BootID == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少bootId参数", "code": "E81B66FDC"})
 			return

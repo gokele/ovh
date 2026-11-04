@@ -37,12 +37,12 @@ func supportMember(value string, choices []string) bool {
 
 // supportClient 固定实际账户,不可用时返回带翻译码的响应;每个工作流独享 SDK client。
 func supportClient(state *app.State, c *gin.Context) (types.OVHAccount, *ovhsdk.Client, error) {
-	acc, ok := state.FindAccount(c.Query("account"))
+	acc, ok := ovhAccountFor(state, c)
 	if !ok {
 		c.JSON(400, gin.H{"success": false, "error": "OVH 账户不存在", "code": "SUPPORT_ACCOUNT_NOT_FOUND"})
 		return acc, nil, fmt.Errorf("OVH 账户不存在")
 	}
-	client, err := state.OVH.IsolatedClientFor(acc.ID)
+	client, err := state.OVH.IsolatedClientForAccount(acc)
 	if err == nil {
 		client.Timeout = 15 * time.Second
 	} else {
@@ -178,7 +178,7 @@ func ListSupportTickets(state *app.State) gin.HandlerFunc {
 					readErr = ctx.Err()
 				} else {
 					var isolated *ovhsdk.Client
-					isolated, readErr = state.OVH.IsolatedClientFor(acc.ID)
+					isolated, readErr = ovh.IsolateClient(client)
 					if readErr == nil {
 						isolated.Timeout = 15 * time.Second
 						readErr = isolated.GetWithContext(ctx, fmt.Sprintf("/support/tickets/%d", id), &item)

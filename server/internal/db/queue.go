@@ -31,10 +31,12 @@ type queueRow struct {
 	Coupon             string  `db:"coupon"`
 }
 
-func rowToQueueItem(r queueRow) types.QueueItem {
+func rowToQueueItem(r queueRow) (types.QueueItem, error) {
 	var opts []string
 	if r.OptionsJSON != "" {
-		_ = json.Unmarshal([]byte(r.OptionsJSON), &opts)
+		if err := json.Unmarshal([]byte(r.OptionsJSON), &opts); err != nil {
+			return types.QueueItem{}, fmt.Errorf("queue %s options: %w", r.ID, err)
+		}
 	}
 	if opts == nil {
 		opts = []string{}
@@ -60,7 +62,7 @@ func rowToQueueItem(r queueRow) types.QueueItem {
 		AutoPay:            r.AutoPay == 1,
 		Preorder:           r.Preorder == 1,
 		Coupon:             r.Coupon,
-	}
+	}, nil
 }
 
 func queueItemToRow(q types.QueueItem) (queueRow, error) {
@@ -109,7 +111,11 @@ func (db *DB) ListQueue() ([]types.QueueItem, error) {
 	}
 	out := make([]types.QueueItem, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, rowToQueueItem(r))
+		item, err := rowToQueueItem(r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }

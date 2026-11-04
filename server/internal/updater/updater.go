@@ -95,7 +95,10 @@ func LatestReleaseURL() string {
 
 // FetchLatest 取最新 Release
 func FetchLatest() (*Release, error) {
-	req, _ := http.NewRequest(http.MethodGet, LatestReleaseURL(), nil)
+	req, err := http.NewRequest(http.MethodGet, LatestReleaseURL(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("更新源地址无效: %w", err)
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", UserAgent)
 	resp, err := httpClient(20 * time.Second).Do(req)
@@ -116,6 +119,9 @@ func FetchLatest() (*Release, error) {
 
 // findAsset 在 Release 附件里找指定名字的那个
 func findAsset(rel *Release, name string) *Asset {
+	if rel == nil {
+		return nil
+	}
 	for i := range rel.Assets {
 		if rel.Assets[i].Name == name {
 			return &rel.Assets[i]
@@ -131,7 +137,10 @@ func fetchChecksum(rel *Release, target string) (string, error) {
 	if a == nil {
 		return "", fmt.Errorf("这个版本没有发布 %s,无法校验下载内容的完整性,已中止更新", ChecksumAsset)
 	}
-	req, _ := http.NewRequest(http.MethodGet, a.BrowserDownloadURL, nil)
+	req, err := http.NewRequest(http.MethodGet, a.BrowserDownloadURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("校验和下载地址无效: %w", err)
+	}
 	req.Header.Set("User-Agent", UserAgent)
 	resp, err := httpClient(30 * time.Second).Do(req)
 	if err != nil {
@@ -153,6 +162,9 @@ func fetchChecksum(rel *Release, target string) (string, error) {
 		// 文件名可能带 * 前缀(shasum 的二进制模式)
 		fname := strings.TrimPrefix(fields[len(fields)-1], "*")
 		if filepath.Base(fname) == target {
+			if decoded, err := hex.DecodeString(fields[0]); err != nil || len(decoded) != sha256.Size {
+				return "", fmt.Errorf("%s 中的 SHA256 校验和格式无效", ChecksumAsset)
+			}
 			return strings.ToLower(fields[0]), nil
 		}
 	}
@@ -161,7 +173,13 @@ func fetchChecksum(rel *Release, target string) (string, error) {
 
 // downloadVerified 下载附件到 dst,边下边算 SHA256,校验不过就删掉临时文件并报错
 func downloadVerified(a *Asset, dst, wantSum string, onProgress func(pct int)) error {
-	req, _ := http.NewRequest(http.MethodGet, a.BrowserDownloadURL, nil)
+	if decoded, err := hex.DecodeString(wantSum); err != nil || len(decoded) != sha256.Size {
+		return fmt.Errorf("SHA256 校验和格式无效,已中止下载")
+	}
+	req, err := http.NewRequest(http.MethodGet, a.BrowserDownloadURL, nil)
+	if err != nil {
+		return fmt.Errorf("附件下载地址无效: %w", err)
+	}
 	req.Header.Set("User-Agent", UserAgent)
 	// 二进制 16MB 左右,给足 10 分钟应付慢网络
 	resp, err := httpClient(10 * time.Minute).Do(req)
@@ -253,12 +271,18 @@ func Prepare(rel *Release, onProgress func(pct int)) (tmpPath, exePath string, e
 	dir := filepath.Dir(exePath)
 	// 先探一下目录可写:不可写的话(比如装在 /usr/local/bin 而当前不是 root)
 	// 早点报错比下完 16MB 再失败体验好得多
-	probe := filepath.Join(dir, ".ovh-server-update-probe")
-	if f, perr := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY, 0o644); perr != nil {
+	f, perr := os.CreateTemp(dir, ".ovh-server-new-*")
+	if perr != nil {
 		return "", "", fmt.Errorf("程序所在目录不可写(%s),无法自更新。请用有写权限的账户运行,或手动替换二进制", dir)
-	} else {
-		f.Close()
-		os.Remove(probe)
+	}
+	tmpPath = f.Name()
+	defer func() {
+		if err != nil {
+			_ = os.Remove(f.Name())
+		}
+	}()
+	if err = f.Close(); err != nil {
+		return "", "", fmt.Errorf("关闭更新临时文件失败: %w", err)
 	}
 
 	name := AssetName()
@@ -271,8 +295,7 @@ func Prepare(rel *Release, onProgress func(pct int)) (tmpPath, exePath string, e
 		return "", "", err
 	}
 	// 临时文件必须和目标同目录:os.Rename 跨文件系统会失败
-	tmpPath = filepath.Join(dir, fmt.Sprintf(".ovh-server-new-%d", os.Getpid()))
-	if err := downloadVerified(asset, tmpPath, sum, onProgress); err != nil {
+	if err = downloadVerified(asset, tmpPath, sum, onProgress); err != nil {
 		return "", "", err
 	}
 	return tmpPath, exePath, nil

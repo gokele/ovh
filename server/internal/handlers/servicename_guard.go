@@ -31,6 +31,10 @@ func ValidateServiceName() gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		if svc == "." || svc == ".." {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"success": false, "error": "无效的 OVH 服务名", "code": "INVALID_SERVICE_NAME"})
+			return
+		}
 		if len(svc) > maxServiceNameLen {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"success": false,

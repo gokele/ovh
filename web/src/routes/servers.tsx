@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { OrderPrewarm } from "@/components/queue/OrderPrewarm";
+import { useOrderPrewarm } from "@/hooks/use-order-prewarm";
 import { useTranslation, Trans } from "react-i18next";
 import { isOrderable } from "@/lib/availability";
 import {
@@ -633,6 +635,10 @@ function DetailContent({
   );
   const preorderConfigMismatch = !!server.prerelease && selectedValues.length > 0 &&
     !!orderVariants && !orderVariants.some((v) => variantCoversAll(v, selectedValues));
+  const preparation = useOrderPrewarm(!!accountId && selectedDCs.length > 0 && !preorderConfigMismatch, {
+    account_id: accountId, planCode: server.planCode, datacenters: selectedDCs,
+    options: selectedValues, quantity: qty, autoPay, coupon, preorder: !!server.prerelease,
+  });
 
   // 价格用的 subsidiary(顶部下拉)属于哪个站点 vs 下单账户属于哪个站点
   const priceRegion = endpointRegion(
@@ -871,6 +877,7 @@ function DetailContent({
         </div>
       </div>
 
+      <OrderPrewarm preparation={preparation} />
       <DialogFooter className="border-t border-border pt-4 -mx-6 px-6">
         <div className="mr-auto text-[12px] text-muted-foreground">
           {selectedDCs.length > 0
@@ -950,6 +957,7 @@ function DetailContent({
               preorder: !!server.prerelease,
             });
             if (result.success > 0) {
+              preparation.submitted();
               toast.success(t("servers.toast.created", { success: result.success, total: result.total }));
               onClose();
             }

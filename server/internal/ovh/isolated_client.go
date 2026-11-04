@@ -3,6 +3,8 @@ package ovh
 import (
 	"net/http"
 
+	"github.com/ovh-buy/server/internal/types"
+
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 )
 
@@ -11,6 +13,14 @@ import (
 // 返回值不能跨 goroutine 共享;不复制 SDK 中已经使用的 atomic.Value 或 HTTP client 内部状态。
 func (f *Factory) IsolatedClientFor(accountID string) (*ovhsdk.Client, error) {
 	base, err := f.ClientFor(accountID)
+	if err != nil {
+		return nil, err
+	}
+	return IsolateClient(base)
+}
+
+func (f *Factory) IsolatedClientForAccount(account types.OVHAccount) (*ovhsdk.Client, error) {
+	base, err := f.ClientForAccount(account)
 	if err != nil {
 		return nil, err
 	}

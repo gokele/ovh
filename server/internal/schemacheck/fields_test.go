@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"sort"
@@ -107,11 +108,26 @@ func scanFieldChains(t *testing.T, root string) []fieldChain {
 	t.Helper()
 	var res []fieldChain
 
-	_, funcs, _ := parseFuncs(t, root)
+	_, funcs, bindings := parseFuncs(t, root)
 	for fd := range funcs {
-		outVars := map[string][2]string{} // var -> {tplPath, METHOD} —— 每个函数独立,别跨函数串
-		aliases := map[string]string{}    // aliasVar -> "parent\x00field"
-		reads := map[string]map[string]bool{}
+		outVars := map[types.Object][2]string{}
+		type alias struct {
+			parent types.Object
+			field  string
+		}
+		aliases := map[types.Object]alias{}
+		reads := map[types.Object]map[string]bool{}
+		writes := map[*ast.IndexExpr]bool{}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			if assignment, ok := n.(*ast.AssignStmt); ok && assignment.Tok == token.ASSIGN {
+				for _, lhs := range assignment.Lhs {
+					if index, ok := lhs.(*ast.IndexExpr); ok {
+						writes[index] = true
+					}
+				}
+			}
+			return true
+		})
 
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
 			ce, ok := n.(*ast.CallExpr)
@@ -140,18 +156,18 @@ func scanFieldChains(t *testing.T, root string) []fieldChain {
 			if i := strings.Index(tpl, "?"); i >= 0 {
 				tpl = tpl[:i]
 			}
-			var vn string
+			var vn types.Object
 			if len(ce.Args) > pi+1 {
 				last := ce.Args[len(ce.Args)-1]
 				if u, ok := last.(*ast.UnaryExpr); ok && u.Op.String() == "&" {
 					if id, ok := u.X.(*ast.Ident); ok {
-						vn = id.Name
+						vn = bindings.ObjectOf(id)
 					}
-				} else if id, ok := last.(*ast.Ident); ok {
-					vn = id.Name
+				} else if id, ok := last.(*ast.Ident); ok && id.Name != "nil" {
+					vn = bindings.ObjectOf(id)
 				}
 			}
-			if vn == "" {
+			if vn == nil {
 				return true
 			}
 			outVars[vn] = [2]string{tpl, m}
@@ -182,11 +198,11 @@ func scanFieldChains(t *testing.T, root string) []fieldChain {
 			if !ok {
 				return true
 			}
-			if _, isOut := outVars[base.Name]; !isOut {
+			if _, isOut := outVars[bindings.ObjectOf(base)]; !isOut {
 				return true
 			}
 			if k, ok := litStr(idx.Index); ok {
-				aliases[id.Name] = base.Name + "\x00" + k
+				aliases[bindings.ObjectOf(id)] = alias{parent: bindings.ObjectOf(base), field: k}
 			}
 			return true
 		})
@@ -194,16 +210,15 @@ func scanFieldChains(t *testing.T, root string) []fieldChain {
 		//   ① v["k"] / v["a"].(map)["b"] / alias["k"]
 		//   ② valueOr(v, "k", …) —— 本仓库惯用的带兜底读法,只认 IndexExpr 会漏掉一大片
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
-			record := func(rootIdent, chain, key string) {
-				if rootIdent == "" {
+			record := func(rootIdent types.Object, chain, key string) {
+				if rootIdent == nil {
 					return
 				}
 				if _, isOut := outVars[rootIdent]; isOut {
 					reads[rootIdent] = addRead(reads[rootIdent], joinDot(chain, key))
 				} else if a, isAl := aliases[rootIdent]; isAl {
-					parts := strings.SplitN(a, "\x00", 2)
-					if _, isOut := outVars[parts[0]]; isOut {
-						reads[parts[0]] = addRead(reads[parts[0]], joinDot(parts[1], joinDot(chain, key)))
+					if _, isOut := outVars[a.parent]; isOut {
+						reads[a.parent] = addRead(reads[a.parent], joinDot(a.field, joinDot(chain, key)))
 					}
 				}
 			}
@@ -211,28 +226,29 @@ func scanFieldChains(t *testing.T, root string) []fieldChain {
 				if sel, ok := ce.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "valueOr" {
 					if id, ok := ce.Args[0].(*ast.Ident); ok {
 						if k, ok := litStr(ce.Args[1]); ok {
-							record(id.Name, "", k)
+							record(bindings.ObjectOf(id), "", k)
 						}
 					}
 					return true
 				}
 			}
 			idx, ok := n.(*ast.IndexExpr)
-			if !ok {
+			if !ok || writes[idx] {
 				return true
 			}
 			k, ok := litStr(idx.Index)
 			if !ok {
 				return true
 			}
-			var root, chain string
+			var root types.Object
+			var chain string
 			switch x := idx.X.(type) {
 			case *ast.Ident:
-				root = x.Name
+				root = bindings.ObjectOf(x)
 			case *ast.TypeAssertExpr:
 				if idx2, ok := x.X.(*ast.IndexExpr); ok {
 					if id, ok := idx2.X.(*ast.Ident); ok {
-						root = id.Name
+						root = bindings.ObjectOf(id)
 						if kk, ok := litStr(idx2.Index); ok {
 							chain = kk
 						}
@@ -371,10 +387,11 @@ var baselineData = func() map[string]map[string]interface{} {
 }()
 
 // parseFuncs 解析源码树,返回全部函数体(遍历口径与 usage_test.go 一致)
-func parseFuncs(t *testing.T, root string) (*token.FileSet, map[*ast.FuncDecl]bool, error) {
+func parseFuncs(t *testing.T, root string) (*token.FileSet, map[*ast.FuncDecl]bool, *types.Info) {
 	t.Helper()
 	fset := token.NewFileSet()
 	funcs := map[*ast.FuncDecl]bool{}
+	bindings := &types.Info{Defs: map[*ast.Ident]types.Object{}, Uses: map[*ast.Ident]types.Object{}}
 	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() ||
 			!strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
@@ -384,6 +401,9 @@ func parseFuncs(t *testing.T, root string) (*token.FileSet, map[*ast.FuncDecl]bo
 		if perr != nil {
 			return perr
 		}
+		// Partial checking resolves local bindings without loading every external SDK.
+		checker := types.Config{Error: func(error) {}}
+		_, _ = checker.Check(f.Name.Name, fset, []*ast.File{f}, bindings)
 		for _, d := range f.Decls {
 			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
 				funcs[fd] = true
@@ -394,5 +414,5 @@ func parseFuncs(t *testing.T, root string) (*token.FileSet, map[*ast.FuncDecl]bo
 	if err != nil {
 		t.Fatalf("遍历源码失败: %v", err)
 	}
-	return fset, funcs, err
+	return fset, funcs, bindings
 }

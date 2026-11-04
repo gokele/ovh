@@ -348,7 +348,9 @@ func SetReverseDNS(state *app.State) gin.HandlerFunc {
 			IP      string `json:"ip"`
 			Reverse string `json:"reverse"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.IP == "" || body.Reverse == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "IP地址和反向DNS不能为空", "code": "E907CF2B8"})
 			return
@@ -630,7 +632,9 @@ func ChangeContact(state *app.State) gin.HandlerFunc {
 			return
 		}
 		var body map[string]interface{}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		params := map[string]interface{}{}
 		if v, ok := body["contactAdmin"].(string); ok && v != "" {
 			params["contactAdmin"] = v
@@ -855,7 +859,9 @@ func HardwareReplace(state *app.State) gin.HandlerFunc {
 			return
 		}
 		var body map[string]interface{}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		componentType, _ := body["componentType"].(string)
 		comment, _ := body["comment"].(string)
 		if componentType == "" {

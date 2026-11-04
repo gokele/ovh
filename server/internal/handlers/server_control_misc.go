@@ -146,7 +146,9 @@ func AddSecondaryDNS(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Domain string `json:"domain"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Domain == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少domain参数", "code": "E5BE84C8C"})
 			return
@@ -225,7 +227,9 @@ func CreateVirtualMAC(state *app.State) gin.HandlerFunc {
 			Type               string `json:"type"`
 			VirtualMachineName string `json:"virtualMachineName"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		// schema 里 ipAddress / type / virtualMachineName 三个 body 参数都是必填,
 		// 少了名字只会换回 OVH 的英文参数错误,不如本地先说清楚缺哪个
 		if body.IPAddress == "" || body.Type == "" || body.VirtualMachineName == "" {
@@ -476,7 +480,9 @@ func MoveIP(state *app.State) gin.HandlerFunc {
 		var body struct {
 			IP string `json:"ip"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.IP == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少ip参数", "code": "EB7965AF4"})
 			return
@@ -625,7 +631,9 @@ func ConfirmTermination(state *app.State) gin.HandlerFunc {
 			FutureUse  string `json:"futureUse"`
 			Commentary string `json:"commentary"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Token == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少token参数", "code": "ED4D892CA"})
 			return
@@ -700,7 +708,9 @@ func CreateSPLA(state *app.State) gin.HandlerFunc {
 			Type         string `json:"type"`
 			SerialNumber string `json:"serialNumber"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Type == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少type参数", "code": "E47BAC7E6"})
 			return
@@ -779,59 +789,4 @@ func GetBIOSSettingsSGX(state *app.State) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "sgx": d})
 	}
-}
-
-func intToStr(v int64) string {
-	return formatInt(v)
-}
-
-func formatInt(v int64) string {
-	if v == 0 {
-		return "0"
-	}
-	neg := v < 0
-	if neg {
-		v = -v
-	}
-	var buf [20]byte
-	i := len(buf)
-	for v > 0 {
-		i--
-		buf[i] = byte('0' + v%10)
-		v /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
-}
-
-func containsAny(s string, subs []string) bool {
-	lc := lower(s)
-	for _, sub := range subs {
-		if indexOf(lc, lower(sub)) >= 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func lower(s string) string {
-	b := []byte(s)
-	for i := range b {
-		if b[i] >= 'A' && b[i] <= 'Z' {
-			b[i] += 32
-		}
-	}
-	return string(b)
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

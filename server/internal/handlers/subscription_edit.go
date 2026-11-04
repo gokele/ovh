@@ -122,7 +122,7 @@ func UpdateSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 			c.JSON(status, gin.H{"status": "error", "message": err.Error()})
 			return
 		}
-		if err := mon.SaveToDB(); err != nil {
+		if _, err := persistMonitorChanges(mon); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "本次运行已修改，但未能保存到数据库: " + err.Error()})
 			return
 		}
@@ -210,6 +210,10 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		if body.Quantity != nil {
 			next.Quantity = *body.Quantity
 		}
+		if next.Quantity < 0 || next.Quantity > types.MaxOrderQuantity {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "VPS 下单数量必须在允许的单次上限内"})
+			return
+		}
 		if body.OS != nil {
 			next.OS = strings.TrimSpace(*body.OS)
 		}
@@ -289,6 +293,8 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		}
 		// 拿锁里的当前值做基准,别把并发写进来的 History / LastStatus 覆盖掉
 		live := state.VPSSubscriptions[idx]
+		live.Revision++
+		state.UnregisterTaskCancel("vps:" + id)
 		live.OvhSubsidiary = next.OvhSubsidiary
 		live.Datacenters = next.Datacenters
 		live.MonitorLinux = next.MonitorLinux
@@ -306,7 +312,9 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		state.VPSSubscriptions[idx] = live
 		state.VPSSubsMu.Unlock()
 
-		_ = vps.SaveSubscriptions(state)
+		if !saveVPSSubscriptions(c, state) {
+			return
+		}
 		state.Logger.Info("更新VPS订阅配置: "+live.PlanCode+" (subsidiary: "+live.OvhSubsidiary+")", "vps_monitor")
 
 		resp := gin.H{"status": "success", "message": "已更新 " + live.PlanCode, "subscription": live}

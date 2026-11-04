@@ -325,6 +325,13 @@ var actionChoices = []struct {
 func askAction(state *app.State, f *watchFlow, chatID interface{}, messageID int64) bool {
 	f.Step = stepAction
 	tok := putFlow(f)
+	dcs := append([]string(nil), f.DCs...)
+	if len(dcs) == 0 {
+		dcs = []string{""}
+	}
+	for _, dc := range dcs {
+		go telegram.PrewarmOrder(state, "tg:"+tok+":"+dc, f.AccountID, f.PlanCode, dc, 1, append([]string(nil), f.PickedOptions...), flowTTL)
+	}
 	labels := make([]string, 0, len(actionChoices))
 	for _, a := range actionChoices {
 		labels = append(labels, a.Label)
@@ -384,7 +391,11 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 			telegram.SendReply(state, chatID, "这条订阅已经被删掉了，发 /watch "+f.PlanCode+" 重新开始。", messageID)
 			return true
 		}
-		mon.SaveToDB()
+		if _, err := persistMonitorChanges(mon); err != nil {
+			telegram.AnswerCallback(state, idToString(cb["id"]), "保存失败,监控已停止", true)
+			telegram.SendReply(state, chatID, "保存监控配置失败,请检查存储后重试: "+err.Error(), messageID)
+			return true
+		}
 		telegram.AnswerCallback(state, idToString(cb["id"]), "好", false)
 		if len(opts) == 0 {
 			telegram.SendReply(state, chatID,
@@ -448,6 +459,11 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 
 		switch {
 		case idx == iCancel:
+			if state.OrderPrewarm != nil {
+				for _, account := range append(f.Confirm[:len(f.Confirm):len(f.Confirm)], f.Accounts...) {
+					state.OrderPrewarm.Cancel("tg:" + tok + ":" + account.ID)
+				}
+			}
 			telegram.AnswerCallback(state, idToString(cb["id"]), "已取消", false)
 			telegram.SendReply(state, chatID, "✖️ 已取消，没有创建任何任务。", messageID)
 		case len(f.Accounts) > 1 && idx == iAll:
@@ -531,7 +547,9 @@ func finishWatchFlow(state *app.State, mon *monitor.Monitor, f *watchFlow, quant
 	// autoPay 恒 false：自动付款是要用户显式打开的开关，不能在几下点击里替他决定。
 	mon.AddSubscription(f.PlanCode, f.DCs, true, false, "", nil, nil,
 		autoOrder, quantity, accountID, false, f.PickedOptions)
-	mon.SaveToDB()
+	if _, err := persistMonitorChanges(mon); err != nil {
+		return "保存监控配置失败,监控已停止,请检查存储后重试: " + err.Error()
+	}
 
 	started := false
 	if !mon.Running() {

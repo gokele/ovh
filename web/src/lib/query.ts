@@ -19,9 +19,14 @@ export const queryClient = new QueryClient({
   },
 });
 
+/** Resource permissions and responses can differ across accounts even for the same service. */
+export function accountQueryKey<T extends readonly unknown[]>(key: T, accountId: string) {
+  return [...key, { accountId }] as const;
+}
+
 /** 账户凭据、区域或默认账户变化后,所有依赖账户的目录和资源都需重新读取。 */
 export function invalidateAccountQueries(client: QueryClient) {
-  for (const root of ["servers", "availability", "server-control", "vps-control", "account", "support", "catalog", "ovh-catalog"]) {
+  for (const root of ["servers", "availability", "server-control", "vps-control", "monitor", "vps-monitor", "account", "support", "catalog", "ovh-catalog"]) {
     client.invalidateQueries({ queryKey: [root] });
   }
 }
@@ -85,7 +90,7 @@ export const qk = {
   // 并在后台重拉,期间组件读到的 data 仍是上一个账户的:切过去的那几百毫秒里
   // 看到的是别人的服务器列表、别人的 /me 身份信息;重拉一旦失败,就一直停在那儿。
   // 把账户放进 key,切换即缓存未命中 → 走骨架屏,不会串号。
-  // (按 serviceName 索引的那些不用带:serviceName 在 OVH 全局唯一。)
+  // 详情在 hook 中通过 accountQueryKey 绑定账户:同一服务的不同联系人权限也可能不同。
   serverControl: {
     list: (accountId: string) => ["server-control", "list", accountId] as const,
     hardware: (serviceName: string) => ["server-control", "hardware", serviceName] as const,

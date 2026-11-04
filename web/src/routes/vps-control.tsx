@@ -212,6 +212,7 @@ function VpsControlPage() {
             />
           )}
           <VpsDetail
+            key={`${activeAccount}:${selected.serviceName}`}
             server={selected}
             aliases={aliases}
             onSetAlias={setAlias}

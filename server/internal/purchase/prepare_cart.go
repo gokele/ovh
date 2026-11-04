@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
@@ -12,12 +11,13 @@ import (
 	"github.com/ovh-buy/server/internal/catalog"
 	"github.com/ovh-buy/server/internal/numconv"
 	"github.com/ovh-buy/server/internal/ovh"
+	"github.com/ovh-buy/server/internal/price"
 	"github.com/ovh-buy/server/internal/types"
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 )
 
 // prepareCart 只准备已选配置的购物车,不保留库存、不创建订单或付款。
-func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, client *ovhsdk.Client, effectiveOptions []string, apiDC string, tl *timeline, timingKey string, preparing bool) (*preparedCart, Outcome) {
+func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, account types.OVHAccount, client *ovhsdk.Client, effectiveOptions []string, apiDC string, tl *timeline, timingKey string, preparing bool) (*preparedCart, Outcome) {
 	fail := func(message string) {
 		if !preparing {
 			recordFailure(state, item, message)
@@ -26,8 +26,9 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, c
 
 	cartID := ""
 	var itemID int64
+	var addedOptions []string
 	// 多账户:购物车 subsidiary 跟着账户走,不再读全局 cfg
-	acc, _ := state.FindAccount(item.AccountID)
+	acc := account
 	subsidiary := orderSubsidiary(state, acc, "purchase")
 
 	// 创建购物车
@@ -60,7 +61,9 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, c
 		}
 		// 故意不带 ctx:取消路径也要走到这里清 cart。挂上 ctx 的话,
 		// 用户一删任务,清理请求自己先被取消,僵尸 cart 就留在 OVH 那边了。
-		if err := client.Delete("/order/cart/"+cartID, nil); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := client.DeleteWithContext(cleanupCtx, "/order/cart/"+cartID, nil); err != nil {
 			state.Logger.Debug(fmt.Sprintf("清理失败 cart %s: %s", cartID, err.Error()), "purchase")
 		} else {
 			state.Logger.Debug("已清理失败 cart "+cartID, "purchase")
@@ -241,10 +244,8 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, c
 		filtered := filterHardwareOptions(state, effectiveOptions, true)
 		if len(filtered) > 0 {
 			state.Logger.Info(fmt.Sprintf("过滤后的硬件选项计划代码: %v", filtered), "purchase")
-			var availableEcoOpts []map[string]interface{}
-			q := url.Values{}
-			q.Set("planCode", item.PlanCode)
-			if err := client.GetWithContext(ctx, fmt.Sprintf("/order/cart/%s/eco/options?%s", cartID, q.Encode()), &availableEcoOpts); err != nil {
+			availableEcoOpts, cachedOptions, err := ecoOptions(ctx, state, client, item, account, cartID, filtered)
+			if err != nil {
 				if ctx.Err() != nil {
 					return nil, cancelledOutcome(state, item, "查硬件选项")
 				}
@@ -311,13 +312,11 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, c
 				return nil, Outcome{}
 			}
 
-			// 串行 POST 各 addon。每次 POST 服务端都要对同一 cart item 做 append +
-			// 同 family 互斥(GenericOptionDefinition.exclusive)校验,schema 没有任何
-			// 关于并发写同一 cart 的声明;通常只有 1-2 个 addon,串行代价不到 2 秒,
-			// 不值得拿"整单取消"去赌 OVH 的并发宽容度。
+			// 同一购物车依次写选件;备车池将这些请求移到等待库存期间。
 			state.Logger.Info(fmt.Sprintf("依次添加 %d 个 Eco 选项: %v", len(todo), filtered), "purchase")
 			for _, t := range todo {
 				if err := client.PostWithContext(ctx, fmt.Sprintf("/order/cart/%s/eco/options", cartID), t.body, nil); err != nil {
+					invalidateEcoOptions(state, item, account)
 					if ctx.Err() != nil {
 						return nil, cancelledOutcome(state, item, "加硬件选项")
 					}
@@ -325,9 +324,16 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, c
 					// 关键选项添加失败 → 整单失败。不能静默继续 checkout,否则会下到错误配置。
 					errMsg := fmt.Sprintf("添加 Eco 选项 %s 失败: %s（已取消下单避免下到错误配置）", t.planCode, ovh.Explain(err))
 					fail(errMsg)
-					return nil, attemptOutcome(err)
+					out := attemptOutcome(err)
+					var apiErr *ovhsdk.APIError
+					out.RetryImmediately = cachedOptions && errors.As(err, &apiErr) && (apiErr.Code == 400 || apiErr.Code == 404)
+					if out.RetryImmediately {
+						out.Attempted = false
+					}
+					return nil, out
 				}
 				state.Logger.Info(fmt.Sprintf("成功添加 Eco 选项: %s", t.planCode), "purchase")
+				addedOptions = append(addedOptions, t.planCode)
 			}
 			state.Logger.Info(fmt.Sprintf("共成功添加 %d 个硬件选项。", len(filtered)), "purchase")
 		}
@@ -373,6 +379,9 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, c
 			}
 		}
 	}
+	if !expires.After(time.Now()) {
+		return nil, Outcome{Attempted: true, Reason: "OVH returned an expiring cart; preparation must be retried"}
+	}
 	success = true // 准备成功后由 session 持有购物车,等库存期间不删除。
-	return &preparedCart{client: client, call: call, id: cartID, subsidiary: subsidiary, couponWarning: couponWarning, expires: expires, preparedAt: time.Now()}, Outcome{}
+	return &preparedCart{account: account, client: client, call: call, quote: &price.PriceInfo{PricingMode: basePricingMode}, options: addedOptions, duration: baseDuration, id: cartID, subsidiary: subsidiary, couponWarning: couponWarning, expires: expires, preparedAt: time.Now()}, Outcome{}
 }

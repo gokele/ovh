@@ -128,6 +128,7 @@ export const commonLayerZh = {
     },
   },
   commons: {
+    templateResponseInvalid: "系统模板列表响应格式错误，请刷新后重试。",
     theme: {
       system: "跟随系统",
       light: "浅色",
@@ -218,15 +219,15 @@ export const commonLayerZh = {
       title: "需要 API 密钥",
       subtitle: "访问后端前请先验证身份",
       keyLabel: "API 密钥",
-      keyPlaceholder: "后端配置文件 / 环境变量里的 X-API-Key",
+      keyPlaceholder: "API_SECRET_KEY 或数据目录 .api-secret 中的密钥",
       verifying: "验证中…",
       waitSeconds: "请等待 {{count}} 秒",
       submit: "验证并进入",
-      storageNote: "密钥保存在浏览器 localStorage，不会上传服务端。换设备或清缓存后需重新输入。",
+      storageNote: "密钥保存在本机浏览器，用于向当前后端验证身份。换设备或清缓存后需重新输入。",
       networkError: "网络错误",
       unreachable: "连不上后端服务({{reason}})。确认后端已启动、地址和端口正确后重试。",
       badKey:
-        "密钥不对。它是后端 .env 文件里的 API_SECRET_KEY;没设置过的话默认是 123456(强烈建议改掉)。",
+        "密钥不对。请核对后端的 API_SECRET_KEY 配置;未配置时,请读取数据目录 .api-secret 中自动生成的随机密钥。",
       rateLimited: "密钥连续错误次数过多,请约 {{secs}} 秒后再试。",
       unexpectedStatus: "后端返回了 HTTP {{status}},不是预期的响应。确认前面没有挡着反向代理或登录页。",
     },

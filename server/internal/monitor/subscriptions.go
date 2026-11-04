@@ -187,6 +187,9 @@ func (m *Monitor) queueScopesLocked(all bool) []app.MonitorQueueScope {
 // publishPausedQueueScopesLocked 使迟到的本地 quick-order 在入队处也能看到暂停。
 func (m *Monitor) publishPausedQueueScopesLocked() {
 	m.state.SetPausedMonitorScopes(m.queueScopesLocked(false))
+	if m.state.OrderPrewarm != nil {
+		go m.syncPrewarm()
+	}
 }
 
 // SetPaused 暂停时联动关联队列;恢复只恢复监控,不自动继续扣款任务。

@@ -429,6 +429,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 	// 要么是本轮的完整状态,不会是推进到一半的中间态。
 	lastStatus := sub.statusSnapshot()
 	monitoredDCs := cfg.Datacenters
+	m.prepareMonitorTargets(sub, cfg, currentAvailability)
 
 	m.state.Logger.Info(fmt.Sprintf("订阅 %s - 监控数据中心: %v", planCode, monitoredDCs), "monitor")
 	m.state.Logger.Info(fmt.Sprintf("订阅 %s - 当前发现 %d 个配置组合", planCode, len(currentAvailability)), "monitor")
@@ -507,6 +508,14 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			}
 		}
 
+		var alertTargets []string
+		for dc, ds := range dcStatusMap {
+			if ds.orderable && ds.oldStatus != "available" {
+				alertTargets = append(alertTargets, dc)
+			}
+		}
+		m.prepareAlertTargets(sub, cfg, choice.accountID, effectiveOptions, alertTargets)
+
 		// 并发价格校验
 		priceCheckResults := map[string][2]interface{}{}
 		if len(priceCheckTasks) > 0 {
@@ -523,7 +532,11 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 				go func(dc string) {
 					defer wg.Done()
 					defer func() { <-sem }()
-					ok, errMsg := m.verifyPriceAvailable(planCode, dc, priceCfg)
+					ready := m.state.OrderPrewarm != nil && m.state.OrderPrewarm.Ready(types.QueueItem{AccountID: choice.accountID, PlanCode: planCode, Datacenter: dc, Options: effectiveOptions, AutoPay: cfg.AutoPay})
+					ok, errMsg := true, ""
+					if !ready {
+						ok, errMsg = m.verifyPriceAvailable(planCode, dc, priceCfg)
+					}
 					pcMu.Lock()
 					priceCheckResults[dc] = [2]interface{}{ok, errMsg}
 					pcMu.Unlock()

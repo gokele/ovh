@@ -48,18 +48,6 @@ func vpsRegionFor(state *app.State, c *gin.Context) string {
 	return ovh.EndpointRegion(acc.Endpoint)
 }
 
-// vpsUnsupportedRead 只读接口在本大区不存在时的降级响应。
-//
-// 用 200 + 空值 + unsupported:true,而不是 404/500:这类面板是详情页一进来就并发拉的,
-// 报错会在美区账户上常驻一条红色提示,用户以为是故障。前端按 unsupported 隐藏整块区域。
-// field 是业务字段名(前端读的那个 key),value 给该字段的空值(nil / 空数组)。
-func vpsUnsupportedRead(c *gin.Context, field string, value interface{}, message string) {
-	c.JSON(http.StatusOK, gin.H{
-		"success": true, field: value,
-		"unsupported": true, "region": vpsRegionUS, "message": message,
-	})
-}
-
 // vpsUnsupportedWrite 写操作在本大区不存在时的降级响应。
 // 写操作必须失败(不能假装成功),但要给明确的中文原因和替代做法,而不是把 OVH 的 404 甩出去。
 func vpsUnsupportedWrite(c *gin.Context, message string) {
@@ -429,7 +417,9 @@ func SetVpsIpReverse(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Reverse string `json:"reverse"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		// vps.Ip 里只有 reverse 可写(ipAddress / type / version / gateway /
 		// geolocation / macAddress 都是只读),所以不需要先 GET 再 merge ——
 		// 那样反而会把只读字段一起发回去,被 OVH 400 掉

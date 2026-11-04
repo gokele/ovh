@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/db"
 	"github.com/ovh-buy/server/internal/types"
 )
 
@@ -73,6 +74,31 @@ func payRequest(router *gin.Engine, method, path, body string) *httptest.Respons
 }
 
 const validPayment = `{"confirm":true,"paymentMethodId":7,"paymentType":"CREDIT_CARD","amount":39.98,"currency":"EUR"}`
+
+func TestPaymentStopsWhenAccountChangesDuringPreflight(t *testing.T) {
+	state, router, calls, _ := paymentFixture(t, "EU", "notPaid", "", 200)
+	base, err := state.OVH.ClientFor("pay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := base.Client.Transport
+	base.Client.Transport = queuePreorderTransport(func(r *http.Request) (*http.Response, error) {
+		response, err := original.RoundTrip(r)
+		if strings.HasSuffix(r.URL.Path, "/paymentMethods") {
+			state.AccountsMu.Lock()
+			state.Accounts[0].Zone = "US"
+			state.AccountsMu.Unlock()
+		}
+		return response, err
+	})
+	w := payRequest(router, "POST", "/orders/123/pay?account=pay", validPayment)
+	if w.Code != http.StatusConflict || calls.Load() != 0 {
+		t.Fatalf("stale account payment: %d %s, calls=%d", w.Code, w.Body, calls.Load())
+	}
+	if found, err := state.DB.GetKV(db.OrderPaymentKey("pay", 123), &map[string]interface{}{}); err != nil || found {
+		t.Fatal("unsent payment left a claim", err)
+	}
+}
 
 func TestOrderPaymentRegionalPayloadAndDuplicateProtection(t *testing.T) {
 	for _, region := range []string{"EU", "CA", "US"} {

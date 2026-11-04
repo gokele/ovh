@@ -262,6 +262,9 @@ func taskWorker(ctx context.Context, state *app.State, item types.QueueItem, pur
 		if outcome.Success || outcome.Fatal || outcome.PauseTask || outcome.Cancelled {
 			return
 		}
+		if outcome.RetryImmediately {
+			continue
+		}
 		interval := time.Duration(types.ClampRetryInterval(current.RetryInterval, state.Config.RetryInterval())) * time.Second
 		timer := time.NewTimer(interval)
 		waiting := true

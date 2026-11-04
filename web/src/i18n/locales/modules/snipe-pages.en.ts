@@ -4,6 +4,20 @@
  * (bare metal, datacenter, ordering, retraction period).
  */
 export const snipePagesEn = {
+  prewarm: {
+    preparing: "Preparing carts in the background…",
+    ready: "Carts ready · {{ready}} / {{total}}",
+    waiting: "Cart preparation is waiting to retry",
+    description: "Prepares carts only. Ordering starts after you confirm a sniping task.",
+    estimated: "Priced from the catalog while out of stock. The final amount is determined by OVH at checkout.",
+    fallback: "You can still create a task. It will prepare its cart if needed.",
+    keep: "Keep ready for 45 minutes",
+    retained: "Kept until {{time}}. Closing this window keeps these carts.",
+    standbyTitle: "Standby carts",
+    expires: "Kept until {{time}}",
+    cancel: "Discard standby carts for {{plan}}",
+    cancelFailed: "Failed to discard carts. Try again.",
+  },
   servers: {
     title: "Server List",
     description: "Listed models and prereleases published in the stock feed; catalog cached for 2 hours, stock refreshed separately",
@@ -102,6 +116,8 @@ export const snipePagesEn = {
   },
   queue: {
     dispatchDelay: "Detection → write {{us}} µs",
+    dispatchPercentiles: "P50 {{p50}} / P99 {{p99}} µs · {{n}} samples",
+    dispatchWindow: "Up to 256 recent checkout dispatches for this account, model and datacenter. Excludes OVH processing time.",
     cartPrewarmed: "Prebuilt cart reused",
     cartCold: "Includes cart preparation",
     connectionReused: "Connection reused",
@@ -237,6 +253,7 @@ export const snipePagesEn = {
     allStatuses: "All statuses",
     success: "Success",
     failed: "Failed",
+    uncertain: "Needs verification",
     loadFailedTitle: "Failed to load the sniping history — it does not mean you have no orders; we could not read them",
     loadFailedHint:
       "Unpaid orders keep running down their 15-day countdown. Do not read this blank as \"no orders\". Retry, or open the OVH manager to check unpaid orders.",

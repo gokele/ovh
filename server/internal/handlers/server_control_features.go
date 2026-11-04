@@ -157,7 +157,9 @@ func UpdateBurst(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Status string `json:"status"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Status == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少status参数", "code": "E8C3A474D"})
 			return
@@ -224,7 +226,9 @@ func UpdateFirewall(state *app.State) gin.HandlerFunc {
 		var body struct {
 			Enabled *bool `json:"enabled"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Enabled == nil {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少enabled参数", "code": "E3D2DC322"})
 			return
@@ -409,7 +413,9 @@ func AddBackupFTPAccess(state *app.State) gin.HandlerFunc {
 			NFS     bool   `json:"nfs"`
 			CIFS    bool   `json:"cifs"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.IPBlock == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少ipBlock参数", "code": "E1230A21F"})
 			return
@@ -454,7 +460,9 @@ func DeleteBackupFTPAccess(state *app.State) gin.HandlerFunc {
 			var body struct {
 				IPBlock string `json:"ipBlock"`
 			}
-			_ = c.ShouldBindJSON(&body)
+			if !bindOptionalJSON(c, &body) {
+				return
+			}
 			ipBlock = strings.TrimSpace(body.IPBlock)
 		}
 		if ipBlock == "" {
@@ -570,7 +578,9 @@ func ActivateBackupCloud(state *app.State) gin.HandlerFunc {
 			CloudProjectID     string `json:"cloudProjectId"`
 			ProjectDescription string `json:"projectDescription"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		payload := map[string]interface{}{}
 		if v := strings.TrimSpace(body.CloudProjectID); v != "" {
 			payload["cloudProjectId"] = v

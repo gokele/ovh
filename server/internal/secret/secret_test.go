@@ -43,7 +43,8 @@ func TestEncryptDecrypt往返(t *testing.T) {
 // 同一明文两次加密必须产生不同密文(nonce 随机),否则能从密文看出"这两个账户用了同一个 key"
 func TestEncrypt每次不同(t *testing.T) {
 	fresh(t)
-	if Encrypt("same") == Encrypt("same") {
+	first, second := Encrypt("same"), Encrypt("same")
+	if first == second {
 		t.Error("两次加密结果相同 —— nonce 没起作用")
 	}
 }

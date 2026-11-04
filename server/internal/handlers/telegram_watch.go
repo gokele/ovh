@@ -115,7 +115,9 @@ func watchText(state *app.State, mon *monitor.Monitor, args []string) string {
 	// autoPay 恒 false：自动付款是个要用户显式打开的开关，
 	// 不能因为他在手机上打了句 /watch 就替他决定花钱方式。
 	mon.AddSubscription(planCode, dcs, true, false, "", nil, nil, autoOrder, quantity, accountID, false, nil)
-	mon.SaveToDB()
+	if _, err := persistMonitorChanges(mon); err != nil {
+		return "保存监控配置失败,监控已停止,请检查存储后重试: " + err.Error()
+	}
 
 	// 监控没在跑的话订阅加了也没用 —— 顺手拉起来，并说清楚
 	started := false
@@ -170,7 +172,9 @@ func unwatchText(state *app.State, mon *monitor.Monitor, args []string) string {
 	if !mon.RemoveSubscription(planCode) {
 		return "没有在盯 " + planCode + "。\n\n发 /subs 看当前订阅。"
 	}
-	mon.SaveToDB()
+	if _, err := persistMonitorChanges(mon); err != nil {
+		return "保存取消订阅操作失败,请检查存储后重试: " + err.Error()
+	}
 	state.Logger.Info("Telegram 取消订阅: "+planCode, "telegram")
 	return "🚫 已取消盯 " + planCode + "\n\n注意：已经在队列里的抢购任务不受影响，发 /queue 查看、/cancel 取消。"
 }

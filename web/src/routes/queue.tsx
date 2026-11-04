@@ -1,4 +1,6 @@
 import { QueueStatusFilter, type QueueFilter } from "@/components/queue/QueueStatusFilter";
+import { OrderPrewarm, StandbyCarts } from "@/components/queue/OrderPrewarm";
+import { useOrderPrewarm } from "@/hooks/use-order-prewarm";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ClipboardList,
@@ -386,6 +388,8 @@ function QueuePage() {
         />
       )}
 
+      <StandbyCarts />
+
         <PearlPanel>
           <PearlPanelHead eyebrow={t("queue.title")} meta={`${items.length}`} />
           <div className="panel-body" style={{ paddingTop: 14 }}>
@@ -629,6 +633,10 @@ function CreateQueueDialog({
   const qty = orderPlan.quantity;
   const totalTasks = orderPlan.total;
   const canSubmit = !!activeAcc && planCode.trim().length > 0 && datacenters.length > 0 && qty > 0 && !prereleaseMismatch;
+  const preparation = useOrderPrewarm(open && !editing && canSubmit, {
+    account_id: accountId, planCode: planCode.trim(), datacenters, options: parsedOptions,
+    quantity: qty, autoPay, coupon, preorder: !!matchedServer?.prerelease,
+  });
 
   const reset = () => {
     setPlanCode("");
@@ -690,6 +698,7 @@ function CreateQueueDialog({
     }
     if (result.success > 0) {
       reset();
+      preparation.submitted();
       onOpenChange(false);
     }
   };
@@ -1009,6 +1018,8 @@ function CreateQueueDialog({
           )}
         </div>
 
+        <OrderPrewarm preparation={preparation} />
+
         <DialogFooter>
           <Button variant="outline" onClick={handleClose} disabled={saving}>
             {t("queue.cancel")}
@@ -1162,6 +1173,9 @@ export function QueueRow({
                 <span>·</span>
                 <span title={`${t(timing.dispatch.prewarmed ? "queue.cartPrewarmed" : "queue.cartCold")} · ${t(timing.dispatch.connectionReused ? "queue.connectionReused" : "queue.connectionCold")}`}>
                   {t("queue.dispatchDelay", { us: timing.dispatch.detectionToWriteUs })}
+                  {timing.dispatchStats && <span className="ml-2" title={t("queue.dispatchWindow")}>
+                    {t("queue.dispatchPercentiles", { p50: timing.dispatchStats.p50Us, p99: timing.dispatchStats.p99Us, n: timing.dispatchStats.samples })}
+                  </span>}
                 </span>
               </>
             )}

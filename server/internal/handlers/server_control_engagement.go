@@ -134,7 +134,9 @@ func CreateEngagementRequest(state *app.State) gin.HandlerFunc {
 		var body struct {
 			PricingMode string `json:"pricingMode"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.PricingMode == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 pricingMode 参数", "code": "EA4F2905C"})
 			return
@@ -194,7 +196,9 @@ func UpdateEngagementEndRule(state *app.State) gin.HandlerFunc {
 			Strategy string `json:"strategy"`
 			Confirm  bool   `json:"confirm"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if !bindOptionalJSON(c, &body) {
+			return
+		}
 		if body.Strategy == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "缺少 strategy 参数", "code": "E8537A991"})
 			return

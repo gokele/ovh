@@ -90,7 +90,11 @@ func CheckUpdate(state *app.State) gin.HandlerFunc {
 		// 这里显示"有 v1.2.3",更新器却去 GitHub 抓另一个版本,用户看到的和装上的对不上
 		url := updater.LatestReleaseURL()
 		client := &http.Client{Timeout: 15 * time.Second}
-		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, url, nil)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "更新源地址无效: " + err.Error(), "current": Version})
+			return
+		}
 		req.Header.Set("Accept", "application/vnd.github+json")
 		req.Header.Set("User-Agent", updateUserAgent)
 
@@ -102,9 +106,14 @@ func CheckUpdate(state *app.State) gin.HandlerFunc {
 		}
 		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
+		const maxReleaseResponse = 2 << 20
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxReleaseResponse+1))
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "current": Version})
+			return
+		}
+		if len(body) > maxReleaseResponse {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "更新源响应过大,已中止读取", "current": Version})
 			return
 		}
 		if resp.StatusCode != http.StatusOK {

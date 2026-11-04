@@ -26,16 +26,22 @@ type vpsSubRow struct {
 	OS                 string `db:"os"`
 }
 
-func rowToVPSSub(r vpsSubRow) types.VPSSubscription {
+func rowToVPSSub(r vpsSubRow) (types.VPSSubscription, error) {
 	var dcs []string
-	_ = json.Unmarshal([]byte(r.DatacentersJSON), &dcs)
+	if err := json.Unmarshal([]byte(r.DatacentersJSON), &dcs); err != nil {
+		return types.VPSSubscription{}, fmt.Errorf("vps %s datacenters: %w", r.ID, err)
+	}
 	if dcs == nil {
 		dcs = []string{}
 	}
 	last := map[string]string{}
-	_ = json.Unmarshal([]byte(r.LastStatusJSON), &last)
+	if err := json.Unmarshal([]byte(r.LastStatusJSON), &last); err != nil {
+		return types.VPSSubscription{}, fmt.Errorf("vps %s status: %w", r.ID, err)
+	}
 	var hist []map[string]interface{}
-	_ = json.Unmarshal([]byte(r.HistoryJSON), &hist)
+	if err := json.Unmarshal([]byte(r.HistoryJSON), &hist); err != nil {
+		return types.VPSSubscription{}, fmt.Errorf("vps %s history: %w", r.ID, err)
+	}
 	if hist == nil {
 		hist = []map[string]interface{}{}
 	}
@@ -56,7 +62,7 @@ func rowToVPSSub(r vpsSubRow) types.VPSSubscription {
 		Quantity:           r.Quantity,
 		AutoPay:            r.AutoPay == 1,
 		OS:                 r.OS,
-	}
+	}, nil
 }
 
 func vpsSubToRow(s types.VPSSubscription) (vpsSubRow, error) {
@@ -71,7 +77,10 @@ func vpsSubToRow(s types.VPSSubscription) (vpsSubRow, error) {
 	}
 	dcsJSON, _ := json.Marshal(s.Datacenters)
 	lastJSON, _ := json.Marshal(s.LastStatus)
-	histJSON, _ := json.Marshal(s.History)
+	histJSON, err := json.Marshal(s.History)
+	if err != nil {
+		return vpsSubRow{}, err
+	}
 	bi := func(b bool) int {
 		if b {
 			return 1
@@ -106,7 +115,11 @@ func (db *DB) ListVPSSubscriptions() ([]types.VPSSubscription, error) {
 	}
 	out := make([]types.VPSSubscription, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, rowToVPSSub(r))
+		item, err := rowToVPSSub(r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }

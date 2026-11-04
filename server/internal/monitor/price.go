@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -89,11 +90,6 @@ func (m *Monitor) subsidiaryOfPricingAccount(accountID string) string {
 		return ""
 	}
 	return catalog.SubsidiaryOfAccount(acc)
-}
-
-// defaultCurrencyForAccount OVH 没回 currencyCode 时,按账户所属子公司兜底。
-func (m *Monitor) defaultCurrencyForAccount(accountID string) string {
-	return currencyForSubsidiary(m.subsidiaryOfPricingAccount(accountID))
 }
 
 // formatMoney 把金额渲染成通知里那一行。
@@ -207,11 +203,8 @@ func (m *Monitor) verifyPriceAvailable(planCode, datacenter string, configInfo m
 		m.state.Logger.Debug(fmt.Sprintf("价格校验失败: %s@%s - %s", planCode, datacenter, errMsg), "monitor")
 		return false, errMsg
 	}
-	if v, ok := numconv.ToFloat64(withTax); ok {
-		if v == 0 {
-			m.state.Logger.Debug(fmt.Sprintf("价格校验失败: %s@%s - withTax无效(0)", planCode, datacenter), "monitor")
-			return false, "withTax无效(0)"
-		}
+	if v, ok := numconv.ToFloat64(withTax); !ok || math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 {
+		return false, "withTax不是有效的正数金额"
 	}
 	m.state.Logger.Debug(fmt.Sprintf("价格校验通过: %s@%s - 含税价格: %v", planCode, datacenter, withTax), "monitor")
 	return true, ""
@@ -294,8 +287,7 @@ func (m *Monitor) GetPriceInfoText(planCode, datacenter string, configInfo map[s
 // getPriceWithTimeout 带 30 秒超时的询价
 func (m *Monitor) getPriceWithTimeout(planCode, datacenter string, configInfo map[string]interface{}, timeout time.Duration) (string, string) {
 	type res struct {
-		text   string
-		errMsg string
+		text string
 	}
 	ch := make(chan res, 1)
 	start := time.Now()

@@ -2,6 +2,7 @@ package purchase
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,10 +30,11 @@ type phase struct {
 // timeline 按顺序累积各阶段耗时。
 // 不用加锁:PurchaseServer 是单 goroutine 顺序执行的。
 type timeline struct {
-	start    time.Time
-	last     time.Time
-	items    []phase
-	dispatch *ovh.DispatchSnapshot
+	start       time.Time
+	last        time.Time
+	items       []phase
+	dispatch    *ovh.DispatchSnapshot
+	dispatchKey string
 }
 
 func newTimeline() *timeline {
@@ -93,17 +95,35 @@ func (t *timeline) entries() []types.PhaseTiming {
 // 真正值得回看的是"最后那次到底卡在哪"。
 
 type lastTiming struct {
-	At       string                `json:"at"`
-	Total    int64                 `json:"totalMs"`
-	Phases   []types.PhaseTiming   `json:"phases"`
-	Dispatch *ovh.DispatchSnapshot `json:"dispatch,omitempty"`
-	Outcome  string                `json:"outcome"` // ordered / unavailable / failed
+	At            string                `json:"at"`
+	Total         int64                 `json:"totalMs"`
+	Phases        []types.PhaseTiming   `json:"phases"`
+	Dispatch      *ovh.DispatchSnapshot `json:"dispatch,omitempty"`
+	DispatchStats *dispatchStats        `json:"dispatchStats,omitempty"`
+	dispatchKey   string
+	Outcome       string `json:"outcome"` // ordered / unavailable / failed
 }
 
 var (
-	lastTimingMu sync.RWMutex
-	lastTimings  = map[string]lastTiming{}
+	lastTimingMu    sync.RWMutex
+	lastTimings     = map[string]lastTiming{}
+	dispatchSamples = map[string][]int64{}
 )
+
+type dispatchStats struct {
+	Samples int   `json:"samples"`
+	P50US   int64 `json:"p50Us"`
+	P99US   int64 `json:"p99Us"`
+}
+
+func summarizeDispatch(samples []int64) *dispatchStats {
+	if len(samples) == 0 {
+		return nil
+	}
+	ordered := append([]int64(nil), samples...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
+	return &dispatchStats{Samples: len(ordered), P50US: ordered[(len(ordered)*50+99)/100-1], P99US: ordered[(len(ordered)*99+99)/100-1]}
+}
 
 func recordTiming(key string, t *timeline, outcome string) {
 	if t == nil || len(t.items) == 0 {
@@ -115,12 +135,27 @@ func recordTiming(key string, t *timeline, outcome string) {
 	if len(lastTimings) > 500 {
 		lastTimings = map[string]lastTiming{}
 	}
+	if t.dispatchKey != "" && t.dispatch != nil && t.dispatch.WroteRequest {
+		if _, exists := dispatchSamples[t.dispatchKey]; !exists && len(dispatchSamples) >= 500 {
+			for old := range dispatchSamples {
+				delete(dispatchSamples, old)
+				break
+			}
+		}
+		samples := dispatchSamples[t.dispatchKey]
+		if len(samples) >= 256 {
+			copy(samples, samples[1:])
+			samples = samples[:255]
+		}
+		dispatchSamples[t.dispatchKey] = append(samples, t.dispatch.DetectionToWriteUS)
+	}
 	lastTimings[key] = lastTiming{
-		At:       types.NowISO(),
-		Total:    t.total().Milliseconds(),
-		Phases:   t.entries(),
-		Outcome:  outcome,
-		Dispatch: t.dispatch,
+		At:          types.NowISO(),
+		Total:       t.total().Milliseconds(),
+		Phases:      t.entries(),
+		Outcome:     outcome,
+		Dispatch:    t.dispatch,
+		dispatchKey: t.dispatchKey,
 	}
 }
 
@@ -133,6 +168,7 @@ func LastTimings() map[string]lastTiming {
 	defer lastTimingMu.RUnlock()
 	out := make(map[string]lastTiming, len(lastTimings))
 	for k, v := range lastTimings {
+		v.DispatchStats = summarizeDispatch(dispatchSamples[v.dispatchKey])
 		out[k] = v
 	}
 	return out
