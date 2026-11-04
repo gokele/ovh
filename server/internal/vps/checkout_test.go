@@ -67,6 +67,13 @@ func TestVPSCheckoutUncertaintyAndCancellation(t *testing.T) {
 				case r.Method == "DELETE" && strings.Contains(path, "/order/cart/"):
 				case strings.HasSuffix(path, "/order/cart"):
 					body = `{"cartId":"fixture"}`
+				case strings.HasSuffix(path, "/order/cart/fixture") && r.Method == "GET":
+					body = `{"items":[1]}`
+				case strings.HasSuffix(path, "/order/cart/fixture/item/1") && r.Method == "GET":
+					body = `{"itemId":1,"duration":"P1M","options":[]}`
+					if tc.duration != "" {
+						body = strings.Replace(body, "P1M", "P1Y", 1)
+					}
 				case strings.HasSuffix(path, "/assign"):
 				case strings.HasSuffix(path, "/requiredConfiguration"):
 					body = `[{"label":"vps_datacenter","allowedValues":["DE"]},{"label":"vps_os","allowedValues":["Debian 13"]}]`

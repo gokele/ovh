@@ -15,6 +15,7 @@ import (
 	"github.com/ovh-buy/server/internal/db"
 	"github.com/ovh-buy/server/internal/notify"
 	"github.com/ovh-buy/server/internal/numconv"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 	"time"
@@ -63,6 +64,10 @@ func cancelledOutcome(state *app.State, item *types.QueueItem, stage string) Out
 // ctx 由队列处理器给,用户删任务时会被取消(app.State.MarkTaskDeleted)。
 // 结账之前的每一次 OVH 调用都挂在它上面,取消即中断;结账本身例外,见那里的注释。
 func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem) Outcome {
+	selectedDuration, termErr := orderterm.Normalize(item.Duration)
+	if termErr != nil {
+		return Outcome{Fatal: true, Reason: termErr.Error()}
+	}
 	if state.DB == nil || item.ID == "" {
 		return Outcome{Fatal: true, Reason: "数据库或任务 ID 不可用,未发起下单"}
 	}
@@ -87,6 +92,10 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		return Outcome{Fatal: true, Reason: errMsg}
 	}
 	item.AccountID = session.accountID
+	if session.cart != nil && (session.cart.duration == "" || !orderterm.Same(session.cart.duration, selectedDuration)) {
+		session.discard()
+		session.nextPrepare = time.Time{}
+	}
 	if item.Preorder && session.cart == nil {
 		ready, err := catalog.PreorderReady(state, item.AccountID, item.PlanCode)
 		if ctx.Err() != nil {
@@ -255,7 +264,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			}
 		}
 	}
-	ready := session.cart != nil && session.cart.fqn == availableFQN && time.Now().Before(session.cart.expires)
+	ready := session.cart != nil && session.cart.fqn == availableFQN && session.cart.duration != "" && orderterm.Same(session.cart.duration, selectedDuration) && time.Now().Before(session.cart.expires)
 	prewarmed := ready && session.cart.preparedAt.Before(detectedAt)
 	if !ready {
 		if !foundAvailable && time.Now().Before(session.nextPrepare) {
@@ -464,35 +473,6 @@ func pickAllowedRegion(allowed []string, prefer string) string {
 		}
 	}
 	return allowed[0]
-}
-
-// filterHardwareOptions 剔除非硬件 / 许可证类选项，只留下真正决定机器配置的 addon。
-// （注意 "panel" 不在过滤词里：FQN 推断出来的 addon 不会撞这词，
-// 留着会误伤；旧版有 "panel" 是因为前端可能塞 cpanel 选项过来）
-func filterHardwareOptions(state *app.State, opts []string, logSkipped bool) []string {
-	filtered := []string{}
-	for _, opt := range opts {
-		if opt == "" {
-			continue
-		}
-		lc := strings.ToLower(opt)
-		skip := false
-		for _, term := range []string{"windows-server", "sql-server", "cpanel-license", "plesk-",
-			"-license-", "os-", "control-panel", "license", "security"} {
-			if strings.Contains(lc, term) {
-				skip = true
-				break
-			}
-		}
-		if skip {
-			if logSkipped {
-				state.Logger.Info("跳过非硬件/许可证选项: "+opt, "purchase")
-			}
-			continue
-		}
-		filtered = append(filtered, opt)
-	}
-	return filtered
 }
 
 // fqnSegmentMatchesOption FQN 段 vs catalog option planCode 的匹配。

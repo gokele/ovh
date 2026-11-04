@@ -89,6 +89,10 @@ func TestPurchaseCouponBeforeCheckout(t *testing.T) {
 				case strings.HasSuffix(path, "/order/cart") && r.Method == "POST":
 					steps = append(steps, "cart")
 					body = `{"cartId":"coupon-cart"}`
+				case strings.HasSuffix(path, "/order/cart/coupon-cart") && r.Method == "GET":
+					body = `{"items":[1]}`
+				case strings.HasSuffix(path, "/order/cart/coupon-cart/item/1") && r.Method == "GET":
+					body = `{"itemId":1,"duration":"P1M","options":[]}`
 				case strings.HasSuffix(path, "/coupon-cart/assign"):
 					steps = append(steps, "assign")
 				case strings.HasSuffix(path, "/coupon-cart/eco") && r.Method == "POST":

@@ -231,8 +231,8 @@ func purchaseVPS(ctx context.Context, state *app.State, sub types.VPSSubscriptio
 	}
 	for _, a := range addons {
 		if err := client.PostWithContext(ctx, fmt.Sprintf("/order/cart/%s/vps/options", cartID), map[string]interface{}{
-			"itemId": itemID, "planCode": a.planCode, "duration": duration,
-			"pricingMode": pricingMode, "quantity": qty,
+			"itemId": itemID, "planCode": a.planCode, "duration": a.duration,
+			"pricingMode": a.pricingMode, "quantity": qty,
 		}, nil); err != nil {
 			return Outcome{Reason: fmt.Sprintf("添加附加项 %s 失败: %s", a.planCode, ovh.Explain(err))}
 		}
@@ -240,6 +240,9 @@ func purchaseVPS(ctx context.Context, state *app.State, sub types.VPSSubscriptio
 	}
 
 	// 5) 结账
+	if err := orderterm.VerifyCart(ctx, client, cartID, itemID, selectedDuration); err != nil {
+		return Outcome{Fatal: errors.Is(err, orderterm.ErrCartPeriod), Reason: err.Error()}
+	}
 	currentAccount, accountExists := state.FindAccount(sub.AutoOrderAccountID)
 	if ctx.Err() != nil || !subscriptionCurrent(state, &sub) || !accountExists || !ovh.SameClientConfiguration(currentAccount, acc) || currentAccount.Zone != acc.Zone {
 		return Outcome{Cancelled: true}
@@ -302,7 +305,7 @@ type vpsOption struct {
 	} `json:"prices"`
 }
 
-type addonPick struct{ family, planCode string }
+type addonPick struct{ family, planCode, duration, pricingMode string }
 
 // pickMandatoryAddons 给每个必选家族挑一个附加项:只看和主商品同 duration/pricingMode
 // 的续费价,取最便宜的(备份就是 1 天保留那档,而不是 7 天)。
@@ -310,8 +313,10 @@ type addonPick struct{ family, planCode string }
 // missing 是有必选家族却挑不出可用项的情况,交给调用方判定失败。
 func pickMandatoryAddons(opts []vpsOption, duration, pricingMode string) (picks []addonPick, missing []string) {
 	type best struct {
-		planCode string
-		price    float64
+		planCode    string
+		duration    string
+		pricingMode string
+		price       float64
 	}
 	chosen := map[string]*best{}
 	var families []string
@@ -324,17 +329,17 @@ func pickMandatoryAddons(opts []vpsOption, duration, pricingMode string) (picks 
 			families = append(families, o.Family)
 		}
 		for _, p := range o.Prices {
-			if !orderterm.Same(p.Duration, duration) || p.PricingMode != pricingMode || !containsFold(p.Capacities, "renew") {
+			if p.Duration == "" || !orderterm.Same(p.Duration, duration) || p.PricingMode != pricingMode || !containsFold(p.Capacities, "renew") {
 				continue
 			}
 			if b := chosen[o.Family]; b == nil || p.Price.Value < b.price {
-				chosen[o.Family] = &best{o.PlanCode, p.Price.Value}
+				chosen[o.Family] = &best{o.PlanCode, p.Duration, p.PricingMode, p.Price.Value}
 			}
 		}
 	}
 	for _, f := range families {
 		if b := chosen[f]; b != nil {
-			picks = append(picks, addonPick{f, b.planCode})
+			picks = append(picks, addonPick{f, b.planCode, b.duration, b.pricingMode})
 		} else {
 			missing = append(missing, f)
 		}

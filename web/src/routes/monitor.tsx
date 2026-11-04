@@ -652,7 +652,7 @@ function AddSubscriptionDialog({
       setAutoOrder(!!editing.autoOrder);
       setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
       setAutoPay(!!editing.autoPay);
-        setDuration(editing.duration || "P1M");
+      setDuration(editing.duration || "P1M");
       // 配置的回填交给下面那个 effect —— 它要等目录到位才能把 addon code
       // 映射成 chip,而目录是异步来的,不能塞进这个"打开即重灌"的 effect 里
     } else {
@@ -882,13 +882,13 @@ function AddSubscriptionDialog({
               />
               <span className="text-sm">{t("monitor.dialog.notifyUnavailable")}</span>
             </label>
-            <div className="sm:col-span-2"><OrderDurationField value={duration} onChange={setDuration} query={durationOptions} /></div>
-
             <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-border px-3.5 py-2.5 hover:bg-muted/40 transition-colors sm:col-span-2">
               <Checkbox checked={autoOrder} onCheckedChange={(v) => setAutoOrder(!!v)} />
               <span className="text-sm">{t("monitor.dialog.autoOrder")}</span>
             </label>
           </div>
+
+          {!autoOrder && <OrderDurationField value={duration} onChange={setDuration} query={durationOptions} />}
 
           {autoOrder && (
             <div className="space-y-3">
@@ -932,6 +932,7 @@ function AddSubscriptionDialog({
                   </p>
                 ) : null}
               </div>
+              <OrderDurationField value={duration} onChange={setDuration} query={durationOptions} />
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                   {t("monitor.dialog.qtyLabel")}

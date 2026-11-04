@@ -839,14 +839,14 @@ function AddVPSDialog({
                 />
                 <span className="text-sm">{t("vpsMonitor.dialog.notifyUnavailable")}</span>
               </label>
-              <div className="sm:col-span-2"><OrderDurationField value={duration} onChange={setDuration} query={durationOptions} /></div>
-
               <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-border px-3.5 py-2.5 hover:bg-muted/40 transition-colors sm:col-span-2">
                 <Checkbox checked={autoOrder} onCheckedChange={(v) => setAutoOrder(!!v)} />
                 <span className="text-sm">{t("vpsMonitor.dialog.autoOrder")}</span>
               </label>
             </div>
           </div>
+
+          {!autoOrder && <OrderDurationField value={duration} onChange={setDuration} query={durationOptions} />}
 
           {autoOrder && (
             <div className="space-y-3">
@@ -901,6 +901,7 @@ function AddVPSDialog({
                   </p>
                 ) : null}
               </div>
+              <OrderDurationField value={duration} onChange={setDuration} query={durationOptions} />
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                   {t("vpsMonitor.dialog.qtyLabel")}

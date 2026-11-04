@@ -247,10 +247,10 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	//   - 用户显式 options（如果有），或
 	//   - 从可用 FQN 推断的 addon planCode（用户没指定时）
 	if len(effectiveOptions) > 0 {
-		state.Logger.Info(fmt.Sprintf("📦 处理硬件选项（%d个）: %v", len(effectiveOptions), effectiveOptions), "purchase")
-		filtered := filterHardwareOptions(state, effectiveOptions, true)
+		state.Logger.Info(fmt.Sprintf("📦 处理配置选项（%d个）: %v", len(effectiveOptions), effectiveOptions), "purchase")
+		filtered := catalog.OrderOptions(effectiveOptions)
 		if len(filtered) > 0 {
-			state.Logger.Info(fmt.Sprintf("过滤后的硬件选项计划代码: %v", filtered), "purchase")
+			state.Logger.Info(fmt.Sprintf("去重后的配置选项计划代码: %v", filtered), "purchase")
 			availableEcoOpts, cachedOptions, err := ecoOptions(ctx, state, client, item, account, cartID, filtered)
 			if err != nil {
 				if ctx.Err() != nil {
@@ -374,6 +374,13 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		} else {
 			state.Logger.Info("购物车优惠码已应用", "purchase")
 		}
+	}
+	if err := orderterm.VerifyCart(ctx, client, cartID, itemID, selectedDuration); err != nil {
+		if ctx.Err() != nil {
+			return nil, cancelledOutcome(state, item, "校验购物车周期")
+		}
+		fail(err.Error())
+		return nil, Outcome{Fatal: errors.Is(err, orderterm.ErrCartPeriod), Reason: err.Error()}
 	}
 	// URL、序列化正文和静态头在等待库存时全部确定,不会提前发送 checkout。
 	call, err := ovh.PreparePost(client, "/order/cart/"+cartID+"/checkout", map[string]interface{}{

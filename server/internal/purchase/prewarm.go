@@ -368,7 +368,7 @@ func (p *CartPool) matching(item types.QueueItem, take bool) *preparedCart {
 			continue
 		}
 		p.mu.Lock()
-		if entry.cart == nil || !time.Now().Before(entry.cart.expires) || (!entry.lease.IsZero() && !time.Now().Before(entry.lease)) {
+		if entry.cart == nil || entry.cart.duration == "" || !orderterm.Same(entry.cart.duration, item.Duration) || !time.Now().Before(entry.cart.expires) || (!entry.lease.IsZero() && !time.Now().Before(entry.lease)) {
 			p.mu.Unlock()
 			continue
 		}

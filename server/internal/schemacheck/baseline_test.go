@@ -243,6 +243,7 @@ var usedEndpoints = []string{
 
 	// —— 下单 / 目录 ——
 	"POST /order/cart",
+	"GET /order/cart/{cartId}",
 	"DELETE /order/cart/{cartId}",
 	"POST /order/cart/{cartId}/assign",
 	"POST /order/cart/{cartId}/checkout",
@@ -252,6 +253,7 @@ var usedEndpoints = []string{
 	"GET /order/cart/{cartId}/eco/options",
 	"POST /order/cart/{cartId}/eco/options",
 	"POST /order/cart/{cartId}/item/{itemId}/configuration",
+	"GET /order/cart/{cartId}/item/{itemId}",
 	"GET /order/cart/{cartId}/item/{itemId}/requiredConfiguration",
 	"GET /order/cart/{cartId}/summary",
 	"GET /order/cart/{cartId}/vps",

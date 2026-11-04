@@ -282,14 +282,12 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 	// 与 purchase.go 对齐:拉不到选项列表 / 选项没匹配上 / 加购失败,一律硬失败。
 	// 否则返回的是"少了内存和硬盘的裸机型价格"却标 success:true,
 	// 监控的价格校验和 quick-order 的放行闸门都只看 success + withTax,会照单放行。
-	// 与 purchase.go 一样先剔掉许可证 / OS / 控制面板类选项:那些不在 eco/options 里,
-	// 不过滤就会让"同一份 options 抢购能下单、询价却 400"。UI 路径前端已经滤过一遍
-	// (web/src/lib/option-groups.ts 的 isHardwareOption),外部脚本 / Telegram 不一定。
-	hwOptions := filterHardwareOptions(state, options)
+	// 每个请求的选项都必须在 OVH 列表里匹配并按所选周期加购,不能静默丢弃。
+	orderOptions := catalog.OrderOptions(options)
 	// addedPlanCodes 记的是真正发给 OVH 的那批 planCode(带区域后缀的完整值),
 	// 调用方拿它才能知道价格里到底含了哪几项;回声请求参数会让短前缀看起来"被计价了"
 	addedPlanCodes := []string{}
-	if len(hwOptions) > 0 {
+	if len(orderOptions) > 0 {
 		var availableOpts []map[string]interface{}
 		q := url.Values{}
 		q.Set("planCode", planCode)
@@ -298,7 +296,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 			return Result{Success: false, Error: "获取硬件选项列表失败：" + err.Error()}
 		}
 		state.Logger.Debug(fmt.Sprintf("找到 %d 个可用选项", len(availableOpts)), "price")
-		for _, wanted := range hwOptions {
+		for _, wanted := range orderOptions {
 			// 分档匹配(matchEcoOption),与 purchase.go 完全对齐。
 			// addon planCode 是带机型后缀的(三区实测:欧区 ram-128g-on-die-ecc-3600-24adv01-v3,
 			// 美区 ram-128g-ecc-2933-24rise01-v1-us),而 availabilities 的 FQN 段是短前缀
@@ -344,10 +342,10 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 		state.Logger.Warn("绑定购物车失败（可能不需要）: "+err.Error(), "price")
 	}
 
-	// 6. 获取 summary。
-	// 这里以前还会先 GET /order/cart/{cartId}：但 order.cart.Cart.items 是 long[](纯 itemId),
-	// 按对象数组解析永远拿不到明细，白白多一次能让整次询价硬失败的调用，已删。
-	// 逐项明细改从 summary(order.Order)的 details(order.OrderDetail[]) 取。
+	// 6. 先按购物车的 itemId 逐项核验实际周期，再从 summary 读取价格明细。
+	if err := orderterm.VerifyCart(context.Background(), client, cartID, itemID, selectedDuration); err != nil {
+		return Result{Error: err.Error()}
+	}
 	// OVH 错误直接返回 success:false。
 	// 之前 Go 静默忽略会导致瞬断时 success:true 但价格全 nil，前端误以为有效价格 0
 	var cartSummary map[string]interface{}
@@ -508,35 +506,6 @@ func pickAllowedRegion(allowed []string, prefer string) string {
 		}
 	}
 	return allowed[0]
-}
-
-// filterHardwareOptions 剔除许可证 / OS / 控制面板类选项,只留真正决定机器配置的 addon。
-// 口径与 purchase.go 的同名函数一致 —— 两处必须同进同退,否则会出现
-// "询价说这个组合不可定价、抢购却能下单"(或反之)的分裂。
-// 这里复制一份而不是 import purchase:price 是 purchase 的下游(quick_order 先询价再入队),
-// 反向依赖会成环。
-func filterHardwareOptions(state *app.State, opts []string) []string {
-	filtered := []string{}
-	for _, opt := range opts {
-		if opt == "" {
-			continue
-		}
-		lc := strings.ToLower(opt)
-		skip := false
-		for _, term := range []string{"windows-server", "sql-server", "cpanel-license", "plesk-",
-			"-license-", "os-", "control-panel", "license", "security"} {
-			if strings.Contains(lc, term) {
-				skip = true
-				break
-			}
-		}
-		if skip {
-			state.Logger.Debug("询价跳过非硬件/许可证选项: "+opt, "price")
-			continue
-		}
-		filtered = append(filtered, opt)
-	}
-	return filtered
 }
 
 // extractPriceField 兼容字典形式（{value, currencyCode}）与直接值，统一转 float64

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,8 +94,62 @@ func hotFixture(t *testing.T) (*app.State, *atomic.Int32, *atomic.Int32, *atomic
 	state := queueCompletionState(t)
 	var carts, checkouts atomic.Int32
 	var stock atomic.Bool
+	var itemsMu sync.Mutex
+	cartItems := map[string]map[int64]map[string]interface{}{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(parts) >= 3 && parts[0] == "order" && parts[1] == "cart" {
+			cartID := parts[2]
+			if r.Method == "POST" && (strings.HasSuffix(path, "/eco") || strings.HasSuffix(path, "/eco/options")) {
+				var payload struct {
+					Duration    string `json:"duration"`
+					PlanCode    string `json:"planCode"`
+					PricingMode string `json:"pricingMode"`
+					ParentID    int64  `json:"itemId"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Error(err)
+					w.WriteHeader(400)
+					return
+				}
+				itemsMu.Lock()
+				defer itemsMu.Unlock()
+				if cartItems[cartID] == nil {
+					cartItems[cartID] = map[int64]map[string]interface{}{}
+				}
+				id := int64(len(cartItems[cartID]) + 1)
+				item := map[string]interface{}{"itemId": id, "duration": payload.Duration, "options": []int64{}, "settings": map[string]interface{}{"planCode": payload.PlanCode, "pricingMode": payload.PricingMode}}
+				cartItems[cartID][id] = item
+				if parent := cartItems[cartID][payload.ParentID]; parent != nil {
+					parent["options"] = append(parent["options"].([]int64), id)
+				}
+				_ = json.NewEncoder(w).Encode(item)
+				return
+			}
+			if r.Method == "GET" && len(parts) == 3 {
+				itemsMu.Lock()
+				defer itemsMu.Unlock()
+				ids := []int64{}
+				for id := range cartItems[cartID] {
+					ids = append(ids, id)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"cartId": cartID, "items": ids})
+				return
+			}
+			if r.Method == "GET" && len(parts) == 5 && parts[3] == "item" {
+				id, _ := strconv.ParseInt(parts[4], 10, 64)
+				itemsMu.Lock()
+				defer itemsMu.Unlock()
+				item := cartItems[cartID][id]
+				if item == nil {
+					w.WriteHeader(404)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(item)
+				return
+			}
+		}
 		switch {
 		case strings.HasSuffix(path, "/auth/time"):
 			fmt.Fprint(w, time.Now().Unix())
@@ -107,8 +162,6 @@ func hotFixture(t *testing.T) (*app.State, *atomic.Int32, *atomic.Int32, *atomic
 		case path == "/order/cart" && r.Method == "POST":
 			id := carts.Add(1)
 			fmt.Fprintf(w, `{"cartId":"cart-%d","expire":"2099-01-01T00:00:00Z"}`, id)
-		case strings.HasSuffix(path, "/eco") && r.Method == "POST":
-			fmt.Fprint(w, `{"itemId":1}`)
 		case strings.HasSuffix(path, "/requiredConfiguration"):
 			fmt.Fprint(w, `[{"label":"region","required":true,"allowedValues":["europe"]}]`)
 		case strings.HasSuffix(path, "/eco/options") && r.Method == "GET":

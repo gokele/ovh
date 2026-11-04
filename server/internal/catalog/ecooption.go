@@ -2,6 +2,21 @@ package catalog
 
 import "strings"
 
+// OrderOptions preserves every requested addon; OVH's option list decides what is supported.
+func OrderOptions(options []string) []string {
+	result := []string{}
+	seen := map[string]bool{}
+	for _, option := range options {
+		option = strings.TrimSpace(option)
+		key := strings.ToLower(option)
+		if option != "" && !seen[key] {
+			result = append(result, option)
+			seen[key] = true
+		}
+	}
+	return result
+}
+
 // 预订硬件只接受原始规格加机型后缀,不按标准化结果替换成另一套配置。
 func MatchPreorderEcoOption(opts []map[string]interface{}, wanted string) (map[string]interface{}, string, string) {
 	w := strings.ToLower(strings.TrimSpace(wanted))
