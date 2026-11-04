@@ -12,6 +12,7 @@ import (
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
 	"github.com/ovh-buy/server/internal/numconv"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/price"
 	"github.com/ovh-buy/server/internal/purchase"
@@ -27,6 +28,7 @@ var quickOrderMu sync.Mutex
 func QuickOrder(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
+			Duration           string   `json:"duration"`
 			AccountID          string   `json:"account_id"` // 必填,哪个账户下单
 			PlanCode           string   `json:"planCode"`
 			Datacenter         string   `json:"datacenter"`
@@ -40,6 +42,13 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "任务参数格式不正确"})
 			return
 		}
+		duration, termErr := orderterm.Normalize(body.Duration)
+		if termErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": termErr.Error()})
+			return
+		}
+		body.Duration = duration
+
 		if body.PlanCode == "" || body.Datacenter == "" {
 			c.JSON(http.StatusOK, gin.H{"success": false, "error": "缺少 planCode 或 datacenter", "code": "E75DA4B08"})
 			return
@@ -125,14 +134,14 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 		// 精确匹配的备车直接复用其已确认报价,其他手动下单仍现场验价。
 		var priceResult price.Result
 		if pool, ok := state.OrderPrewarm.(*purchase.CartPool); ok {
-			priceResult.Price = pool.Quote(types.QueueItem{AccountID: body.AccountID, PlanCode: body.PlanCode, Datacenter: body.Datacenter, Options: options, AutoPay: body.AutoPay, Coupon: body.Coupon})
+			priceResult.Price = pool.Quote(types.QueueItem{AccountID: body.AccountID, Duration: body.Duration, PlanCode: body.PlanCode, Datacenter: body.Datacenter, Options: options, AutoPay: body.AutoPay, Coupon: body.Coupon})
 		}
 		prepared := priceResult.Price != nil
 		if !prepared {
 			if body.FromMonitor {
-				priceResult = price.GetInternalCached(state, body.AccountID, body.PlanCode, body.Datacenter, options)
+				priceResult = price.GetInternalCached(state, body.AccountID, body.PlanCode, body.Datacenter, options, body.Duration)
 			} else {
-				priceResult = price.GetInternal(state, body.AccountID, body.PlanCode, body.Datacenter, options)
+				priceResult = price.GetInternal(state, body.AccountID, body.PlanCode, body.Datacenter, options, body.Duration)
 			}
 			if !priceResult.Success {
 				err := priceResult.Error
@@ -237,6 +246,7 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 		item := types.QueueItem{
 			ID:         uuid.NewString(),
 			AccountID:  body.AccountID,
+			Duration:   body.Duration,
 			PlanCode:   body.PlanCode,
 			Datacenter: body.Datacenter,
 			Options:    options,

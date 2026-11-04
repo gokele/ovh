@@ -10,6 +10,7 @@ import (
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
 	"github.com/ovh-buy/server/internal/numconv"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/price"
 	"github.com/ovh-buy/server/internal/types"
@@ -24,6 +25,10 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		}
 	}
 
+	selectedDuration, err := orderterm.Normalize(item.Duration)
+	if err != nil {
+		return nil, Outcome{Fatal: true, Reason: err.Error()}
+	}
 	cartID := ""
 	var itemID int64
 	var addedOptions []string
@@ -93,14 +98,16 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	tl.mark("绑定购物车")
 	state.Logger.Info("购物车绑定成功", "purchase")
 
-	// 添加基础商品 /eco。
-	// duration / pricingMode 在 order.cart.GenericProductCreation 里是必填，合法组合来自
-	// GET /order/cart/{cartId}/eco 的 prices[]（order.cart.GenericProductPricing）。
-	// Eco 系列的标准计价就是 P1M/default，所以先直接按它发 —— 抢购主链路上成功路径
-	// 一次多余请求都不发；只有被 OVH 拒了才去查真实计价重试一次，
-	// 免得不按月付计价的机型永远下不了单。
+	// 月付沿用快速路径；其他周期先取 OVH 的实际 duration/pricingMode。
 	state.Logger.Info(fmt.Sprintf("添加基础商品 %s 到购物车 (使用 /eco)", item.PlanCode), "purchase")
-	baseDuration, basePricingMode := "P1M", "default"
+	baseDuration, basePricingMode := selectedDuration, "default"
+	if selectedDuration != orderterm.Default {
+		baseDuration, basePricingMode, err = orderterm.Lookup(ctx, client, cartID, "eco", item.PlanCode, selectedDuration)
+		if err != nil {
+			fail(err.Error())
+			return nil, Outcome{Fatal: errors.Is(err, orderterm.ErrUnavailable), Reason: err.Error()}
+		}
+	}
 	var itemResult map[string]interface{}
 	postBase := func() error {
 		itemResult = nil
@@ -116,7 +123,7 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		if ctx.Err() != nil {
 			return nil, cancelledOutcome(state, item, "加基础商品")
 		}
-		if d, pm, found := lookupEcoPricing(state, client, cartID, item.PlanCode); found &&
+		if d, pm, lookupErr := orderterm.Lookup(ctx, client, cartID, "eco", item.PlanCode, selectedDuration); lookupErr == nil &&
 			(d != baseDuration || pm != basePricingMode) {
 			state.Logger.Warn(fmt.Sprintf("以 %s/%s 加购 %s 失败(%s)，改用目录计价 %s/%s 重试",
 				baseDuration, basePricingMode, item.PlanCode, err.Error(), d, pm), "purchase")
@@ -282,7 +289,12 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 				// duration / pricingMode 只存在于 order.cart.GenericProductPricing
 				// （prices[] 的元素）里，GenericOptionDefinition 顶层没有这两个字段，
 				// 直接读顶层永远读不到、恒回退硬编码值
-				duration, pricingMode := pickPricing(matchedOpt["prices"], baseDuration)
+				duration, pricingMode, valid := orderterm.Pick(matchedOpt["prices"], baseDuration, basePricingMode)
+				if !valid {
+					errMsg := fmt.Sprintf("硬件选项 %s 不支持购买时长 %s，已取消下单", matchedPC, selectedDuration)
+					fail(errMsg)
+					return nil, Outcome{Fatal: true, Reason: errMsg}
+				}
 				todo = append(todo, addonPayload{
 					planCode: matchedPC,
 					body: map[string]interface{}{
@@ -383,5 +395,5 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		return nil, Outcome{Attempted: true, Reason: "OVH returned an expiring cart; preparation must be retried"}
 	}
 	success = true // 准备成功后由 session 持有购物车,等库存期间不删除。
-	return &preparedCart{account: account, client: client, call: call, quote: &price.PriceInfo{PricingMode: basePricingMode}, options: addedOptions, duration: baseDuration, id: cartID, subsidiary: subsidiary, couponWarning: couponWarning, expires: expires, preparedAt: time.Now()}, Outcome{}
+	return &preparedCart{account: account, client: client, call: call, quote: &price.PriceInfo{PricingMode: basePricingMode, Duration: baseDuration}, options: addedOptions, duration: baseDuration, id: cartID, subsidiary: subsidiary, couponWarning: couponWarning, expires: expires, preparedAt: time.Now()}, Outcome{}
 }

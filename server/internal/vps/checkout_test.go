@@ -2,6 +2,7 @@ package vps
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +26,7 @@ func TestVPSCheckoutUncertaintyAndCancellation(t *testing.T) {
 	t.Cleanup(func() { http.DefaultTransport = original })
 	for _, tc := range []struct {
 		name                                         string
+		duration                                     string
 		status                                       int
 		response                                     string
 		cancel, invalidOS, annualOnly, deleteAccount bool
@@ -37,11 +39,12 @@ func TestVPSCheckoutUncertaintyAndCancellation(t *testing.T) {
 		{name: "cancel before checkout", cancel: true},
 		{name: "unsupported OS", invalidOS: true},
 		{name: "annual only", annualOnly: true},
+		{name: "success", annualOnly: true, duration: "P12M", status: 200, response: `{"orderId":123,"url":"https://orders.invalid/123"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := lifecycleState(t)
 			state.Accounts = []types.OVHAccount{{ID: "eu", Endpoint: "ovh-eu", Zone: "IE", AppKey: "test", AppSecret: "test", ConsumerKey: "test"}}
-			sub := types.VPSSubscription{ID: "checkout", PlanCode: "vps-model", OvhSubsidiary: "IE", AutoOrder: true, AutoOrderAccountID: "eu", Quantity: 1}
+			sub := types.VPSSubscription{Duration: tc.duration, ID: "checkout", PlanCode: "vps-model", OvhSubsidiary: "IE", AutoOrder: true, AutoOrderAccountID: "eu", Quantity: 1}
 			if tc.invalidOS {
 				sub.OS = "Windows unknown"
 			}
@@ -79,6 +82,17 @@ func TestVPSCheckoutUncertaintyAndCancellation(t *testing.T) {
 						body = strings.Replace(body, "P1M", "P1Y", 1)
 					}
 				case strings.HasSuffix(path, "/vps") && r.Method == "POST":
+					var payload map[string]interface{}
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Fatal(err)
+					}
+					want := "P1M"
+					if tc.duration != "" {
+						want = "P1Y"
+					}
+					if payload["duration"] != want {
+						t.Error("VPS period silently changed", payload)
+					}
 					body = `{"itemId":1}`
 				case strings.HasSuffix(path, "/checkout"):
 					checkouts.Add(1)
@@ -103,8 +117,12 @@ func TestVPSCheckoutUncertaintyAndCancellation(t *testing.T) {
 			if tc.name == "success" || tc.deleteAccount {
 				autoOrderOnRestock(ctx, state, sub, []map[string]interface{}{{"name": "DE", "code": "eu-west-lim"}})
 				history, err := state.DB.ListHistory()
-				if err != nil || len(history) != 1 || history[0].OrderID != "123" || history[0].Status != "success" {
-					t.Fatalf("success history not durably saved: %+v %v", history, err)
+				if err != nil || len(history) != 1 || history[0].OrderID != "123" || history[0].Status != "success" || history[0].Duration != tc.duration {
+					reason := ""
+					if len(history) > 0 && history[0].ErrorMessage != nil {
+						reason = *history[0].ErrorMessage
+					}
+					t.Fatalf("success history not durably saved: %+v %v reason=%s", history, err, reason)
 				}
 				subs, err := state.DB.ListVPSSubscriptions()
 				if err != nil || len(subs) != 1 || subs[0].AutoOrder {
@@ -117,7 +135,7 @@ func TestVPSCheckoutUncertaintyAndCancellation(t *testing.T) {
 			} else {
 				out = purchaseVPS(ctx, state, sub, "DE")
 			}
-			if tc.cancel || tc.invalidOS || tc.annualOnly {
+			if tc.cancel || tc.invalidOS || (tc.annualOnly && tc.duration == "") {
 				if checkouts.Load() != 0 || out.Success {
 					t.Fatalf("invalid/cancelled configuration reached checkout: %+v", out)
 				}

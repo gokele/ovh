@@ -1,3 +1,6 @@
+import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
+import { useOrderDurations } from "@/hooks/use-order-durations";
+import { supportsDuration } from "@/lib/order-duration";
 import { createFileRoute } from "@tanstack/react-router";
 import { OrderPrewarm } from "@/components/queue/OrderPrewarm";
 import { useOrderPrewarm } from "@/hooks/use-order-prewarm";
@@ -553,6 +556,7 @@ function DetailContent({
   const [retryInterval, setRetryInterval] = useState("60");
   // 默认不自动付款:自动扣钱必须是用户显式打开的
   const [autoPay, setAutoPay] = useState(false);
+  const [duration, setDuration] = useState("P1M");
   const [coupon, setCoupon] = useState("");
   const toggleDC = (code: string) =>
     setSelectedDCs((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
@@ -635,9 +639,11 @@ function DetailContent({
   );
   const preorderConfigMismatch = !!server.prerelease && selectedValues.length > 0 &&
     !!orderVariants && !orderVariants.some((v) => variantCoversAll(v, selectedValues));
-  const preparation = useOrderPrewarm(!!accountId && selectedDCs.length > 0 && !preorderConfigMismatch, {
+  const durationOptions = useOrderDurations(accountId, server.planCode, "eco", true);
+  const durationSupported = supportsDuration(durationOptions.data, duration);
+  const preparation = useOrderPrewarm(durationSupported && !!accountId && selectedDCs.length > 0 && !preorderConfigMismatch, {
     account_id: accountId, planCode: server.planCode, datacenters: selectedDCs,
-    options: selectedValues, quantity: qty, autoPay, coupon, preorder: !!server.prerelease,
+    options: selectedValues, quantity: qty, autoPay, coupon, duration, preorder: !!server.prerelease,
   });
 
   // 价格用的 subsidiary(顶部下拉)属于哪个站点 vs 下单账户属于哪个站点
@@ -810,6 +816,8 @@ function DetailContent({
             {t("servers.detail.params")}
           </h3>
           <div className="space-y-3">
+            <OrderDurationField value={duration} onChange={setDuration} query={durationOptions} />
+
             <div>
               <label htmlFor="server-coupon" className="block text-[13px] font-medium mb-1.5">
                 {t("queue.couponLabel")}
@@ -880,6 +888,7 @@ function DetailContent({
       <OrderPrewarm preparation={preparation} />
       <DialogFooter className="border-t border-border pt-4 -mx-6 px-6">
         <div className="mr-auto text-[12px] text-muted-foreground">
+          <div className="mb-1 font-medium text-foreground">{t("orderDuration.label")} · <OrderDurationLabel value={duration} /></div>
           {selectedDCs.length > 0
             ? t("servers.detail.willCreate", {
                 tasks: totalTasks,
@@ -915,6 +924,7 @@ function DetailContent({
           disabled={addMon.isPending || create.isPending}
           onClick={() =>
             addMon.mutate({
+              duration,
               planCode: server.planCode,
               // 跟着用户在上面勾的机房走。以前这里固定传 dialogDCs(全部机房),
               // 用户勾了 GRA 却会收到所有机房的补货通知。
@@ -935,7 +945,7 @@ function DetailContent({
           {t("servers.detail.addToMonitor")}
         </Button>
         <Button
-          disabled={selectedDCs.length === 0 || create.isPending || preorderConfigMismatch}
+          disabled={!durationSupported || selectedDCs.length === 0 || create.isPending || preorderConfigMismatch}
           onClick={async () => {
             if (selectedDCs.length === 0) {
               toast.error(t("servers.toast.pickDc"));
@@ -954,6 +964,7 @@ function DetailContent({
               options: selectedValues,
               autoPay,
               coupon,
+              duration,
               preorder: !!server.prerelease,
             });
             if (result.success > 0) {

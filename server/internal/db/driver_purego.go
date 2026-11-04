@@ -15,7 +15,7 @@ const driverName = "sqlite"
 // 参考: https://pkg.go.dev/modernc.org/sqlite#hdr-Connection_String
 func makeDSN(path string) string {
 	return fmt.Sprintf(
-		"file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		path,
+		"%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
+		sqliteFileURI(path),
 	)
 }

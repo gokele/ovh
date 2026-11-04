@@ -13,6 +13,7 @@ import (
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/monitor"
 	"github.com/ovh-buy/server/internal/notify"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -49,6 +50,7 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 			return
 		}
 		var body struct {
+			Duration           string   `json:"duration"`
 			PlanCode           string   `json:"planCode"`
 			Datacenters        []string `json:"datacenters"`
 			NotifyAvailable    *bool    `json:"notifyAvailable"`
@@ -67,6 +69,13 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 		if !bindOptionalJSON(c, &body) {
 			return
 		}
+		duration, termErr := orderterm.Normalize(body.Duration)
+		if termErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": termErr.Error()})
+			return
+		}
+		body.Duration = duration
+
 		body.PlanCode = strings.TrimSpace(body.PlanCode)
 		// 一条订阅一个型号(issue #2):整串"plan-a,plan-b"会被当成一个型号存进库,
 		// 永远匹配不到库存,界面上却显示创建成功。半/全角逗号、顿号、空白、换行都拒。
@@ -126,7 +135,7 @@ func AddSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 
 		mon.AddSubscription(body.PlanCode, body.Datacenters, notifyAvailable, notifyUnavailable,
 			serverName, nil, nil, body.AutoOrder, body.Quantity, body.AutoOrderAccountID, body.AutoPay,
-			body.Options)
+			body.Options, body.Duration)
 		if !saveMonitorSubscriptions(c, mon) {
 			return
 		}
@@ -218,7 +227,7 @@ func BatchAddAll(state *app.State, mon *monitor.Monitor) gin.HandlerFunc {
 				continue
 			}
 			mon.AddSubscription(pc, []string{}, notifyAvailable, notifyUnavailable,
-				server.Name, nil, nil, body.AutoOrder, 1, body.AutoOrderAccountID, false, nil)
+				server.Name, nil, nil, body.AutoOrder, 1, body.AutoOrderAccountID, false, nil, "")
 			added++
 			state.Logger.Debug("批量添加订阅: "+pc+" ("+server.Name+")", "monitor")
 		}

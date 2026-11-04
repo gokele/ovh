@@ -193,6 +193,7 @@ func handleTelegramCallback(state *app.State, mon *monitor.Monitor, u *updateCtx
 	// btnAccountID:发通知时记下的「触发订阅所用账户」。planCode 是分区的,
 	// 用它下单才不会把欧区机型落到美区账户上。空 = 老按钮/无账户维度 → 退回默认账户。
 	btnAccountID := ""
+	duration := ""
 	var options []string
 	if optsRaw, ok := callbackObj["o"]; ok {
 		options = toStringSlice(optsRaw)
@@ -221,6 +222,10 @@ func handleTelegramCallback(state *app.State, mon *monitor.Monitor, u *updateCtx
 			planCode = row.PlanCode
 			dc = row.Datacenter
 			options = db.ParseTelegramButtonOptions(row.Options)
+			var config map[string]interface{}
+			if json.Unmarshal([]byte(row.ConfigInfo), &config) == nil {
+				duration, _ = config["duration"].(string)
+			}
 			btnAccountID = strings.TrimSpace(row.AccountID)
 			state.Logger.Info(fmt.Sprintf("✅ 按钮已认领: id=%s, %s@%s, options=%v, account=%s",
 				buttonID, planCode, dc, options, btnAccountID), "telegram")
@@ -248,6 +253,7 @@ func handleTelegramCallback(state *app.State, mon *monitor.Monitor, u *updateCtx
 				planCode = cached.PlanCode
 				dc = cached.Datacenter
 				options = cached.Options
+				duration, _ = cached.ConfigInfo["duration"].(string)
 				state.Logger.Info("从内存缓存恢复按钮配置（旧按钮）: "+buttonID, "telegram")
 			} else {
 				// 库里没有、内存缓存也没有 → 拒绝。
@@ -318,6 +324,7 @@ func handleTelegramCallback(state *app.State, mon *monitor.Monitor, u *updateCtx
 		ID:            uuid.NewString(),
 		AccountID:     accountID,
 		PlanCode:      planCode,
+		Duration:      duration,
 		Datacenter:    dc,
 		Options:       options,
 		Status:        "running",
@@ -409,6 +416,11 @@ func handleTelegramMessage(state *app.State, mon *monitor.Monitor, u *updateCtx,
 		telegram.SendReply(state, chatID,
 			"没看懂这条消息。\n\n下单格式：<型号> [机房] [数量] [配置]\n"+
 				"例：24sk602 gra 2\n\n发 /help 看完整说明。", int64(messageID))
+		u.JSON(http.StatusOK, gin.H{"ok": true})
+		return
+	}
+	if orderInfo.Error != "" {
+		telegram.SendReply(state, chatID, orderInfo.Error, int64(messageID))
 		u.JSON(http.StatusOK, gin.H{"ok": true})
 		return
 	}

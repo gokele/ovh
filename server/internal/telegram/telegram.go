@@ -14,6 +14,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/types"
 )
 
@@ -170,6 +171,8 @@ func SendReply(state *app.State, chatID interface{}, text string, replyToMessage
 }
 
 type OrderInfo struct {
+	Duration   string
+	Error      string
 	PlanCode   string
 	Datacenter string
 	// AccountRef 用户在命令里显式指定的账户。原样保留,由 handlers 去解析成具体账户 ——
@@ -232,6 +235,17 @@ func ParseOrderMessage(text string) *OrderInfo {
 	qtySet := false
 	for _, p := range parts[1:] {
 		switch {
+		case strings.HasPrefix(strings.ToUpper(p), "P") && len(p) > 1 && p[1] >= '0' && p[1] <= '9' || strings.HasPrefix(strings.ToLower(p), "duration="):
+			raw := p
+			if at := strings.IndexByte(raw, '='); at >= 0 {
+				raw = raw[at+1:]
+			}
+			var err error
+			result.Duration, err = orderterm.Normalize(raw)
+			if err != nil {
+				result.Error = err.Error()
+				return result
+			}
 		case strings.HasPrefix(p, "@"):
 			// 账户。裸 @ 是打漏了,直接丢 —— 它不是配置项,
 			// 当配置发给 OVH 只会换来一个看不懂的 400。

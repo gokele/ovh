@@ -1,3 +1,6 @@
+import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
+import { useOrderDurations } from "@/hooks/use-order-durations";
+import { supportsDuration } from "@/lib/order-duration";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useTranslation, Trans } from "react-i18next";
 import {
@@ -405,6 +408,7 @@ function VPSRow({
               {sub.monitorWindows && <Chip tone="info">Windows</Chip>}
               {sub.notifyAvailable && <Chip tone="success">{t("vpsMonitor.row.notifyAvailable")}</Chip>}
               {sub.notifyUnavailable && <Chip tone="warning">{t("vpsMonitor.row.notifyUnavailable")}</Chip>}
+              <Chip><OrderDurationLabel value={sub.duration} /></Chip>
               {sub.autoOrder && sub.autoOrderAccountId ? (
                 <>
                   <Chip tone="solid">
@@ -561,6 +565,7 @@ function AddVPSDialog({
   const [os, setOs] = useState("");
   // 默认不自动付款:自动扣钱必须显式打开
   const [autoPay, setAutoPay] = useState(false);
+  const [duration, setDuration] = useState("P1M");
   // 订阅的下单账户 = 左侧菜单栏(手机端在顶栏)的全局账户,不再单独选
   const [globalAccountId] = useActiveAccount();
   const accountsQ = useAccounts();
@@ -568,6 +573,8 @@ function AddVPSDialog({
   const autoOrderAccountId =
     globalAccountId || allAccounts?.find((a) => a.isDefault)?.id || allAccounts?.[0]?.id || "";
   const activeAcc = findAccountByID(allAccounts, autoOrderAccountId);
+  const durationOptions = useOrderDurations(autoOrderAccountId, vpsModel, "vps", open, ovhSubsidiary);
+  const durationSupported = supportsDuration(durationOptions.data, duration);
   // 账户列表读失败 ≠ 一个账户都没配。两种情况以前都显示「未选择账户」,
   // 然后自动下单被静默拦掉 —— 用户看到的是一条没有理由的死路:
   // 去账户页明明有账户,回来还是"未选择"。而且这一页的站点列表也是按
@@ -594,6 +601,7 @@ function AddVPSDialog({
     setQuantity(1);
     setOs("");
     setAutoPay(false);
+    setDuration("P1M");
   };
 
   // 打开时按 editing 重灌表单;带上 open 依赖,免得上次改了一半的内容留到下次
@@ -611,6 +619,7 @@ function AddVPSDialog({
       setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
       setOs(editing.os || "");
       setAutoPay(!!editing.autoPay);
+        setDuration(editing.duration || "P1M");
     } else {
       reset();
     }
@@ -648,6 +657,7 @@ function AddVPSDialog({
       );
       return;
     }
+    if (!durationSupported) { toast.error(t("orderDuration.unsupported")); return; }
     const payload = {
       planCode: vpsModel,
       ovhSubsidiary,
@@ -661,6 +671,7 @@ function AddVPSDialog({
       os: autoOrder ? os : "",
       autoOrderAccountId: autoOrder ? autoOrderAccountId : "",
       autoPay: autoOrder ? autoPay : false,
+      duration,
     };
     const done = {
       onSuccess: () => {
@@ -828,6 +839,8 @@ function AddVPSDialog({
                 />
                 <span className="text-sm">{t("vpsMonitor.dialog.notifyUnavailable")}</span>
               </label>
+              <div className="sm:col-span-2"><OrderDurationField value={duration} onChange={setDuration} query={durationOptions} /></div>
+
               <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-border px-3.5 py-2.5 hover:bg-muted/40 transition-colors sm:col-span-2">
                 <Checkbox checked={autoOrder} onCheckedChange={(v) => setAutoOrder(!!v)} />
                 <span className="text-sm">{t("vpsMonitor.dialog.autoOrder")}</span>

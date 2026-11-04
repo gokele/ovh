@@ -17,6 +17,7 @@ type OrderPrewarmer interface {
 }
 
 type PrewarmStatus struct {
+	Duration    string   `json:"duration"`
 	ID          string   `json:"id"`
 	AccountID   string   `json:"accountId"`
 	PlanCode    string   `json:"planCode"`

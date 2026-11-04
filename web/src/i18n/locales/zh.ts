@@ -16,6 +16,15 @@ import { vpsDialogsZh } from "./modules/vps-dialogs.zh";
 import { commonLayerZh } from "./modules/common-layer.zh";
 
 export const zh = {
+  orderDuration: {
+    label: "购买时长", default: "默认", months: "{{count}} 个月", months_other: "{{count}} 个月", years: "{{count}} 年", years_other: "{{count}} 年",
+    loading: "正在查询 OVH 可选周期…",
+    hint: "可选周期来自当前账户的 OVH 销售目录。",
+    unverified: "当前暂无法确认可选周期，可先保存预订；执行时会按所选时长核验。",
+    unsupported: "该账户的此型号不支持所选周期，请选择其他购买时长。",
+    prepaid: "本次按所选周期结算，年付涉及全年费用。实际金额及续费规则以 OVH 订单为准。",
+  },
+
   nav: {
     appName: "OVH 控制台",
     group: {

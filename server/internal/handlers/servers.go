@@ -340,6 +340,7 @@ func MonitorPrice(state *app.State) gin.HandlerFunc {
 			return
 		}
 		var body struct {
+			Duration   string   `json:"duration"`
 			AccountID  string   `json:"account_id"` // 哪个账户询价(空 = 默认)
 			PlanCode   string   `json:"plan_code"`
 			Datacenter string   `json:"datacenter"`
@@ -357,7 +358,7 @@ func MonitorPrice(state *app.State) gin.HandlerFunc {
 		}
 		// 监控轮询是唯一调用方(本地白名单),短 TTL 缓存削掉每轮全量验价的
 		// 完整购物车周期 —— 不加的话持续有货的订阅自己就能把账户打进 429
-		result := price.GetInternalCached(state, body.AccountID, body.PlanCode, body.Datacenter, body.Options)
+		result := price.GetInternalCached(state, body.AccountID, body.PlanCode, body.Datacenter, body.Options, body.Duration)
 		c.JSON(http.StatusOK, result)
 	}
 }
@@ -380,6 +381,7 @@ func ServerPrice(state *app.State) gin.HandlerFunc {
 			return
 		}
 		var body struct {
+			Duration   string   `json:"duration"`
 			AccountID  string   `json:"account_id"`
 			Datacenter string   `json:"datacenter"`
 			Options    []string `json:"options"`
@@ -411,7 +413,7 @@ func ServerPrice(state *app.State) gin.HandlerFunc {
 			datacenter = defaultDatacenterFor(state, accountID, planCode)
 		}
 
-		result := price.GetInternal(state, accountID, planCode, datacenter, body.Options)
+		result := price.GetInternal(state, accountID, planCode, datacenter, body.Options, body.Duration)
 		if !result.Success {
 			// 询价失败是业务结果（配置在该机房不可订购等），不是服务端故障，
 			// 保持 200 + success:false，前端按 success 字段判断即可。

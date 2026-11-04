@@ -84,6 +84,7 @@ type CachedMessage struct {
 // 检查 goroutine 在锁外写 LastCheck*/History/LastStatus,而 HTTP 侧的 Status()/Snapshot()
 // 同时在读同一批字段,go test -race 会直接报 DATA RACE(见 race_test.go)。
 type Subscription struct {
+	Duration string `json:"duration,omitempty"`
 	// mu 保护下面所有可变字段。加在结构体里而不是复用 subsMu:
 	// 检查是「每订阅一个 goroutine」并发跑的,用一把全局锁会让 30 个订阅的检查串行化。
 	mu       sync.Mutex
@@ -132,6 +133,7 @@ type Subscription struct {
 // 期间用户可能改订阅配置,半程换配置会让状态机前后不一致(比如前半程按"通知有货"、
 // 后半程按"不通知"走),而且每次读都要加锁。
 type subCheckConfig struct {
+	Duration           string
 	Revision           uint64
 	Paused             bool
 	Datacenters        []string
@@ -164,6 +166,7 @@ func (s *Subscription) checkConfig() subCheckConfig {
 		Quantity:           s.Quantity,
 		AutoOrderAccountID: s.AutoOrderAccountID,
 		AutoPay:            s.AutoPay,
+		Duration:           s.Duration,
 	}
 }
 
@@ -278,6 +281,7 @@ func (s *Subscription) snapshot() *Subscription {
 		Quantity:           s.Quantity,
 		AutoOrderAccountID: s.AutoOrderAccountID,
 		AutoPay:            s.AutoPay,
+		Duration:           s.Duration,
 		Paused:             s.Paused,
 
 		LastCheckAt:         s.LastCheckAt,

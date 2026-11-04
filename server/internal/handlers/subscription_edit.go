@@ -9,6 +9,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/monitor"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 	"github.com/ovh-buy/server/internal/vps"
@@ -40,6 +41,7 @@ func UpdateSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 		}
 
 		var body struct {
+			Duration           *string   `json:"duration"`
 			Datacenters        *[]string `json:"datacenters"`
 			NotifyAvailable    *bool     `json:"notifyAvailable"`
 			NotifyUnavailable  *bool     `json:"notifyUnavailable"`
@@ -65,6 +67,15 @@ func UpdateSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 		accountID := cur.AutoOrderAccountID
 		autoPay := cur.AutoPay
 		options := cur.Options
+		duration := cur.Duration
+		if body.Duration != nil {
+			var err error
+			duration, err = orderterm.Normalize(*body.Duration)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+		}
 
 		if body.Datacenters != nil {
 			datacenters = *body.Datacenters
@@ -114,7 +125,7 @@ func UpdateSubscription(state *app.State, mon *monitor.Monitor) gin.HandlerFunc 
 		if len(selector) > 0 {
 			originalKey = &selector[0]
 		}
-		if err := mon.UpdateSubscriptionFields(planCode, originalKey, datacenters, notifyAvailable, notifyUnavailable, autoOrder, quantity, accountID, autoPay, options); err != nil {
+		if err := mon.UpdateSubscriptionFields(planCode, originalKey, datacenters, notifyAvailable, notifyUnavailable, autoOrder, quantity, accountID, autoPay, options, duration); err != nil {
 			status := http.StatusConflict
 			if errors.Is(err, monitor.ErrSubscriptionNotFound) {
 				status = http.StatusNotFound
@@ -151,6 +162,7 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		id := c.Param("subscription_id")
 
 		var body struct {
+			Duration           *string   `json:"duration"`
 			OvhSubsidiary      *string   `json:"ovhSubsidiary"`
 			Datacenters        *[]string `json:"datacenters"`
 			MonitorLinux       *bool     `json:"monitorLinux"`
@@ -186,6 +198,14 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		}
 
 		next := cur
+		if body.Duration != nil {
+			var err error
+			next.Duration, err = orderterm.Normalize(*body.Duration)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+		}
 		if body.Datacenters != nil {
 			next.Datacenters = *body.Datacenters
 		}
@@ -306,6 +326,7 @@ func UpdateVPSSubscription(state *app.State) gin.HandlerFunc {
 		live.Quantity = next.Quantity
 		live.OS = next.OS
 		live.AutoPay = next.AutoPay
+		live.Duration = next.Duration
 		if resetStatus {
 			live.LastStatus = map[string]string{}
 		}

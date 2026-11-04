@@ -13,6 +13,7 @@ import (
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
 	"github.com/ovh-buy/server/internal/monitor"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -330,7 +331,7 @@ func askAction(state *app.State, f *watchFlow, chatID interface{}, messageID int
 		dcs = []string{""}
 	}
 	for _, dc := range dcs {
-		go telegram.PrewarmOrder(state, "tg:"+tok+":"+dc, f.AccountID, f.PlanCode, dc, 1, append([]string(nil), f.PickedOptions...), flowTTL)
+		go telegram.PrewarmOrder(state, "tg:"+tok+":"+dc, f.AccountID, f.PlanCode, dc, 1, append([]string(nil), f.PickedOptions...), flowTTL, "")
 	}
 	labels := make([]string, 0, len(actionChoices))
 	for _, a := range actionChoices {
@@ -499,7 +500,7 @@ func handleFlowCallback(state *app.State, mon *monitor.Monitor, cb map[string]in
 		}
 		telegram.AnswerCallback(state, idToString(cb["id"]), "开始下单", false)
 		o := f.Order
-		res := telegram.ProcessOrder(state, acc.ID, o.PlanCode, o.Datacenter, o.Quantity, o.Options)
+		res := telegram.ProcessOrder(state, acc.ID, o.PlanCode, o.Datacenter, o.Quantity, o.Options, o.Duration)
 		if res.Success {
 			telegram.SendReply(state, chatID, fmt.Sprintf(
 				"📥 已创建 %d/%d 个抢购任务\n\n型号: %s\n账户: %s\n\n"+
@@ -546,7 +547,7 @@ func finishWatchFlow(state *app.State, mon *monitor.Monitor, f *watchFlow, quant
 
 	// autoPay 恒 false：自动付款是要用户显式打开的开关，不能在几下点击里替他决定。
 	mon.AddSubscription(f.PlanCode, f.DCs, true, false, "", nil, nil,
-		autoOrder, quantity, accountID, false, f.PickedOptions)
+		autoOrder, quantity, accountID, false, f.PickedOptions, "")
 	if _, err := persistMonitorChanges(mon); err != nil {
 		return "保存监控配置失败,监控已停止,请检查存储后重试: " + err.Error()
 	}
@@ -599,6 +600,7 @@ func actionPrompt(f *watchFlow) string {
 	var b strings.Builder
 	b.WriteString("🎯 补货的时候怎么办？\n\n")
 	b.WriteString("型号：" + f.PlanCode + "\n")
+	b.WriteString("购买时长：" + orderterm.Label("") + "（可用 /watch 型号 P12M 选择 1 年）\n")
 	if f.PickedConfig != "" {
 		b.WriteString("配置：" + f.PickedConfig + "\n")
 	} else {

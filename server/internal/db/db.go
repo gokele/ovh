@@ -9,7 +9,9 @@ package db
 import (
 	_ "embed"
 	"fmt"
+	"net/url"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -35,6 +37,10 @@ type DB struct {
 //   - busy_timeout=5000：被其它写阻塞时最多等 5 秒再 SQLITE_BUSY
 func Open(dataDir string) (*DB, error) {
 	path := filepath.Join(dataDir, "sniper.db")
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve database path: %w", err)
+	}
 	sx, err := sqlx.Open(driverName, makeDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite (%s) %s: %w", driverName, path, err)
@@ -55,6 +61,15 @@ func Open(dataDir string) (*DB, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return db, nil
+}
+
+// SQLite treats # and ? as URI delimiters; encode paths so two data directories cannot share a database.
+func sqliteFileURI(path string) string {
+	uriPath := filepath.ToSlash(path)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath // Windows drive paths require file:///C:/…
+	}
+	return (&url.URL{Scheme: "file", Path: uriPath}).String()
 }
 
 // migrate 跑 schema.sql 里所有 CREATE TABLE / INDEX（用 IF NOT EXISTS，重复跑安全）+ 增量列迁移
@@ -134,6 +149,11 @@ func (db *DB) migrate() error {
 	}
 	if err := db.migrateMonitorIdentity(); err != nil {
 		return fmt.Errorf("migrate monitor identity: %w", err)
+	}
+	for _, table := range []string{"queue", "history", "monitor_subscriptions", "vps_subscriptions"} {
+		if err := db.addColumnIfMissing(table, "duration", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
 	}
 	if err := db.addColumnIfMissing("vps_subscriptions", "auto_order_account_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err

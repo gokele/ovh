@@ -482,6 +482,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 		// 账户 ID 只加在传给询价/通知的副本上,不污染写进订阅历史的 configInfo。
 		priceCfg := copyMap(configInfo)
 		priceCfg["account_id"] = choice.accountID
+		priceCfg["duration"] = cfg.Duration
 
 		type dcStatus struct {
 			status    string
@@ -532,7 +533,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 				go func(dc string) {
 					defer wg.Done()
 					defer func() { <-sem }()
-					ready := m.state.OrderPrewarm != nil && m.state.OrderPrewarm.Ready(types.QueueItem{AccountID: choice.accountID, PlanCode: planCode, Datacenter: dc, Options: effectiveOptions, AutoPay: cfg.AutoPay})
+					ready := m.state.OrderPrewarm != nil && m.state.OrderPrewarm.Ready(types.QueueItem{AccountID: choice.accountID, PlanCode: planCode, Datacenter: dc, Options: effectiveOptions, AutoPay: cfg.AutoPay, Duration: cfg.Duration})
 					ok, errMsg := true, ""
 					if !ready {
 						ok, errMsg = m.verifyPriceAvailable(planCode, dc, priceCfg)
@@ -725,7 +726,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 					"[monitor] %s 跳过自动下单:验价用的是账户 %q,而订阅指定的下单账户是 %q,两者不一致(下单账户可能已被删除)",
 					planCode, choice.accountID, cfg.AutoOrderAccountID), "monitor")
 			default:
-				m.batchOrder(planCode, configInfo, orderTargets, cfg.Quantity, cfg.AutoOrderAccountID, cfg.AutoPay, func() bool { return m.checkCurrent(sub, cfg) })
+				m.batchOrder(planCode, priceCfg, orderTargets, cfg.Quantity, cfg.AutoOrderAccountID, cfg.AutoPay, func() bool { return m.checkCurrent(sub, cfg) })
 			}
 		}
 

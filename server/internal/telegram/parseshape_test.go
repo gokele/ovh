@@ -132,3 +132,15 @@ func TestParseOrderMessageMalformedQuantityIsNotAnOption(t *testing.T) {
 		}
 	}
 }
+
+func TestOrderMessagePurchasePeriod(t *testing.T) {
+	for _, term := range []string{"P1Y", "P12M", "duration=P1Y"} {
+		order := ParseOrderMessage("24sk602 gra 2 " + term + " ram-64g")
+		if order == nil || order.Duration != "P12M" || order.Quantity != 2 || order.Datacenter != "gra" || len(order.Options) != 1 || order.Options[0] != "ram-64g" {
+			t.Fatal(order)
+		}
+	}
+	if order := ParseOrderMessage("24sk602 gra duration=P0M"); order == nil || order.Error == "" {
+		t.Fatal("invalid period silently became monthly", order)
+	}
+}

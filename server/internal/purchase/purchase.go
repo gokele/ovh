@@ -609,89 +609,6 @@ func preorderFQNCoversOptions(fqn string, opts []string) bool {
 	return true
 }
 
-// pickPricing 从 order.cart.GenericProductPricing[] 里挑一条计价填 duration / pricingMode。
-//
-// 优先级：duration 必须与主商品一致 > 同 duration 内优先 rental+renew（按周期续费那条）
-// > 实在没有同 duration 才退而求其次。
-// 为什么 duration 一致排第一：addon 的 prices[] 常见 P1M/P12M/P24M 三条都是 rental+renew，
-// 先按"rental+renew"挑等于取数组里碰巧的第一条，跟主商品 duration 无关；
-// 一旦挑中不同 duration，OVH 直接拒这个 addon，而两处 addon POST 都是 fail-fast
-// （抢购整单取消 / 询价 success:false），代价远大于"少续了一档"。
-func pickPricing(pricesRaw interface{}, preferDuration string) (string, string) {
-	list, _ := pricesRaw.([]interface{})
-	type cand struct{ duration, pricingMode string }
-	var sameDurRenew, sameDur, anyRenew, first *cand
-	for _, pRaw := range list {
-		p, ok := pRaw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		d, _ := p["duration"].(string)
-		pm, _ := p["pricingMode"].(string)
-		if d == "" || pm == "" {
-			continue
-		}
-		c := &cand{duration: d, pricingMode: pm}
-		pt, _ := p["pricingType"].(string)
-		isRenew := pt == "rental" && hasCapacity(p["capacities"], "renew")
-		if first == nil {
-			first = c
-		}
-		if isRenew && anyRenew == nil {
-			anyRenew = c
-		}
-		if d == preferDuration {
-			if sameDur == nil {
-				sameDur = c
-			}
-			if isRenew && sameDurRenew == nil {
-				sameDurRenew = c
-			}
-		}
-	}
-	switch {
-	case sameDurRenew != nil:
-		return sameDurRenew.duration, sameDurRenew.pricingMode
-	case sameDur != nil:
-		return sameDur.duration, sameDur.pricingMode
-	case anyRenew != nil:
-		return anyRenew.duration, anyRenew.pricingMode
-	case first != nil:
-		return first.duration, first.pricingMode
-	}
-	return "P1M", "default"
-}
-
-func hasCapacity(raw interface{}, want string) bool {
-	list, _ := raw.([]interface{})
-	for _, c := range list {
-		if s, _ := c.(string); s == want {
-			return true
-		}
-	}
-	return false
-}
-
-// lookupEcoPricing 查 GET /order/cart/{cartId}/eco（order.cart.GenericProductDefinition[]）
-// 里某个 planCode 的真实可用计价。只在按 P1M/default 加购被 OVH 拒之后才调，
-// 保证正常月付机型的抢购链路上不会多一次请求。
-func lookupEcoPricing(state *app.State, client *ovhsdk.Client, cartID, planCode string) (string, string, bool) {
-	var defs []map[string]interface{}
-	if err := client.Get("/order/cart/"+cartID+"/eco", &defs); err != nil {
-		state.Logger.Warn("查询 Eco 计价失败: "+err.Error(), "purchase")
-		return "", "", false
-	}
-	for _, def := range defs {
-		if pc, _ := def["planCode"].(string); pc != planCode {
-			continue
-		}
-		d, pm := pickPricing(def["prices"], "P1M")
-		return d, pm, true
-	}
-	state.Logger.Warn("在 Eco 目录里未找到 planCode: "+planCode, "purchase")
-	return "", "", false
-}
-
 func extract(v interface{}) *float64 {
 	if v == nil {
 		return nil
@@ -722,6 +639,7 @@ func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, e
 		if state.History[i].TaskID == item.ID {
 			state.History[i].Status = "success"
 			state.History[i].AccountID = item.AccountID
+			state.History[i].Duration = item.Duration
 			state.History[i].OrderID = orderID
 			state.History[i].OrderURL = orderURL
 			state.History[i].ErrorMessage = nil
@@ -744,6 +662,7 @@ func recordSuccess(state *app.State, item *types.QueueItem, orderID, orderURL, e
 		ID:            uuid.NewString(),
 		TaskID:        item.ID,
 		AccountID:     item.AccountID,
+		Duration:      item.Duration,
 		PlanCode:      item.PlanCode,
 		Datacenter:    item.Datacenter,
 		Options:       item.Options,
@@ -783,6 +702,7 @@ func recordFailureStatus(state *app.State, item *types.QueueItem, errMsg, status
 			}
 			state.History[i].Status = status
 			state.History[i].AccountID = item.AccountID
+			state.History[i].Duration = item.Duration
 			state.History[i].OrderID = ""
 			state.History[i].OrderURL = ""
 			em := errMsg
@@ -799,6 +719,7 @@ func recordFailureStatus(state *app.State, item *types.QueueItem, errMsg, status
 		ID:           uuid.NewString(),
 		TaskID:       item.ID,
 		AccountID:    item.AccountID,
+		Duration:     item.Duration,
 		PlanCode:     item.PlanCode,
 		Datacenter:   item.Datacenter,
 		Options:      item.Options,

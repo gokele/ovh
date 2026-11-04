@@ -51,7 +51,7 @@ func (p *monitorTestPool) get(owner string) monitorWarmRecord {
 func TestMonitorPreparationFollowsRevisionPauseAndStop(t *testing.T) {
 	m := renderTestMonitor(t)
 	// Add before attaching the pool, so the setup itself does not launch network work.
-	m.AddSubscription("plan", []string{"gra"}, true, false, "", nil, nil, true, 2, "eu", true, []string{"ram-32g"})
+	m.AddSubscription("plan", []string{"gra"}, true, false, "", nil, nil, true, 2, "eu", true, []string{"ram-32g"}, "")
 	pool := &monitorTestPool{records: map[string]monitorWarmRecord{}}
 	m.state.OrderPrewarm = pool
 	m.running = true

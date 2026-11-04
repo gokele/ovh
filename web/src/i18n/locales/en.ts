@@ -21,6 +21,14 @@ import { commonLayerEn } from "./modules/common-layer.en";
 export type LangPack = typeof zh;
 
 const pack: LangPack = {
+  orderDuration: {
+    label: "Purchase period", default: "Default", months: "{{count}} month", months_other: "{{count}} months", years: "{{count}} year", years_other: "{{count}} years",
+    loading: "Loading periods offered by OVH…",
+    hint: "Available periods come from the selected account’s OVH offers.",
+    unverified: "Periods cannot be verified yet. You can save a reservation; the selected period will be checked before ordering.",
+    unsupported: "This account’s offer does not support the selected period. Choose another period.",
+    prepaid: "The selected period is charged in full, including the full year for annual orders. OVH determines the final amount and renewal terms.",
+  },
   nav: {
     appName: "OVH Console",
     group: {

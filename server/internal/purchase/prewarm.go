@@ -16,6 +16,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/price"
 	"github.com/ovh-buy/server/internal/types"
@@ -75,7 +76,7 @@ func NewCartPool(state *app.State) *CartPool {
 func preparationKey(item types.QueueItem, account types.OVHAccount) string {
 	options := append([]string(nil), item.Options...)
 	sort.Strings(options)
-	data, _ := json.Marshal([]interface{}{account.ID, account.Endpoint, account.Zone, account.AppKey, account.AppSecret, account.ConsumerKey, account.ProxyURL, account.Fingerprint, item.PlanCode, ovh.ConvertDisplayDCToAPIDC(item.Datacenter), options, item.AutoPay, strings.TrimSpace(item.Coupon), item.Preorder})
+	data, _ := json.Marshal([]interface{}{account.ID, account.Endpoint, account.Zone, account.AppKey, account.AppSecret, account.ConsumerKey, account.ProxyURL, account.Fingerprint, item.PlanCode, normalizedDuration(item.Duration), ovh.ConvertDisplayDCToAPIDC(item.Datacenter), options, item.AutoPay, strings.TrimSpace(item.Coupon), item.Preorder})
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
@@ -89,6 +90,11 @@ func (p *CartPool) Prepare(owner string, items []types.QueueItem, lease time.Dur
 	}
 	next := make([]*warmEntry, 0, len(items))
 	for _, item := range items {
+		duration, err := orderterm.Normalize(item.Duration)
+		if err != nil {
+			return err
+		}
+		item.Duration = duration
 		account, ok := p.state.FindAccount(item.AccountID)
 		if !ok || item.AccountID == "" || strings.TrimSpace(item.PlanCode) == "" || strings.TrimSpace(item.Datacenter) == "" {
 			return fmt.Errorf("preparation requires an account, model and datacenter")
@@ -521,6 +527,7 @@ func (p *CartPool) Status(owner string) []app.PrewarmStatus {
 		dcs := map[string]bool{}
 		for _, entry := range list {
 			status.AccountID, status.PlanCode = entry.item.AccountID, entry.item.PlanCode
+			status.Duration = entry.item.Duration
 			status.Standby = entry.standby
 			status.Total++
 			if !dcs[entry.item.Datacenter] {
@@ -592,3 +599,5 @@ func cleanupPreparedCarts(carts []*preparedCart) {
 	}
 	wg.Wait()
 }
+
+func normalizedDuration(raw string) string { d, _ := orderterm.Normalize(raw); return d }

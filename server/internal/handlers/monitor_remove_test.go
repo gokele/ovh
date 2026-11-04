@@ -21,7 +21,7 @@ func TestRemoveMonitorSubscriptionPersists(t *testing.T) {
 			st, mon := newWatchTestMonitor(t)
 			for _, option := range []string{"ram-64g", "ram-128g"} {
 				mon.AddSubscription("nonexistent-model", nil, true, false,
-					"", nil, nil, false, 0, "", false, []string{option})
+					"", nil, nil, false, 0, "", false, []string{option}, "")
 			}
 			mon.SaveToDB()
 			router := gin.New()

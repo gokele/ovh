@@ -9,6 +9,7 @@ import (
 
 // queueRow 是表结构的一一对应（snake_case 列名 + JSON 列做 string）
 type queueRow struct {
+	Duration           string  `db:"duration"`
 	ID                 string  `db:"id"`
 	AccountID          string  `db:"account_id"`
 	PlanCode           string  `db:"plan_code"`
@@ -44,6 +45,7 @@ func rowToQueueItem(r queueRow) (types.QueueItem, error) {
 	return types.QueueItem{
 		ID:                 r.ID,
 		AccountID:          r.AccountID,
+		Duration:           r.Duration,
 		PlanCode:           r.PlanCode,
 		Datacenter:         r.Datacenter,
 		Options:            opts,
@@ -82,6 +84,7 @@ func queueItemToRow(q types.QueueItem) (queueRow, error) {
 	return queueRow{
 		ID:                 q.ID,
 		AccountID:          q.AccountID,
+		Duration:           q.Duration,
 		PlanCode:           q.PlanCode,
 		Datacenter:         q.Datacenter,
 		OptionsJSON:        string(optsJSON),
@@ -138,11 +141,11 @@ func (db *DB) ReplaceQueue(items []types.QueueItem) error {
 		}
 		_, err = tx.NamedExec(`
 			INSERT INTO queue
-			(id, account_id, plan_code, datacenter, options, status, created_at, updated_at,
+			(id, account_id, duration, plan_code, datacenter, options, status, created_at, updated_at,
 			 retry_interval, retry_count, failure_count, max_retries, last_check_time,
 			 quick_order, priority, from_telegram, config_sniper_task_id, auto_pay, preorder, coupon)
 			VALUES
-			(:id, :account_id, :plan_code, :datacenter, :options, :status, :created_at, :updated_at,
+			(:id, :account_id, :duration, :plan_code, :datacenter, :options, :status, :created_at, :updated_at,
 			 :retry_interval, :retry_count, :failure_count, :max_retries, :last_check_time,
 			 :quick_order, :priority, :from_telegram, :config_sniper_task_id, :auto_pay, :preorder, :coupon)
 		`, r)

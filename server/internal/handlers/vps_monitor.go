@@ -11,6 +11,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/notify"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 	"github.com/ovh-buy/server/internal/vps"
@@ -86,6 +87,7 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 			return
 		}
 		var body struct {
+			Duration           string   `json:"duration"`
 			PlanCode           string   `json:"planCode"`
 			OvhSubsidiary      string   `json:"ovhSubsidiary"`
 			Datacenters        []string `json:"datacenters"`
@@ -103,6 +105,13 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "请求参数格式错误"})
 			return
 		}
+		duration, termErr := orderterm.Normalize(body.Duration)
+		if termErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": termErr.Error()})
+			return
+		}
+		body.Duration = duration
+
 		body.PlanCode = strings.TrimSpace(body.PlanCode)
 		if body.Quantity < 0 || body.Quantity > types.MaxOrderQuantity {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "VPS 下单数量必须在允许的单次上限内"})
@@ -197,6 +206,7 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 		sub := types.VPSSubscription{
 			ID:                 uuid.NewString(),
 			PlanCode:           body.PlanCode,
+			Duration:           body.Duration,
 			OvhSubsidiary:      body.OvhSubsidiary,
 			Datacenters:        body.Datacenters,
 			MonitorLinux:       monitorLinux,

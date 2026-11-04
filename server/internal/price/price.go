@@ -1,11 +1,11 @@
 package price
 
 import (
+	"context"
 	"fmt"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"net/url"
 	"strings"
-
-	ovhsdk "github.com/ovh/go-ovh/ovh"
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
@@ -33,6 +33,7 @@ type Result struct {
 }
 
 type PriceInfo struct {
+	Duration    string                   `json:"duration,omitempty"`
 	PricingMode string                   `json:"pricingMode"`
 	Prices      map[string]interface{}   `json:"prices"`
 	Items       []map[string]interface{} `json:"items"`
@@ -65,20 +66,24 @@ func priceCacheKey(accountID, planCode, datacenter string, options []string) str
 
 // GetInternalCached 带短 TTL 缓存的 GetInternal(监控轮询/批量入队路径用;
 // 用户显式点击的询价仍走无缓存的 GetInternal,保证手查永远新鲜)
-func GetInternalCached(state *app.State, accountID, planCode, datacenter string, options []string) Result {
+func GetInternalCached(state *app.State, accountID, planCode, datacenter string, options []string, duration string) Result {
 	acc, ok := state.FindAccount(accountID)
 	if !ok {
 		return Result{Success: false, Error: "下单账户不存在"}
 	}
 	accountID = acc.ID
-	key := priceCacheKey(acc.ID+"|"+acc.Endpoint+"|"+strings.ToUpper(acc.Zone), planCode, datacenter, options)
+	normalized, err := orderterm.Normalize(duration)
+	if err != nil {
+		return Result{Error: err.Error()}
+	}
+	key := normalized + "|" + priceCacheKey(acc.ID+"|"+acc.Endpoint+"|"+strings.ToUpper(acc.Zone), planCode, datacenter, options)
 	internalPriceCache.Lock()
 	if e, ok := internalPriceCache.m[key]; ok && time.Since(e.at) < priceCacheTTL {
 		internalPriceCache.Unlock()
 		return e.result
 	}
 	internalPriceCache.Unlock()
-	r := GetInternal(state, accountID, planCode, datacenter, options)
+	r := GetInternal(state, accountID, planCode, datacenter, options, duration)
 	internalPriceCache.Lock()
 	// 防无限增长:超 512 条先清过期
 	if len(internalPriceCache.m) > 512 {
@@ -95,7 +100,11 @@ func GetInternalCached(state *app.State, accountID, planCode, datacenter string,
 
 // GetInternal 询价。accountID 决定用哪个账户调 OVH(空 = 默认账户),
 // 以及购物车走哪个 subsidiary(账户的 zone)。多账户必须区分。
-func GetInternal(state *app.State, accountID, planCode, datacenter string, options []string) Result {
+func GetInternal(state *app.State, accountID, planCode, datacenter string, options []string, duration string) Result {
+	selectedDuration, termErr := orderterm.Normalize(duration)
+	if termErr != nil {
+		return Result{Error: termErr.Error()}
+	}
 	if options == nil {
 		options = []string{}
 	}
@@ -141,7 +150,13 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 	// GET /order/cart/{cartId}/eco 的 prices[](order.cart.GenericProductPricing)。
 	// Eco 系列绝大多数就是 P1M/default,所以先按它发 —— 成功路径零额外 RTT;
 	// 只有被 OVH 拒了才去查真实计价重试一次,避免非月付机型永久不可询价。
-	baseDuration, basePricingMode := "P1M", "default"
+	baseDuration, basePricingMode := selectedDuration, "default"
+	if selectedDuration != orderterm.Default {
+		baseDuration, basePricingMode, err = orderterm.Lookup(context.Background(), client, cartID, "eco", planCode, selectedDuration)
+		if err != nil {
+			return Result{Error: err.Error()}
+		}
+	}
 	var itemResult map[string]interface{}
 	postBase := func() error {
 		itemResult = nil
@@ -154,7 +169,7 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 	}
 	if err := postBase(); err != nil {
 		msg := ovh.Explain(err)
-		if d, pm, found := lookupEcoPricing(state, client, cartID, planCode, baseDuration); found &&
+		if d, pm, lookupErr := orderterm.Lookup(context.Background(), client, cartID, "eco", planCode, selectedDuration); lookupErr == nil &&
 			(d != baseDuration || pm != basePricingMode) {
 			state.Logger.Warn(fmt.Sprintf("以 %s/%s 加购 %s 失败(%s)，改用目录计价 %s/%s 重试",
 				baseDuration, basePricingMode, planCode, msg, d, pm), "price")
@@ -300,7 +315,10 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 			}
 			// duration / pricingMode 只存在于 order.cart.GenericProductPricing(prices[] 元素),
 			// GenericOptionDefinition 顶层没有这两个字段,直接读恒为空
-			duration, pricingMode := pickPricing(matched["prices"], baseDuration)
+			duration, pricingMode, valid := orderterm.Pick(matched["prices"], baseDuration, basePricingMode)
+			if !valid {
+				return Result{Error: fmt.Sprintf("硬件选项 %s 不支持购买时长 %s", matchedPC, selectedDuration)}
+			}
 			// 发出去的必须是 OVH 目录里那条带区域后缀的完整 planCode(matchedPC),
 			// 不是用户传进来的短前缀 —— 前缀匹配的意义就在这里
 			optPayload := map[string]interface{}{
@@ -338,7 +356,8 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 	}
 
 	priceInfo := &PriceInfo{
-		PricingMode: "default",
+		Duration:    baseDuration,
+		PricingMode: basePricingMode,
 		Prices: map[string]interface{}{
 			"withTax":      nil,
 			"withoutTax":   nil,
@@ -491,60 +510,6 @@ func pickAllowedRegion(allowed []string, prefer string) string {
 	return allowed[0]
 }
 
-// pickPricing 从 order.cart.GenericProductPricing[] 里挑一条计价填 duration / pricingMode。
-//
-// 优先级:duration 必须与主商品一致 > 同 duration 内优先 rental+renew(按周期续费那条)
-// > 实在没有同 duration 才退而求其次;prices 为空或结构异常时回退 P1M/default。
-// 为什么 duration 一致排第一:addon 的 prices[] 常见 P1M/P12M/P24M 三条都是 rental+renew,
-// 先按 rental+renew 挑等于取数组里碰巧的第一条、跟主商品 duration 无关;
-// 一旦挑中与主商品不同的 duration,OVH 直接拒这个 addon,而这里是 fail-fast
-// (整次询价 success:false),代价远大于"少续了一档"。
-// 与 purchase.go 的 pickPricing 必须保持同一份逻辑。
-func pickPricing(pricesRaw interface{}, preferDuration string) (string, string) {
-	list, _ := pricesRaw.([]interface{})
-	type cand struct{ duration, pricingMode string }
-	var sameDurRenew, sameDur, anyRenew, first *cand
-	for _, pRaw := range list {
-		p, ok := pRaw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		d, _ := p["duration"].(string)
-		pm, _ := p["pricingMode"].(string)
-		if d == "" || pm == "" {
-			continue
-		}
-		c := &cand{duration: d, pricingMode: pm}
-		pt, _ := p["pricingType"].(string)
-		isRenew := pt == "rental" && hasCapacity(p["capacities"], "renew")
-		if first == nil {
-			first = c
-		}
-		if isRenew && anyRenew == nil {
-			anyRenew = c
-		}
-		if d == preferDuration {
-			if sameDur == nil {
-				sameDur = c
-			}
-			if isRenew && sameDurRenew == nil {
-				sameDurRenew = c
-			}
-		}
-	}
-	switch {
-	case sameDurRenew != nil:
-		return sameDurRenew.duration, sameDurRenew.pricingMode
-	case sameDur != nil:
-		return sameDur.duration, sameDur.pricingMode
-	case anyRenew != nil:
-		return anyRenew.duration, anyRenew.pricingMode
-	case first != nil:
-		return first.duration, first.pricingMode
-	}
-	return "P1M", "default"
-}
-
 // filterHardwareOptions 剔除许可证 / OS / 控制面板类选项,只留真正决定机器配置的 addon。
 // 口径与 purchase.go 的同名函数一致 —— 两处必须同进同退,否则会出现
 // "询价说这个组合不可定价、抢购却能下单"(或反之)的分裂。
@@ -572,36 +537,6 @@ func filterHardwareOptions(state *app.State, opts []string) []string {
 		filtered = append(filtered, opt)
 	}
 	return filtered
-}
-
-func hasCapacity(raw interface{}, want string) bool {
-	list, _ := raw.([]interface{})
-	for _, c := range list {
-		if s, _ := c.(string); s == want {
-			return true
-		}
-	}
-	return false
-}
-
-// lookupEcoPricing 查 GET /order/cart/{cartId}/eco(order.cart.GenericProductDefinition[])
-// 里某个 planCode 的真实可用计价。只在按 P1M/default 加购被 OVH 拒之后才调,
-// 这样正常的月付机型一次多余请求都不会发。
-func lookupEcoPricing(state *app.State, client *ovhsdk.Client, cartID, planCode, preferDuration string) (string, string, bool) {
-	var defs []map[string]interface{}
-	if err := client.Get("/order/cart/"+cartID+"/eco", &defs); err != nil {
-		state.Logger.Warn("查询 Eco 计价失败: "+err.Error(), "price")
-		return "", "", false
-	}
-	for _, def := range defs {
-		if pc, _ := def["planCode"].(string); pc != planCode {
-			continue
-		}
-		d, pm := pickPricing(def["prices"], preferDuration)
-		return d, pm, true
-	}
-	state.Logger.Warn("在 Eco 目录里未找到 planCode: "+planCode, "price")
-	return "", "", false
 }
 
 // extractPriceField 兼容字典形式（{value, currencyCode}）与直接值，统一转 float64

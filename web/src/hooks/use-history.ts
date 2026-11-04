@@ -6,6 +6,7 @@ import i18n from "@/i18n";
 import { apiMessage } from "@/lib/api-error";
 
 export interface PurchaseHistory {
+  duration?: string;
   id: string;
   accountId: string;
   /** 关联的抢购队列任务 ID（后端 PurchaseHistoryEntry.taskId） */

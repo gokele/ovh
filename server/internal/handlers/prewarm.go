@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -14,6 +15,7 @@ import (
 func PrepareOrderCart(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
+			Duration    string   `json:"duration"`
 			ID          string   `json:"id"`
 			AccountID   string   `json:"account_id"`
 			PlanCode    string   `json:"planCode"`
@@ -29,6 +31,13 @@ func PrepareOrderCart(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "备车参数不完整或数量超限", "code": "PREWARM_INVALID"})
 			return
 		}
+		duration, termErr := orderterm.Normalize(body.Duration)
+		if termErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": termErr.Error()})
+			return
+		}
+		body.Duration = duration
+
 		if state.OrderPrewarm == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "备车功能尚未初始化", "code": "PREWARM_UNAVAILABLE"})
 			return
@@ -43,7 +52,7 @@ func PrepareOrderCart(state *app.State) gin.HandlerFunc {
 			}
 			seen[dc] = true
 			for n := 0; n < body.Quantity; n++ {
-				items = append(items, types.QueueItem{AccountID: body.AccountID, PlanCode: strings.TrimSpace(body.PlanCode), Datacenter: dc, Options: body.Options, AutoPay: body.AutoPay, Coupon: strings.TrimSpace(body.Coupon), Preorder: body.Preorder})
+				items = append(items, types.QueueItem{AccountID: body.AccountID, Duration: body.Duration, PlanCode: strings.TrimSpace(body.PlanCode), Datacenter: dc, Options: body.Options, AutoPay: body.AutoPay, Coupon: strings.TrimSpace(body.Coupon), Preorder: body.Preorder})
 			}
 		}
 		lease := 2 * time.Minute

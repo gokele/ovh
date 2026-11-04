@@ -24,7 +24,7 @@ func (m *Monitor) prepareAlertTargets(sub *Subscription, cfg subCheckConfig, acc
 		if len(items) >= types.MaxOrderFanout {
 			break
 		}
-		items = append(items, types.QueueItem{AccountID: accountID, PlanCode: sub.PlanCode, Datacenter: dc, Options: append([]string(nil), options...)})
+		items = append(items, types.QueueItem{AccountID: accountID, PlanCode: sub.PlanCode, Duration: cfg.Duration, Datacenter: dc, Options: append([]string(nil), options...)})
 	}
 	key := sha256.Sum256([]byte(OptionsKey(options)))
 	_ = m.state.OrderPrewarm.Prepare(fmt.Sprintf("notify:%s:%x", prewarmOwner(sub, cfg), key[:8]), items, 2*time.Minute, func() bool { return m.checkCurrent(sub, cfg) })
@@ -74,7 +74,7 @@ func (m *Monitor) prepareMonitorTargets(sub *Subscription, cfg subCheckConfig, a
 		sort.Strings(ordered)
 		for _, dc := range ordered {
 			for n := 0; n < quantity && len(items) < types.MaxOrderFanout; n++ {
-				items = append(items, types.QueueItem{AccountID: cfg.AutoOrderAccountID, PlanCode: sub.PlanCode, Datacenter: dc, Options: append([]string(nil), options...), AutoPay: cfg.AutoPay})
+				items = append(items, types.QueueItem{AccountID: cfg.AutoOrderAccountID, PlanCode: sub.PlanCode, Duration: cfg.Duration, Datacenter: dc, Options: append([]string(nil), options...), AutoPay: cfg.AutoPay})
 			}
 		}
 	}

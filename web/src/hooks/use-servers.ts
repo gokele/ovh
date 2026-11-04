@@ -103,6 +103,7 @@ export function useAddToMonitor() {
       /** 只盯这套配置(addon planCode)。空 = 该机型底下所有配置组合 */
       options?: string[];
       serverName?: string;
+      duration?: string;
     }) =>
       (await api.post("/monitor/subscriptions", { ...payload, notifyAvailable: true, notifyUnavailable: false })).data,
     onSuccess: () => {

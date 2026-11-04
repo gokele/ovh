@@ -9,6 +9,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -64,7 +65,11 @@ func emptyAvailabilityReason(state *app.State, accountID, planCode string, acc t
 // accountID 由调用方解析好传进来(按 planCode 反推大区,见 handlers.resolveOrderAccount)。
 // 空串 = 退回当前账户 —— 但正常路径不该走到那里:
 // 账户选错的后果是"永远抢不到"且 OVH 不报错,必须在下单前就定死。
-func ProcessOrder(state *app.State, accountID, planCode, datacenter string, quantity int, options []string) OrderResult {
+func ProcessOrder(state *app.State, accountID, planCode, datacenter string, quantity int, options []string, duration string) OrderResult {
+	selectedDuration, err := orderterm.Normalize(duration)
+	if err != nil {
+		return OrderResult{Message: err.Error()}
+	}
 	if quantity < 1 {
 		quantity = 1
 	}
@@ -182,6 +187,7 @@ func ProcessOrder(state *app.State, accountID, planCode, datacenter string, quan
 					ID:            uuid.NewString(),
 					AccountID:     accountID,
 					PlanCode:      planCode,
+					Duration:      selectedDuration,
 					Datacenter:    dc,
 					Options:       append([]string{}, configOptions...),
 					Status:        "running",

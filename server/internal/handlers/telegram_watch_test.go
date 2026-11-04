@@ -163,3 +163,17 @@ func addTestAccount(t *testing.T, st *app.State) {
 		t.Fatalf("重载账户失败: %v", err)
 	}
 }
+
+func TestWatchPurchasePeriod(t *testing.T) {
+	state, mon := newWatchTestMonitor(t)
+	watchText(state, mon, []string{"24sk602", "gra", "P1Y"})
+	if config := mon.SubscriptionConfig("24sk602"); config.Duration != "P12M" || len(config.Datacenters) != 1 || config.Datacenters[0] != "gra" {
+		t.Fatal(config)
+	}
+	if reply := watchText(state, mon, []string{"24sk602", "gra", "duration=P0M"}); !strings.Contains(reply, "时长") {
+		t.Fatal(reply)
+	}
+	if config := mon.SubscriptionConfig("24sk602"); config.Duration != "P12M" {
+		t.Fatal("invalid edit replaced chosen period", config)
+	}
+}

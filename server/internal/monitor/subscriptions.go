@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ovh-buy/server/internal/app"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"sort"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ import (
 // 非空则只盯匹配那套 addon 的配置 —— 见 configMatchesFilter 上的说明。
 func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyAvailable, notifyUnavailable bool,
 	serverName string, lastStatus map[string]string, history []HistoryEntry, autoOrder bool, quantity int,
-	autoOrderAccountID string, autoPay bool, options []string) {
+	autoOrderAccountID string, autoPay bool, options []string, duration string) {
 
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
@@ -48,6 +49,7 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 			s.AutoOrderAccountID = autoOrderAccountID
 			// 自动付款依附于自动下单:不下单就谈不上付款
 			s.AutoPay = autoPay && autoOrder
+			s.Duration = duration
 			// 配置筛选:显式传 nil 和传空切片都当成"盯全部配置"。
 			// 这是就地改配置的路径,options 也要跟着改,否则用户在 TG 上重挑一次配置不生效。
 			if options == nil {
@@ -84,6 +86,7 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 		History:            history,
 		AutoOrderAccountID: autoOrderAccountID,
 		AutoPay:            autoPay && autoOrder,
+		Duration:           duration,
 		Options:            options,
 	}
 	if autoOrder {
@@ -137,7 +140,12 @@ var ErrSubscriptionConflict = errors.New("已存在同型号同配置的订阅,�
 
 // UpdateSubscriptionFields 用原配置键定位,保留暂停状态、历史和库存基准。
 func (m *Monitor) UpdateSubscriptionFields(planCode string, originalKey *string, datacenters []string, notifyAvailable, notifyUnavailable bool,
-	autoOrder bool, quantity int, autoOrderAccountID string, autoPay bool, options []string) error {
+	autoOrder bool, quantity int, autoOrderAccountID string, autoPay bool, options []string, duration string) error {
+	var err error
+	duration, err = orderterm.Normalize(duration)
+	if err != nil {
+		return err
+	}
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
 	defer m.publishPausedQueueScopesLocked()
@@ -165,6 +173,7 @@ func (m *Monitor) UpdateSubscriptionFields(planCode string, originalKey *string,
 		}
 		s.AutoOrderAccountID = autoOrderAccountID
 		s.AutoPay = autoPay && autoOrder
+		s.Duration = duration
 		s.Options = append([]string(nil), options...)
 		s.mu.Unlock()
 		return nil
@@ -455,6 +464,7 @@ func (m *Monitor) SubscriptionConfig(planCode string, optionsKey ...string) Subs
 			Quantity:           s.Quantity,
 			AutoOrderAccountID: s.AutoOrderAccountID,
 			AutoPay:            s.AutoPay,
+			Duration:           s.Duration,
 			Options:            append([]string(nil), s.Options...),
 		}
 		s.mu.Unlock()
@@ -465,6 +475,7 @@ func (m *Monitor) SubscriptionConfig(planCode string, optionsKey ...string) Subs
 
 // SubscriptionConfig 订阅里「用户可改的那部分」
 type SubscriptionConfig struct {
+	Duration           string
 	PlanCode           string
 	Datacenters        []string
 	NotifyAvailable    bool

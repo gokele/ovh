@@ -12,6 +12,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/catalog"
 	"github.com/ovh-buy/server/internal/numconv"
+	"github.com/ovh-buy/server/internal/orderterm"
 )
 
 // optionsFromConfig 取本次配置组合要询价的 addon 列表
@@ -138,6 +139,7 @@ func (m *Monitor) verifyPriceAvailable(planCode, datacenter string, configInfo m
 	body, _ := json.Marshal(map[string]interface{}{
 		"account_id": accountIDFromConfig(configInfo),
 		"plan_code":  planCode,
+		"duration":   configInfo["duration"],
 		"datacenter": datacenter,
 		"options":    options,
 	})
@@ -220,6 +222,7 @@ func (m *Monitor) GetPriceInfoText(planCode, datacenter string, configInfo map[s
 	body, _ := json.Marshal(map[string]interface{}{
 		"account_id": accountIDFromConfig(configInfo),
 		"plan_code":  planCode,
+		"duration":   configInfo["duration"],
 		"datacenter": datacenter,
 		"options":    options,
 	})
@@ -278,6 +281,9 @@ func (m *Monitor) GetPriceInfoText(planCode, datacenter string, configInfo map[s
 	}
 	if v, ok := numconv.ToFloat64(withTaxRaw); ok {
 		text := formatMoney(currency, v)
+		if duration, _ := configInfo["duration"].(string); duration != "" && duration != "P1M" {
+			text = formatAmount(currency, v) + " / " + orderterm.Label(duration)
+		}
 		m.state.Logger.Debug("价格获取成功: "+text, "monitor")
 		return text
 	}

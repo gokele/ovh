@@ -8,6 +8,7 @@ import (
 )
 
 type vpsSubRow struct {
+	Duration           string `db:"duration"`
 	ID                 string `db:"id"`
 	PlanCode           string `db:"plan_code"`
 	OvhSubsidiary      string `db:"ovh_subsidiary"`
@@ -47,6 +48,7 @@ func rowToVPSSub(r vpsSubRow) (types.VPSSubscription, error) {
 	}
 	return types.VPSSubscription{
 		ID:                 r.ID,
+		Duration:           r.Duration,
 		PlanCode:           r.PlanCode,
 		OvhSubsidiary:      r.OvhSubsidiary,
 		Datacenters:        dcs,
@@ -89,6 +91,7 @@ func vpsSubToRow(s types.VPSSubscription) (vpsSubRow, error) {
 	}
 	return vpsSubRow{
 		ID:                 s.ID,
+		Duration:           s.Duration,
 		PlanCode:           s.PlanCode,
 		OvhSubsidiary:      s.OvhSubsidiary,
 		DatacentersJSON:    string(dcsJSON),
@@ -135,14 +138,15 @@ func (db *DB) UpsertVPSSubscription(s types.VPSSubscription) error {
 	}
 	_, err = db.NamedExec(`
 		INSERT INTO vps_subscriptions
-		(id, plan_code, ovh_subsidiary, datacenters, monitor_linux, monitor_windows,
+		(id, duration, plan_code, ovh_subsidiary, datacenters, monitor_linux, monitor_windows,
 		 notify_available, notify_unavailable, last_status, history, created_at, auto_order_account_id,
 		 auto_order, quantity, auto_pay, os)
 		VALUES
-		(:id, :plan_code, :ovh_subsidiary, :datacenters, :monitor_linux, :monitor_windows,
+		(:id, :duration, :plan_code, :ovh_subsidiary, :datacenters, :monitor_linux, :monitor_windows,
 		 :notify_available, :notify_unavailable, :last_status, :history, :created_at, :auto_order_account_id,
 		 :auto_order, :quantity, :auto_pay, :os)
 		ON CONFLICT(id) DO UPDATE SET
+		  duration           = excluded.duration,
 		  plan_code          = excluded.plan_code,
 		  ovh_subsidiary     = excluded.ovh_subsidiary,
 		  datacenters        = excluded.datacenters,
@@ -181,11 +185,11 @@ func (db *DB) ReplaceVPSSubscriptions(subs []types.VPSSubscription) error {
 		}
 		_, err = tx.NamedExec(`
 			INSERT INTO vps_subscriptions
-			(id, plan_code, ovh_subsidiary, datacenters, monitor_linux, monitor_windows,
+			(id, duration, plan_code, ovh_subsidiary, datacenters, monitor_linux, monitor_windows,
 			 notify_available, notify_unavailable, last_status, history, created_at, auto_order_account_id,
 			 auto_order, quantity, auto_pay, os)
 			VALUES
-			(:id, :plan_code, :ovh_subsidiary, :datacenters, :monitor_linux, :monitor_windows,
+			(:id, :duration, :plan_code, :ovh_subsidiary, :datacenters, :monitor_linux, :monitor_windows,
 			 :notify_available, :notify_unavailable, :last_status, :history, :created_at, :auto_order_account_id,
 			 :auto_order, :quantity, :auto_pay, :os)
 		`, r)

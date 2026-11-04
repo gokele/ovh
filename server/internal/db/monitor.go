@@ -9,6 +9,7 @@ import (
 )
 
 type monitorSubRow struct {
+	Duration           string `db:"duration"`
 	PlanCode           string `db:"plan_code"`
 	DatacentersJSON    string `db:"datacenters"`
 	NotifyAvailable    int    `db:"notify_available"`
@@ -46,6 +47,7 @@ func rowToMonitorSub(r monitorSubRow) (types.Subscription, error) {
 		return types.Subscription{}, fmt.Errorf("monitor %s options: %w", r.PlanCode, err)
 	}
 	return types.Subscription{
+		Duration:           r.Duration,
 		PlanCode:           r.PlanCode,
 		Datacenters:        dcs,
 		NotifyAvailable:    r.NotifyAvailable == 1,
@@ -101,6 +103,7 @@ func monitorSubToRow(s types.Subscription) (monitorSubRow, error) {
 		return 0
 	}
 	return monitorSubRow{
+		Duration:           s.Duration,
 		PlanCode:           s.PlanCode,
 		DatacentersJSON:    string(dcsJSON),
 		NotifyAvailable:    bi(s.NotifyAvailable),
@@ -146,12 +149,13 @@ func (db *DB) UpsertMonitorSubscription(s types.Subscription) error {
 	}
 	_, err = db.NamedExec(`
 		INSERT INTO monitor_subscriptions
-		(plan_code, datacenters, notify_available, notify_unavailable, last_status,
+		(duration, plan_code, datacenters, notify_available, notify_unavailable, last_status,
 		 created_at, history, server_name, auto_order, quantity, auto_order_account_id, auto_pay, paused, options)
 		VALUES
-		(:plan_code, :datacenters, :notify_available, :notify_unavailable, :last_status,
+		(:duration, :plan_code, :datacenters, :notify_available, :notify_unavailable, :last_status,
 		 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id, :auto_pay, :paused, :options)
 		ON CONFLICT(plan_code, options) DO UPDATE SET
+		  duration           = excluded.duration,
 		  datacenters        = excluded.datacenters,
 		  notify_available   = excluded.notify_available,
 		  notify_unavailable = excluded.notify_unavailable,
@@ -188,10 +192,10 @@ func (db *DB) ReplaceMonitorSubscriptions(subs []types.Subscription) error {
 		}
 		_, err = tx.NamedExec(`
 			INSERT INTO monitor_subscriptions
-			(plan_code, datacenters, notify_available, notify_unavailable, last_status,
+			(duration, plan_code, datacenters, notify_available, notify_unavailable, last_status,
 			 created_at, history, server_name, auto_order, quantity, auto_order_account_id, auto_pay, paused, options)
 			VALUES
-			(:plan_code, :datacenters, :notify_available, :notify_unavailable, :last_status,
+			(:duration, :plan_code, :datacenters, :notify_available, :notify_unavailable, :last_status,
 			 :created_at, :history, :server_name, :auto_order, :quantity, :auto_order_account_id, :auto_pay, :paused, :options)
 		`, r)
 		if err != nil {

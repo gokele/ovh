@@ -7,6 +7,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/monitor"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -155,7 +156,7 @@ func resolveAccountRef(state *app.State, mon *monitor.Monitor, ref, planCode str
 // 抢稀缺机器时"两个账户都投"的全部意义就在于其中一个能成。
 func runOrder(state *app.State, o *telegram.OrderInfo, accs []types.OVHAccount) string {
 	if len(accs) == 1 {
-		res := telegram.ProcessOrder(state, accs[0].ID, o.PlanCode, o.Datacenter, o.Quantity, o.Options)
+		res := telegram.ProcessOrder(state, accs[0].ID, o.PlanCode, o.Datacenter, o.Quantity, o.Options, o.Duration)
 		if res.Success {
 			return fmt.Sprintf("📥 已创建 %d/%d 个抢购任务\n\n型号: %s\n账户: %s\n\n"+
 				"系统会每 %d 秒重试一次，直到抢到为止。下单成功≠已付款。\n"+
@@ -171,7 +172,7 @@ func runOrder(state *app.State, o *telegram.OrderInfo, accs []types.OVHAccount) 
 	okCount, total := 0, 0
 	var fails []string
 	for _, a := range accs {
-		res := telegram.ProcessOrder(state, a.ID, o.PlanCode, o.Datacenter, o.Quantity, o.Options)
+		res := telegram.ProcessOrder(state, a.ID, o.PlanCode, o.Datacenter, o.Quantity, o.Options, o.Duration)
 		if res.Success {
 			okCount++
 			total += res.CreatedOrders
@@ -225,7 +226,7 @@ func askOrderConfirm(state *app.State, chatID interface{}, messageID int64,
 			continue
 		}
 		seen[account.ID] = true
-		go telegram.PrewarmOrder(state, "tg:"+tok+":"+account.ID, account.ID, o.PlanCode, o.Datacenter, o.Quantity, append([]string(nil), o.Options...), flowTTL)
+		go telegram.PrewarmOrder(state, "tg:"+tok+":"+account.ID, account.ID, o.PlanCode, o.Datacenter, o.Quantity, append([]string(nil), o.Options...), flowTTL, o.Duration)
 	}
 
 	var b strings.Builder
@@ -236,6 +237,7 @@ func askOrderConfirm(state *app.State, chatID interface{}, messageID int64,
 	} else {
 		b.WriteString("机房：所有有货的\n")
 	}
+	b.WriteString("购买时长：" + orderterm.Label(o.Duration) + "\n")
 	b.WriteString("数量：" + strconv.Itoa(o.Quantity) + " 台/机房\n")
 	if len(o.Options) > 0 {
 		b.WriteString("配置：" + strings.Join(o.Options, ", ") + "\n")

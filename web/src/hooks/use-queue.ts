@@ -18,6 +18,7 @@ export interface QueueItem {
   /** 下单成功后用 OVH 默认支付方式自动付款(显式开关,默认关) */
   autoPay?: boolean;
   coupon?: string;
+  duration?: string;
   preorder?: boolean;
   options: string[];
   status: QueueStatus;
@@ -96,6 +97,7 @@ export function useCreateQueueItem() {
       quantity?: number;
       autoPay?: boolean;
       coupon?: string;
+      duration?: string;
       preorder?: boolean;
     }) => {
       const dcs = payload.datacenters;
@@ -130,6 +132,7 @@ export function useCreateQueueItem() {
               autoPay: payload.autoPay ?? false,
               preorder: payload.preorder ?? false,
               coupon: payload.coupon?.trim() || undefined,
+              duration: payload.duration || "P1M",
             });
             success++;
           } catch (e: any) {
@@ -152,7 +155,7 @@ export function useCreateQueueItem() {
 export function useUpdateQueueItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...patch }: { id: string; datacenter: string; options: string[]; retryInterval: number; autoPay: boolean; coupon: string }) =>
+    mutationFn: async ({ id, ...patch }: { id: string; datacenter: string; options: string[]; retryInterval: number; autoPay: boolean; coupon: string; duration: string }) =>
       (await api.put(`/queue/${encodeURIComponent(id)}`, patch)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.queue.list() });

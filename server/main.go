@@ -259,6 +259,7 @@ func main() {
 		api.GET("/queue", handlers.GetQueue(state))
 		api.GET("/queue/timings", handlers.GetPurchaseTimings(state))
 		api.POST("/queue", handlers.AddQueueItem(state))
+		api.GET("/purchase/durations", handlers.GetOrderDurations(state))
 		api.POST("/purchase/prewarm", handlers.PrepareOrderCart(state))
 		api.GET("/purchase/prewarm", handlers.GetOrderPrewarm(state))
 		api.DELETE("/purchase/prewarm/:id", handlers.CancelOrderPrewarm(state))

@@ -26,7 +26,7 @@ func TestQueueEditPreservesIdentityAndRequiresPause(t *testing.T) {
 		r.ServeHTTP(w, httptest.NewRequest(http.MethodPut, path, strings.NewReader(body)))
 		return w
 	}
-	const patch = `{"datacenter":" rbx ","options":["ram-64g","custom-addon"],"retryInterval":17,"autoPay":true,"coupon":" Save10 "}`
+	const patch = `{"datacenter":" rbx ","options":["ram-64g","custom-addon"],"retryInterval":17,"autoPay":true,"coupon":" Save10 ","duration":"P1Y"}`
 	if w := request("/queue/task", patch); w.Code != http.StatusConflict {
 		t.Fatalf("running edit must be rejected: %d %s", w.Code, w.Body.String())
 	}
@@ -41,10 +41,10 @@ func TestQueueEditPreservesIdentityAndRequiresPause(t *testing.T) {
 		t.Fatal(got, err)
 	}
 	q := got[0]
-	if q.ID != "task" || q.AccountID != "eu" || q.PlanCode != "24sk202" || !q.Preorder || q.Status != "paused" || q.RetryCount != 9 || q.FailureCount != 0 || q.Datacenter != "rbx" || q.Coupon != "Save10" || len(q.Options) != 2 || q.Options[1] != "custom-addon" || q.RetryInterval != 17 || !q.AutoPay {
+	if q.ID != "task" || q.AccountID != "eu" || q.PlanCode != "24sk202" || !q.Preorder || q.Status != "paused" || q.RetryCount != 9 || q.FailureCount != 0 || q.Datacenter != "rbx" || q.Duration != "P12M" || q.Coupon != "Save10" || len(q.Options) != 2 || q.Options[1] != "custom-addon" || q.RetryInterval != 17 || !q.AutoPay {
 		t.Fatalf("bad edited task: %+v", q)
 	}
-	for _, body := range []string{`{"datacenter":"gra","retryInterval":0}`, `{"datacenter":"gra","retryInterval":17,"autoPay":"yes"}`, `{"datacenter":"gra","retryInterval":17,`} {
+	for _, body := range []string{`{"datacenter":"gra","retryInterval":17,"duration":"P0M"}`, `{"datacenter":"gra","retryInterval":0}`, `{"datacenter":"gra","retryInterval":17,"autoPay":"yes"}`, `{"datacenter":"gra","retryInterval":17,`} {
 		if w := request("/queue/task", body); w.Code != 400 {
 			t.Fatal(w.Code, w.Body.String())
 		}
@@ -64,7 +64,7 @@ func TestQueueEditPreservesIdentityAndRequiresPause(t *testing.T) {
 func TestMonitorEditAndPauseSelectExactConfiguration(t *testing.T) {
 	st, mon := newWatchTestMonitor(t)
 	for _, options := range [][]string{{"ram-32g"}, {"ram-64g"}, nil} {
-		mon.AddSubscription("plan", []string{"gra"}, true, false, "", map[string]string{"gra": "unavailable"}, []monitor.HistoryEntry{{Status: "unavailable"}}, false, 0, "", false, options)
+		mon.AddSubscription("plan", []string{"gra"}, true, false, "", map[string]string{"gra": "unavailable"}, []monitor.HistoryEntry{{Status: "unavailable"}}, false, 0, "", false, options, "")
 	}
 	r := gin.New()
 	r.PUT("/monitor/:planCode", UpdateSubscription(st, mon))
@@ -77,11 +77,11 @@ func TestMonitorEditAndPauseSelectExactConfiguration(t *testing.T) {
 	if w := request("POST", "/monitor/plan/pause", `{"optionsKey":"ram-64g","paused":true}`); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if w := request("PUT", "/monitor/plan?optionsKey=ram-64g", `{"options":["ram-128g"],"datacenters":["rbx"],"notifyAvailable":false}`); w.Code != 200 {
+	if w := request("PUT", "/monitor/plan?optionsKey=ram-64g", `{"options":["ram-128g"],"datacenters":["rbx"],"notifyAvailable":false,"duration":"P1Y"}`); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	sub := mon.FindSubscription("plan", "ram-128g")
-	if sub == nil || !sub.Paused || sub.NotifyAvailable || sub.Datacenters[0] != "rbx" || sub.LastStatus["gra"] != "unavailable" || len(sub.History) != 1 {
+	if sub == nil || sub.Duration != "P12M" || !sub.Paused || sub.NotifyAvailable || sub.Datacenters[0] != "rbx" || sub.LastStatus["gra"] != "unavailable" || len(sub.History) != 1 {
 		t.Fatalf("edit lost state or selected sibling: %+v", sub)
 	}
 	if first := mon.FindSubscription("plan", "ram-32g"); first.Paused || !first.NotifyAvailable || first.Datacenters[0] != "gra" {
@@ -102,7 +102,7 @@ func TestMonitorEditAndPauseSelectExactConfiguration(t *testing.T) {
 	if all := reloaded.FindSubscription("plan", ""); all == nil || !all.Paused || all.Datacenters[0] != "sbg" {
 		t.Fatalf("pause or edit lost on restart: %+v", all)
 	}
-	if specific := reloaded.FindSubscription("plan", "ram-128g"); specific == nil || !specific.Paused {
+	if specific := reloaded.FindSubscription("plan", "ram-128g"); specific == nil || specific.Duration != "P12M" || !specific.Paused {
 		t.Fatal("specific pause lost on restart")
 	}
 	for _, body := range []string{`{}`, `{"paused":"yes"}`, `{"paused":true,`} {

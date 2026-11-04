@@ -1,6 +1,7 @@
 import { apiDatacenterCode } from "@/lib/datacenters";
 
 export interface PrewarmRequest {
+  duration?: string;
   account_id: string;
   planCode: string;
   datacenters: string[];
@@ -12,6 +13,7 @@ export interface PrewarmRequest {
 }
 
 export interface PrewarmStatus {
+  duration?: string;
   id: string;
   accountId: string;
   planCode: string;
@@ -27,7 +29,7 @@ export interface PrewarmStatus {
 
 // A stable identity prevents rerenders or checkbox order from rebuilding carts.
 export function prewarmIdentity(request: PrewarmRequest): string {
-  return JSON.stringify({ ...request, planCode: request.planCode.trim(), coupon: request.coupon.trim(),
+  return JSON.stringify({ ...request, duration: request.duration || "P1M", planCode: request.planCode.trim(), coupon: request.coupon.trim(),
     datacenters: [...new Set(request.datacenters.map(apiDatacenterCode))].sort(),
     options: [...new Set(request.options)].sort() });
 }

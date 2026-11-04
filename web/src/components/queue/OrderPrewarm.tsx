@@ -1,3 +1,4 @@
+import { OrderDurationLabel } from "./OrderDurationField";
 import { CheckCircle2, Loader2, ShoppingCart, Timer, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -55,7 +56,7 @@ export function StandbyCarts() {
         {items.map((s) => <li key={s.id} className="flex items-center justify-between gap-3 py-3">
           <div className="min-w-0 space-y-1">
             <p className="text-sm font-medium break-all">{s.planCode} <span className="font-normal text-muted-foreground">· {accounts.data?.find((a) => a.id === s.accountId)?.name || s.accountId}</span></p>
-            <p className="text-xs text-muted-foreground break-all">{s.datacenters.join(" / ").toUpperCase()} · {t(`prewarm.${s.state}`, { ready: s.ready, total: s.total })}</p>
+            <p className="text-xs text-muted-foreground break-all">{s.datacenters.join(" / ").toUpperCase()} · <OrderDurationLabel value={s.duration} /> · {t(`prewarm.${s.state}`, { ready: s.ready, total: s.total })}</p>
             {s.expiresAt && <p className="text-xs text-muted-foreground">{t("prewarm.expires", { time: fmtDateTime(s.expiresAt) })}</p>}
           </div>
           <Button variant="ghost" className="min-h-11 min-w-11 shrink-0" disabled={cancel.isPending} aria-label={t("prewarm.cancel", { plan: s.planCode })} onClick={() => cancel.mutate(s.id)}><X className="h-4 w-4" /></Button>

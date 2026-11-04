@@ -11,7 +11,7 @@ import (
 )
 
 // PrewarmOrder prepares only; the confirmation handler remains the sole enqueue point.
-func PrewarmOrder(state *app.State, owner, accountID, plan, dc string, quantity int, options []string, lease time.Duration) {
+func PrewarmOrder(state *app.State, owner, accountID, plan, dc string, quantity int, options []string, lease time.Duration, duration string) {
 	if state.OrderPrewarm == nil || accountID == "" {
 		return
 	}
@@ -42,7 +42,7 @@ func PrewarmOrder(state *app.State, owner, accountID, plan, dc string, quantity 
 		sort.Strings(dcs)
 		for _, candidate := range dcs {
 			for n := 0; n < quantity && len(items) < types.MaxOrderFanout; n++ {
-				items = append(items, types.QueueItem{AccountID: accountID, PlanCode: plan, Datacenter: candidate, Options: append([]string(nil), config.Options...)})
+				items = append(items, types.QueueItem{AccountID: accountID, PlanCode: plan, Duration: duration, Datacenter: candidate, Options: append([]string(nil), config.Options...)})
 			}
 		}
 	}

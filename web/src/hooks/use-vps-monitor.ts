@@ -6,6 +6,7 @@ import i18n from "@/i18n";
 import { apiMessage, bodyMessage } from "@/lib/api-error";
 
 export interface VPSSubscription {
+  duration?: string;
   id: string;
   /** OVH 已经不卖这个型号了 —— 这条订阅永远不会响。后端每次读列表时现算，不落库 */
   retired?: boolean;

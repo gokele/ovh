@@ -58,7 +58,7 @@ func handleCommand(state *app.State, mon *monitor.Monitor, chatID interface{}, m
 		// 带了 x<数量> = 用户明确知道自己要什么,直接建,不打断他。
 		// 否则走按钮流程:让他挑配置和账户 —— 这两件事不挑就等于默默替他决定,
 		// 而它们直接决定会不会抢到、以及会下多少单。
-		if hasExplicitQuantity(args) || len(args) == 0 {
+		if hasExplicitQuantity(args) || len(args) == 0 || hasExplicitDuration(args) {
 			reply = watchText(state, mon, args)
 			// 快捷式建完是"盯全部配置"。addon planCode 二三十字符,打不出来,
 			// 所以紧跟一排按钮让他一键改窄 —— 以前只能删掉订阅重发一次不带 x 的 /watch。
@@ -541,4 +541,14 @@ func dcArgs(args []string) []string {
 		}
 	}
 	return out
+}
+
+func hasExplicitDuration(args []string) bool {
+	for _, arg := range args {
+		a := strings.ToUpper(arg)
+		if strings.HasPrefix(a, "DURATION=") || len(a) > 1 && a[0] == 'P' && a[1] >= '0' && a[1] <= '9' {
+			return true
+		}
+	}
+	return false
 }

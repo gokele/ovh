@@ -1,3 +1,6 @@
+import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
+import { useOrderDurations } from "@/hooks/use-order-durations";
+import { supportsDuration } from "@/lib/order-duration";
 import { QueueStatusFilter, type QueueFilter } from "@/components/queue/QueueStatusFilter";
 import { OrderPrewarm, StandbyCarts } from "@/components/queue/OrderPrewarm";
 import { useOrderPrewarm } from "@/hooks/use-order-prewarm";
@@ -529,6 +532,7 @@ function CreateQueueDialog({
   // 这个对话框和服务器卡片弹的那个是两条建任务入口,开关两边都要有 ——
   // 上一版只加了卡片那边,这边漏了
   const [autoPay, setAutoPay] = useState(false);
+  const [duration, setDuration] = useState("P1M");
   const [coupon, setCoupon] = useState("");
   // 用户选的 addon,按组索引。每次切 planCode 自动清空(让用户重新选)。
   const [picked, setPicked] = useState<Partial<Record<OptionGroupKey, string>>>({});
@@ -545,6 +549,7 @@ function CreateQueueDialog({
         setRetryInterval(String(editing.retryInterval || cfgDefault));
         touchedRef.current = true;
         setAutoPay(!!editing.autoPay);
+        setDuration(editing.duration || "P1M");
         setCoupon(editing.coupon || "");
       }
     }
@@ -632,10 +637,12 @@ function CreateQueueDialog({
   const orderPlan = clampOrderPlan(datacenters.length, Number(quantity) || 1);
   const qty = orderPlan.quantity;
   const totalTasks = orderPlan.total;
-  const canSubmit = !!activeAcc && planCode.trim().length > 0 && datacenters.length > 0 && qty > 0 && !prereleaseMismatch;
+  const durationOptions = useOrderDurations(accountId, planCode.trim(), "eco", open);
+  const durationSupported = supportsDuration(durationOptions.data, duration);
+  const canSubmit = durationSupported && !!activeAcc && planCode.trim().length > 0 && datacenters.length > 0 && qty > 0 && !prereleaseMismatch;
   const preparation = useOrderPrewarm(open && !editing && canSubmit, {
     account_id: accountId, planCode: planCode.trim(), datacenters, options: parsedOptions,
-    quantity: qty, autoPay, coupon, preorder: !!matchedServer?.prerelease,
+    quantity: qty, autoPay, coupon, duration, preorder: !!matchedServer?.prerelease,
   });
 
   const reset = () => {
@@ -643,6 +650,7 @@ function CreateQueueDialog({
     setDatacenters([]);
     setQuantity("1");
     setAutoPay(false);
+    setDuration("P1M");
     setCoupon("");
     touchedRef.current = false;
     setRetryInterval(String(cfgDefault));
@@ -674,7 +682,7 @@ function CreateQueueDialog({
     if (editing) {
       try {
         await update.mutateAsync({ id: editing.id, datacenter: datacenters[0], options: parsedOptions,
-          retryInterval: Number(retryInterval) || cfgDefault, autoPay, coupon: coupon.trim() });
+          retryInterval: Number(retryInterval) || cfgDefault, autoPay, coupon: coupon.trim(), duration });
         reset(); onOpenChange(false);
       } catch { /* Error is shown by the mutation hook; keep the form open. */ }
       return;
@@ -688,6 +696,7 @@ function CreateQueueDialog({
       options: parsedOptions,
       autoPay,
       coupon,
+      duration,
       preorder: !!matchedServer?.prerelease,
     });
     if (result.success > 0) {
@@ -908,6 +917,8 @@ function CreateQueueDialog({
             </div>
           </div>
 
+          <OrderDurationField value={duration} onChange={setDuration} query={durationOptions} />
+
           <div>
             <label htmlFor="queue-coupon" className="block text-[13px] font-medium mb-1.5">
               {t("queue.couponLabel")}
@@ -1021,6 +1032,7 @@ function CreateQueueDialog({
         <OrderPrewarm preparation={preparation} />
 
         <DialogFooter>
+          <span className="mr-auto self-center text-sm text-muted-foreground">{t("orderDuration.label")} · <OrderDurationLabel value={duration} /></span>
           <Button variant="outline" onClick={handleClose} disabled={saving}>
             {t("queue.cancel")}
           </Button>
@@ -1111,6 +1123,7 @@ export function QueueRow({
             <span className="font-mono font-semibold text-sm">{item.planCode}</span>
             <AccountChip accountId={item.accountId} />
             {item.preorder && <Chip tone="warning">{t("queue.preorderBadge")}</Chip>}
+            <Chip><OrderDurationLabel value={item.duration} /></Chip>
             {item.coupon && <Chip>{t("queue.couponValue", { code: item.coupon })}</Chip>}
             <Chip tone="default">DC {item.datacenter.toUpperCase()}</Chip>
             {item.options && item.options.length > 0 && (

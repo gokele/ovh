@@ -6,6 +6,7 @@ import i18n from "@/i18n";
 import { apiMessage, bodyMessage } from "@/lib/api-error";
 
 export interface MonitorSubscription {
+  duration?: string;
   planCode: string;
   serverName?: string;
   datacenters: string[];

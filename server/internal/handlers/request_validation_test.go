@@ -50,7 +50,7 @@ func TestSubscriptionRemovalDoesNotReportSuccessWhenSavingFails(t *testing.T) {
 			state, mon := newWatchTestMonitor(t)
 			router := gin.New()
 			if kind == "dedicated" {
-				mon.AddSubscription("fixture", nil, true, false, "", nil, nil, false, 0, "", false, nil)
+				mon.AddSubscription("fixture", nil, true, false, "", nil, nil, false, 0, "", false, nil, "")
 				router.DELETE("/subscriptions/:planCode", RemoveSubscription(state, mon))
 			} else {
 				state.VPSSubscriptions = []types.VPSSubscription{{ID: "fixture", PlanCode: "fixture"}}

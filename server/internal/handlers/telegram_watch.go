@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"strconv"
 	"strings"
 
@@ -40,17 +41,27 @@ func watchText(state *app.State, mon *monitor.Monitor, args []string) string {
 			"  /watch 24sk602 gra rbx    只盯这两个机房\n" +
 			"  /watch 24sk602 gra x2     补货时自动抢 2 台\n\n" +
 			"带 x<数量> 才会自动下单；不带只发通知，你收到后再点按钮。\n" +
-			"取消盯：/unwatch <型号>"
+			"购买时长可加 P12M（1 年），默认 P1M（1 个月）。\n取消盯：/unwatch <型号>"
 	}
 
 	planCode := strings.TrimSpace(args[0])
 	dcs := []string{}
 	quantity := 0
 	autoOrder := false
+	duration := orderterm.Default
 
 	for _, a := range args[1:] {
 		a = strings.TrimSpace(strings.ToLower(a))
 		if a == "" {
+			continue
+		}
+		if strings.HasPrefix(a, "p") && len(a) > 1 && a[1] >= '0' && a[1] <= '9' || strings.HasPrefix(a, "duration=") {
+			raw := strings.TrimPrefix(a, "duration=")
+			var err error
+			duration, err = orderterm.Normalize(raw)
+			if err != nil {
+				return err.Error()
+			}
 			continue
 		}
 		// x2 / X2 = 自动下单 2 台
@@ -114,7 +125,7 @@ func watchText(state *app.State, mon *monitor.Monitor, args []string) string {
 
 	// autoPay 恒 false：自动付款是个要用户显式打开的开关，
 	// 不能因为他在手机上打了句 /watch 就替他决定花钱方式。
-	mon.AddSubscription(planCode, dcs, true, false, "", nil, nil, autoOrder, quantity, accountID, false, nil)
+	mon.AddSubscription(planCode, dcs, true, false, "", nil, nil, autoOrder, quantity, accountID, false, nil, duration)
 	if _, err := persistMonitorChanges(mon); err != nil {
 		return "保存监控配置失败,监控已停止,请检查存储后重试: " + err.Error()
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/purchase"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -23,6 +24,7 @@ import (
 func AddQueueItem(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
+			Duration      string   `json:"duration"`
 			AccountID     string   `json:"account_id"`
 			PlanCode      string   `json:"planCode"`
 			Datacenter    string   `json:"datacenter"`
@@ -37,6 +39,13 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "任务参数格式不正确"})
 			return
 		}
+		duration, termErr := orderterm.Normalize(body.Duration)
+		if termErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": termErr.Error()})
+			return
+		}
+		body.Duration = duration
+
 		if body.AccountID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "缺少 account_id", "code": "E34CBF1D4"})
 			return
@@ -68,6 +77,7 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 		item := types.QueueItem{
 			ID:            uuid.NewString(),
 			AccountID:     body.AccountID,
+			Duration:      body.Duration,
 			PlanCode:      body.PlanCode,
 			Datacenter:    body.Datacenter,
 			Options:       body.Options,
@@ -143,6 +153,7 @@ func RemoveQueueItem(state *app.State) gin.HandlerFunc {
 func UpdateQueueItem(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
+			Duration      *string  `json:"duration"`
 			Datacenter    string   `json:"datacenter"`
 			Options       []string `json:"options"`
 			RetryInterval int      `json:"retryInterval"`
@@ -153,7 +164,13 @@ func UpdateQueueItem(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "请填写机房及有效的重试间隔"})
 			return
 		}
-		if err := state.UpdateQueueItem(c.Param("id"), strings.TrimSpace(body.Datacenter), body.Options, body.RetryInterval, body.AutoPay, strings.TrimSpace(body.Coupon)); err != nil {
+		if body.Duration != nil {
+			if _, err := orderterm.Normalize(*body.Duration); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+		}
+		if err := state.UpdateQueueItem(c.Param("id"), strings.TrimSpace(body.Datacenter), body.Options, body.RetryInterval, body.AutoPay, strings.TrimSpace(body.Coupon), body.Duration); err != nil {
 			status := http.StatusInternalServerError
 			if errors.Is(err, app.ErrQueueNotFound) {
 				status = http.StatusNotFound

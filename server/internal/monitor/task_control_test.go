@@ -16,7 +16,7 @@ func TestPauseAndEditInvalidateInFlightCheck(t *testing.T) {
 	dir := t.TempDir()
 	st := app.NewState(storage.Paths{LogsDir: filepath.Join(dir, "logs")}, nil, logger.New(filepath.Join(dir, "logs.json"), nil), nil)
 	m := New(st)
-	m.AddSubscription("plan", nil, true, false, "", nil, nil, false, 0, "", false, []string{"ram-32g"})
+	m.AddSubscription("plan", nil, true, false, "", nil, nil, false, 0, "", false, []string{"ram-32g"}, "")
 	sub := m.subscriptions[0]
 	cfg := sub.checkConfig()
 	if !m.checkCurrent(sub, cfg) {
@@ -33,7 +33,7 @@ func TestPauseAndEditInvalidateInFlightCheck(t *testing.T) {
 	if !m.checkCurrent(sub, cfg) {
 		t.Fatal("new check cannot run after resume")
 	}
-	if err := m.UpdateSubscriptionFields("plan", &key, []string{"rbx"}, true, false, false, 0, "", false, []string{"ram-64g"}); err != nil {
+	if err := m.UpdateSubscriptionFields("plan", &key, []string{"rbx"}, true, false, false, 0, "", false, []string{"ram-64g"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if m.checkCurrent(sub, cfg) {
@@ -60,7 +60,7 @@ func TestGlobalStopInvalidatesInFlightCheck(t *testing.T) {
 	dir := t.TempDir()
 	st := app.NewState(storage.Paths{}, nil, logger.New(filepath.Join(dir, "test.log"), nil), nil)
 	m := New(st)
-	m.AddSubscription("plan", nil, true, false, "", nil, nil, false, 0, "", false, nil)
+	m.AddSubscription("plan", nil, true, false, "", nil, nil, false, 0, "", false, nil, "")
 	sub := m.subscriptions[0]
 	cfg := sub.checkConfig()
 	m.running = true

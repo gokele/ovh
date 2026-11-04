@@ -2,6 +2,7 @@ package vps
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"github.com/ovh-buy/server/internal/db"
 	"github.com/ovh-buy/server/internal/notify"
 	"github.com/ovh-buy/server/internal/numconv"
+	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -163,9 +165,13 @@ func purchaseVPS(ctx context.Context, state *app.State, sub types.VPSSubscriptio
 	}
 
 	// 3) 加商品。duration / pricingMode 是必填,合法组合来自 GET /order/cart/{id}/vps
-	duration, pricingMode := lookupVPSPricing(ctx, state, client, cartID, sub.PlanCode)
-	if duration == "" {
-		return Outcome{Reason: "未取得可用的 VPS 月付计价组合,本轮不下单"}
+	selectedDuration, err := orderterm.Normalize(sub.Duration)
+	if err != nil {
+		return Outcome{Fatal: true, Reason: err.Error()}
+	}
+	duration, pricingMode, err := orderterm.Lookup(ctx, client, cartID, "vps", sub.PlanCode, selectedDuration)
+	if err != nil {
+		return Outcome{Fatal: errors.Is(err, orderterm.ErrUnavailable), Reason: err.Error()}
 	}
 
 	var itemResult map[string]interface{}
@@ -318,7 +324,7 @@ func pickMandatoryAddons(opts []vpsOption, duration, pricingMode string) (picks 
 			families = append(families, o.Family)
 		}
 		for _, p := range o.Prices {
-			if p.Duration != duration || p.PricingMode != pricingMode || !containsFold(p.Capacities, "renew") {
+			if !orderterm.Same(p.Duration, duration) || p.PricingMode != pricingMode || !containsFold(p.Capacities, "renew") {
 				continue
 			}
 			if b := chosen[o.Family]; b == nil || p.Price.Value < b.price {
@@ -428,35 +434,6 @@ func containsFold(list []string, want string) bool {
 	return false
 }
 
-// lookupVPSPricing 从 GET /order/cart/{id}/vps 里找这个 planCode 的月付组合。
-// 优先月付(mode=default):抢购要的是尽快拿到机器,不是替用户决定包年。
-func lookupVPSPricing(ctx context.Context, state *app.State, client *ovhsdk.Client, cartID, planCode string) (string, string) {
-	var defs []struct {
-		PlanCode string `json:"planCode"`
-		Prices   []struct {
-			Duration    string   `json:"duration"`
-			PricingMode string   `json:"pricingMode"`
-			Capacities  []string `json:"capacities"`
-		} `json:"prices"`
-	}
-	if err := client.GetWithContext(ctx, "/order/cart/"+cartID+"/vps", &defs); err != nil {
-		state.Logger.Debug("[VPS下单] 拉计价失败: "+err.Error(), "vps_purchase")
-		return "", ""
-	}
-	for _, d := range defs {
-		if !strings.EqualFold(d.PlanCode, planCode) {
-			continue
-		}
-		// 先找月付
-		for _, p := range d.Prices {
-			if p.PricingMode == "default" && p.Duration == "P1M" && containsFold(p.Capacities, "renew") {
-				return p.Duration, p.PricingMode
-			}
-		}
-	}
-	return "", ""
-}
-
 // recordVPSPurchase 把下单结果写进抢购历史,和独服共用一张表 ——
 // 用户不关心"这是独服还是 VPS 的历史",只关心"我到底买到了什么"。
 func recordVPSPurchase(state *app.State, sub types.VPSSubscription, dcCode string, out Outcome) error {
@@ -466,6 +443,7 @@ func recordVPSPurchase(state *app.State, sub types.VPSSubscription, dcCode strin
 		TaskID:       "vps:" + sub.ID,
 		AccountID:    sub.AutoOrderAccountID,
 		PlanCode:     sub.PlanCode,
+		Duration:     sub.Duration,
 		Datacenter:   dcCode,
 		Options:      []string{},
 		PurchaseTime: types.NowISO(),
@@ -564,8 +542,8 @@ func autoOrderOnRestock(ctx context.Context, state *app.State, sub types.VPSSubs
 					linkURL = u
 				}
 			}
-			msg := fmt.Sprintf("🎉 VPS 下单成功\n\n型号: %s\n机房: %s\n订单: %s\n%s\n\n%s",
-				sub.PlanCode, code, out.OrderID, linkURL, payNote)
+			msg := fmt.Sprintf("🎉 VPS 下单成功\n\n型号: %s\n机房: %s\n购买时长: %s\n订单: %s\n%s\n\n%s",
+				sub.PlanCode, code, orderterm.Label(sub.Duration), out.OrderID, linkURL, payNote)
 			if out.Reason != "" {
 				msg += "\n⚠️ " + out.Reason
 			}

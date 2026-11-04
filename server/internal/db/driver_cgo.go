@@ -15,7 +15,7 @@ const driverName = "sqlite3"
 // 参考: https://github.com/mattn/go-sqlite3#connection-string
 func makeDSN(path string) string {
 	return fmt.Sprintf(
-		"file:%s?_journal=WAL&_synchronous=NORMAL&_fk=true&_busy_timeout=5000",
-		path,
+		"%s?_journal=WAL&_synchronous=NORMAL&_fk=true&_busy_timeout=5000",
+		sqliteFileURI(path),
 	)
 }

@@ -879,3 +879,27 @@ test("prewarm UI explains readiness, fallback and standby without ordering in bo
     }
   } finally { await i18n.changeLanguage(language); client.clear(); }
 });
+
+const { durationMonths, supportsDuration } = await server.ssrLoadModule("/src/lib/order-duration.ts");
+const { OrderDurationField, OrderDurationLabel } = await server.ssrLoadModule("/src/components/queue/OrderDurationField.tsx");
+test("annual periods match aliases and cannot consume a monthly prewarm", async () => {
+  const { prewarmIdentity } = await server.ssrLoadModule("/src/lib/order-prewarm.ts");
+  const request = { account_id: "eu", planCode: "plan", datacenters: ["gra"], options: [], quantity: 1, autoPay: false, coupon: "", preorder: false };
+  assert.equal(durationMonths("P1Y"), 12);
+  assert.equal(supportsDuration(["P12M"], "P1Y"), true);
+  assert.equal(supportsDuration(["P1M"], "P12M"), false);
+  assert.equal(prewarmIdentity(request), prewarmIdentity({ ...request, duration: "P1M" }));
+  assert.notEqual(prewarmIdentity(request), prewarmIdentity({ ...request, duration: "P12M" }));
+});
+test("purchase period field labels and unsupported states work in both languages", async () => {
+  const { default: i18n } = await server.ssrLoadModule("/src/i18n/index.ts");
+  for (const [language, label, annual] of [["zh", "购买时长", "1 年"], ["en", "Purchase period", "1 year"]]) {
+    await i18n.changeLanguage(language);
+    assert.ok(renderToStaticMarkup(createElement(OrderDurationLabel, { value: "P12M" })).includes(annual));
+    const html = renderToStaticMarkup(createElement(OrderDurationField, { value: "P12M", onChange() {}, query: { data: ["P1M"], isFetching: false, isError: false } }));
+    assert.ok(html.includes(label));
+    assert.ok(html.includes('aria-invalid="true"'));
+    assert.ok(html.includes(i18n.t("orderDuration.unsupported")));
+    assert.ok(!html.includes("orderDuration."));
+  }
+});
