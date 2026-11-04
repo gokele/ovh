@@ -689,6 +689,16 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 	}
 
 	plans, _ := catalogResp["plans"].([]interface{})
+	products := map[string]map[string]interface{}{}
+	if entries, ok := catalogResp["products"].([]interface{}); ok {
+		for _, raw := range entries {
+			if product, ok := raw.(map[string]interface{}); ok {
+				if name := getString(product, "name", ""); name != "" {
+					products[name] = product
+				}
+			}
+		}
+	}
 	result := []types.ServerPlan{}
 
 	// 并发预拉所有 plan 的 availabilities（这是循环里唯一的网络 IO）
@@ -787,11 +797,18 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 			}
 		}
 
+		var product map[string]interface{}
+		switch ref := plan["product"].(type) {
+		case string:
+			product = products[ref]
+		case map[string]interface{}:
+			product = ref
+		}
 		serverInfo := types.ServerPlan{
 			PlanCode:         planCode,
 			Name:             getString(plan, "invoiceName", ""),
 			Description:      getString(plan, "description", ""),
-			CPU:              "N/A",
+			CPU:              productCPU(product),
 			Memory:           "N/A",
 			Storage:          "N/A",
 			Bandwidth:        "N/A",
@@ -799,69 +816,6 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 			Datacenters:      datacenters,
 			DefaultOptions:   []types.ServerOption{},
 			AvailableOptions: []types.ServerOption{},
-		}
-
-		// 特殊系列：SYSLE / SK
-		lcPlan := strings.ToLower(planCode)
-		if strings.Contains(lcPlan, "sysle") {
-			state.Logger.Info(fmt.Sprintf("检测到SYSLE系列服务器: %s", planCode), "")
-			switch {
-			case strings.Contains(planCode, "011"):
-				serverInfo.CPU = "SYSLE 011系列 (入门级服务器CPU)"
-			case strings.Contains(planCode, "021"):
-				serverInfo.CPU = "SYSLE 021系列 (中端服务器CPU)"
-			case strings.Contains(planCode, "031"):
-				serverInfo.CPU = "SYSLE 031系列 (高端服务器CPU)"
-			default:
-				serverInfo.CPU = "SYSLE系列CPU"
-			}
-			extractCPUFromNames(plan, &serverInfo, state)
-		} else if strings.Contains(lcPlan, "sk") {
-			state.Logger.Info(fmt.Sprintf("检测到SK系列服务器: %s", planCode), "")
-			displayName := getString(plan, "displayName", "")
-			invoiceName := getString(plan, "invoiceName", "")
-			description := getString(plan, "description", "")
-			foundCPU := false
-			for _, name := range []string{displayName, invoiceName, description} {
-				if name == "" {
-					continue
-				}
-				if strings.Contains(name, "|") {
-					parts := strings.SplitN(name, "|", 2)
-					if len(parts) > 1 {
-						cpuPart := strings.TrimSpace(parts[1])
-						lc := strings.ToLower(cpuPart)
-						if strings.Contains(lc, "intel") || strings.Contains(lc, "amd") || strings.Contains(lc, "xeon") || strings.Contains(lc, "i7") {
-							serverInfo.CPU = cpuPart
-							state.Logger.Info(fmt.Sprintf("从名称中提取CPU型号: %s 给 %s", cpuPart, planCode), "")
-							foundCPU = true
-						}
-					}
-				}
-				if foundCPU {
-					break
-				}
-			}
-			if !foundCPU {
-				serverInfo.CPU = "SK系列专用CPU"
-			}
-		}
-
-		if serverInfo.CPU == "N/A" {
-			state.Logger.Info(fmt.Sprintf("服务器 %s 无法从API提取CPU信息，尝试从名称提取", planCode), "")
-			extractCPUFromNames(plan, &serverInfo, state)
-			if serverInfo.CPU == "N/A" {
-				switch {
-				case strings.Contains(lcPlan, "sysle"):
-					serverInfo.CPU = "SYSLE系列专用CPU"
-				case strings.Contains(lcPlan, "rise"):
-					serverInfo.CPU = "RISE系列专用CPU"
-				case strings.Contains(lcPlan, "game"):
-					serverInfo.CPU = "GAME系列专用CPU"
-				default:
-					serverInfo.CPU = "专用服务器CPU"
-				}
-			}
 		}
 
 		if serverInfo.Name == "" {
@@ -983,8 +937,8 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 			}
 		}
 
-		// 解析方法 3: 从 plan.product.configurations 提取
-		if product, ok := plan["product"].(map[string]interface{}); ok {
+		// 解析方法 3: 从关联 product 的 configurations 提取。
+		if product != nil {
 			if cfgs, ok := product["configurations"].([]interface{}); ok {
 				for _, cRaw := range cfgs {
 					cfg, ok := cRaw.(map[string]interface{})
@@ -1016,12 +970,6 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 				part = strings.ToLower(strings.TrimSpace(part))
 				if part == "" {
 					continue
-				}
-				hasCPU := strings.Contains(part, "cpu") || strings.Contains(part, "core") ||
-					strings.Contains(part, "i7") || strings.Contains(part, "i9") ||
-					strings.Contains(part, "xeon") || strings.Contains(part, "epyc") || strings.Contains(part, "ryzen")
-				if serverInfo.CPU == "N/A" && hasCPU {
-					serverInfo.CPU = part
 				}
 				if serverInfo.Memory == "N/A" && (strings.Contains(part, "ram") || strings.Contains(part, "gb") || strings.Contains(part, "memory")) {
 					serverInfo.Memory = part
@@ -1096,6 +1044,9 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 			}
 		}
 
+		if serverInfo.CPU == "N/A" {
+			extractCPUFromNames(plan, &serverInfo, state)
+		}
 		result = append(result, serverInfo)
 	}
 
@@ -1163,26 +1114,11 @@ func extractCPUFromNames(plan map[string]interface{}, info *types.ServerPlan, st
 	displayName := getString(plan, "displayName", "")
 	invoiceName := getString(plan, "invoiceName", "")
 	description := getString(plan, "description", "")
-	cpuKeywords := []string{"i7-", "i9-", "i5-", "xeon", "epyc", "ryzen"}
 	for _, name := range []string{displayName, invoiceName, description} {
-		if name == "" {
-			continue
-		}
-		lcName := strings.ToLower(name)
-		for _, kw := range cpuKeywords {
-			if strings.Contains(lcName, kw) {
-				pos := strings.Index(lcName, kw)
-				end := pos + 30
-				if end > len(name) {
-					end = len(name)
-				}
-				cpuInfo := strings.TrimSpace(strings.Split(name[pos:end], ",")[0])
-				if cpuInfo != "" {
-					info.CPU = cpuInfo
-					state.Logger.Info(fmt.Sprintf("从关键词中提取CPU型号: %s 给 %s", cpuInfo, info.PlanCode), "")
-					return
-				}
-			}
+		if cpu := cpuFromText(name); cpu != "" {
+			info.CPU = cpu
+			state.Logger.Info(fmt.Sprintf("从名称中提取CPU型号: %s 给 %s", cpu, info.PlanCode), "")
+			return
 		}
 	}
 }
