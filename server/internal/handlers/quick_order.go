@@ -38,8 +38,8 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 			AutoPay            bool     `json:"autoPay"`
 			Coupon             string   `json:"coupon"`
 		}
-		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "任务参数格式不正确"})
+		if err := bindOrderJSON(c, &body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "任务参数格式不正确", "details": err.Error()})
 			return
 		}
 		duration, termErr := orderterm.Normalize(body.Duration)

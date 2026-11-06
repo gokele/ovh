@@ -200,6 +200,18 @@ func preorderCheckoutFixture(t *testing.T, tc preorderCheckoutCase, index int) (
 	if tc.cpuOption != "" {
 		item.Options = append(item.Options, tc.cpuOption)
 	}
+	t.Cleanup(func() {
+		state.HistoryMu.Lock()
+		ordered := len(state.History) > 0 && state.History[0].Status == "success"
+		state.HistoryMu.Unlock()
+		if ordered {
+			// The asynchronous detail write must finish before the temporary DB/log directory is removed.
+			waitWarm(t, func() bool {
+				rows, err := state.DB.ListHistory()
+				return err == nil && len(rows) > 0 && rows[0].OrderStatus != ""
+			})
+		}
+	})
 	return state, item, &carts, &checkouts, &stock
 }
 

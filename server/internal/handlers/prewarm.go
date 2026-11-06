@@ -27,7 +27,11 @@ func PrepareOrderCart(state *app.State) gin.HandlerFunc {
 			Preorder    bool     `json:"preorder"`
 			Standby     bool     `json:"standby"`
 		}
-		if c.ShouldBindJSON(&body) != nil || !validPrewarmID(body.ID) || body.AccountID == "" || strings.TrimSpace(body.PlanCode) == "" || len(body.PlanCode) > 200 || len(body.Datacenters) == 0 || body.Quantity < 1 || body.Quantity > types.MaxOrderQuantity || len(body.Datacenters)*body.Quantity > types.MaxOrderFanout {
+		if err := bindOrderJSON(c, &body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "备车参数不完整或数量超限", "code": "PREWARM_INVALID", "details": err.Error()})
+			return
+		}
+		if !validPrewarmID(body.ID) || body.AccountID == "" || strings.TrimSpace(body.PlanCode) == "" || len(body.PlanCode) > 200 || len(body.Datacenters) == 0 || body.Quantity < 1 || body.Quantity > types.MaxOrderQuantity || len(body.Datacenters)*body.Quantity > types.MaxOrderFanout {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "备车参数不完整或数量超限", "code": "PREWARM_INVALID"})
 			return
 		}
