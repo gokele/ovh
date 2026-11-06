@@ -29,6 +29,12 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	if err != nil {
 		return nil, Outcome{Fatal: true, Reason: err.Error()}
 	}
+	if item.Preorder {
+		_, effectiveOptions, err = catalog.ResolvePreorderOptions(state, account.ID, item.PlanCode, effectiveOptions)
+		if err != nil {
+			return nil, Outcome{WaitingForCatalog: true, Reason: err.Error()}
+		}
+	}
 	cartID := ""
 	var itemID int64
 	var addedOptions []string
@@ -104,6 +110,9 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	if selectedDuration != orderterm.Default {
 		baseDuration, basePricingMode, err = orderterm.Lookup(ctx, client, cartID, "eco", item.PlanCode, selectedDuration)
 		if err != nil {
+			if item.Preorder && (errors.Is(err, orderterm.ErrUnavailable) || listingNotReady(err)) {
+				return nil, Outcome{WaitingForCatalog: true, Reason: err.Error()}
+			}
 			fail(err.Error())
 			return nil, Outcome{Fatal: errors.Is(err, orderterm.ErrUnavailable), Reason: err.Error()}
 		}
@@ -133,6 +142,9 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, cancelledOutcome(state, item, "加基础商品")
+			}
+			if item.Preorder && listingNotReady(err) {
+				return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
 			}
 			state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, err.Error()), "purchase")
 			state.Logger.Error(fmt.Sprintf("错误发生时的购物车ID: %s", cartID), "purchase")
@@ -232,6 +244,9 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 			if ctx.Err() != nil {
 				return nil, cancelledOutcome(state, item, "设置配置项")
 			}
+			if item.Preorder && listingNotReady(err) {
+				return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
+			}
 			errMsg := err.Error()
 			state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误(%s): %s", item.PlanCode, cfg.label, errMsg), "purchase")
 			state.Logger.Error(fmt.Sprintf("错误发生时的购物车ID: %s", cartID), "purchase")
@@ -255,6 +270,9 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 			if err != nil {
 				if ctx.Err() != nil {
 					return nil, cancelledOutcome(state, item, "查硬件选项")
+				}
+				if item.Preorder && listingNotReady(err) {
+					return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
 				}
 				// 拉 eco/options 失败 → 中止订单。否则会用基础 plan 默认存储（多半是 HDD）下到错误配置
 				errMsg := fmt.Sprintf("获取 Eco 硬件选项列表失败: %s（用户指定了 %d 个选项，无法验证，已取消下单避免下到错误配置）", ovh.Explain(err), len(filtered))
@@ -292,6 +310,10 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 				duration, pricingMode, valid := orderterm.Pick(matchedOpt["prices"], baseDuration, basePricingMode)
 				if !valid {
 					errMsg := fmt.Sprintf("硬件选项 %s 不支持购买时长 %s，已取消下单", matchedPC, selectedDuration)
+					if item.Preorder {
+						invalidateEcoOptions(state, item, account)
+						return nil, Outcome{WaitingForCatalog: true, Reason: errMsg}
+					}
 					fail(errMsg)
 					return nil, Outcome{Fatal: true, Reason: errMsg}
 				}
@@ -309,7 +331,8 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 			if len(missing) > 0 {
 				if item.Preorder {
 					state.Logger.Info(fmt.Sprintf("预订任务 %s 等待所选硬件配置开放: %v", item.ID, missing), "purchase")
-					return nil, Outcome{WaitingForCatalog: true}
+					invalidateEcoOptions(state, item, account)
+					return nil, Outcome{WaitingForCatalog: true, Reason: fmt.Sprintf("等待所选配置开放: %v", missing)}
 				}
 				errMsg := fmt.Sprintf("用户请求的硬件选项 %v 未在 OVH 可用 Eco 选项中找到（已取消下单避免下到错误配置）", missing)
 				state.Logger.Error(errMsg, "purchase")
@@ -331,6 +354,9 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 					invalidateEcoOptions(state, item, account)
 					if ctx.Err() != nil {
 						return nil, cancelledOutcome(state, item, "加硬件选项")
+					}
+					if item.Preorder && listingNotReady(err) {
+						return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
 					}
 					state.Logger.Error(fmt.Sprintf("添加 Eco 选项 %s 失败: %s", t.planCode, err.Error()), "purchase")
 					// 关键选项添加失败 → 整单失败。不能静默继续 checkout,否则会下到错误配置。
@@ -375,9 +401,16 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 			state.Logger.Info("购物车优惠码已应用", "purchase")
 		}
 	}
-	if err := orderterm.VerifyCart(ctx, client, cartID, itemID, selectedDuration); err != nil {
+	var expected []string
+	if item.Preorder {
+		expected = append([]string{item.PlanCode}, addedOptions...)
+	}
+	if err := orderterm.VerifyCart(ctx, client, cartID, itemID, selectedDuration, expected...); err != nil {
 		if ctx.Err() != nil {
 			return nil, cancelledOutcome(state, item, "校验购物车周期")
+		}
+		if item.Preorder && (errors.Is(err, orderterm.ErrCartPeriod) || errors.Is(err, orderterm.ErrCartConfiguration)) {
+			return nil, Outcome{WaitingForCatalog: true, Reason: err.Error()}
 		}
 		fail(err.Error())
 		return nil, Outcome{Fatal: errors.Is(err, orderterm.ErrCartPeriod), Reason: err.Error()}
@@ -403,4 +436,9 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	}
 	success = true // 准备成功后由 session 持有购物车,等库存期间不删除。
 	return &preparedCart{account: account, client: client, call: call, quote: &price.PriceInfo{PricingMode: basePricingMode, Duration: baseDuration}, options: addedOptions, duration: baseDuration, id: cartID, subsidiary: subsidiary, couponWarning: couponWarning, expires: expires, preparedAt: time.Now()}, Outcome{}
+}
+
+func listingNotReady(err error) bool {
+	var apiErr *ovhsdk.APIError
+	return errors.As(err, &apiErr) && (apiErr.Code == 400 || apiErr.Code == 404 || apiErr.Code == 409)
 }

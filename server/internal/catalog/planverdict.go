@@ -37,6 +37,9 @@ var ecoStockPlanCode = regexp.MustCompile(`(?i)^[0-9]{2}(sk|sys|rise)[a-z0-9]*(-
 
 const preorderCatalogTTL = 30 * time.Second
 
+// PreorderCheckInterval bounds optional catalog metadata refreshes and API launch retries.
+const PreorderCheckInterval = 15 * time.Second
+
 // PreorderReady 用短缓存等上架,避免普通目录两小时缓存错过开售;并发刷新仍合并。
 func PreorderReady(state *app.State, accountID, planCode string) (bool, error) {
 	acc, ok := state.FindAccount(accountID)

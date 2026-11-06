@@ -182,6 +182,58 @@ test("stock-only Eco models become searchable prereleases without replacing list
   assert.deepEqual(mergeStockPlans([listed]), [listed]);
 });
 
+test("all 12 API prerelease models expose every stock configuration without CPU or prices", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const stock = JSON.parse(await readFile(new URL("../../server/internal/purchase/testdata/preorder-stock.json", import.meta.url), "utf8"));
+  const { matchesServerSearch } = await server.ssrLoadModule("/src/lib/stock-plans.ts");
+  const { preorderVariantCoversAll } = await server.ssrLoadModule("/src/lib/preorder-options.ts");
+  const models = mergeStockPlans([], stock);
+  assert.equal(models.length, 12);
+  assert.equal(stock.length, 56);
+  for (const row of stock) {
+    const plan = models.find((model) => model.planCode === row.planCode);
+    assert.equal(plan.prerelease, true);
+    assert.equal(plan.cpu, "—");
+    assert.ok(plan.availableOptions.some((option) => option.value === row.memory));
+    assert.ok(plan.availableOptions.some((option) => option.value === row.storage));
+    assert.equal(preorderVariantCoversAll(row.fqn, [row.memory, row.storage]), true);
+  }
+  for (const [alias, code] of [["KS-LE-1", "27skle01-v1"], ["SYS-LE-2", "27sysle02-v1"], ["SYS-STOR-LE-1", "27sysstorle01-v1"], ["RISE-LE-3", "27risele03-v1"]]) {
+    assert.equal(models.find((model) => model.planCode === code).name, alias);
+    assert.ok(models.some((model) => model.planCode === code && matchesServerSearch(model, alias)));
+    assert.ok(models.some((model) => model.planCode === code && matchesServerSearch(model, alias.toLowerCase().replaceAll("-", " "))));
+  }
+});
+
+test("CPU and price publication retain preorder intent while exact RAM and disks stay unchanged", async () => {
+  const { preorderOptions, retainPreorderPlan, preorderVariantCoversAll } = await server.ssrLoadModule("/src/lib/preorder-options.ts");
+  const plan = "27skle03-v1";
+  let saved = retainPreorderPlan("", plan, true);
+  saved = retainPreorderPlan(saved, plan, false);
+  assert.equal(saved, plan, "publishing CPU/pricing must not turn this into an ordinary order");
+  assert.equal(retainPreorderPlan(saved, "27skle04-v1", false), "");
+  const options = ["ram-32g-ddr4-ecc-2666", "hybridsoftraid-2x8000sa-2x480ssd"];
+  assert.deepEqual(preorderOptions(["CPU-unpublished", ...options, "fixed-cpu-old"], ["fixed-cpu-old"]), options);
+  const fqn = `${plan}.${options.join(".")}`;
+  assert.equal(preorderVariantCoversAll(fqn, options), true);
+  assert.equal(preorderVariantCoversAll(fqn, ["ram-32g-ddr4-ecc-2400", options[1]]), false);
+  assert.equal(preorderVariantCoversAll(fqn, [options[0], "softraid-2x480ssd"]), false);
+});
+
+test("preorder option labels retain DDR, ECC, frequency and every disk group", async () => {
+  const { describeOptionCode } = await server.ssrLoadModule("/src/lib/option-groups.ts");
+  assert.equal(describeOptionCode("ram-16g-ddr3-noecc-1333"), "16 GB · DDR3 · Non-ECC · 1333 MHz");
+  assert.equal(describeOptionCode("ram-32g-ddr4-ecc-2666"), "32 GB · DDR4 · ECC · 2666 MHz");
+  for (const [code, first, second] of [
+    ["hybridsoftraid-2x8000sa-2x480ssd", "2× 8TB HDD", "2× 480GB SSD"],
+    ["hybridsoftraid-4x12000sa-1x512nvme", "4× 12TB HDD", "1× 512GB NVMe"],
+    ["softraid-2x480ssd-2x8000sa-27skle03-v1", "2× 480GB SSD", "2× 8TB HDD"],
+  ]) {
+    const label = describeOptionCode(code);
+    assert.ok(label.includes(first) && label.includes(second), label);
+  }
+});
+
 
 test("coupon is trimmed and sent to every datacenter and quantity task", async () => {
   const { useCreateQueueItem } = await server.ssrLoadModule("/src/hooks/use-queue.ts");
@@ -245,7 +297,7 @@ test("task edits update one queue item and monitor edits retain exact empty conf
   function Probe() { queue = useUpdateQueueItem(); monitor = useUpdateMonitorSubscription(); pause = usePauseMonitorSubscription(); return null; }
   try {
     renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
-    await queue.mutateAsync({ id: "task", datacenter: "rbx", options: ["ram-64g", "custom-addon"], retryInterval: 17, autoPay: false, coupon: "Save10" });
+    await queue.mutateAsync({ id: "task", datacenter: "rbx", options: ["ram-64g", "custom-addon"], retryInterval: 17, autoPay: false, coupon: "Save10", duration: "P12M" });
     await monitor.mutateAsync({ planCode: "plan", optionsKey: "", notifyAvailable: false, options: ["ram-32g"] });
     await pause.mutateAsync({ planCode: "plan", optionsKey: "", paused: true });
     assert.equal(calls.length, 3);

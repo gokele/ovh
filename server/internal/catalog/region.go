@@ -104,12 +104,16 @@ const (
 )
 
 type planConfig struct {
+	product     string
 	regions     []string
 	datacenters []string
 	// addonFamilies: family 名(memory / storage / bandwidth ...) → 该 family 下的 addon planCode。
 	// 监控和快速下单要用它把 availabilities 里的 FQN 段(ram-64g-ecc-2133)映射成
 	// 下单用的 addon planCode(ram-64g-ecc-2133-24sk20-us)。
-	addonFamilies map[string][]string
+	addonFamilies     map[string][]string
+	addonProducts     map[string]string
+	addonDefaults     map[string]string
+	mandatoryFamilies map[string]bool
 	// monthly / install: 这个 plan 自身的月费与安装费(不含 addon)。
 	// 单位已经从 OVH 的 1e8 定点整数换算成真实金额。
 	monthly PriceParts
@@ -270,13 +274,16 @@ func parseEcoCatalogFull(r io.Reader) (ecoCatalogPayload, error) {
 				Values []string `json:"values"`
 			} `json:"configurations"`
 			AddonFamilies []struct {
-				Name   string   `json:"name"`
-				Addons []string `json:"addons"`
+				Name      string   `json:"name"`
+				Addons    []string `json:"addons"`
+				Default   string   `json:"default"`
+				Mandatory bool     `json:"mandatory"`
 			} `json:"addonFamilies"`
 			Pricings []catalogPricing `json:"pricings"`
 		} `json:"plans"`
 		Addons []struct {
 			PlanCode string           `json:"planCode"`
+			Product  string           `json:"product"`
 			Pricings []catalogPricing `json:"pricings"`
 		} `json:"addons"`
 	}
@@ -296,8 +303,13 @@ func parseEcoCatalogFull(r io.Reader) (ecoCatalogPayload, error) {
 		}
 		if len(p.AddonFamilies) > 0 {
 			pc.addonFamilies = make(map[string][]string, len(p.AddonFamilies))
+			pc.addonDefaults = map[string]string{}
+			pc.mandatoryFamilies = map[string]bool{}
 			for _, f := range p.AddonFamilies {
-				pc.addonFamilies[strings.ToLower(f.Name)] = f.Addons
+				family := strings.ToLower(f.Name)
+				pc.addonFamilies[family] = f.Addons
+				pc.addonDefaults[family] = f.Default
+				pc.mandatoryFamilies[family] = f.Mandatory
 			}
 		}
 		pc.monthly = monthlyOf(p.Pricings)
@@ -307,9 +319,21 @@ func parseEcoCatalogFull(r io.Reader) (ecoCatalogPayload, error) {
 	addons := make(map[string]planConfig, len(payload.Addons))
 	for _, a := range payload.Addons {
 		addons[a.PlanCode] = planConfig{
+			product: a.Product,
 			monthly: monthlyOf(a.Pricings),
 			install: installOf(a.Pricings),
 		}
+	}
+	for code, pc := range out {
+		pc.addonProducts = map[string]string{}
+		for _, codes := range pc.addonFamilies {
+			for _, addon := range codes {
+				if product := addons[addon].product; product != "" {
+					pc.addonProducts[addon] = product
+				}
+			}
+		}
+		out[code] = pc
 	}
 	return ecoCatalogPayload{plans: out, addons: addons, currency: payload.Locale.CurrencyCode}, nil
 }
@@ -328,7 +352,7 @@ func AddonFamiliesForPlan(state *app.State, accountID, planCode string) (map[str
 	if !ok {
 		// 库存会先于销售目录公布。未命中的型号沿用预订的短 TTL,
 		// 避免监控继续使用两小时前的目录,开售后仍被判成不能购买。
-		cat, err = loadSubsidiaryCatalogWithTTL(state, subsidiary, preorderCatalogTTL)
+		cat, err = loadSubsidiaryCatalogWithTTL(state, subsidiary, PreorderCheckInterval)
 		if err != nil {
 			return nil, err
 		}

@@ -1,4 +1,5 @@
 import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
+import { preorderVariantCoversAll, preorderOptions, retainPreorderPlan } from "@/lib/preorder-options";
 import { useOrderDurations } from "@/hooks/use-order-durations";
 import { supportsDuration } from "@/lib/order-duration";
 import { createFileRoute } from "@tanstack/react-router";
@@ -9,7 +10,7 @@ import { isOrderable } from "@/lib/availability";
 import {
   Server, RefreshCw, Search, Bell, ShoppingCart, Cpu, MemoryStick, HardDrive, Wifi,
   Filter, MapPin, Globe, ArrowUpDown, ArrowUpNarrowWide, ArrowDownWideNarrow } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,6 @@ import { useCreateQueueItem } from "@/hooks/use-queue";
 import { useCacheInfo } from "@/hooks/use-settings";
 import { useDefaultAccount } from "@/hooks/use-accounts";
 import { useActiveAccount } from "@/hooks/use-active-account";
-import { useEffect } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import {
@@ -37,7 +37,6 @@ import {
   variantsForPlan,
   variantDcStatus,
   hasStockWithOption,
-  variantCoversAll,
   useOvhCatalog,
   buildCatalogIndex,
   computePriceFromOptions,
@@ -54,7 +53,7 @@ import { formatMoney, currencyUnknownHint, comparePrices } from "@/lib/money";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
 import { endpointRegion, regionLabel } from "@/lib/ovh-regions";
 import { clampOrderPlan, MAX_ORDER_QUANTITY, MAX_ORDER_FANOUT } from "@/lib/order-limits";
-import { mergeStockPlans } from "@/lib/stock-plans";
+import { mergeStockPlans, matchesServerSearch } from "@/lib/stock-plans";
 
 /** 服务器列表：卡片网格 + 详情弹窗 */
 export const Route = createFileRoute("/servers")({
@@ -70,8 +69,9 @@ export const Route = createFileRoute("/servers")({
  * 目录里(三区目录互不相通,机型代码都不一样)。用户盯着一个永远转不完的"加载中",
  * 完全不知道发生了什么。现在把两种情况分开说。
  */
-function PriceFallback({ loading, subsidiary }: { loading: boolean; subsidiary: string }) {
+function PriceFallback({ loading, subsidiary, prerelease }: { loading: boolean; subsidiary: string; prerelease?: boolean }) {
   const { t } = useTranslation();
+  if (prerelease) return <span className="text-muted-foreground font-normal">{t("queue.preorderPricePending")}</span>;
   if (loading) {
     return <span className="text-muted-foreground font-normal">{t("servers.price.loading")}</span>;
   }
@@ -136,9 +136,7 @@ function ServersPage() {
     const s = search.trim().toLowerCase();
     let out = list;
     if (s) {
-      out = out.filter((srv) =>
-        `${srv.planCode} ${srv.name} ${srv.cpu} ${srv.memory} ${srv.storage}`.toLowerCase().includes(s)
-      );
+      out = out.filter((srv) => matchesServerSearch(srv, s));
     }
     if (onlyAvailable) {
       out = out.filter((srv) => {
@@ -422,7 +420,7 @@ function ServerCard({
               {price ? (
                 formatPrice(price)
               ) : (
-                <PriceFallback loading={priceLoading} subsidiary={subsidiary} />
+                <PriceFallback loading={priceLoading} subsidiary={subsidiary} prerelease={server.prerelease} />
               )}
             </div>
           </div>
@@ -438,7 +436,7 @@ function ServerCard({
 
         {/* 规格 2x2 */}
         <div className="grid grid-cols-2 gap-2 text-[12px]">
-          <SpecRow icon={<Cpu className="w-3.5 h-3.5" />} text={server.cpu} />
+          <SpecRow icon={<Cpu className="w-3.5 h-3.5" />} text={server.prerelease && server.cpu === "—" ? t("queue.preorderCPUPending") : server.cpu} />
           <SpecRow icon={<MemoryStick className="w-3.5 h-3.5" />} text={server.memory} />
           <SpecRow icon={<HardDrive className="w-3.5 h-3.5" />} text={server.storage} />
           <SpecRow icon={<Wifi className="w-3.5 h-3.5" />} text={server.bandwidth} />
@@ -556,6 +554,9 @@ function DetailContent({
   const [retryInterval, setRetryInterval] = useState("60");
   // 默认不自动付款:自动扣钱必须是用户显式打开的
   const [autoPay, setAutoPay] = useState(false);
+  const [preorderPlan, setPreorderPlan] = useState(server.prerelease ? server.planCode : "");
+  const preorder = !!server.prerelease || preorderPlan === server.planCode;
+  useEffect(() => setPreorderPlan((previous) => retainPreorderPlan(previous, server.planCode, !!server.prerelease)), [server.planCode, server.prerelease]);
   const [duration, setDuration] = useState("P1M");
   const [coupon, setCoupon] = useState("");
   const toggleDC = (code: string) =>
@@ -634,16 +635,19 @@ function DetailContent({
   // 用户选中的所有 option value（非默认值才计入，让 Queue 表单只填差异化部分；
   // 但保险起见全量传过去，让后端忽略相同默认值即可）
   const selectedValues = useMemo(
-    () => (Object.values(picked).filter(Boolean) as string[]),
-    [picked]
+    () => {
+      const options = Object.values(picked).filter(Boolean) as string[];
+      return preorder ? preorderOptions(options, grouped.cpu.map((option) => option.value)) : options;
+    },
+    [picked, preorder, grouped]
   );
-  const preorderConfigMismatch = !!server.prerelease && selectedValues.length > 0 &&
-    !!orderVariants && !orderVariants.some((v) => variantCoversAll(v, selectedValues));
+  const preorderConfigMismatch = preorder && selectedValues.length > 0 &&
+    !!orderVariants?.length && !orderVariants.some((v) => preorderVariantCoversAll(v.fqn, selectedValues));
   const durationOptions = useOrderDurations(accountId, server.planCode, "eco", true);
   const durationSupported = supportsDuration(durationOptions.data, duration);
   const preparation = useOrderPrewarm(durationSupported && !!accountId && selectedDCs.length > 0 && !preorderConfigMismatch, {
     account_id: accountId, planCode: server.planCode, datacenters: selectedDCs,
-    options: selectedValues, quantity: qty, autoPay, coupon, duration, preorder: !!server.prerelease,
+    options: selectedValues, quantity: qty, autoPay, coupon, duration, preorder,
   });
 
   // 价格用的 subsidiary(顶部下拉)属于哪个站点 vs 下单账户属于哪个站点
@@ -667,7 +671,9 @@ function DetailContent({
             <DialogTitle className="font-mono text-xl truncate">{server.planCode}</DialogTitle>
             <DialogDescription className="truncate mt-0.5">{server.name}</DialogDescription>
           </div>
-          {stockUnknown ? (
+          {server.prerelease ? (
+            <Chip tone="warning">{t("queue.preorderAwaitCatalog")}</Chip>
+          ) : stockUnknown ? (
             <Chip tone="warning"><StatusDot tone="warning" size="xs" />{t("servers.detail.stockUnknown")}</Chip>
           ) : ok > 0 ? (
             <Chip tone="success"><StatusDot tone="success" pulse size="xs" />{t("servers.detail.currentlyAvailable")}</Chip>
@@ -678,7 +684,7 @@ function DetailContent({
       </DialogHeader>
 
       <div className="overflow-y-auto -mx-6 px-6 space-y-6 flex-1">
-        {server.prerelease && <p className="text-xs text-warning" role="status">{t("queue.preorderHint")}</p>}
+        {preorder && <p className="text-xs text-warning" role="status">{t("queue.preorderHint")}</p>}
         {/* 价格 Hero（随下方配置实时变化） */}
         <div className="border border-border rounded-2xl p-4 bg-secondary/30 flex items-end justify-between gap-3 flex-wrap">
           <div>
@@ -693,7 +699,7 @@ function DetailContent({
                 formatPrice(price)
               ) : (
                 <span className="text-base">
-                  <PriceFallback loading={priceLoading} subsidiary={subsidiary} />
+                  <PriceFallback loading={priceLoading} subsidiary={subsidiary} prerelease={preorder} />
                 </span>
               )}
             </div>
@@ -715,7 +721,7 @@ function DetailContent({
 
         {/* 规格 4 卡 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
-          <SpecCard icon={<Cpu className="w-4 h-4" />} label="CPU" value={server.cpu} />
+          <SpecCard icon={<Cpu className="w-4 h-4" />} label="CPU" value={server.prerelease && server.cpu === "—" ? t("queue.preorderCPUPending") : server.cpu} />
           <SpecCard icon={<MemoryStick className="w-4 h-4" />} label={t("servers.spec.memory")} value={server.memory} />
           <SpecCard icon={<HardDrive className="w-4 h-4" />} label={t("servers.spec.storage")} value={server.storage} />
           <SpecCard icon={<Wifi className="w-4 h-4" />} label={t("servers.spec.bandwidth")} value={server.bandwidth} />
@@ -723,7 +729,7 @@ function DetailContent({
 
         {/* 硬件配置选择 */}
         {(["cpu", "memory", "systemStorage", "storage", "bandwidth", "vrack", "other"] as OptionGroupKey[])
-          .filter((g) => grouped[g].length > 0)
+          .filter((g) => grouped[g].length > 0 && !(preorder && g === "cpu"))
           .map((g) => (
             <OptionGroupSection
               key={g}
@@ -965,7 +971,7 @@ function DetailContent({
               autoPay,
               coupon,
               duration,
-              preorder: !!server.prerelease,
+              preorder,
             });
             if (result.success > 0) {
               preparation.submitted();
@@ -985,7 +991,7 @@ function DetailContent({
           ) : (
             <>
               <ShoppingCart className="w-4 h-4" />
-              {server.prerelease
+              {preorder
                 ? t(selectedDCs.length > 0 ? "queue.createPreorder" : "queue.createPreorderAction", { n: totalTasks })
                 : selectedDCs.length > 0 ? t("servers.detail.createN", { n: totalTasks }) : t("servers.detail.create")}
             </>

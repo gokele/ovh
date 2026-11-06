@@ -96,20 +96,16 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		session.discard()
 		session.nextPrepare = time.Time{}
 	}
-	if item.Preorder && session.cart == nil {
-		ready, err := catalog.PreorderReady(state, item.AccountID, item.PlanCode)
-		if ctx.Err() != nil {
-			return cancelledOutcome(state, item, "等上架")
-		}
-		if err != nil || !ready {
-			state.Logger.Info(fmt.Sprintf("预订任务 %s 等待 %s 上架到下单账户的销售目录", item.ID, item.PlanCode), "purchase")
-			if err != nil {
-				state.Logger.Warn("预订任务查询销售目录失败，本轮继续等待: "+err.Error(), "purchase")
-			}
-			return Outcome{WaitingForCatalog: true}
+
+	preorderStock, preorderOrder := item.Options, item.Options
+	if item.Preorder {
+		var err error
+		preorderStock, preorderOrder, err = catalog.ResolvePreorderOptions(state, item.AccountID, item.PlanCode, item.Options)
+		if err != nil {
+			state.Logger.Info("预订等待配置目录: "+err.Error(), "purchase")
+			return Outcome{WaitingForCatalog: true, Reason: err.Error()}
 		}
 	}
-
 	// 每一轮都打点。抢购的胜负常常只差几百毫秒,而"差在哪"没有数字就只能靠猜。
 	tl := newTimeline()
 	tl.dispatchKey = item.AccountID + "\x00" + TimingKey(item.PlanCode, ovh.ConvertDisplayDCToAPIDC(item.Datacenter))
@@ -169,16 +165,25 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	wantedHW := fqnRelevantOptions(availabilities, item.Options)
 	if item.Preorder {
 		// 预订保存的是原始 FQN 硬件段;参数消失也不能忽略它后改买其他配置。
-		wantedHW = item.Options
+		wantedHW = preorderStock
 	}
 	candidates := availabilities
+	if item.Preorder {
+		candidates = nil
+		for _, av := range availabilities {
+			fqn, _ := av["fqn"].(string)
+			if strings.EqualFold(strings.SplitN(fqn, ".", 2)[0], item.PlanCode) {
+				candidates = append(candidates, av)
+			}
+		}
+	}
 	if len(wantedHW) > 0 {
 		matchedAvs := []map[string]interface{}{}
-		for _, av := range availabilities {
+		for _, av := range candidates {
 			fqn, _ := av["fqn"].(string)
 			matches := fqnCoversOptions(fqn, wantedHW)
 			if item.Preorder {
-				matches = preorderFQNCoversOptions(fqn, wantedHW)
+				matches = preorderFQNCoversOptions(fqn, wantedHW) && strings.EqualFold(strings.SplitN(fqn, ".", 2)[0], item.PlanCode)
 			}
 			if matches {
 				matchedAvs = append(matchedAvs, av)
@@ -194,7 +199,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			state.Logger.Info(fmt.Sprintf("服务器 %s 没有任何配置组合同时包含所选硬件 %v，视为该配置无货",
 				item.PlanCode, wantedHW), "purchase")
 			recordTiming(timingKey, tl, "unavailable")
-			return Outcome{}
+			return Outcome{WaitingForStock: true}
 		}
 	}
 
@@ -244,7 +249,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		// 没有该配置/机房时不能猜配置造车;目录未上架仍按原逻辑等待。
 		if availableFQN == "" {
 			recordTiming(timingKey, tl, "unavailable")
-			return Outcome{}
+			return Outcome{WaitingForStock: true}
 		}
 	}
 
@@ -252,6 +257,9 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	// - 用户显式指定了 options → 直接用（fail-fast 由后面的 eco/options 处理）
 	// - 用户没指定 → 从可用 FQN 推断 addon planCode，确保订单走"实际有货的那套配置"
 	effectiveOptions := configurationOptions(availableFQN, item.Options)
+	if item.Preorder {
+		effectiveOptions = preorderConfigurationOptions(availableFQN, preorderStock, preorderOrder)
+	}
 
 	if session.cart == nil {
 		if pool, ok := state.OrderPrewarm.(*CartPool); ok {
@@ -271,9 +279,15 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			return Outcome{WaitingForStock: true}
 		}
 		session.nextPrepare = time.Now().Add(30 * time.Second)
+		if item.Preorder {
+			session.nextPrepare = time.Now().Add(catalog.PreorderCheckInterval)
+		}
 		session.discard()
 		prepared, outcome := prepareCart(ctx, state, item, session.account, client, effectiveOptions, apiDC, tl, timingKey, !foundAvailable)
 		if prepared == nil {
+			if outcome.WaitingForCatalog {
+				return outcome
+			}
 			if !foundAvailable && !outcome.Cancelled {
 				return Outcome{WaitingForStock: true}
 			}
@@ -289,8 +303,6 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		recordTiming(timingKey, tl, "unavailable")
 		return Outcome{WaitingForStock: true}
 	}
-	// 直接结账 —— 不在库存命中后重复读取 /summary,
-	// 价格 + 过期时间下面 checkout 成功后用 /me/order 异步补,不阻塞主流程。
 	// 结账前最后一次复核。这是整条链路里唯一真正花钱的一步,也是取消能起作用的
 	// 最后一个点 —— 从这里往下,结账请求一旦发出就**不再接受取消**:
 	// 请求已经到了 OVH、我们这边却中途断开,订单可能已经生成而我们不知道,
@@ -367,6 +379,10 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 					"- 没有:在队列页把任务恢复运行", item.PlanCode, item.Datacenter), nil)
 			return Outcome{Attempted: false, PauseTask: true}
 		}
+		if item.Preorder && listingNotReady(err) && !retryPrepared {
+			state.Logger.Info("预订下单接口暂未接受所选配置，继续等待: "+errMsg, "purchase")
+			return Outcome{WaitingForCatalog: true, Reason: errMsg}
+		}
 		recordFailure(state, item, errMsg)
 		// checkout 这一步最要紧:补货瞬间大家都在下单,429 是常态。
 		// 把它记成一次"真正的失败尝试"会让任务在唯一有货的那一分钟里自己判死。
@@ -384,7 +400,11 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 
 	// checkout 已返回订单 ID,cart 已成功转 order,标记成功阻止 defer 删除
 	// 立刻记成功 —— 价格和过期时间空着,后台异步补
-	recordSuccess(state, item, orderID, orderURL, "", nil, couponWarning)
+	orderedItem := *item
+	if item.Preorder {
+		orderedItem.Options = append([]string(nil), cart.options...)
+	}
+	recordSuccess(state, &orderedItem, orderID, orderURL, "", nil, couponWarning)
 	recordTimingToHistory(state, item.ID, tl)
 	state.Logger.Info("[耗时] "+item.PlanCode+"@"+item.Datacenter+" 抢购成功 "+tl.String(), "purchase")
 
@@ -400,7 +420,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	// 以前被 TG 配置判断包住:Webhook-only 用户收不到"抢到了但没付款",
 	// 订单逾期作废 —— 这是整条链路里最不能丢的一条消息(issue #2)。
 	acc, _ := state.FindAccount(item.AccountID)
-	message := BuildOrderSuccessMessage(item, orderID, ovh.ManagerOrderURL(acc.Endpoint, orderID))
+	message := BuildOrderSuccessMessage(&orderedItem, orderID, ovh.ManagerOrderURL(acc.Endpoint, orderID))
 	if couponWarning != "" {
 		message += "\n\n⚠️ " + couponWarning
 	}
@@ -587,6 +607,24 @@ func preorderFQNCoversOptions(fqn string, opts []string) bool {
 		}
 	}
 	return true
+}
+
+func preorderConfigurationOptions(fqn string, stock, order []string) []string {
+	options := append([]string(nil), order...)
+	parts := strings.Split(fqn, ".")
+	for _, part := range parts[1:] {
+		covered := false
+		for _, wanted := range stock {
+			if strings.EqualFold(part, wanted) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			options = append(options, part)
+		}
+	}
+	return catalog.OrderOptions(options)
 }
 
 func extract(v interface{}) *float64 {

@@ -83,7 +83,7 @@ func TestPurchaseCouponBeforeCheckout(t *testing.T) {
 				case strings.HasSuffix(path, "/auth/time"):
 					body = fmt.Sprint(time.Now().Unix())
 				case strings.Contains(path, "/order/catalog/public/eco"):
-					body = `{"plans":[{"planCode":"24sk202"}]}`
+					body = `{"plans":[{"planCode":"24sk202","configurations":[{"name":"dedicated_datacenter","values":["gra"]}]}]}`
 				case strings.Contains(path, "/dedicated/server/datacenter/availabilities"):
 					body = `[{"fqn":"24sk202","datacenters":[{"datacenter":"gra","availability":"1H-low"}]}]`
 				case strings.HasSuffix(path, "/order/cart") && r.Method == "POST":
@@ -92,7 +92,7 @@ func TestPurchaseCouponBeforeCheckout(t *testing.T) {
 				case strings.HasSuffix(path, "/order/cart/coupon-cart") && r.Method == "GET":
 					body = `{"items":[1]}`
 				case strings.HasSuffix(path, "/order/cart/coupon-cart/item/1") && r.Method == "GET":
-					body = `{"itemId":1,"duration":"P1M","options":[]}`
+					body = `{"itemId":1,"duration":"P1M","options":[],"settings":{"planCode":"24sk202"}}`
 				case strings.HasSuffix(path, "/coupon-cart/assign"):
 					steps = append(steps, "assign")
 				case strings.HasSuffix(path, "/coupon-cart/eco") && r.Method == "POST":

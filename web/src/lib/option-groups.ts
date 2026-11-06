@@ -135,23 +135,24 @@ export function formatOptionDisplay(option: ServerOption, group: OptionGroupKey)
   const v = option.value;
   if (group === "memory") {
     const m = v.match(/ram-(\d+)g/i);
-    if (m) return `${m[1]} GB`;
+    if (m) {
+      const tokens = v.toLowerCase().split("-");
+      const ddr = tokens.find((token) => /^ddr\d+$/.test(token))?.toUpperCase();
+      const ecc = tokens.includes("noecc") ? "Non-ECC" : tokens.includes("ecc") ? tokens.includes("die") ? "On-die ECC" : "ECC" : "";
+      const frequency = tokens.find((token) => /^\d{3,5}$/.test(token));
+      return [`${m[1]} GB`, ddr, ecc, frequency ? `${frequency} MHz` : ""].filter(Boolean).join(" · ");
+    }
   }
   if (group === "storage" || group === "systemStorage") {
-    const hybrid = v.match(/hybridsoftraid-(\d+)x(\d+)(sa|ssd|hdd)-(\d+)x(\d+)(nvme|ssd|hdd)/i);
-    if (hybrid) {
-      return i18n.t("commons.option.hybridStorage", {
-        firstCount: hybrid[1],
-        firstSize: hybrid[2],
-        firstType: hybrid[3].toUpperCase(),
-        secondCount: hybrid[4],
-        secondSize: hybrid[5],
-        secondType: hybrid[6].toUpperCase(),
-      });
-    }
-    const std = v.match(/(raid|softraid)-(\d+)x(\d+)(sa|ssd|hdd|nvme)/i);
-    if (std) {
-      return `${std[1].toUpperCase()} ${std[2]}× ${std[3]}GB ${std[4].toUpperCase()}`;
+    const raid = /^(hybridsoftraid|softraid|hardraid|raid|noraid)-/i.exec(v);
+    const disks = [...v.matchAll(/(\d+)x(\d+)(nvme|ssd|hdd|sata|sas|sa)(?=-|$)/gi)];
+    if (raid && disks.length) {
+      return `${raid[1].toUpperCase()} ${disks.map(([, count, size, type]) => {
+        const amount = Number(size);
+        const capacity = amount >= 1000 ? `${amount / 1000}TB` : `${amount}GB`;
+        const medium = type.toLowerCase() === "sa" ? "HDD" : type.toLowerCase() === "nvme" ? "NVMe" : type.toUpperCase();
+        return `${count}× ${capacity} ${medium}`;
+      }).join(" + ")}`;
     }
     // noraid-0disk 之类 = "无盘 / 系统盘空"
     if (/noraid-0/i.test(v) || /0disk/i.test(v)) return i18n.t("commons.option.noDisk");

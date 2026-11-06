@@ -29,7 +29,9 @@ export interface PrewarmStatus {
 
 // A stable identity prevents rerenders or checkbox order from rebuilding carts.
 export function prewarmIdentity(request: PrewarmRequest): string {
-  return JSON.stringify({ ...request, duration: request.duration || "P1M", planCode: request.planCode.trim(), coupon: request.coupon.trim(),
+  return JSON.stringify({ account_id: request.account_id, planCode: request.planCode.trim(),
+    quantity: request.quantity, autoPay: request.autoPay, coupon: request.coupon.trim(), preorder: request.preorder,
+    duration: request.duration || "P1M",
     datacenters: [...new Set(request.datacenters.map(apiDatacenterCode))].sort(),
     options: [...new Set(request.options)].sort() });
 }

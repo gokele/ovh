@@ -1,0 +1,1714 @@
+[
+  {
+    "fqn": "27risele01-v1.ram-32g-ddr4-ecc-2666.softraid-2x960nvme",
+    "memory": "ram-32g-ddr4-ecc-2666",
+    "planCode": "27risele01-v1",
+    "server": "27risele01",
+    "storage": "softraid-2x960nvme",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele01-v1.ram-32g-ddr4-ecc-2666.softraid-3x4000sa",
+    "memory": "ram-32g-ddr4-ecc-2666",
+    "planCode": "27risele01-v1",
+    "server": "27risele01",
+    "storage": "softraid-3x4000sa",
+    "datacenters": [
+      {
+        "availability": "72H",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele01-v1.ram-64g-ddr4-ecc-2666.softraid-2x960nvme",
+    "memory": "ram-64g-ddr4-ecc-2666",
+    "planCode": "27risele01-v1",
+    "server": "27risele01",
+    "storage": "softraid-2x960nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele01-v1.ram-64g-ddr4-ecc-2666.softraid-3x4000sa",
+    "memory": "ram-64g-ddr4-ecc-2666",
+    "planCode": "27risele01-v1",
+    "server": "27risele01",
+    "storage": "softraid-3x4000sa",
+    "datacenters": [
+      {
+        "availability": "72H",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele02-v1.ram-128g-ddr4-ecc-2400.softraid-2x1920nvme",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27risele02-v1",
+    "server": "27risele02",
+    "storage": "softraid-2x1920nvme",
+    "datacenters": [
+      {
+        "availability": "72H",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele02-v1.ram-128g-ddr4-ecc-2400.softraid-2x512nvme",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27risele02-v1",
+    "server": "27risele02",
+    "storage": "softraid-2x512nvme",
+    "datacenters": [
+      {
+        "availability": "72H",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele02-v1.ram-128g-ddr4-ecc-2400.softraid-2x960nvme",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27risele02-v1",
+    "server": "27risele02",
+    "storage": "softraid-2x960nvme",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele02-v1.ram-32g-ddr4-ecc-2400.softraid-2x1920nvme",
+    "memory": "ram-32g-ddr4-ecc-2400",
+    "planCode": "27risele02-v1",
+    "server": "27risele02",
+    "storage": "softraid-2x1920nvme",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele02-v1.ram-32g-ddr4-ecc-2400.softraid-2x512nvme",
+    "memory": "ram-32g-ddr4-ecc-2400",
+    "planCode": "27risele02-v1",
+    "server": "27risele02",
+    "storage": "softraid-2x512nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele02-v1.ram-32g-ddr4-ecc-2400.softraid-2x960nvme",
+    "memory": "ram-32g-ddr4-ecc-2400",
+    "planCode": "27risele02-v1",
+    "server": "27risele02",
+    "storage": "softraid-2x960nvme",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele02-v1.ram-64g-ddr4-ecc-2400.softraid-2x1920nvme",
+    "memory": "ram-64g-ddr4-ecc-2400",
+    "planCode": "27risele02-v1",
+    "server": "27risele02",
+    "storage": "softraid-2x1920nvme",
+    "datacenters": [
+      {
+        "availability": "72H",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele02-v1.ram-64g-ddr4-ecc-2400.softraid-2x512nvme",
+    "memory": "ram-64g-ddr4-ecc-2400",
+    "planCode": "27risele02-v1",
+    "server": "27risele02",
+    "storage": "softraid-2x512nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele02-v1.ram-64g-ddr4-ecc-2400.softraid-2x960nvme",
+    "memory": "ram-64g-ddr4-ecc-2400",
+    "planCode": "27risele02-v1",
+    "server": "27risele02",
+    "storage": "softraid-2x960nvme",
+    "datacenters": [
+      {
+        "availability": "72H",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27risele03-v1.ram-32g-ddr4-ecc-2666.softraid-2x960nvme",
+    "memory": "ram-32g-ddr4-ecc-2666",
+    "planCode": "27risele03-v1",
+    "server": "27risele03",
+    "storage": "softraid-2x960nvme",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle01-v1.ram-16g-ddr3-noecc-1333.softraid-2x480ssd",
+    "memory": "ram-16g-ddr3-noecc-1333",
+    "planCode": "27skle01-v1",
+    "server": "27skle01",
+    "storage": "softraid-2x480ssd",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle01-v1.ram-16g-ddr3-noecc-1333.softraid-3x2000sa",
+    "memory": "ram-16g-ddr3-noecc-1333",
+    "planCode": "27skle01-v1",
+    "server": "27skle01",
+    "storage": "softraid-3x2000sa",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle01-v1.ram-32g-ddr3-noecc-1333.softraid-2x480ssd",
+    "memory": "ram-32g-ddr3-noecc-1333",
+    "planCode": "27skle01-v1",
+    "server": "27skle01",
+    "storage": "softraid-2x480ssd",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle01-v1.ram-32g-ddr3-noecc-1333.softraid-3x2000sa",
+    "memory": "ram-32g-ddr3-noecc-1333",
+    "planCode": "27skle01-v1",
+    "server": "27skle01",
+    "storage": "softraid-3x2000sa",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle02-v1.ram-32g-ddr3-ecc-1333.softraid-2x2000sa",
+    "memory": "ram-32g-ddr3-ecc-1333",
+    "planCode": "27skle02-v1",
+    "server": "27skle02",
+    "storage": "softraid-2x2000sa",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle02-v1.ram-32g-ddr3-ecc-1333.softraid-2x4000sa",
+    "memory": "ram-32g-ddr3-ecc-1333",
+    "planCode": "27skle02-v1",
+    "server": "27skle02",
+    "storage": "softraid-2x4000sa",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle02-v1.ram-32g-ddr3-ecc-1333.softraid-2x450nvme",
+    "memory": "ram-32g-ddr3-ecc-1333",
+    "planCode": "27skle02-v1",
+    "server": "27skle02",
+    "storage": "softraid-2x450nvme",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle02-v1.ram-32g-ddr3-ecc-1333.softraid-2x480ssd",
+    "memory": "ram-32g-ddr3-ecc-1333",
+    "planCode": "27skle02-v1",
+    "server": "27skle02",
+    "storage": "softraid-2x480ssd",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle02-v1.ram-32g-ddr3-ecc-1333.softraid-2x960ssd",
+    "memory": "ram-32g-ddr3-ecc-1333",
+    "planCode": "27skle02-v1",
+    "server": "27skle02",
+    "storage": "softraid-2x960ssd",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle02-v1.ram-64g-ddr3-ecc-1600.softraid-2x2000sa",
+    "memory": "ram-64g-ddr3-ecc-1600",
+    "planCode": "27skle02-v1",
+    "server": "27skle02",
+    "storage": "softraid-2x2000sa",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle02-v1.ram-64g-ddr3-ecc-1600.softraid-2x4000sa",
+    "memory": "ram-64g-ddr3-ecc-1600",
+    "planCode": "27skle02-v1",
+    "server": "27skle02",
+    "storage": "softraid-2x4000sa",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle02-v1.ram-64g-ddr3-ecc-1600.softraid-2x450nvme",
+    "memory": "ram-64g-ddr3-ecc-1600",
+    "planCode": "27skle02-v1",
+    "server": "27skle02",
+    "storage": "softraid-2x450nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle02-v1.ram-64g-ddr3-ecc-1600.softraid-2x480ssd",
+    "memory": "ram-64g-ddr3-ecc-1600",
+    "planCode": "27skle02-v1",
+    "server": "27skle02",
+    "storage": "softraid-2x480ssd",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle02-v1.ram-64g-ddr3-ecc-1600.softraid-2x960ssd",
+    "memory": "ram-64g-ddr3-ecc-1600",
+    "planCode": "27skle02-v1",
+    "server": "27skle02",
+    "storage": "softraid-2x960ssd",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle03-v1.ram-32g-ddr4-ecc-2666.hybridsoftraid-2x8000sa-2x480ssd",
+    "memory": "ram-32g-ddr4-ecc-2666",
+    "planCode": "27skle03-v1",
+    "server": "27skle03",
+    "storage": "hybridsoftraid-2x8000sa-2x480ssd",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle03-v1.ram-32g-ddr4-ecc-2666.softraid-2x4000sa",
+    "memory": "ram-32g-ddr4-ecc-2666",
+    "planCode": "27skle03-v1",
+    "server": "27skle03",
+    "storage": "softraid-2x4000sa",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle03-v1.ram-32g-ddr4-ecc-2666.softraid-3x4000sa",
+    "memory": "ram-32g-ddr4-ecc-2666",
+    "planCode": "27skle03-v1",
+    "server": "27skle03",
+    "storage": "softraid-3x4000sa",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle03-v1.ram-64g-ddr4-ecc-2666.hybridsoftraid-2x8000sa-2x480ssd",
+    "memory": "ram-64g-ddr4-ecc-2666",
+    "planCode": "27skle03-v1",
+    "server": "27skle03",
+    "storage": "hybridsoftraid-2x8000sa-2x480ssd",
+    "datacenters": [
+      {
+        "availability": "72H",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle03-v1.ram-64g-ddr4-ecc-2666.softraid-2x4000sa",
+    "memory": "ram-64g-ddr4-ecc-2666",
+    "planCode": "27skle03-v1",
+    "server": "27skle03",
+    "storage": "softraid-2x4000sa",
+    "datacenters": [
+      {
+        "availability": "72H",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle03-v1.ram-64g-ddr4-ecc-2666.softraid-3x4000sa",
+    "memory": "ram-64g-ddr4-ecc-2666",
+    "planCode": "27skle03-v1",
+    "server": "27skle03",
+    "storage": "softraid-3x4000sa",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "72H",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle04-v1.ram-32g-ddr4-ecc-2400.hybridsoftraid-2x4000sa-2x450nvme",
+    "memory": "ram-32g-ddr4-ecc-2400",
+    "planCode": "27skle04-v1",
+    "server": "27skle04",
+    "storage": "hybridsoftraid-2x4000sa-2x450nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle04-v1.ram-32g-ddr4-ecc-2400.softraid-2x1920nvme",
+    "memory": "ram-32g-ddr4-ecc-2400",
+    "planCode": "27skle04-v1",
+    "server": "27skle04",
+    "storage": "softraid-2x1920nvme",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle04-v1.ram-64g-ddr4-ecc-2400.hybridsoftraid-2x4000sa-2x450nvme",
+    "memory": "ram-64g-ddr4-ecc-2400",
+    "planCode": "27skle04-v1",
+    "server": "27skle04",
+    "storage": "hybridsoftraid-2x4000sa-2x450nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle04-v1.ram-64g-ddr4-ecc-2400.softraid-2x1920nvme",
+    "memory": "ram-64g-ddr4-ecc-2400",
+    "planCode": "27skle04-v1",
+    "server": "27skle04",
+    "storage": "softraid-2x1920nvme",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle05-v1.ram-128g-ddr4-ecc-2400.hybridsoftraid-2x4000sa-2x450nvme",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27skle05-v1",
+    "server": "27skle05",
+    "storage": "hybridsoftraid-2x4000sa-2x450nvme",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle05-v1.ram-128g-ddr4-ecc-2400.softraid-2x2000sa",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27skle05-v1",
+    "server": "27skle05",
+    "storage": "softraid-2x2000sa",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle05-v1.ram-128g-ddr4-ecc-2400.softraid-2x4000sa",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27skle05-v1",
+    "server": "27skle05",
+    "storage": "softraid-2x4000sa",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle05-v1.ram-128g-ddr4-ecc-2400.softraid-2x450nvme",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27skle05-v1",
+    "server": "27skle05",
+    "storage": "softraid-2x450nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle05-v1.ram-128g-ddr4-ecc-2400.softraid-2x512nvme",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27skle05-v1",
+    "server": "27skle05",
+    "storage": "softraid-2x512nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle05-v1.ram-64g-ddr4-ecc-2400.hybridsoftraid-2x4000sa-2x450nvme",
+    "memory": "ram-64g-ddr4-ecc-2400",
+    "planCode": "27skle05-v1",
+    "server": "27skle05",
+    "storage": "hybridsoftraid-2x4000sa-2x450nvme",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle05-v1.ram-64g-ddr4-ecc-2400.softraid-2x2000sa",
+    "memory": "ram-64g-ddr4-ecc-2400",
+    "planCode": "27skle05-v1",
+    "server": "27skle05",
+    "storage": "softraid-2x2000sa",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle05-v1.ram-64g-ddr4-ecc-2400.softraid-2x4000sa",
+    "memory": "ram-64g-ddr4-ecc-2400",
+    "planCode": "27skle05-v1",
+    "server": "27skle05",
+    "storage": "softraid-2x4000sa",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle05-v1.ram-64g-ddr4-ecc-2400.softraid-2x450nvme",
+    "memory": "ram-64g-ddr4-ecc-2400",
+    "planCode": "27skle05-v1",
+    "server": "27skle05",
+    "storage": "softraid-2x450nvme",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle05-v1.ram-64g-ddr4-ecc-2400.softraid-2x512nvme",
+    "memory": "ram-64g-ddr4-ecc-2400",
+    "planCode": "27skle05-v1",
+    "server": "27skle05",
+    "storage": "softraid-2x512nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle06-v1.ram-128g-ddr4-ecc-2400.hybridsoftraid-2x4000sa-2x500nvme",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27skle06-v1",
+    "server": "27skle06",
+    "storage": "hybridsoftraid-2x4000sa-2x500nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle06-v1.ram-128g-ddr4-ecc-2400.softraid-2x1920nvme",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27skle06-v1",
+    "server": "27skle06",
+    "storage": "softraid-2x1920nvme",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle06-v1.ram-128g-ddr4-ecc-2400.softraid-3x1000nvme",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27skle06-v1",
+    "server": "27skle06",
+    "storage": "softraid-3x1000nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27skle06-v1.ram-128g-ddr4-ecc-2400.softraid-4x960ssd",
+    "memory": "ram-128g-ddr4-ecc-2400",
+    "planCode": "27skle06-v1",
+    "server": "27skle06",
+    "storage": "softraid-4x960ssd",
+    "datacenters": [
+      {
+        "availability": "unknown",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "sbg"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27sysle01-v1.ram-64g-ddr4-ecc-2666.softraid-2x960nvme",
+    "memory": "ram-64g-ddr4-ecc-2666",
+    "planCode": "27sysle01-v1",
+    "server": "27sysle01",
+    "storage": "softraid-2x960nvme",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "rbx"
+      }
+    ]
+  },
+  {
+    "fqn": "27sysle02-v1.ram-128g-ddr4-ecc-2666.softraid-3x1920nvme",
+    "memory": "ram-128g-ddr4-ecc-2666",
+    "planCode": "27sysle02-v1",
+    "server": "27sysle02",
+    "storage": "softraid-3x1920nvme",
+    "datacenters": [
+      {
+        "availability": "1H-high",
+        "datacenter": "bhs"
+      }
+    ]
+  },
+  {
+    "fqn": "27sysstorle01-v1.ram-32g-ddr4-ecc-2133.hybridsoftraid-4x12000sa-1x512nvme",
+    "memory": "ram-32g-ddr4-ecc-2133",
+    "planCode": "27sysstorle01-v1",
+    "server": "27sysstorle01",
+    "storage": "hybridsoftraid-4x12000sa-1x512nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "waw"
+      }
+    ]
+  },
+  {
+    "fqn": "27sysstorle01-v1.ram-32g-ddr4-ecc-2133.hybridsoftraid-4x14000sa-1x512nvme",
+    "memory": "ram-32g-ddr4-ecc-2133",
+    "planCode": "27sysstorle01-v1",
+    "server": "27sysstorle01",
+    "storage": "hybridsoftraid-4x14000sa-1x512nvme",
+    "datacenters": [
+      {
+        "availability": "1H-low",
+        "datacenter": "bhs"
+      },
+      {
+        "availability": "unknown",
+        "datacenter": "fra"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "gra"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "lon"
+      },
+      {
+        "availability": "1H-high",
+        "datacenter": "rbx"
+      },
+      {
+        "availability": "1H-low",
+        "datacenter": "waw"
+      }
+    ]
+  }
+]

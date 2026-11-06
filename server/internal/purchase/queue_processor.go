@@ -266,6 +266,9 @@ func taskWorker(ctx context.Context, state *app.State, item types.QueueItem, pur
 			continue
 		}
 		interval := time.Duration(types.ClampRetryInterval(current.RetryInterval, state.Config.RetryInterval())) * time.Second
+		if outcome.WaitingForCatalog && interval > catalog.PreorderCheckInterval {
+			interval = catalog.PreorderCheckInterval
+		}
 		timer := time.NewTimer(interval)
 		waiting := true
 		for waiting {

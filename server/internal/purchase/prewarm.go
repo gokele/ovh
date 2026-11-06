@@ -180,6 +180,9 @@ func (p *CartPool) startLocked(entry *warmEntry) {
 			if ctx.Err() != nil {
 				entry.err = ctx.Err().Error()
 				entry.retry = time.Now().Add(30 * time.Second)
+				if entry.item.Preorder {
+					entry.retry = time.Now().Add(catalog.PreorderCheckInterval)
+				}
 			}
 			p.mu.Unlock()
 		}()
@@ -203,6 +206,9 @@ func (p *CartPool) startLocked(entry *warmEntry) {
 			if err != nil {
 				entry.err = ovh.Explain(err)
 				entry.retry = time.Now().Add(30 * time.Second)
+				if entry.item.Preorder {
+					entry.retry = time.Now().Add(catalog.PreorderCheckInterval)
+				}
 			} else {
 				previous, entry.cart = entry.cart, cart
 				cart = nil
@@ -225,16 +231,18 @@ func (p *CartPool) assemble(ctx context.Context, entry *warmEntry) (*preparedCar
 	}
 	item := entry.item
 	item.ID = "prewarm:" + entry.key
-	if item.Preorder {
-		if ready, err := catalog.PreorderReady(p.state, item.AccountID, item.PlanCode); err != nil || !ready {
-			return nil, fmt.Errorf("model is not available in the sales catalog yet")
-		}
-	}
 	client, err := p.state.OVH.IsolatedClientForAccount(entry.account)
 	if err != nil {
 		return nil, err
 	}
 	options := append([]string(nil), item.Options...)
+	wantedPreorder := options
+	if item.Preorder {
+		wantedPreorder, options, err = catalog.ResolvePreorderOptions(p.state, item.AccountID, item.PlanCode, item.Options)
+		if err != nil {
+			return nil, err
+		}
+	}
 	fqn := ""
 	stockAvailable := false
 	{
@@ -249,13 +257,13 @@ func (p *CartPool) assemble(ctx context.Context, entry *warmEntry) (*preparedCar
 		variants := observation.Variants
 		wanted := fqnRelevantOptions(variants, item.Options)
 		if item.Preorder {
-			wanted = item.Options
+			wanted = wantedPreorder
 		}
 		for _, variant := range variants {
 			value, _ := variant["fqn"].(string)
 			matches := fqnCoversOptions(value, wanted)
 			if item.Preorder {
-				matches = preorderFQNCoversOptions(value, wanted)
+				matches = preorderFQNCoversOptions(value, wanted) && strings.EqualFold(strings.SplitN(value, ".", 2)[0], item.PlanCode)
 			}
 			if value == "" || !matches {
 				continue
@@ -278,7 +286,11 @@ func (p *CartPool) assemble(ctx context.Context, entry *warmEntry) (*preparedCar
 	if fqn == "" {
 		return nil, fmt.Errorf("selected hardware/datacenter is not present in the stock feed yet")
 	}
-	options = configurationOptions(fqn, options)
+	if item.Preorder {
+		options = preorderConfigurationOptions(fqn, wantedPreorder, options)
+	} else {
+		options = configurationOptions(fqn, options)
+	}
 	cart, out := prepareCart(ctx, p.state, &item, entry.account, client, options, item.Datacenter, newTimeline(), "", true)
 	if cart == nil {
 		if out.Reason == "" {

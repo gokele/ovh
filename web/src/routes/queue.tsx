@@ -1,4 +1,5 @@
 import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
+import { preorderVariantCoversAll, preorderOptions, retainPreorderPlan } from "@/lib/preorder-options";
 import { useOrderDurations } from "@/hooks/use-order-durations";
 import { supportsDuration } from "@/lib/order-duration";
 import { QueueStatusFilter, type QueueFilter } from "@/components/queue/QueueStatusFilter";
@@ -69,7 +70,6 @@ import {
   useAvailability,
   buildVariantIndex,
   hasStockWithOption,
-  variantCoversAll,
 } from "@/hooks/use-availability";
 import { fmtDateTime } from "@/i18n/format";
 
@@ -560,6 +560,9 @@ function CreateQueueDialog({
     () => searchServers.find((s) => s.planCode === planCode.trim()),
     [searchServers, planCode]
   );
+  const [preorderPlan, setPreorderPlan] = useState("");
+  const preorder = !!editing?.preorder || !!matchedServer?.prerelease || (!!planCode.trim() && preorderPlan === planCode.trim());
+  useEffect(() => setPreorderPlan((previous) => retainPreorderPlan(previous, planCode.trim(), !!matchedServer?.prerelease)), [planCode, matchedServer?.prerelease]);
 
   // 切 planCode 清空 picked —— 之前选的 addon 对新机型多半不适用。
   // initialOptions 由外部传入时(从其它入口"快速添加"过来),解析后塞进 picked 让用户能看到。
@@ -609,16 +612,14 @@ function CreateQueueDialog({
    *  matchedServer 在 → 走 chip 选择(picked);不在 → 走手填(extraInput)。
    *  二选一,不混用。 */
   const parsedOptions = useMemo(() => {
-    if (matchedServer) {
-      return [...new Set([...(Object.values(picked).filter(Boolean) as string[]), ...splitList(extraInput)])];
-    }
-    return splitList(extraInput);
-  }, [matchedServer, picked, extraInput]);
+    const options = matchedServer ? [...new Set([...(Object.values(picked).filter(Boolean) as string[]), ...splitList(extraInput)])] : splitList(extraInput);
+    return preorder ? preorderOptions(options, grouped?.cpu.map((option) => option.value)) : options;
+  }, [matchedServer, picked, extraInput, preorder, grouped]);
 
   // option chip 的绿/红点:跟服务器列表对话框同一套逻辑
   const variants = matchedServer ? variantIndex[matchedServer.planCode] : undefined;
-  const prereleaseMismatch = !!matchedServer?.prerelease && parsedOptions.length > 0 &&
-    !!variants && !variants.some((v) => variantCoversAll(v, parsedOptions));
+  const prereleaseMismatch = preorder && parsedOptions.length > 0 &&
+    !!variants?.length && !variants.some((v) => preorderVariantCoversAll(v.fqn, parsedOptions));
   const optionHasStock = (groupKey: OptionGroupKey, value: string): boolean => {
     if (groupKey === "bandwidth" || groupKey === "vrack" || groupKey === "cpu" || groupKey === "other") {
       return true;
@@ -642,11 +643,12 @@ function CreateQueueDialog({
   const canSubmit = durationSupported && !!activeAcc && planCode.trim().length > 0 && datacenters.length > 0 && qty > 0 && !prereleaseMismatch;
   const preparation = useOrderPrewarm(open && !editing && canSubmit, {
     account_id: accountId, planCode: planCode.trim(), datacenters, options: parsedOptions,
-    quantity: qty, autoPay, coupon, duration, preorder: !!matchedServer?.prerelease,
+    quantity: qty, autoPay, coupon, duration, preorder,
   });
 
   const reset = () => {
     setPlanCode("");
+    setPreorderPlan("");
     setDatacenters([]);
     setQuantity("1");
     setAutoPay(false);
@@ -697,7 +699,7 @@ function CreateQueueDialog({
       autoPay,
       coupon,
       duration,
-      preorder: !!matchedServer?.prerelease,
+      preorder,
     });
     if (result.success > 0) {
       toast.success(t("queue.toast.created", { success: result.success, total: result.total }));
@@ -795,7 +797,7 @@ function CreateQueueDialog({
                 {matchedServer.cpu} · {matchedServer.memory} · {matchedServer.storage}
               </p>
             )}
-            {matchedServer?.prerelease && (
+            {preorder && (
               <p className="text-xs text-warning mt-2" role="status">
                 {t("queue.preorderHint")}
               </p>
@@ -963,7 +965,7 @@ function CreateQueueDialog({
             {grouped ? (
               <div className="space-y-4">
                 {(["cpu", "memory", "systemStorage", "storage", "bandwidth", "vrack", "other"] as OptionGroupKey[])
-                  .filter((g) => grouped[g].length > 0)
+                  .filter((g) => grouped[g].length > 0 && !(preorder && g === "cpu"))
                   .map((g) => (
                     <OptionGroupSection
                       key={g}
@@ -1045,7 +1047,7 @@ function CreateQueueDialog({
             ) : (
               <>
                 <Plus className="w-4 h-4" />
-                {editing ? t("queue.save") : matchedServer?.prerelease
+                {editing ? t("queue.save") : preorder
                   ? datacenters.length > 0 ? t("queue.createPreorder", { n: totalTasks }) : t("queue.createPreorderAction")
                   : datacenters.length > 0 ? t("queue.createN", { n: totalTasks }) : t("queue.createAction")}
               </>

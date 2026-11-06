@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ServerPlan } from "@/hooks/use-servers";
+import { matchesServerSearch } from "@/lib/stock-plans";
 
 /** 服务器 planCode 选择器,Combobox(Popover + cmdk Command):
  *  - 触发器看起来像 Input,带 chevron;选了之后显示 planCode + 服务器名
@@ -40,10 +41,7 @@ export function PlanCodeCombobox({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return servers;
-    return servers.filter((s) => {
-      const hay = `${s.planCode} ${s.name} ${s.cpu} ${s.memory} ${s.storage}`.toLowerCase();
-      return hay.includes(q);
-    });
+    return servers.filter((s) => matchesServerSearch(s, q));
   }, [servers, query]);
 
   return (

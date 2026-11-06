@@ -2,10 +2,12 @@ package purchase
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,7 +25,7 @@ type preorderTransport func(*http.Request) (*http.Response, error)
 
 func (f preorderTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestPreorderWaitsBeforeCartAndStartsAfterListing(t *testing.T) {
+func TestPreorderCanPrepareFromStockBeforePublicListing(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
 	for _, tc := range []struct {
@@ -32,8 +34,8 @@ func TestPreorderWaitsBeforeCartAndStartsAfterListing(t *testing.T) {
 		options        []string
 		expectCart     bool
 	}{
-		{"IE", false, false, nil, false},
-		{"DE", false, true, nil, false},
+		{"IE", false, false, nil, true},
+		{"DE", false, true, nil, true},
 		{"FR", true, false, nil, true},
 		{"ES", true, false, []string{"ram-32g"}, true},
 		{"NL", true, false, []string{"ram-64g"}, false},
@@ -59,7 +61,7 @@ func TestPreorderWaitsBeforeCartAndStartsAfterListing(t *testing.T) {
 						status = http.StatusTooManyRequests
 					}
 					if tc.listed {
-						body = `{"plans":[{"planCode":"27skle03-v1"}]}`
+						body = `{"plans":[{"planCode":"27skle03-v1","configurations":[{"name":"dedicated_datacenter","values":["gra"]}]}]}`
 					}
 				case strings.HasSuffix(r.URL.Path, "/auth/time"):
 					body = fmt.Sprint(time.Now().Unix())
@@ -67,7 +69,12 @@ func TestPreorderWaitsBeforeCartAndStartsAfterListing(t *testing.T) {
 					body = `[{"fqn":"27skle03-v1.ram-32g","datacenters":[{"datacenter":"gra","availability":"1H-low"}]}]`
 				case strings.HasSuffix(r.URL.Path, "/order/cart"):
 					carts++
-					status, body = http.StatusBadRequest, `{"message":"test stops at cart creation"}`
+					body = `{"cartId":"pending"}`
+				case strings.HasSuffix(r.URL.Path, "/pending/assign") || r.Method == "DELETE":
+				case strings.HasSuffix(r.URL.Path, "/pending/eco") && r.Method == "POST":
+					status, body = http.StatusBadRequest, `{"message":"model not open for ordering yet"}`
+				case strings.HasSuffix(r.URL.Path, "/pending/eco") && r.Method == "GET":
+					body = `[]`
 				default:
 					if strings.Contains(r.URL.Path, "checkout") {
 						checkouts++
@@ -85,16 +92,49 @@ func TestPreorderWaitsBeforeCartAndStartsAfterListing(t *testing.T) {
 			item := &types.QueueItem{ID: "pre", AccountID: "eu", PlanCode: "27skle03-v1", Datacenter: "gra", Preorder: true, MaxRetries: 1, Options: tc.options}
 			outcome := PurchaseServer(context.Background(), st, item)
 			if tc.expectCart {
-				if outcome.WaitingForCatalog || carts != 1 {
-					t.Fatalf("listed plan did not reach normal purchase: %+v carts=%d", outcome, carts)
+				if !outcome.WaitingForCatalog || outcome.Attempted || outcome.Fatal || carts != 1 {
+					t.Fatalf("stock plan did not reach live ordering API or did not wait safely: %+v carts=%d", outcome, carts)
 				}
-			} else if (!tc.listed && !outcome.WaitingForCatalog) || outcome.Attempted || outcome.Fatal || carts != 0 {
-				t.Fatalf("unlisted/outage must wait without ordering or failing: %+v carts=%d", outcome, carts)
+			} else if outcome.Attempted || outcome.Fatal || carts != 0 {
+				t.Fatalf("nonmatching hardware must not prepare a cart: %+v carts=%d", outcome, carts)
 			}
 			if checkouts != 0 {
 				t.Fatal("fixture must never reach checkout")
 			}
 		})
+	}
+}
+
+func TestAllCurrentPrereleaseConfigurationsKeepExactStockIdentifiers(t *testing.T) {
+	data, err := os.ReadFile("testdata/preorder-stock.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []struct{ PlanCode, FQN, Memory, Storage, SystemStorage string }
+	if err = json.Unmarshal(data, &rows); err != nil {
+		t.Fatal(err)
+	}
+	models := map[string]bool{}
+	for _, row := range rows {
+		models[row.PlanCode] = true
+		options := []string{row.Memory, row.Storage}
+		if row.SystemStorage != "" {
+			options = append(options, row.SystemStorage)
+		}
+		if !preorderFQNCoversOptions(row.FQN, options) {
+			t.Errorf("API configuration did not match: %s", row.FQN)
+		}
+		if strings.SplitN(row.FQN, ".", 2)[0] != row.PlanCode {
+			t.Fatalf("model changed: %+v", row)
+		}
+		wrong := append([]string(nil), options...)
+		wrong[1] += "-2x9999sa"
+		if preorderFQNCoversOptions(row.FQN, wrong) {
+			t.Fatalf("extra disks were accepted: %s", row.FQN)
+		}
+	}
+	if len(models) != 12 || len(rows) != 56 {
+		t.Fatal("fixture lost prerelease configurations", len(models), len(rows))
 	}
 }
 

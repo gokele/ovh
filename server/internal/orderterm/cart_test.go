@@ -75,3 +75,67 @@ func TestCartPeriodsIncludeImplicitAndNestedOptions(t *testing.T) {
 		})
 	}
 }
+
+func TestCartRequiresEveryExpectedHardwareSKU(t *testing.T) {
+	for _, tc := range []struct {
+		name, base, memory, storage string
+		extraCode                   string
+		missing, extra, reject      bool
+	}{
+		{name: "complete", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1"},
+		{name: "base substituted", base: "27skle03-v2", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", reject: true},
+		{name: "memory substituted", base: "27skle03-v1", memory: "ram-64g-ecc-2133-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", reject: true},
+		{name: "mixed disk substituted", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-2x8000sa-27skle03-v1", reject: true},
+		{name: "addon silently omitted", base: "27skle03-v1", missing: true, reject: true},
+		{name: "unexpected extra hardware", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", extra: true, reject: true},
+		{name: "CPU follows model", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", extraCode: "cpu-provider-default"},
+		{name: "implicit network default", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", extraCode: "bandwidth-provider-default"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" {
+					t.Error("verification mutated cart")
+					w.WriteHeader(400)
+					return
+				}
+				switch r.URL.Path {
+				case "/auth/time":
+					fmt.Fprint(w, time.Now().Unix())
+				case "/order/cart/test":
+					fmt.Fprint(w, `{"items":[1]}`)
+				case "/order/cart/test/item/1":
+					options := "[2,3]"
+					if tc.missing {
+						options = "[]"
+					}
+					if tc.extra || tc.extraCode != "" {
+						options = "[2,3,4]"
+					}
+					fmt.Fprintf(w, `{"itemId":1,"duration":"P1M","settings":{"planCode":%q},"options":%s}`, tc.base, options)
+				case "/order/cart/test/item/2":
+					fmt.Fprintf(w, `{"itemId":2,"duration":"P1M","settings":{"planCode":%q}}`, tc.memory)
+				case "/order/cart/test/item/3":
+					fmt.Fprintf(w, `{"itemId":3,"duration":"P1M","settings":{"planCode":%q}}`, tc.storage)
+				case "/order/cart/test/item/4":
+					code := tc.extraCode
+					if code == "" {
+						code = "unselected-extra-hardware"
+					}
+					fmt.Fprintf(w, `{"itemId":4,"duration":"P1M","settings":{"planCode":%q}}`, code)
+				default:
+					t.Error("unexpected request", r.URL)
+					w.WriteHeader(404)
+				}
+			}))
+			defer server.Close()
+			client, err := ovhsdk.NewClient(server.URL, "test", "test", "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = VerifyCart(context.Background(), client, "test", 1, "P1M", "27skle03-v1", "ram-64g-ecc-2666-27skle03-v1", "softraid-2x480ssd-27skle03-v1")
+			if (err != nil) != tc.reject || (tc.reject && !errors.Is(err, ErrCartConfiguration)) {
+				t.Fatal(err)
+			}
+		})
+	}
+}
