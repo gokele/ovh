@@ -22,6 +22,15 @@ type cartSession struct {
 	accountID    string
 	account      types.OVHAccount
 	cart         *preparedCart
+	empty        *emptyCart
+}
+
+// Retained only after OVH confirms the rejected base-item request left no items.
+type emptyCart struct {
+	result  map[string]interface{}
+	client  *ovhsdk.Client
+	intent  string
+	expires time.Time
 }
 
 type preparedCart struct {
@@ -31,6 +40,9 @@ type preparedCart struct {
 	call                               *ovh.PreparedCall
 	quote                              *price.PriceInfo
 	options                            []string
+	stockOptions                       []string
+	orderOptions                       []string
+	intent                             string
 	duration                           string
 	id, fqn, subsidiary, couponWarning string
 	expires                            time.Time
@@ -65,6 +77,25 @@ func (s *cartSession) discard() {
 		s.cart.cleanup()
 		s.cart = nil
 	}
+	if s.empty != nil {
+		id, _ := s.empty.result["cartId"].(string)
+		(&preparedCart{id: id, client: s.empty.client}).cleanup()
+		s.empty = nil
+	}
+}
+
+func cartExpires(raw interface{}) time.Time {
+	now := time.Now()
+	if value, ok := raw.(string); ok {
+		if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+			expires := parsed.Add(-time.Minute)
+			if cap := now.Add(30 * time.Minute); expires.After(cap) {
+				expires = cap
+			}
+			return expires
+		}
+	}
+	return now.Add(5 * time.Minute)
 }
 
 // cleanup 有界清理废弃准备;不沿用用户已取消的 context,也不无限阻塞任务退出。

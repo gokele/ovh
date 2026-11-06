@@ -224,7 +224,7 @@ func TestAnnualCartQuoteAndCheckoutKeepChosenPeriod(t *testing.T) {
 			item.Duration = "P12M"
 			if missingAddon {
 				client, _ := state.OVH.IsolatedClientFor("hot-eu")
-				cart, out := prepareCart(context.Background(), state, &item, state.Accounts[0], client, item.Options, "gra", newTimeline(), "test", true)
+				cart, out := prepareCart(context.Background(), state, &item, state.Accounts[0], client, item.Options, "gra", "plan.ram-32g", newTimeline(), "test", true)
 				if cart != nil || !out.Fatal || checkouts.Load() != 0 {
 					t.Fatal("period mismatch reached checkout", out)
 				}

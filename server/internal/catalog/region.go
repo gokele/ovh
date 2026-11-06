@@ -459,6 +459,11 @@ func loadSubsidiaryCatalog(state *app.State, subsidiary string) (*subsidiaryCata
 }
 
 func loadSubsidiaryCatalogWithTTL(state *app.State, subsidiary string, ttl time.Duration) (*subsidiaryCatalog, error) {
+	return loadSubsidiaryCatalogCached(state, subsidiary, ttl, false)
+}
+
+// Preorders reuse metadata while one background refresh runs; live cart validation stays authoritative.
+func loadSubsidiaryCatalogCached(state *app.State, subsidiary string, ttl time.Duration, background bool) (*subsidiaryCatalog, error) {
 	// 缓存 key 统一大写:OVH 只认大写子公司,调用方要是传了小写,
 	// 既会多拉一份缓存,请求本身也会 400。
 	subsidiary = strings.ToUpper(strings.TrimSpace(subsidiary))
@@ -467,6 +472,7 @@ func loadSubsidiaryCatalogWithTTL(state *app.State, subsidiary string, ttl time.
 	}
 
 	regionCacheMu.Lock()
+	stale := regionCache[subsidiary]
 	if c, ok := regionCache[subsidiary]; ok && time.Since(c.fetchedAt) < ttl {
 		regionCacheMu.Unlock()
 		return c, nil
@@ -483,13 +489,23 @@ func loadSubsidiaryCatalogWithTTL(state *app.State, subsidiary string, ttl time.
 	// 已经有人在拉了:等他的结果,不要再发一份 12MB 的请求
 	if call, ok := regionCacheCall[subsidiary]; ok {
 		regionCacheMu.Unlock()
+		if background && stale != nil {
+			return stale, nil
+		}
 		<-call.done
 		return call.cat, call.err
 	}
 	call := &catalogCall{done: make(chan struct{})}
 	regionCacheCall[subsidiary] = call
 	regionCacheMu.Unlock()
+	if background && stale != nil {
+		go finishCatalogRefresh(state, subsidiary, call)
+		return stale, nil
+	}
+	return finishCatalogRefresh(state, subsidiary, call)
+}
 
+func finishCatalogRefresh(state *app.State, subsidiary string, call *catalogCall) (*subsidiaryCatalog, error) {
 	cat, err := fetchSubsidiaryCatalog(state, subsidiary)
 
 	regionCacheMu.Lock()

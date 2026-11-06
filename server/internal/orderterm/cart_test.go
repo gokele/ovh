@@ -79,7 +79,7 @@ func TestCartPeriodsIncludeImplicitAndNestedOptions(t *testing.T) {
 func TestCartRequiresEveryExpectedHardwareSKU(t *testing.T) {
 	for _, tc := range []struct {
 		name, base, memory, storage string
-		extraCode                   string
+		extraCode, quantity         string
 		missing, extra, reject      bool
 	}{
 		{name: "complete", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1"},
@@ -90,6 +90,11 @@ func TestCartRequiresEveryExpectedHardwareSKU(t *testing.T) {
 		{name: "unexpected extra hardware", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", extra: true, reject: true},
 		{name: "CPU follows model", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", extraCode: "cpu-provider-default"},
 		{name: "implicit network default", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", extraCode: "bandwidth-provider-default"},
+		{name: "duplicate host", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", extraCode: "27skle03-v1", reject: true},
+		{name: "duplicate memory", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", extraCode: "ram-64g-ecc-2666-27skle03-v1", reject: true},
+		{name: "quantity one", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", quantity: "1"},
+		{name: "quantity two", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", quantity: "2", reject: true},
+		{name: "quantity zero", base: "27skle03-v1", memory: "ram-64g-ecc-2666-27skle03-v1", storage: "softraid-2x480ssd-27skle03-v1", quantity: "0", reject: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +116,11 @@ func TestCartRequiresEveryExpectedHardwareSKU(t *testing.T) {
 					if tc.extra || tc.extraCode != "" {
 						options = "[2,3,4]"
 					}
-					fmt.Fprintf(w, `{"itemId":1,"duration":"P1M","settings":{"planCode":%q},"options":%s}`, tc.base, options)
+					quantity := ""
+					if tc.quantity != "" {
+						quantity = `,"quantity":` + tc.quantity
+					}
+					fmt.Fprintf(w, `{"itemId":1,"duration":"P1M","settings":{"planCode":%q%s},"options":%s}`, tc.base, quantity, options)
 				case "/order/cart/test/item/2":
 					fmt.Fprintf(w, `{"itemId":2,"duration":"P1M","settings":{"planCode":%q}}`, tc.memory)
 				case "/order/cart/test/item/3":

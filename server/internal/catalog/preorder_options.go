@@ -16,7 +16,7 @@ func ResolvePreorderOptions(state *app.State, accountID, planCode string, wanted
 	if !ok {
 		return nil, nil, fmt.Errorf("下单账户不存在")
 	}
-	if cat, loadErr := loadSubsidiaryCatalogWithTTL(state, SubsidiaryOfAccount(account), PreorderCheckInterval); loadErr == nil {
+	if cat, loadErr := loadSubsidiaryCatalogCached(state, SubsidiaryOfAccount(account), PreorderCheckInterval, true); loadErr == nil {
 		pc = cat.plans[planCode]
 	}
 	selected := map[string]bool{}

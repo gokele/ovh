@@ -243,6 +243,7 @@ func (p *CartPool) assemble(ctx context.Context, entry *warmEntry) (*preparedCar
 			return nil, err
 		}
 	}
+	preorderOrder := append([]string(nil), options...)
 	fqn := ""
 	stockAvailable := false
 	{
@@ -291,14 +292,15 @@ func (p *CartPool) assemble(ctx context.Context, entry *warmEntry) (*preparedCar
 	} else {
 		options = configurationOptions(fqn, options)
 	}
-	cart, out := prepareCart(ctx, p.state, &item, entry.account, client, options, item.Datacenter, newTimeline(), "", true)
+	cart, out := prepareCart(ctx, p.state, &item, entry.account, client, options, item.Datacenter, fqn, newTimeline(), "", true)
 	if cart == nil {
 		if out.Reason == "" {
 			out.Reason = "cart preparation failed"
 		}
 		return nil, fmt.Errorf("%s", out.Reason)
 	}
-	cart.fqn = fqn
+	cart.stockOptions = append([]string(nil), wantedPreorder...)
+	cart.orderOptions = preorderOrder
 	var summary struct {
 		Prices struct {
 			WithTax struct {

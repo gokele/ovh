@@ -41,7 +41,7 @@ func TestCachedOptionRejectionInvalidatesMetadataBeforeRetry(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return prepareCart(context.Background(), state, &item, account, client, item.Options, "gra", newTimeline(), "", true)
+		return prepareCart(context.Background(), state, &item, account, client, item.Options, "gra", "plan.ram-32g", newTimeline(), "", true)
 	}
 	first, out := prepare()
 	if first == nil {

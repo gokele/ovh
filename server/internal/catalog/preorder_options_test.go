@@ -4,6 +4,8 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -78,5 +80,66 @@ func TestStockOptionsRemainUsableBeforeSalesCatalogOrDuringOutage(t *testing.T) 
 		if err != nil || !reflect.DeepEqual(stock, wanted[1:3]) || !reflect.DeepEqual(order, wanted[1:]) {
 			t.Fatalf("outage=%t stock=%v order=%v err=%v", outage, stock, order, err)
 		}
+	}
+}
+
+func TestPreorderRefreshDoesNotBlockAndJoinsOneBackgroundRequest(t *testing.T) {
+	resetCatalogCaches()
+	original := fetchSubsidiaryCatalog
+	st := testState(t)
+	st.Accounts = []types.OVHAccount{{ID: "preorder-refresh", Endpoint: "ovh-eu", Zone: "IE"}}
+	regionCache["IE"] = &subsidiaryCatalog{plans: map[string]planConfig{}, fetchedAt: time.Now().Add(-time.Minute)}
+	var calls atomic.Int32
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseFetch := func() { releaseOnce.Do(func() { close(release) }) }
+	started := make(chan struct{})
+	fetchSubsidiaryCatalog = func(*app.State, string) (*subsidiaryCatalog, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+		}
+		<-release
+		payload, err := parseEcoCatalogFull(strings.NewReader(preorderOptionsFixture))
+		return &subsidiaryCatalog{plans: payload.plans, addons: payload.addons, fetchedAt: time.Now()}, err
+	}
+	t.Cleanup(func() {
+		releaseFetch()
+		regionCacheMu.Lock()
+		call := regionCacheCall["IE"]
+		regionCacheMu.Unlock()
+		if call != nil {
+			<-call.done
+		}
+		fetchSubsidiaryCatalog = original
+		resetCatalogCaches()
+	})
+	wanted := []string{"ram-64g-ddr4-ecc-2400", "softraid-2x480ssd"}
+	for i := 0; i < 20; i++ {
+		done := make(chan error, 1)
+		go func() {
+			_, _, err := ResolvePreorderOptions(st, "preorder-refresh", "27skle03-v1-mum", wanted)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("opening attempt waited for a public catalog download")
+		}
+	}
+	<-started
+	if calls.Load() != 1 {
+		t.Fatal("catalog refresh fanout", calls.Load())
+	}
+	regionCacheMu.Lock()
+	call := regionCacheCall["IE"]
+	regionCacheMu.Unlock()
+	releaseFetch()
+	<-call.done
+	stock, order, err := ResolvePreorderOptions(st, "preorder-refresh", "27skle03-v1-mum", wanted)
+	if err != nil || !reflect.DeepEqual(stock, wanted) || !reflect.DeepEqual(order, []string{"memory-opaque", "disk-opaque", "traffic-default"}) {
+		t.Fatal("background refresh did not update exact product mappings", stock, order, err)
 	}
 }

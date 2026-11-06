@@ -92,23 +92,36 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		return Outcome{Fatal: true, Reason: errMsg}
 	}
 	item.AccountID = session.accountID
-	if session.cart != nil && (session.cart.duration == "" || !orderterm.Same(session.cart.duration, selectedDuration)) {
-		session.discard()
+	tl := newTimeline()
+	tl.dispatchKey = item.AccountID + "\x00" + TimingKey(item.PlanCode, ovh.ConvertDisplayDCToAPIDC(item.Datacenter))
+	intent := preparationKey(*item, session.account)
+	if session.cart != nil && (session.cart.intent != intent || !time.Now().Before(session.cart.expires)) {
+		session.cart.cleanupInBackground()
+		session.cart = nil
 		session.nextPrepare = time.Time{}
+	}
+	if session.cart == nil {
+		if pool, ok := state.OrderPrewarm.(*CartPool); ok {
+			if prepared := pool.Take(*item); prepared != nil {
+				session.cart, session.client, client = prepared, prepared.client, prepared.client
+			}
+		}
 	}
 
 	preorderStock, preorderOrder := item.Options, item.Options
 	if item.Preorder {
-		var err error
-		preorderStock, preorderOrder, err = catalog.ResolvePreorderOptions(state, item.AccountID, item.PlanCode, item.Options)
-		if err != nil {
-			state.Logger.Info("预订等待配置目录: "+err.Error(), "purchase")
-			return Outcome{WaitingForCatalog: true, Reason: err.Error()}
+		if session.cart != nil {
+			// The cart was verified against this exact intent; a catalog refresh is not on the dispatch path.
+			preorderStock, preorderOrder = session.cart.stockOptions, session.cart.orderOptions
+		} else {
+			preorderStock, preorderOrder, err = catalog.ResolvePreorderOptions(state, item.AccountID, item.PlanCode, item.Options)
+			if err != nil {
+				state.Logger.Info("预订等待配置目录: "+err.Error(), "purchase")
+				return Outcome{WaitingForCatalog: true, Reason: err.Error()}
+			}
 		}
 	}
 	// 每一轮都打点。抢购的胜负常常只差几百毫秒,而"差在哪"没有数字就只能靠猜。
-	tl := newTimeline()
-	tl.dispatchKey = item.AccountID + "\x00" + TimingKey(item.PlanCode, ovh.ConvertDisplayDCToAPIDC(item.Datacenter))
 	timingKey := item.ID
 	if timingKey == "" {
 		timingKey = TimingKey(item.PlanCode, item.Datacenter)
@@ -261,17 +274,6 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		effectiveOptions = preorderConfigurationOptions(availableFQN, preorderStock, preorderOrder)
 	}
 
-	if session.cart == nil {
-		if pool, ok := state.OrderPrewarm.(*CartPool); ok {
-			if prepared := pool.Take(*item); prepared != nil {
-				if prepared.fqn == availableFQN {
-					session.cart, session.client, client = prepared, prepared.client, prepared.client
-				} else {
-					prepared.cleanup()
-				}
-			}
-		}
-	}
 	ready := session.cart != nil && session.cart.fqn == availableFQN && session.cart.duration != "" && orderterm.Same(session.cart.duration, selectedDuration) && time.Now().Before(session.cart.expires)
 	prewarmed := ready && session.cart.preparedAt.Before(detectedAt)
 	if !ready {
@@ -282,8 +284,11 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		if item.Preorder {
 			session.nextPrepare = time.Now().Add(catalog.PreorderCheckInterval)
 		}
-		session.discard()
-		prepared, outcome := prepareCart(ctx, state, item, session.account, client, effectiveOptions, apiDC, tl, timingKey, !foundAvailable)
+		if session.cart != nil {
+			session.cart.cleanup()
+			session.cart = nil
+		}
+		prepared, outcome := prepareCart(ctx, state, item, session.account, client, effectiveOptions, apiDC, availableFQN, tl, timingKey, !foundAvailable)
 		if prepared == nil {
 			if outcome.WaitingForCatalog {
 				return outcome
@@ -293,7 +298,8 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			}
 			return outcome
 		}
-		prepared.fqn = availableFQN
+		prepared.stockOptions = append([]string(nil), preorderStock...)
+		prepared.orderOptions = append([]string(nil), preorderOrder...)
 		session.cart = prepared
 	}
 	cart := session.cart

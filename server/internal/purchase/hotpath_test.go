@@ -222,6 +222,77 @@ func TestPreparedCartIsReusedOnStockSignal(t *testing.T) {
 	t.Logf("prepared full purchase dispatch over real local TCP: %dus", timing.Dispatch.DetectionToWriteUS)
 }
 
+func TestPreparedSessionCannotKeepOldPaymentOrHardwareIntent(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*types.QueueItem)
+	}{
+		{"payment", func(i *types.QueueItem) { i.AutoPay = true }},
+		{"coupon", func(i *types.QueueItem) { i.Coupon = "discount" }},
+		{"hardware", func(i *types.QueueItem) { i.Options = []string{"ram-64g"} }},
+		{"model", func(i *types.QueueItem) { i.PlanCode = "other" }},
+		{"datacenter", func(i *types.QueueItem) { i.Datacenter = "bhs" }},
+		{"period", func(i *types.QueueItem) { i.Duration = "P12M" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state, _, checkouts, _ := hotFixture(t)
+			item := poolItem()
+			session := &cartSession{}
+			ctx := context.WithValue(context.Background(), cartSessionKey{}, session)
+			defer session.discard()
+			if out := PurchaseServer(ctx, state, &item); !out.WaitingForStock || session.cart == nil {
+				t.Fatal("no prepared cart", out)
+			}
+			old := session.cart
+			tc.change(&item)
+			ctx, cancel := context.WithCancel(ctx)
+			cancel() // Reject new network operations; invalidation must already remove the old intent.
+			_ = PurchaseServer(ctx, state, &item)
+			if session.cart == old || checkouts.Load() != 0 {
+				t.Fatal("old prepared intent remained usable")
+			}
+		})
+	}
+}
+
+func TestPreparedPreorderDoesNotPinUnselectedHardwareWhenStockVariantChanges(t *testing.T) {
+	state, carts, checkouts, stock := hotFixture(t)
+	base, err := state.OVH.ClientFor("hot-eu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := base.Client.Transport
+	base.Client.Transport = preorderTransport(func(r *http.Request) (*http.Response, error) {
+		body := ""
+		if stock.Load() {
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/availabilities"):
+				body = `[{"fqn":"plan.ram-64g","datacenters":[{"datacenter":"gra","availability":"1H-low"}]}]`
+			case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/eco/options"):
+				body = `[{"planCode":"ram-64g","prices":[{"duration":"P1M","pricingMode":"default"}]}]`
+			}
+		}
+		if body != "" {
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+		}
+		return original.RoundTrip(r)
+	})
+	item := poolItem()
+	item.Preorder, item.Options = true, nil
+	session := &cartSession{}
+	defer session.discard()
+	ctx := context.WithValue(context.Background(), cartSessionKey{}, session)
+	if out := PurchaseServer(ctx, state, &item); !out.WaitingForStock || session.cart == nil {
+		t.Fatal(out)
+	}
+	stock.Store(true)
+	signal := app.StockSignal{AccountID: item.AccountID, PlanCode: item.PlanCode, DetectedAt: time.Now(), Variants: []map[string]interface{}{{"fqn": "plan.ram-64g", "datacenters": []interface{}{map[string]interface{}{"datacenter": "gra", "availability": "1H-low"}}}}}
+	out := PurchaseServer(context.WithValue(ctx, stockSignalKey{}, signal), state, &item)
+	if !out.Success || carts.Load() != 2 || checkouts.Load() != 1 {
+		t.Fatal("old inferred hardware became an explicit constraint", out, carts.Load(), checkouts.Load())
+	}
+}
+
 // 配置过期或账户出站 client 失效时,旧购物车不得被继续使用。
 func TestExpiredCartAndChangedAccountAreRebuilt(t *testing.T) {
 	for _, invalidate := range []bool{false, true} {

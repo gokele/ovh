@@ -258,6 +258,20 @@ func TestPreorderUsesLiveOrderingAPIWithoutCPUOrPublicPrice(t *testing.T) {
 	}
 }
 
+func TestPreorderRejectsProductAliasDriftBetweenStockSelectionAndPreparation(t *testing.T) {
+	state, item, carts, checkouts, _ := preorderCheckoutFixture(t, preorderCheckoutCase{memory: "ram-32g-ddr4-ecc-2666"}, 900)
+	client, err := state.OVH.IsolatedClientFor(item.AccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// These SKUs came from an earlier catalog where the memory product was 64GB.
+	fqn := item.PlanCode + ".ram-64g-ddr4-ecc-2666.softraid-2x480ssd"
+	cart, out := prepareCart(context.Background(), state, &item, state.Accounts[0], client, []string{"memory-opaque", "disk-opaque"}, item.Datacenter, fqn, newTimeline(), "", true)
+	if cart != nil || !out.WaitingForCatalog || carts.Load() != 0 || checkouts.Load() != 0 {
+		t.Fatal("a changed product alias escaped the stock constraints", out, carts.Load(), checkouts.Load())
+	}
+}
+
 func TestPreorderPoolKeepsExactHardwareAndNeverOrdersDuringPreparation(t *testing.T) {
 	for i, tc := range []preorderCheckoutCase{
 		{name: "exact standby", success: true},

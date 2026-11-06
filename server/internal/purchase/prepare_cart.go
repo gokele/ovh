@@ -18,7 +18,7 @@ import (
 )
 
 // prepareCart 只准备已选配置的购物车,不保留库存、不创建订单或付款。
-func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, account types.OVHAccount, client *ovhsdk.Client, effectiveOptions []string, apiDC string, tl *timeline, timingKey string, preparing bool) (*preparedCart, Outcome) {
+func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, account types.OVHAccount, client *ovhsdk.Client, effectiveOptions []string, apiDC, fqn string, tl *timeline, timingKey string, preparing bool) (*preparedCart, Outcome) {
 	fail := func(message string) {
 		if !preparing {
 			recordFailure(state, item, message)
@@ -30,9 +30,13 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		return nil, Outcome{Fatal: true, Reason: err.Error()}
 	}
 	if item.Preorder {
-		_, effectiveOptions, err = catalog.ResolvePreorderOptions(state, account.ID, item.PlanCode, effectiveOptions)
+		var stock []string
+		stock, effectiveOptions, err = catalog.ResolvePreorderOptions(state, account.ID, item.PlanCode, effectiveOptions)
 		if err != nil {
 			return nil, Outcome{WaitingForCatalog: true, Reason: err.Error()}
+		}
+		if !strings.EqualFold(strings.SplitN(fqn, ".", 2)[0], item.PlanCode) || (len(stock) > 0 && !preorderFQNCoversOptions(fqn, stock)) {
+			return nil, Outcome{WaitingForCatalog: true, Reason: "销售配置与已匹配的库存配置不一致，等待目录同步"}
 		}
 	}
 	cartID := ""
@@ -43,23 +47,46 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	subsidiary := orderSubsidiary(state, acc, "purchase")
 
 	// 创建购物车
-	state.Logger.Info(fmt.Sprintf("为区域 %s 创建购物车 (账户 %s)", subsidiary, acc.Name), "purchase")
 	var cartResult map[string]interface{}
-	if err := client.PostWithContext(ctx, "/order/cart", map[string]interface{}{
-		"ovhSubsidiary": subsidiary,
-	}, &cartResult); err != nil {
-		if ctx.Err() != nil {
-			return nil, cancelledOutcome(state, item, "建购物车")
+	var expires time.Time
+	session, _ := ctx.Value(cartSessionKey{}).(*cartSession)
+	intent := preparationKey(*item, account)
+	assigned := false
+	if session != nil && session.empty != nil {
+		empty := session.empty
+		session.empty = nil
+		if item.Preorder && empty.client == client && empty.intent == intent && time.Now().Before(empty.expires) {
+			cartResult, expires, assigned = empty.result, empty.expires, true
+		} else {
+			id, _ := empty.result["cartId"].(string)
+			(&preparedCart{id: id, client: empty.client}).cleanupInBackground()
 		}
-		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, err.Error()), "purchase")
-		fail(ovh.Explain(err))
-		return nil, attemptOutcome(err)
+	}
+	if !assigned {
+		state.Logger.Info(fmt.Sprintf("为区域 %s 创建购物车 (账户 %s)", subsidiary, acc.Name), "purchase")
+		if err := client.PostWithContext(ctx, "/order/cart", map[string]interface{}{
+			"ovhSubsidiary": subsidiary,
+		}, &cartResult); err != nil {
+			if ctx.Err() != nil {
+				return nil, cancelledOutcome(state, item, "建购物车")
+			}
+			state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, err.Error()), "purchase")
+			fail(ovh.Explain(err))
+			return nil, attemptOutcome(err)
+		}
 	}
 	cartID, _ = cartResult["cartId"].(string)
 	if cartID == "" {
 		return nil, Outcome{Attempted: true, Reason: "OVH did not return a cart ID"}
 	}
-	tl.mark("建购物车")
+	if expires.IsZero() {
+		expires = cartExpires(cartResult["expire"])
+	}
+	if assigned {
+		tl.mark("复用已绑定空车")
+	} else {
+		tl.mark("建购物车")
+	}
 	state.Logger.Info("购物车创建成功，ID: "+cartID, "purchase")
 
 	// 抢购失败时清理 OVH 购物车,避免 OVH 侧堆积僵尸 cart(高频抢购累计能上千个,
@@ -80,6 +107,19 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 			state.Logger.Debug("已清理失败 cart "+cartID, "purchase")
 		}
 	}()
+	retainEmpty := func() {
+		if !item.Preorder || session == nil || ctx.Err() != nil {
+			return
+		}
+		var stored struct {
+			Items    []int64 `json:"items"`
+			ReadOnly bool    `json:"readOnly"`
+		}
+		if err := client.GetWithContext(ctx, "/order/cart/"+cartID, &stored); err == nil && stored.Items != nil && len(stored.Items) == 0 && !stored.ReadOnly && time.Now().Before(expires) && ctx.Err() == nil {
+			session.empty = &emptyCart{result: cartResult, client: client, intent: intent, expires: expires}
+			success = true
+		}
+	}
 
 	// 立即绑定购物车到账户 —— 对齐 OVH 官方示例的推荐顺序：
 	// cart → assign → eco → configuration → options → summary → checkout。
@@ -90,19 +130,21 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	// 注意别把理由记成"{} 会破坏签名"——go-ovh 的签名是对**实际发出的 body** 算的
 	// （nil→空串，{}→"{}"），两边自洽，签名不会因此失配。真正的理由只是：
 	// schema 没声明 body 就别发 body，少一个 OVH 将来收紧校验时会绊住的东西。
-	state.Logger.Info("绑定购物车 "+cartID, "purchase")
-	if err := client.PostWithContext(ctx, "/order/cart/"+cartID+"/assign", nil, nil); err != nil {
-		if ctx.Err() != nil {
-			return nil, cancelledOutcome(state, item, "绑定购物车")
+	if !assigned {
+		state.Logger.Info("绑定购物车 "+cartID, "purchase")
+		if err := client.PostWithContext(ctx, "/order/cart/"+cartID+"/assign", nil, nil); err != nil {
+			if ctx.Err() != nil {
+				return nil, cancelledOutcome(state, item, "绑定购物车")
+			}
+			errMsg := err.Error()
+			state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, errMsg), "purchase")
+			state.Logger.Error("错误发生时的购物车ID: "+cartID, "purchase")
+			fail(ovh.Explain(err))
+			return nil, attemptOutcome(err)
 		}
-		errMsg := err.Error()
-		state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, errMsg), "purchase")
-		state.Logger.Error("错误发生时的购物车ID: "+cartID, "purchase")
-		fail(ovh.Explain(err))
-		return nil, attemptOutcome(err)
+		tl.mark("绑定购物车")
+		state.Logger.Info("购物车绑定成功", "purchase")
 	}
-	tl.mark("绑定购物车")
-	state.Logger.Info("购物车绑定成功", "purchase")
 
 	// 月付沿用快速路径；其他周期先取 OVH 的实际 duration/pricingMode。
 	state.Logger.Info(fmt.Sprintf("添加基础商品 %s 到购物车 (使用 /eco)", item.PlanCode), "purchase")
@@ -111,6 +153,7 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		baseDuration, basePricingMode, err = orderterm.Lookup(ctx, client, cartID, "eco", item.PlanCode, selectedDuration)
 		if err != nil {
 			if item.Preorder && (errors.Is(err, orderterm.ErrUnavailable) || listingNotReady(err)) {
+				retainEmpty()
 				return nil, Outcome{WaitingForCatalog: true, Reason: err.Error()}
 			}
 			fail(err.Error())
@@ -144,6 +187,7 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 				return nil, cancelledOutcome(state, item, "加基础商品")
 			}
 			if item.Preorder && listingNotReady(err) {
+				retainEmpty()
 				return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
 			}
 			state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, err.Error()), "purchase")
@@ -422,20 +466,11 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	if err != nil {
 		return nil, attemptOutcome(err)
 	}
-	expires := time.Now().Add(5 * time.Minute)
-	if raw, ok := cartResult["expire"].(string); ok {
-		if parsed, err := time.Parse(time.RFC3339, raw); err == nil && parsed.After(time.Now()) {
-			expires = parsed.Add(-time.Minute)
-			if cap := time.Now().Add(30 * time.Minute); expires.After(cap) {
-				expires = cap
-			}
-		}
-	}
 	if !expires.After(time.Now()) {
 		return nil, Outcome{Attempted: true, Reason: "OVH returned an expiring cart; preparation must be retried"}
 	}
 	success = true // 准备成功后由 session 持有购物车,等库存期间不删除。
-	return &preparedCart{account: account, client: client, call: call, quote: &price.PriceInfo{PricingMode: basePricingMode, Duration: baseDuration}, options: addedOptions, duration: baseDuration, id: cartID, subsidiary: subsidiary, couponWarning: couponWarning, expires: expires, preparedAt: time.Now()}, Outcome{}
+	return &preparedCart{account: account, client: client, call: call, quote: &price.PriceInfo{PricingMode: basePricingMode, Duration: baseDuration}, options: addedOptions, intent: intent, duration: baseDuration, id: cartID, fqn: fqn, subsidiary: subsidiary, couponWarning: couponWarning, expires: expires, preparedAt: time.Now()}, Outcome{}
 }
 
 func listingNotReady(err error) bool {

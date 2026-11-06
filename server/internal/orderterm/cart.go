@@ -29,7 +29,7 @@ func VerifyCart(ctx context.Context, client *ovhsdk.Client, cartID string, baseI
 	}
 	pending := cart.Items
 	seen := map[int64]bool{}
-	stored := map[string]bool{}
+	stored := map[string]int{}
 	for len(pending) > 0 {
 		id := pending[0]
 		pending = pending[1:]
@@ -48,6 +48,7 @@ func VerifyCart(ctx context.Context, client *ovhsdk.Client, cartID string, baseI
 			Options  []int64 `json:"options"`
 			Settings struct {
 				PlanCode string `json:"planCode"`
+				Quantity *int64 `json:"quantity"`
 			} `json:"settings"`
 		}
 		if err := client.GetWithContext(ctx, fmt.Sprintf("/order/cart/%s/item/%d", cartID, id), &item); err != nil {
@@ -57,7 +58,10 @@ func VerifyCart(ctx context.Context, client *ovhsdk.Client, cartID string, baseI
 			return fmt.Errorf("%w: 项目 %d (%s) 实际周期 %q，要求 %s", ErrCartPeriod, id, item.Settings.PlanCode, item.Duration, Label(wanted))
 		}
 		seen[id] = true
-		stored[item.Settings.PlanCode] = true
+		stored[item.Settings.PlanCode]++
+		if len(expectedPlanCodes) > 0 && (stored[item.Settings.PlanCode] > 1 || (item.Settings.Quantity != nil && *item.Settings.Quantity != 1)) {
+			return fmt.Errorf("%w: 项目 %s 数量不是单台或存在重复项目", ErrCartConfiguration, item.Settings.PlanCode)
+		}
 		if id == baseItemID && len(expectedPlanCodes) > 0 && item.Settings.PlanCode != expectedPlanCodes[0] {
 			return fmt.Errorf("%w: 主机实际为 %q，要求 %s", ErrCartConfiguration, item.Settings.PlanCode, expectedPlanCodes[0])
 		}
@@ -67,7 +71,7 @@ func VerifyCart(ctx context.Context, client *ovhsdk.Client, cartID string, baseI
 		return fmt.Errorf("%w: 主机项目不在购物车中", ErrCartPeriod)
 	}
 	for _, code := range expectedPlanCodes {
-		if !stored[code] {
+		if stored[code] != 1 {
 			return fmt.Errorf("%w: 缺少选项 %s", ErrCartConfiguration, code)
 		}
 	}
