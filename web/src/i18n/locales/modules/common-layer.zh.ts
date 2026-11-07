@@ -250,6 +250,7 @@ export const commonLayerZh = {
       upToDate: "已是最新 v{{version}}",
     },
     timing: {
+      phaseNames: {"复用已核验配置": "复用已核验配置", "复用已配置购物车": "复用已配置购物车", "复用已绑定空车": "复用已绑定空车", "查库存": "查库存", "建购物车": "建购物车", "绑定购物车": "绑定购物车", "加购商品": "加购商品", "必需配置": "必需配置", "加硬件选项": "加硬件选项", "应用优惠码": "应用优惠码", "下单": "下单"},
       totalToast: "这一单总共花了 {{total}}",
       detailToast: "总 {{total}}\n{{breakdown}}",
       titleSlowest: "点击查看各阶段耗时（最慢：{{name}} {{ms}}）",

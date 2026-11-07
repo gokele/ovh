@@ -51,6 +51,17 @@ func TestPurchaseCouponBeforeCheckout(t *testing.T) {
 			defer database.Close()
 			lg := logger.New(filepath.Join(dir, "test.log"), slog.New(slog.NewTextHandler(io.Discard, nil)))
 			st := app.NewState(storage.Paths{DataDir: dir}, config.New(database), lg, database)
+			defer func() {
+				st.HistoryMu.Lock()
+				ordered := len(st.History) > 0 && st.History[0].Status == "success"
+				st.HistoryMu.Unlock()
+				if ordered {
+					waitWarm(t, func() bool {
+						rows, err := database.ListHistory()
+						return err == nil && len(rows) > 0 && rows[0].OrderStatus != ""
+					})
+				}
+			}()
 			st.Accounts = []types.OVHAccount{{ID: "eu", Endpoint: "ovh-eu", Zone: "PT", AppKey: "test", AppSecret: "test", ConsumerKey: "test"}}
 			cfg := st.Config.Get()
 			cfg.NotifyWebhookURL = "https://coupon-notify.invalid/test"

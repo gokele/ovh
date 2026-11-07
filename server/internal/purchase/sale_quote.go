@@ -56,6 +56,9 @@ func salePrice(raw interface{}, period, preferredMode string) (string, bool) {
 }
 
 func (s saleSnapshot) ready(period, mode string, selected []string, selectedModes ...map[string]string) bool {
+	if s.options == nil {
+		return false
+	}
 	if _, actual, ok := orderterm.Pick(s.base["prices"], period, mode); !ok || (mode != "" && actual != mode) {
 		return false
 	}

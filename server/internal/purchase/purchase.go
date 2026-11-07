@@ -161,7 +161,25 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	q := url.Values{}
 	q.Set("planCode", item.PlanCode)
 	detectedAt := time.Time{}
-	if signal, ok := ctx.Value(stockSignalKey{}).(app.StockSignal); ok && signal.AccountID == session.accountID && signal.PlanCode == item.PlanCode && time.Since(signal.DetectedAt) < time.Second {
+	pinnedFQN := ""
+	if sale, ok := ctx.Value(saleSignalKey{}).(saleSnapshot); item.Preorder && ok && sale.fresh(session.account, item.PlanCode) {
+		if session.cart != nil {
+			pinnedFQN = session.cart.fqn
+		} else if p := session.partial; p != nil && p.intent == intent && p.client == client && time.Now().Before(p.expires) {
+			pinnedFQN = p.fqn
+		}
+		// Only a fully specified, previously verified configuration can bypass another stock RTT.
+		if len(preorderStock) == 0 || len(strings.Split(pinnedFQN, "."))-1 != len(preorderStock) || !preorderFQNCoversOptions(pinnedFQN, preorderStock) {
+			pinnedFQN = ""
+		}
+		if pinnedFQN != "" {
+			detectedAt = sale.at
+		}
+	}
+	if pinnedFQN != "" {
+		// This is the saved preparation, not a claim of fresh available inventory. Checkout still requires all live quotes.
+		availabilities = []map[string]interface{}{{"fqn": pinnedFQN, "datacenters": []interface{}{map[string]interface{}{"datacenter": ovh.ConvertDisplayDCToAPIDC(item.Datacenter)}}}}
+	} else if signal, ok := ctx.Value(stockSignalKey{}).(app.StockSignal); ok && signal.AccountID == session.accountID && signal.PlanCode == item.PlanCode && time.Since(signal.DetectedAt) < time.Second {
 		availabilities, detectedAt = signal.Variants, signal.DetectedAt
 	} else {
 		observation, err := state.StockSignals.Fetch(ctx, session.accountID, item.PlanCode, func() ([]map[string]interface{}, error) {
@@ -183,7 +201,11 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		availabilities, detectedAt = observation.Variants, observation.DetectedAt
 	}
 
-	tl.mark("查库存")
+	if pinnedFQN != "" {
+		tl.mark("复用已核验配置")
+	} else {
+		tl.mark("查库存")
+	}
 
 	// 空数组 ≠ 暂时没货。OVH 三个站点的机型目录彼此独立,拿别的站点的 planCode 查
 	// /dedicated/server/datacenter/availabilities 同样是 HTTP 200 + [](实测:

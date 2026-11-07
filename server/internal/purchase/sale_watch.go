@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -98,6 +99,14 @@ func (s *saleWatcher) close() {
 }
 
 func (s *saleWatcher) publish(watch *accountSaleWatch, offers []map[string]interface{}, addons ...map[string][]map[string]interface{}) {
+	var options map[string][]map[string]interface{}
+	if len(addons) > 0 {
+		options = addons[0]
+	}
+	s.publishSelected(watch, offers, options, "")
+}
+
+func (s *saleWatcher) publishSelected(watch *accountSaleWatch, offers []map[string]interface{}, addons map[string][]map[string]interface{}, onlyPlan string) {
 	byPlan := make(map[string]map[string]interface{}, len(offers))
 	for _, offer := range offers {
 		if plan, ok := offer["planCode"].(string); ok {
@@ -109,12 +118,14 @@ func (s *saleWatcher) publish(watch *accountSaleWatch, offers []map[string]inter
 	if watch.latest == nil {
 		watch.latest = map[string]saleSnapshot{}
 	}
-	watch.retryAt = time.Time{}
 	for listener := range watch.listeners {
+		if onlyPlan != "" && listener.plan != onlyPlan {
+			continue
+		}
 		offer := byPlan[listener.plan]
 		var options []map[string]interface{}
-		if len(addons) > 0 {
-			options = addons[0][listener.plan]
+		if addons != nil {
+			options = addons[listener.plan]
 		}
 		watch.latest[listener.plan] = saleSnapshot{account: watch.account, plan: listener.plan, base: offer, options: options, at: time.Now()}
 		if _, ok := salePrice(offer["prices"], listener.duration, ""); !ok {
@@ -165,9 +176,18 @@ func (s *saleWatcher) pollOptions(ctx context.Context, probe *saleProbe, watch *
 	var firstErr error
 	var retryAfter time.Duration
 	limit := make(chan struct{}, 4)
+	// go-ovh NewRequest mutates http.Client.Timeout. Finish signing before any parallel Do calls.
+	requests := map[string]*http.Request{}
 	for plan := range plans {
+		req, err := probe.session.client.NewRequest(http.MethodGet, "/order/cart/"+probe.cart.id+"/eco/options?planCode="+url.QueryEscape(plan), nil, true)
+		if err != nil {
+			return result, 0, err
+		}
+		requests[plan] = req
+	}
+	for plan, req := range requests {
 		wg.Add(1)
-		go func(plan string) {
+		go func(plan string, req *http.Request) {
 			defer wg.Done()
 			select {
 			case limit <- struct{}{}:
@@ -176,22 +196,38 @@ func (s *saleWatcher) pollOptions(ctx context.Context, probe *saleProbe, watch *
 				return
 			}
 			var options []map[string]interface{}
-			after, err := saleRequest(ctx, probe.session.client, http.MethodGet, "/order/cart/"+probe.cart.id+"/eco/options?planCode="+url.QueryEscape(plan), nil, &options)
+			after, err := sendSaleRequest(ctx, probe.session.client, req, &options)
 			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
-				if after > retryAfter {
-					retryAfter = after
-				}
-				return
-			}
 			result[plan] = options
-		}(plan)
+			if err != nil {
+				result[plan] = nil
+				var apiErr *ovhsdk.APIError
+				limited := after > 0 || (errors.As(err, &apiErr) && apiErr.Code == http.StatusTooManyRequests)
+				if limited {
+					if firstErr == nil {
+						firstErr = err
+					}
+					if after > retryAfter {
+						retryAfter = after
+					}
+					s.mu.Lock()
+					watch.retryAt = time.Now().Add(saleRetryDelay(1, after))
+					s.mu.Unlock()
+				}
+			}
+			mu.Unlock()
+			// Publish each model independently: a slow or unopened addon API must not delay another model.
+			if err == nil {
+				s.publishSelected(watch, offers, map[string][]map[string]interface{}{plan: options}, plan)
+			} else {
+				s.publishSelected(watch, offers, map[string][]map[string]interface{}{plan: nil}, plan)
+			}
+		}(plan, req)
 	}
 	wg.Wait()
+	if ctx.Err() != nil && firstErr == nil {
+		firstErr = ctx.Err()
+	}
 	return result, retryAfter, firstErr
 }
 
@@ -204,6 +240,9 @@ func (s *saleWatcher) run(ctx context.Context, account string, watch *accountSal
 		offers, retryAfter, err := probe.poll(pollCtx)
 		var options map[string][]map[string]interface{}
 		if err == nil {
+			s.mu.Lock()
+			watch.account = probe.session.account
+			s.mu.Unlock()
 			options, retryAfter, err = s.pollOptions(pollCtx, &probe, watch, offers)
 		}
 		cancel()
@@ -212,6 +251,7 @@ func (s *saleWatcher) run(ctx context.Context, account string, watch *accountSal
 			failures = 0
 			s.mu.Lock()
 			watch.account = probe.session.account
+			watch.retryAt = time.Time{}
 			s.mu.Unlock()
 			s.publish(watch, offers, options)
 		} else {
@@ -298,6 +338,10 @@ func saleRequest(ctx context.Context, client *ovhsdk.Client, method, path string
 	if err != nil {
 		return 0, err
 	}
+	return sendSaleRequest(ctx, client, req, result)
+}
+
+func sendSaleRequest(ctx context.Context, client *ovhsdk.Client, req *http.Request, result interface{}) (time.Duration, error) {
 	response, err := client.Do(req.WithContext(ctx))
 	if err != nil {
 		return 0, err

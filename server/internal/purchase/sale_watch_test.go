@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,6 +24,55 @@ func saleOffers(t *testing.T, raw string) []map[string]interface{} {
 		t.Fatal(err)
 	}
 	return offers
+}
+
+func TestSaleOptionsPublishReadyModelBeforeAnotherModelReturns404(t *testing.T) {
+	state, _, _, _, _ := saleFixture(t)
+	probe := saleProbe{state: state, account: "sale-fixture"}
+	defer probe.close()
+	if _, _, err := probe.poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ready := &saleListener{plan: "27skle01-v1", duration: "P1M", changes: make(chan struct{}, 1)}
+	waiting := &saleListener{plan: "27skle02-v1", duration: "P1M", changes: make(chan struct{}, 1)}
+	watch := &accountSaleWatch{account: probe.session.account, listeners: map[*saleListener]bool{ready: true, waiting: true}}
+	s := newSaleWatcher(context.Background(), state)
+	offers := saleOffers(t, `[{"planCode":"27skle01-v1","prices":[{"duration":"P1M","pricingMode":"default","price":{"value":30,"currencyCode":"EUR"}}]},{"planCode":"27skle02-v1","prices":[{"duration":"P1M","pricingMode":"default","price":{"value":30,"currencyCode":"EUR"}}]}]`)
+	release := make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	probe.session.client.Client.Transport = preorderTransport(func(r *http.Request) (*http.Response, error) {
+		if !strings.HasSuffix(r.URL.Path, "/eco/options") {
+			return testSaleResponse(r, 200, `{}`), nil
+		}
+		if r.URL.Query().Get("planCode") == waiting.plan {
+			<-release
+			return testSaleResponse(r, 404, `{"message":"addons not on sale"}`), nil
+		}
+		return testSaleResponse(r, 200, `[]`), nil
+	})
+	done := make(chan error, 1)
+	go func() { _, _, err := s.pollOptions(context.Background(), &probe, watch, offers); done <- err }()
+	select {
+	case <-ready.changes:
+	case <-time.After(time.Second):
+		t.Fatal("a pending model delayed the ready model")
+	}
+	select {
+	case <-done:
+		t.Fatal("slow model did not remain pending")
+	default:
+	}
+	once.Do(func() { close(release) })
+	if err := <-done; err != nil {
+		t.Fatal("one unopened model blocked the whole account", err)
+	}
+	s.mu.Lock()
+	snapshot := watch.latest[waiting.plan]
+	s.mu.Unlock()
+	if snapshot.ready("P1M", "default", nil) {
+		t.Fatal("failed option discovery was treated as a confirmed quote")
+	}
 }
 
 func TestSaleSignalsRequireExactModelAndPeriodAndOnlyWakeOnChange(t *testing.T) {

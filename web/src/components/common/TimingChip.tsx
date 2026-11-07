@@ -26,6 +26,7 @@ export function TimingChip({
   className?: string;
 }) {
   const { t } = useTranslation();
+  const phaseName = (name: string) => t(`commons.timing.phaseNames.${name}`, { defaultValue: name });
   if (!totalMs) return null;
 
   const slowest = (phases || []).reduce<PhaseTiming | null>(
@@ -41,7 +42,7 @@ export function TimingChip({
     toast.info(
       t("commons.timing.detailToast", {
         total: fmtMs(totalMs),
-        breakdown: phases.map((p) => `${p.name} ${fmtMs(p.ms)}`).join("\n"),
+        breakdown: phases.map((p) => `${phaseName(p.name)} ${fmtMs(p.ms)}`).join("\n"),
       }),
       { duration: 8000, style: { whiteSpace: "pre-line" } }
     );
@@ -53,7 +54,7 @@ export function TimingChip({
       onClick={detail}
       title={
         slowest
-          ? t("commons.timing.titleSlowest", { name: slowest.name, ms: fmtMs(slowest.ms) })
+          ? t("commons.timing.titleSlowest", { name: phaseName(slowest.name), ms: fmtMs(slowest.ms) })
           : t("commons.timing.title")
       }
       className={

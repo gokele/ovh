@@ -20,6 +20,8 @@ type launchFixtureState struct {
 	state                                                     *app.State
 	item                                                      types.QueueItem
 	baseOpen, optionsOpen                                     atomic.Bool
+	rejectStock                                               atomic.Bool
+	stockReads                                                atomic.Int32
 	checkoutStatus, sent, basePosts, optionPosts, configPosts atomic.Int32
 	options                                                   string
 }
@@ -41,6 +43,10 @@ func saleLaunchFixture(t *testing.T, period, stockStatus string) *launchFixtureS
 		status := 200
 		switch {
 		case strings.HasSuffix(path, "/availabilities"):
+			h.stockReads.Add(1)
+			if h.rejectStock.Load() {
+				return testSaleResponse(r, 503, `{"message":"stock feed unavailable"}`), nil
+			}
 			body = fmt.Sprintf(`[{"fqn":"plan.ram-32g-ddr4-ecc-2400.softraid-2x450nvme","datacenters":[{"datacenter":"gra","availability":%q},{"datacenter":"fra","availability":%q}]}]`, stockStatus, stockStatus)
 		case strings.HasSuffix(path, "/eco") && r.Method == "GET":
 			body = `[]`
@@ -322,4 +328,45 @@ func TestSaleBackoffBlocksPreparationWrites(t *testing.T) {
 	if !out.WaitingForCatalog || out.RetryAfter < 50*time.Second || h.basePosts.Load() != 0 || h.configPosts.Load() != 0 || h.sent.Load() != 0 {
 		t.Fatal("sale backoff was ignored", out)
 	}
+}
+
+func TestVerifiedFullConfigurationUsesSaleSignalWithoutAnotherStockRequest(t *testing.T) {
+	h := saleLaunchFixture(t, "P1M", "unknown")
+	h.baseOpen.Store(true)
+	h.optionsOpen.Store(true)
+	base, err := h.state.OVH.ClientFor(h.item.AccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := base.Client.Transport
+	var priced atomic.Bool
+	base.Client.Transport = preorderTransport(func(r *http.Request) (*http.Response, error) {
+		if !priced.Load() && r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/eco") {
+			return testSaleResponse(r, 200, `[{"planCode":"plan","prices":[{"duration":"P1M","pricingMode":"default","price":{"value":null,"currencyCode":"EUR"}}]}]`), nil
+		}
+		return original.RoundTrip(r)
+	})
+	session := &cartSession{}
+	defer session.discard()
+	ctx := context.WithValue(context.Background(), cartSessionKey{}, session)
+	if out := PurchaseServer(ctx, h.state, &h.item); !out.WaitingForCatalog || session.cart == nil {
+		t.Fatal("verified cart not prepared", out)
+	}
+	time.Sleep(120 * time.Millisecond) // Expire the stock bus's short cache so an unwanted fetch fails.
+	priced.Store(true)
+	snapshot, err := readSaleSnapshot(ctx, session.client, session.account, session.cart.id, h.item.PlanCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := h.stockReads.Load()
+	h.rejectStock.Store(true)
+	out := PurchaseServer(context.WithValue(ctx, saleSignalKey{}, snapshot), h.state, &h.item)
+	if !out.Success || h.sent.Load() != 1 || h.stockReads.Load() != before {
+		t.Fatal("sale dispatch still depended on the stock endpoint", out, h.stockReads.Load(), before)
+	}
+	trace := LastTimings()[h.item.ID].Dispatch
+	if trace == nil || !trace.Prewarmed || !trace.WroteRequest {
+		t.Fatal("prepared dispatch not traced", trace)
+	}
+	t.Logf("verified sale signal to local TCP write: %d microseconds", trace.DetectionToWriteUS)
 }

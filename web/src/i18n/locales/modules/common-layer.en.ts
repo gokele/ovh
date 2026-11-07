@@ -264,6 +264,7 @@ const pack: CommonLayerPack = {
       upToDate: "Up to date v{{version}}",
     },
     timing: {
+      phaseNames: {"复用已核验配置": "Reuse verified configuration", "复用已配置购物车": "Resume configured cart", "复用已绑定空车": "Reuse assigned empty cart", "查库存": "Check stock", "建购物车": "Create cart", "绑定购物车": "Assign cart", "加购商品": "Add server", "必需配置": "Required configuration", "加硬件选项": "Add hardware options", "应用优惠码": "Apply coupon", "下单": "Checkout"},
       totalToast: "This order took {{total}} in total",
       detailToast: "Total {{total}}\n{{breakdown}}",
       titleSlowest: "Tap for per-phase timings (slowest: {{name}} {{ms}})",

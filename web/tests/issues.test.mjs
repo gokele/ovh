@@ -979,3 +979,18 @@ test("presale tasks require explicit RAM and complete disks, and scope labels wo
     }
   } finally { await i18n.changeLanguage(original); }
 });
+
+
+test("presale preparation timing phases are translated in tooltips", async () => {
+  const { TimingChip } = await server.ssrLoadModule("/src/components/common/TimingChip.tsx");
+  const { default: i18n } = await server.ssrLoadModule("/src/i18n/index.ts");
+  const original = i18n.language;
+  try {
+    for (const lang of ["zh", "en"]) {
+      await i18n.changeLanguage(lang);
+      const html = renderToStaticMarkup(createElement(TimingChip, { totalMs: 3, phases: [{ name: "复用已核验配置", ms: 2 }] }));
+      assert.match(html, lang === "zh" ? /复用已核验配置/ : /Reuse verified configuration/);
+      if (lang === "en") assert.doesNotMatch(html, /复用已核验配置/);
+    }
+  } finally { await i18n.changeLanguage(original); }
+});
