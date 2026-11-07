@@ -261,12 +261,15 @@ func taskWorker(ctx context.Context, state *app.State, item types.QueueItem, pur
 			return
 		}
 		attemptCtx := ctx
+		if current.Preorder {
+			attemptCtx = context.WithValue(attemptCtx, saleSignalKey{}, sales.latest(account, current.PlanCode))
+		}
 		if signal != nil {
-			attemptCtx = context.WithValue(ctx, stockSignalKey{}, *signal)
+			attemptCtx = context.WithValue(attemptCtx, stockSignalKey{}, *signal)
 			signal = nil
 		}
 		outcome := runQueueAttempt(attemptCtx, state, *current, purchase)
-		if outcome.Success || outcome.Fatal || outcome.PauseTask || outcome.Cancelled {
+		if outcome.Success || outcome.Fatal || outcome.PauseTask || outcome.Cancelled || outcome.GroupStopped != "" {
 			return
 		}
 		if outcome.RetryImmediately {
@@ -275,6 +278,12 @@ func taskWorker(ctx context.Context, state *app.State, item types.QueueItem, pur
 		interval := time.Duration(types.ClampRetryInterval(current.RetryInterval, state.Config.RetryInterval())) * time.Second
 		if outcome.WaitingForCatalog && interval > catalog.PreorderCheckInterval {
 			interval = catalog.PreorderCheckInterval
+		}
+		if outcome.WaitingForQuota {
+			interval = 2 * time.Second
+		}
+		if outcome.RetryAfter > interval {
+			interval = outcome.RetryAfter
 		}
 		timer := time.NewTimer(interval)
 		waiting := true
@@ -286,7 +295,7 @@ func taskWorker(ctx context.Context, state *app.State, item types.QueueItem, pur
 			case <-timer.C:
 				waiting = false
 			case <-saleChanges:
-				if outcome.WaitingForCatalog || (outcome.WaitingForStock && session.cart == nil) {
+				if outcome.WaitingForCatalog || outcome.WaitingForStock {
 					timer.Stop()
 					waiting = false
 				}

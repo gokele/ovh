@@ -46,7 +46,7 @@ func TestSaleSignalsRequireExactModelAndPeriodAndOnlyWakeOnChange(t *testing.T) 
 			}
 		}
 	}
-	monthlyOffers := saleOffers(t, `[{"planCode":"27skle01-v1","prices":[{"duration":"P1M","pricingMode":"default"}]}]`)
+	monthlyOffers := saleOffers(t, `[{"planCode":"27skle01-v1","prices":[{"duration":"P1M","pricingMode":"default","price":{"value":30,"currencyCode":"EUR"}}]}]`)
 	s.publish(watch, monthlyOffers)
 	assertSignal(monthly, true)
 	assertSignal(annual, false)
@@ -54,7 +54,7 @@ func TestSaleSignalsRequireExactModelAndPeriodAndOnlyWakeOnChange(t *testing.T) 
 	assertSignal(otherAccount, false)
 	s.publish(watch, monthlyOffers)
 	assertSignal(monthly, false)
-	annualOffers := saleOffers(t, `[{"planCode":"27skle01-v1","prices":[{"duration":"P1M","pricingMode":"default"},{"duration":"P1Y","pricingMode":"default"}]}]`)
+	annualOffers := saleOffers(t, `[{"planCode":"27skle01-v1","prices":[{"duration":"P1M","pricingMode":"default","price":{"value":30,"currencyCode":"EUR"}},{"duration":"P1Y","pricingMode":"default","price":{"value":30,"currencyCode":"EUR"}}]}]`)
 	s.publish(watch, annualOffers)
 	assertSignal(annual, true)
 	assertSignal(monthly, true)
@@ -86,10 +86,12 @@ func saleFixture(t *testing.T) (*app.State, *atomic.Bool, *atomic.Int32, *atomic
 		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/eco"):
 			polls.Add(1)
 			if open.Load() {
-				fmt.Fprint(w, `[{"planCode":"27skle01-v1","prices":[{"duration":"P1M","pricingMode":"default"}]}]`)
+				fmt.Fprint(w, `[{"planCode":"27skle01-v1","prices":[{"duration":"P1M","pricingMode":"default","price":{"value":30,"currencyCode":"EUR"}}]}]`)
 			} else {
 				fmt.Fprint(w, `[]`)
 			}
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/eco/options"):
+			fmt.Fprint(w, `[]`)
 		case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/order/cart/discovery-"):
 			deletes.Add(1)
 			fmt.Fprint(w, `{}`)

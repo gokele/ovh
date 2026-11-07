@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -42,6 +43,9 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	cartID := ""
 	var itemID int64
 	var addedOptions []string
+	addedModes := map[string]string{}
+	baseDuration, basePricingMode := selectedDuration, "default"
+	configured := false
 	// 多账户:购物车 subsidiary 跟着账户走,不再读全局 cfg
 	acc := account
 	subsidiary := orderSubsidiary(state, acc, "purchase")
@@ -52,7 +56,19 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	session, _ := ctx.Value(cartSessionKey{}).(*cartSession)
 	intent := preparationKey(*item, account)
 	assigned := false
-	if session != nil && session.empty != nil {
+	var resumed *partialCart
+	if session != nil && session.partial != nil {
+		partial := session.partial
+		session.partial = nil
+		if item.Preorder && partial.client == client && partial.intent == intent && partial.fqn == fqn && time.Now().Before(partial.expires) {
+			resumed = partial
+			cartResult, expires, assigned = partial.result, partial.expires, true
+		} else {
+			id, _ := partial.result["cartId"].(string)
+			(&preparedCart{id: id, client: partial.client}).cleanupInBackground()
+		}
+	}
+	if resumed == nil && session != nil && session.empty != nil {
 		empty := session.empty
 		session.empty = nil
 		if item.Preorder && empty.client == client && empty.intent == intent && time.Now().Before(empty.expires) {
@@ -121,6 +137,14 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		}
 	}
 
+	retainPartial := func() {
+		if !item.Preorder || session == nil || !configured || ctx.Err() != nil || !time.Now().Before(expires) {
+			return
+		}
+		session.partial = &partialCart{result: cartResult, client: client, intent: intent, fqn: fqn, duration: baseDuration, mode: basePricingMode, itemID: itemID, options: append([]string(nil), addedOptions...), modes: maps.Clone(addedModes), expires: expires}
+		success = true
+	}
+
 	// 立即绑定购物车到账户 —— 对齐 OVH 官方示例的推荐顺序：
 	// cart → assign → eco → configuration → options → summary → checkout。
 	// 在 add item 之前 assign，OVH 后端不会出现"cart 未绑定就 checkout"的边界错误。
@@ -146,161 +170,173 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		state.Logger.Info("购物车绑定成功", "purchase")
 	}
 
-	// 月付沿用快速路径；其他周期先取 OVH 的实际 duration/pricingMode。
-	state.Logger.Info(fmt.Sprintf("添加基础商品 %s 到购物车 (使用 /eco)", item.PlanCode), "purchase")
-	baseDuration, basePricingMode := selectedDuration, "default"
-	if selectedDuration != orderterm.Default {
-		baseDuration, basePricingMode, err = orderterm.Lookup(ctx, client, cartID, "eco", item.PlanCode, selectedDuration)
-		if err != nil {
-			if item.Preorder && (errors.Is(err, orderterm.ErrUnavailable) || listingNotReady(err)) {
-				retainEmpty()
-				return nil, Outcome{WaitingForCatalog: true, Reason: err.Error()}
+	if resumed == nil {
+		// 月付沿用快速路径；其他周期先取 OVH 的实际 duration/pricingMode。
+		state.Logger.Info(fmt.Sprintf("添加基础商品 %s 到购物车 (使用 /eco)", item.PlanCode), "purchase")
+		if selectedDuration != orderterm.Default {
+			baseDuration, basePricingMode, err = orderterm.Lookup(ctx, client, cartID, "eco", item.PlanCode, selectedDuration)
+			if err != nil {
+				if item.Preorder && (errors.Is(err, orderterm.ErrUnavailable) || listingNotReady(err)) {
+					retainEmpty()
+					return nil, Outcome{WaitingForCatalog: true, Reason: err.Error()}
+				}
+				fail(err.Error())
+				return nil, Outcome{Fatal: errors.Is(err, orderterm.ErrUnavailable), Reason: err.Error()}
 			}
-			fail(err.Error())
-			return nil, Outcome{Fatal: errors.Is(err, orderterm.ErrUnavailable), Reason: err.Error()}
 		}
-	}
-	var itemResult map[string]interface{}
-	postBase := func() error {
-		itemResult = nil
-		return client.PostWithContext(ctx, "/order/cart/"+cartID+"/eco", map[string]interface{}{
-			"planCode":    item.PlanCode,
-			"pricingMode": basePricingMode,
-			"duration":    baseDuration,
-			"quantity":    1,
-		}, &itemResult)
-	}
-	if err := postBase(); err != nil {
-		// 取消了就别再去查计价重试 —— lookupEcoPricing 还要发一次 OVH 请求
-		if ctx.Err() != nil {
-			return nil, cancelledOutcome(state, item, "加基础商品")
+		var itemResult map[string]interface{}
+		postBase := func() error {
+			itemResult = nil
+			return client.PostWithContext(ctx, "/order/cart/"+cartID+"/eco", map[string]interface{}{
+				"planCode":    item.PlanCode,
+				"pricingMode": basePricingMode,
+				"duration":    baseDuration,
+				"quantity":    1,
+			}, &itemResult)
 		}
-		if d, pm, lookupErr := orderterm.Lookup(ctx, client, cartID, "eco", item.PlanCode, selectedDuration); lookupErr == nil &&
-			(d != baseDuration || pm != basePricingMode) {
-			state.Logger.Warn(fmt.Sprintf("以 %s/%s 加购 %s 失败(%s)，改用目录计价 %s/%s 重试",
-				baseDuration, basePricingMode, item.PlanCode, err.Error(), d, pm), "purchase")
-			baseDuration, basePricingMode = d, pm
-			err = postBase()
-		}
-		if err != nil {
+		if err := postBase(); err != nil {
+			// 取消了就别再去查计价重试 —— lookupEcoPricing 还要发一次 OVH 请求
 			if ctx.Err() != nil {
 				return nil, cancelledOutcome(state, item, "加基础商品")
 			}
-			if item.Preorder && listingNotReady(err) {
-				retainEmpty()
-				return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
+			if d, pm, lookupErr := orderterm.Lookup(ctx, client, cartID, "eco", item.PlanCode, selectedDuration); lookupErr == nil &&
+				(d != baseDuration || pm != basePricingMode) {
+				state.Logger.Warn(fmt.Sprintf("以 %s/%s 加购 %s 失败(%s)，改用目录计价 %s/%s 重试",
+					baseDuration, basePricingMode, item.PlanCode, err.Error(), d, pm), "purchase")
+				baseDuration, basePricingMode = d, pm
+				err = postBase()
 			}
-			state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, err.Error()), "purchase")
-			state.Logger.Error(fmt.Sprintf("错误发生时的购物车ID: %s", cartID), "purchase")
-			fail(ovh.Explain(err))
-			return nil, attemptOutcome(err)
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil, cancelledOutcome(state, item, "加基础商品")
+				}
+				if item.Preorder && listingNotReady(err) {
+					retainEmpty()
+					return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
+				}
+				state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, err.Error()), "purchase")
+				state.Logger.Error(fmt.Sprintf("错误发生时的购物车ID: %s", cartID), "purchase")
+				fail(ovh.Explain(err))
+				return nil, attemptOutcome(err)
+			}
 		}
-	}
-	if n, ok := numconv.ToInt64(itemResult["itemId"]); ok {
-		itemID = n
-	}
-	if itemID == 0 {
-		errMsg := fmt.Sprintf("无法从购物车响应中解析 itemId（响应: %v）", itemResult)
-		state.Logger.Error(fmt.Sprintf("购买 %s 时发生未知错误: %s", item.PlanCode, errMsg), "purchase")
-		state.Logger.Error("错误发生时的购物车ID: "+cartID, "purchase")
-		fail(errMsg)
-		// 这里 OVH 是 200 回来的,只是 body 里没有 itemId —— 不是传输问题,
-		// 重试大概率还是同一个响应,该计数。
-		return nil, Outcome{Attempted: true}
-	}
-	tl.mark("加购商品")
-	state.Logger.Info(fmt.Sprintf("基础商品添加成功，项目 ID: %d", itemID), "purchase")
+		if n, ok := numconv.ToInt64(itemResult["itemId"]); ok {
+			itemID = n
+		}
+		if itemID == 0 {
+			errMsg := fmt.Sprintf("无法从购物车响应中解析 itemId（响应: %v）", itemResult)
+			state.Logger.Error(fmt.Sprintf("购买 %s 时发生未知错误: %s", item.PlanCode, errMsg), "purchase")
+			state.Logger.Error("错误发生时的购物车ID: "+cartID, "purchase")
+			fail(errMsg)
+			// 这里 OVH 是 200 回来的,只是 body 里没有 itemId —— 不是传输问题,
+			// 重试大概率还是同一个响应,该计数。
+			return nil, Outcome{Attempted: true}
+		}
+		tl.mark("加购商品")
+		state.Logger.Info(fmt.Sprintf("基础商品添加成功，项目 ID: %d", itemID), "purchase")
 
-	// 设置必需配置
-	state.Logger.Info(fmt.Sprintf("为项目 %d 设置必需配置", itemID), "purchase")
-	// region 必须按 (子公司, planCode) 从目录取:US 子公司所有机型都是 united_states,
-	// 欧区只有 canada/europe(亚太机型归 canada)。老的静态机房映射会发出目录里
-	// 根本不存在的 "usa"/"apac",美区每一单都卡在这里。
-	region, regionSrc := catalog.ResolveRegion(state, item.AccountID, item.PlanCode, apiDC)
-	if regionSrc == "fallback" {
-		// catalog.ResolveRegion 的兜底分支拿的是账户原始 zone,zone 为空时(美区账户很常见,
-		// 建号时不填就是空)会算成 europe/canada,而美区目录里 143 个 plan 的 region
-		// 只有 united_states 一个取值 —— 目录一拉不动,美区每一单都会提交本区不存在的 region。
-		// 这里用已经归一化过的 subsidiary 重算一次。
-		// 必须走 catalog.FallbackRegion 而不是 ovh.RegionForDCInSubsidiary:
-		// 后者只认 gra/bhs 这种短机房码,而可用性接口会返回 ca-east-tor-a / eu-west-par-a
-		// 这类长码,直接问它会拿到空串,反而把已经算对的 region 覆盖掉。
-		if r := catalog.FallbackRegion(apiDC, subsidiary); r != region {
-			state.Logger.Warn(fmt.Sprintf("目录兜底给出的 region %q 与子公司 %s 不符，改用 %q",
-				region, subsidiary, r), "purchase")
-			region, regionSrc = r, "fallback(subsidiary-corrected)"
-		}
-	}
-	if region == "" {
-		// 目录拉不动 + 静态兜底也认不出机房时的最后一招:问购物车自己。
-		// requiredConfiguration 的 schema 只声明 label/required/type,但三区实测都会返回
-		// allowedValues,而且这份值是这辆车(= 这个子公司 + 这个 planCode)算出来的,
-		// 天然是本区正确值:US 车返回 ["united_states"],EU/CA 车返回 ["canada","europe"]。
-		// 老实现只用它判"required 吗"然后整单取消,等于守着答案不看。
-		state.Logger.Warn(fmt.Sprintf("无法为数据中心 %s 推断区域，改问购物车的 requiredConfiguration",
-			strings.ToLower(apiDC)), "purchase")
-		var required []map[string]interface{}
-		if err := client.GetWithContext(ctx, fmt.Sprintf("/order/cart/%s/item/%d/requiredConfiguration", cartID, itemID), &required); err != nil {
-			if ctx.Err() != nil {
-				return nil, cancelledOutcome(state, item, "查必需配置")
-			}
-			state.Logger.Warn("获取必需配置失败: "+err.Error(), "purchase")
-		} else {
-			allowed, mandatory := regionAllowedValues(required)
-			if v := pickAllowedRegion(allowed, catalog.FallbackRegion(apiDC, subsidiary)); v != "" {
-				region, regionSrc = v, "requiredConfiguration"
-			} else if mandatory {
-				errMsg := fmt.Sprintf("必需的区域配置无法确定：子公司 %s 的目录拉不到，购物车也没给出 region 的合法取值。", subsidiary)
-				state.Logger.Error(fmt.Sprintf("购买 %s 时发生未知错误: %s", item.PlanCode, errMsg), "purchase")
-				fail(errMsg)
-				return nil, Outcome{Attempted: true}
+		// 设置必需配置
+		state.Logger.Info(fmt.Sprintf("为项目 %d 设置必需配置", itemID), "purchase")
+		// region 必须按 (子公司, planCode) 从目录取:US 子公司所有机型都是 united_states,
+		// 欧区只有 canada/europe(亚太机型归 canada)。老的静态机房映射会发出目录里
+		// 根本不存在的 "usa"/"apac",美区每一单都卡在这里。
+		region, regionSrc := catalog.ResolveRegion(state, item.AccountID, item.PlanCode, apiDC)
+		if regionSrc == "fallback" {
+			// catalog.ResolveRegion 的兜底分支拿的是账户原始 zone,zone 为空时(美区账户很常见,
+			// 建号时不填就是空)会算成 europe/canada,而美区目录里 143 个 plan 的 region
+			// 只有 united_states 一个取值 —— 目录一拉不动,美区每一单都会提交本区不存在的 region。
+			// 这里用已经归一化过的 subsidiary 重算一次。
+			// 必须走 catalog.FallbackRegion 而不是 ovh.RegionForDCInSubsidiary:
+			// 后者只认 gra/bhs 这种短机房码,而可用性接口会返回 ca-east-tor-a / eu-west-par-a
+			// 这类长码,直接问它会拿到空串,反而把已经算对的 region 覆盖掉。
+			if r := catalog.FallbackRegion(apiDC, subsidiary); r != region {
+				state.Logger.Warn(fmt.Sprintf("目录兜底给出的 region %q 与子公司 %s 不符，改用 %q",
+					region, subsidiary, r), "purchase")
+				region, regionSrc = r, "fallback(subsidiary-corrected)"
 			}
 		}
-	}
-	if region != "" {
-		state.Logger.Info(fmt.Sprintf("区域配置: %s = %s(来源: %s)", apiDC, region, regionSrc), "purchase")
-	}
+		if region == "" {
+			// 目录拉不动 + 静态兜底也认不出机房时的最后一招:问购物车自己。
+			// requiredConfiguration 的 schema 只声明 label/required/type,但三区实测都会返回
+			// allowedValues,而且这份值是这辆车(= 这个子公司 + 这个 planCode)算出来的,
+			// 天然是本区正确值:US 车返回 ["united_states"],EU/CA 车返回 ["canada","europe"]。
+			// 老实现只用它判"required 吗"然后整单取消,等于守着答案不看。
+			state.Logger.Warn(fmt.Sprintf("无法为数据中心 %s 推断区域，改问购物车的 requiredConfiguration",
+				strings.ToLower(apiDC)), "purchase")
+			var required []map[string]interface{}
+			if err := client.GetWithContext(ctx, fmt.Sprintf("/order/cart/%s/item/%d/requiredConfiguration", cartID, itemID), &required); err != nil {
+				if ctx.Err() != nil {
+					return nil, cancelledOutcome(state, item, "查必需配置")
+				}
+				state.Logger.Warn("获取必需配置失败: "+err.Error(), "purchase")
+			} else {
+				allowed, mandatory := regionAllowedValues(required)
+				if v := pickAllowedRegion(allowed, catalog.FallbackRegion(apiDC, subsidiary)); v != "" {
+					region, regionSrc = v, "requiredConfiguration"
+				} else if mandatory {
+					errMsg := fmt.Sprintf("必需的区域配置无法确定：子公司 %s 的目录拉不到，购物车也没给出 region 的合法取值。", subsidiary)
+					state.Logger.Error(fmt.Sprintf("购买 %s 时发生未知错误: %s", item.PlanCode, errMsg), "purchase")
+					fail(errMsg)
+					return nil, Outcome{Attempted: true}
+				}
+			}
+		}
+		if region != "" {
+			state.Logger.Info(fmt.Sprintf("区域配置: %s = %s(来源: %s)", apiDC, region, regionSrc), "purchase")
+		}
 
-	// 顺序固定：dedicated_datacenter → dedicated_os → (region)
-	type kv struct{ label, value string }
-	configurations := []kv{
-		{"dedicated_datacenter", apiDC},
-		{"dedicated_os", "none_64.en"},
-	}
-	if region != "" {
-		configurations = append(configurations, kv{"region", region})
-	}
-	// 三个 configuration 严格串行：dedicated_datacenter → dedicated_os → region。
-	// schema 没声明配置项之间的顺序依赖，但 region 的合法取值本身就依赖机房，
-	// price.go 也一直是串行的；抢购主链路上宁可多两次顺序 RTT，
-	// 也不赌 OVH 对同一 cart item 并发写的宽容度（失败就是整单取消，货就没了）。
-	postConfig := func(label, value string) error {
-		state.Logger.Info(fmt.Sprintf("配置项目 %d: 设置必需项 %s = %s", itemID, label, value), "purchase")
-		if err := client.PostWithContext(ctx, fmt.Sprintf("/order/cart/%s/item/%d/configuration", cartID, itemID),
-			map[string]interface{}{"label": label, "value": value}, nil); err != nil {
-			return err
+		// 顺序固定：dedicated_datacenter → dedicated_os → (region)
+		type kv struct{ label, value string }
+		configurations := []kv{
+			{"dedicated_datacenter", apiDC},
+			{"dedicated_os", "none_64.en"},
 		}
-		state.Logger.Info(fmt.Sprintf("成功设置必需项: %s = %s", label, value), "purchase")
-		return nil
-	}
-	for _, cfg := range configurations {
-		if err := postConfig(cfg.label, cfg.value); err != nil {
-			if ctx.Err() != nil {
-				return nil, cancelledOutcome(state, item, "设置配置项")
-			}
-			if item.Preorder && listingNotReady(err) {
-				return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
-			}
-			errMsg := err.Error()
-			state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误(%s): %s", item.PlanCode, cfg.label, errMsg), "purchase")
-			state.Logger.Error(fmt.Sprintf("错误发生时的购物车ID: %s", cartID), "purchase")
-			state.Logger.Error(fmt.Sprintf("错误发生时的基础商品ID: %d", itemID), "purchase")
-			fail(ovh.Explain(err))
-			return nil, attemptOutcome(err)
+		if region != "" {
+			configurations = append(configurations, kv{"region", region})
 		}
-	}
+		// 三个 configuration 严格串行：dedicated_datacenter → dedicated_os → region。
+		// schema 没声明配置项之间的顺序依赖，但 region 的合法取值本身就依赖机房，
+		// price.go 也一直是串行的；抢购主链路上宁可多两次顺序 RTT，
+		// 也不赌 OVH 对同一 cart item 并发写的宽容度（失败就是整单取消，货就没了）。
+		postConfig := func(label, value string) error {
+			state.Logger.Info(fmt.Sprintf("配置项目 %d: 设置必需项 %s = %s", itemID, label, value), "purchase")
+			if err := client.PostWithContext(ctx, fmt.Sprintf("/order/cart/%s/item/%d/configuration", cartID, itemID),
+				map[string]interface{}{"label": label, "value": value}, nil); err != nil {
+				return err
+			}
+			state.Logger.Info(fmt.Sprintf("成功设置必需项: %s = %s", label, value), "purchase")
+			return nil
+		}
+		for _, cfg := range configurations {
+			if err := postConfig(cfg.label, cfg.value); err != nil {
+				if ctx.Err() != nil {
+					return nil, cancelledOutcome(state, item, "设置配置项")
+				}
+				if item.Preorder && listingNotReady(err) {
+					return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
+				}
+				errMsg := err.Error()
+				state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误(%s): %s", item.PlanCode, cfg.label, errMsg), "purchase")
+				state.Logger.Error(fmt.Sprintf("错误发生时的购物车ID: %s", cartID), "purchase")
+				state.Logger.Error(fmt.Sprintf("错误发生时的基础商品ID: %d", itemID), "purchase")
+				fail(ovh.Explain(err))
+				return nil, attemptOutcome(err)
+			}
+		}
 
-	tl.mark("必需配置")
+		tl.mark("必需配置")
+
+	} else {
+		itemID = resumed.itemID
+		addedOptions = append([]string(nil), resumed.options...)
+		addedModes = maps.Clone(resumed.modes)
+		if addedModes == nil {
+			addedModes = map[string]string{}
+		}
+		baseDuration, basePricingMode = resumed.duration, resumed.mode
+		tl.mark("复用已配置购物车")
+	}
+	configured = true
 
 	// 硬件选项处理。effectiveOptions 已经包含了：
 	//   - 用户显式 options（如果有），或
@@ -316,6 +352,7 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 					return nil, cancelledOutcome(state, item, "查硬件选项")
 				}
 				if item.Preorder && listingNotReady(err) {
+					retainPartial()
 					return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
 				}
 				// 拉 eco/options 失败 → 中止订单。否则会用基础 plan 默认存储（多半是 HDD）下到错误配置
@@ -356,10 +393,21 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 					errMsg := fmt.Sprintf("硬件选项 %s 不支持购买时长 %s，已取消下单", matchedPC, selectedDuration)
 					if item.Preorder {
 						invalidateEcoOptions(state, item, account)
+						retainPartial()
 						return nil, Outcome{WaitingForCatalog: true, Reason: errMsg}
 					}
 					fail(errMsg)
 					return nil, Outcome{Fatal: true, Reason: errMsg}
+				}
+				alreadyAdded := false
+				for _, code := range addedOptions {
+					if code == matchedPC {
+						alreadyAdded = true
+						break
+					}
+				}
+				if alreadyAdded {
+					continue
 				}
 				todo = append(todo, addonPayload{
 					planCode: matchedPC,
@@ -376,6 +424,7 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 				if item.Preorder {
 					state.Logger.Info(fmt.Sprintf("预订任务 %s 等待所选硬件配置开放: %v", item.ID, missing), "purchase")
 					invalidateEcoOptions(state, item, account)
+					retainPartial()
 					return nil, Outcome{WaitingForCatalog: true, Reason: fmt.Sprintf("等待所选配置开放: %v", missing)}
 				}
 				errMsg := fmt.Sprintf("用户请求的硬件选项 %v 未在 OVH 可用 Eco 选项中找到（已取消下单避免下到错误配置）", missing)
@@ -400,6 +449,7 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 						return nil, cancelledOutcome(state, item, "加硬件选项")
 					}
 					if item.Preorder && listingNotReady(err) {
+						retainPartial()
 						return nil, Outcome{WaitingForCatalog: true, Reason: ovh.Explain(err)}
 					}
 					state.Logger.Error(fmt.Sprintf("添加 Eco 选项 %s 失败: %s", t.planCode, err.Error()), "purchase")
@@ -416,6 +466,7 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 				}
 				state.Logger.Info(fmt.Sprintf("成功添加 Eco 选项: %s", t.planCode), "purchase")
 				addedOptions = append(addedOptions, t.planCode)
+				addedModes[t.planCode], _ = t.body["pricingMode"].(string)
 			}
 			state.Logger.Info(fmt.Sprintf("共成功添加 %d 个硬件选项。", len(filtered)), "purchase")
 		}
@@ -470,7 +521,7 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		return nil, Outcome{Attempted: true, Reason: "OVH returned an expiring cart; preparation must be retried"}
 	}
 	success = true // 准备成功后由 session 持有购物车,等库存期间不删除。
-	return &preparedCart{account: account, client: client, call: call, quote: &price.PriceInfo{PricingMode: basePricingMode, Duration: baseDuration}, options: addedOptions, intent: intent, duration: baseDuration, id: cartID, fqn: fqn, subsidiary: subsidiary, couponWarning: couponWarning, expires: expires, preparedAt: time.Now()}, Outcome{}
+	return &preparedCart{account: account, client: client, call: call, quote: &price.PriceInfo{PricingMode: basePricingMode, Duration: baseDuration}, options: addedOptions, modes: addedModes, intent: intent, duration: baseDuration, id: cartID, fqn: fqn, subsidiary: subsidiary, couponWarning: couponWarning, expires: expires, preparedAt: time.Now()}, Outcome{}
 }
 
 func listingNotReady(err error) bool {

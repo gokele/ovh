@@ -62,7 +62,7 @@ func preorderCheckoutFixture(t *testing.T, tc preorderCheckoutCase, index int) (
 			}
 		}
 		prices := func(duration string) []map[string]interface{} {
-			return []map[string]interface{}{{"duration": duration, "pricingMode": "default"}}
+			return []map[string]interface{}{{"duration": duration, "pricingMode": "default", "price": map[string]interface{}{"value": 30, "currencyCode": "EUR"}}}
 		}
 		switch {
 		case strings.HasSuffix(path, "/auth/time"):
@@ -79,7 +79,7 @@ func preorderCheckoutFixture(t *testing.T, tc preorderCheckoutCase, index int) (
 		case strings.HasSuffix(path, "/assign") || strings.HasSuffix(path, "/configuration") || r.Method == "DELETE":
 			fmt.Fprint(w, `{}`)
 		case strings.HasSuffix(path, "/eco") && r.Method == "GET":
-			write([]map[string]interface{}{{"planCode": plan, "prices": prices("P1Y")}})
+			write([]map[string]interface{}{{"planCode": plan, "prices": append(prices("P1M"), prices("P1Y")...)}})
 		case strings.HasSuffix(path, "/eco/options") && r.Method == "GET":
 			if tc.optionFailure != 0 {
 				w.WriteHeader(tc.optionFailure)

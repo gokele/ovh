@@ -164,8 +164,14 @@ func hotFixture(t *testing.T) (*app.State, *atomic.Int32, *atomic.Int32, *atomic
 			fmt.Fprintf(w, `{"cartId":"cart-%d","expire":"2099-01-01T00:00:00Z"}`, id)
 		case strings.HasSuffix(path, "/requiredConfiguration"):
 			fmt.Fprint(w, `[{"label":"region","required":true,"allowedValues":["europe"]}]`)
+		case strings.HasSuffix(path, "/eco") && r.Method == "GET":
+			if stock.Load() {
+				fmt.Fprint(w, `[{"planCode":"plan","prices":[{"duration":"P1M","pricingMode":"default","price":{"value":30,"currencyCode":"EUR"}}]}]`)
+			} else {
+				fmt.Fprint(w, `[]`)
+			}
 		case strings.HasSuffix(path, "/eco/options") && r.Method == "GET":
-			fmt.Fprint(w, `[{"planCode":"ram-32g","prices":[{"duration":"P1M","pricingMode":"default"}]}]`)
+			fmt.Fprint(w, `[{"planCode":"ram-32g","prices":[{"duration":"P1M","pricingMode":"default","price":{"value":30,"currencyCode":"EUR"}}]}]`)
 		case strings.HasSuffix(path, "/summary") && r.Method == "GET":
 			fmt.Fprint(w, `{"prices":{"withTax":{"value":39.98,"currencyCode":"EUR"}}}`)
 		case strings.HasSuffix(path, "/checkout"):
@@ -269,7 +275,7 @@ func TestPreparedPreorderDoesNotPinUnselectedHardwareWhenStockVariantChanges(t *
 			case strings.HasSuffix(r.URL.Path, "/availabilities"):
 				body = `[{"fqn":"plan.ram-64g","datacenters":[{"datacenter":"gra","availability":"1H-low"}]}]`
 			case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/eco/options"):
-				body = `[{"planCode":"ram-64g","prices":[{"duration":"P1M","pricingMode":"default"}]}]`
+				body = `[{"planCode":"ram-64g","prices":[{"duration":"P1M","pricingMode":"default","price":{"value":30,"currencyCode":"EUR"}}]}]`
 			}
 		}
 		if body != "" {
@@ -282,7 +288,7 @@ func TestPreparedPreorderDoesNotPinUnselectedHardwareWhenStockVariantChanges(t *
 	session := &cartSession{}
 	defer session.discard()
 	ctx := context.WithValue(context.Background(), cartSessionKey{}, session)
-	if out := PurchaseServer(ctx, state, &item); !out.WaitingForStock || session.cart == nil {
+	if out := PurchaseServer(ctx, state, &item); !out.WaitingForCatalog || session.cart == nil {
 		t.Fatal(out)
 	}
 	stock.Store(true)

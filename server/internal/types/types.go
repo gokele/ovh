@@ -171,6 +171,10 @@ type QueueItem struct {
 	Coupon             string `json:"coupon,omitempty"`
 	Preorder           bool   `json:"preorder,omitempty"` // 本地预订:等账户销售目录上架后再尝试下单
 	ConfigSniperTaskID string `json:"configSniperTaskId,omitempty"`
+	OrderGroup         string `json:"orderGroup,omitempty"`
+	GroupLimit         int    `json:"groupLimit,omitempty"`
+	StopReason         string `json:"stopReason,omitempty"`
+	OrderPhase         string `json:"orderPhase,omitempty"` // Runtime progress; rebuilt after restart.
 }
 
 // PriceInfo 价格信息

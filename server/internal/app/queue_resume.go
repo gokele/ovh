@@ -31,6 +31,8 @@ func (s *State) ResumeQueueItem(id, status string) error {
 		}
 		next := append([]types.QueueItem(nil), s.Queue...)
 		next[i].Status, next[i].UpdatedAt = status, types.NowISO()
+		next[i].StopReason = ""
+		next[i].OrderPhase = ""
 		resuming := item.Status != "running" && item.Status != "pending"
 		if resuming {
 			next[i].LastCheckTime = 0

@@ -35,6 +35,10 @@ export interface QueueItem {
   priority?: number;
   fromTelegram?: boolean;
   configSniperTaskId?: string;
+	orderGroup?: string;
+	groupLimit?: number;
+	stopReason?: string;
+  orderPhase?: string;
 }
 
 /** 抢购队列列表 */
@@ -99,6 +103,7 @@ export function useCreateQueueItem() {
       coupon?: string;
       duration?: string;
       preorder?: boolean;
+	  purchaseMode?: "perDatacenter" | "total";
     }) => {
       const dcs = payload.datacenters;
       // 上界以前完全没有:填 9999 × 5 个机房 = 近 5 万次串行 POST。
@@ -115,34 +120,20 @@ export function useCreateQueueItem() {
           })
         );
       }
-      let success = 0;
-      let failed = 0;
-      // 第一条失败原因要留下来。以前是 catch 里 failed++ 就完了,
-      // 用户看到「N 个任务创建失败」却不知道为什么(比如撞上了队列总量闸门)。
-      let firstError = "";
-      for (const dc of dcs) {
-        for (let i = 0; i < qty; i++) {
-          try {
-            await api.post("/queue", {
-              account_id: payload.account_id,
-              planCode: payload.planCode,
-              datacenter: dc,
-              retryInterval: payload.retryInterval,
-              options: payload.options || [],
-              autoPay: payload.autoPay ?? false,
-              preorder: payload.preorder ?? false,
-              coupon: payload.coupon?.trim() || undefined,
-              duration: payload.duration || "P1M",
-            });
-            success++;
-          } catch (e: any) {
-            failed++;
-            if (!firstError) firstError = errorMessage(e);
-          }
-        }
+      try {
+        const result = await api.post<{ count: number }>("/queue", {
+        account_id: payload.account_id, planCode: payload.planCode, datacenters: dcs,
+        quantity: qty, purchaseMode: payload.purchaseMode || "perDatacenter",
+        retryInterval: payload.retryInterval, options: payload.options || [],
+        autoPay: payload.autoPay ?? false, preorder: payload.preorder ?? false,
+        coupon: payload.coupon?.trim() || undefined, duration: payload.duration || "P1M",
+      });
+        return { success: result.data.count, failed: 0, total: dcs.length * qty, firstError: "" };
+      } catch (e) {
+        const firstError = errorMessage(e);
+        toast.error(i18n.t("hooksMsg.queue.someFailed", { reason: firstError }));
+        return { success: 0, failed: dcs.length * qty, total: dcs.length * qty, firstError };
       }
-      if (failed > 0 && firstError) toast.error(i18n.t("hooksMsg.queue.someFailed", { reason: firstError }));
-      return { success, failed, total: dcs.length * qty, firstError };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.queue.list() });

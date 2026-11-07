@@ -24,6 +24,9 @@ func optionCacheKey(item *types.QueueItem, account types.OVHAccount) string {
 // Metadata is immutable, scoped to the exact account setup/model/DC, and short-lived.
 // It never caches stock, a checkout result, or the availability of a coupon.
 func ecoOptions(ctx context.Context, state *app.State, client *ovhsdk.Client, item *types.QueueItem, account types.OVHAccount, cartID string, wanted []string) ([]map[string]interface{}, bool, error) {
+	if signal, ok := ctx.Value(saleSignalKey{}).(saleSnapshot); item.Preorder && ok && signal.fresh(account, item.PlanCode) && signal.options != nil {
+		return signal.options, false, nil
+	}
 	pool, _ := state.OrderPrewarm.(*CartPool)
 	key := optionCacheKey(item, account)
 	if pool != nil {

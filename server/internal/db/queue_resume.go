@@ -13,7 +13,7 @@ func (db *DB) ResumeQueueItem(item types.QueueItem, blockKey string, resetChecko
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.Exec(`UPDATE queue SET status=?, updated_at=?, failure_count=?, last_check_time=? WHERE id=?`, item.Status, item.UpdatedAt, item.FailureCount, item.LastCheckTime, item.ID)
+	result, err := tx.Exec(`UPDATE queue SET status=?, updated_at=?, failure_count=?, last_check_time=?, stop_reason='' WHERE id=?`, item.Status, item.UpdatedAt, item.FailureCount, item.LastCheckTime, item.ID)
 	if err != nil {
 		return err
 	}
@@ -26,6 +26,9 @@ func (db *DB) ResumeQueueItem(item types.QueueItem, blockKey string, resetChecko
 		return err
 	}
 	if resetCheckout {
+		if _, err = tx.Exec(`DELETE FROM queue_order_claims WHERE task_id=? AND state!='ordered'`, item.ID); err != nil {
+			return err
+		}
 		if _, err = tx.Exec(`DELETE FROM kv WHERE key=?`, QueueCheckoutKey(item.ID)); err != nil {
 			return err
 		}

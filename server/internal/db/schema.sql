@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS queue (
   from_telegram          INTEGER NOT NULL DEFAULT 0,
   config_sniper_task_id  TEXT    NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS queue_order_groups (
+  id TEXT PRIMARY KEY,
+  max_orders INTEGER NOT NULL CHECK(max_orders BETWEEN 1 AND 60)
+);
+CREATE TABLE IF NOT EXISTS queue_order_claims (
+  task_id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES queue_order_groups(id),
+  state TEXT NOT NULL CHECK(state IN ('pending', 'ordered', 'uncertain'))
+);
+CREATE INDEX IF NOT EXISTS idx_queue_order_claims_group ON queue_order_claims(group_id);
 CREATE INDEX IF NOT EXISTS idx_queue_status     ON queue(status);
 CREATE INDEX IF NOT EXISTS idx_queue_plan_code  ON queue(plan_code);
 

@@ -1,3 +1,5 @@
+import { OrderPurchaseScope, type PurchaseMode } from "@/components/queue/OrderPurchaseScope";
+import { hasPreorderHardware } from "@/lib/preorder-options";
 import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { preorderVariantCoversAll, preorderOptions, retainPreorderPlan } from "@/lib/preorder-options";
 import { useOrderDurations } from "@/hooks/use-order-durations";
@@ -518,6 +520,7 @@ function CreateQueueDialog({
   const [planCode, setPlanCode] = useState(initialPlanCode || "");
   const [datacenters, setDatacenters] = useState<string[]>([]);
   const [quantity, setQuantity] = useState("1");
+  const [chosenScope, setChosenScope] = useState<PurchaseMode | "">("");
   // 默认间隔跟着设置页走(配置没读到时用兜底常量)。
   // 以前这里硬编码 60,而后端四条入队路径写的是 30 —— 弹窗显示的和实际用的对不上。
   const settingsQ = useSettings();
@@ -545,7 +548,7 @@ function CreateQueueDialog({
       if (initialPlanCode) setPlanCode(initialPlanCode);
       if (editing) {
         setDatacenters([OVH_DATACENTERS.find((dc) => apiDatacenterCode(dc.code) === apiDatacenterCode(editing.datacenter))?.code || editing.datacenter]);
-        setQuantity("1");
+        setQuantity(String(editing.groupLimit || 1));
         setRetryInterval(String(editing.retryInterval || cfgDefault));
         touchedRef.current = true;
         setAutoPay(!!editing.autoPay);
@@ -562,6 +565,7 @@ function CreateQueueDialog({
   );
   const [preorderPlan, setPreorderPlan] = useState("");
   const preorder = !!editing?.preorder || !!matchedServer?.prerelease || (!!planCode.trim() && preorderPlan === planCode.trim());
+  const purchaseMode: PurchaseMode = editing ? (editing.orderGroup ? "total" : "perDatacenter") : chosenScope || (preorder ? "total" : "perDatacenter");
   useEffect(() => setPreorderPlan((previous) => retainPreorderPlan(previous, planCode.trim(), !!matchedServer?.prerelease)), [planCode, matchedServer?.prerelease]);
 
   // 切 planCode 清空 picked —— 之前选的 addon 对新机型多半不适用。
@@ -640,7 +644,7 @@ function CreateQueueDialog({
   const totalTasks = orderPlan.total;
   const durationOptions = useOrderDurations(accountId, planCode.trim(), "eco", open);
   const durationSupported = supportsDuration(durationOptions.data, duration);
-  const canSubmit = durationSupported && !!activeAcc && planCode.trim().length > 0 && datacenters.length > 0 && qty > 0 && !prereleaseMismatch;
+  const canSubmit = durationSupported && !!activeAcc && planCode.trim().length > 0 && datacenters.length > 0 && qty > 0 && !prereleaseMismatch && (!preorder || hasPreorderHardware(parsedOptions));
   const preparation = useOrderPrewarm(open && !editing && canSubmit, {
     account_id: accountId, planCode: planCode.trim(), datacenters, options: parsedOptions,
     quantity: qty, autoPay, coupon, duration, preorder,
@@ -651,6 +655,7 @@ function CreateQueueDialog({
     setPreorderPlan("");
     setDatacenters([]);
     setQuantity("1");
+    setChosenScope("");
     setAutoPay(false);
     setDuration("P1M");
     setCoupon("");
@@ -700,6 +705,7 @@ function CreateQueueDialog({
       coupon,
       duration,
       preorder,
+      purchaseMode,
     });
     if (result.success > 0) {
       toast.success(t("queue.toast.created", { success: result.success, total: result.total }));
@@ -877,11 +883,13 @@ function CreateQueueDialog({
             </div>
           </div>
 
+          <OrderPurchaseScope id="queue-purchase-scope" value={purchaseMode} onChange={setChosenScope} disabled={!!editing} />
+
           {/* 数量 + 重试间隔 */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-[13px] font-medium mb-1.5">
-                {t("queue.qtyPerDc")}
+                {t(purchaseMode === "total" ? "queue.qtyTotal" : "queue.qtyPerDc")}
               </label>
               <Input
                 type="text"
@@ -1004,6 +1012,7 @@ function CreateQueueDialog({
                 ))}
               </div>
             )}
+            {preorder && !hasPreorderHardware(parsedOptions) && <p className="text-xs text-muted-foreground mt-2">{t("queue.selectHardwareFirst")}</p>}
             {prereleaseMismatch && (
               <p className="text-xs text-destructive mt-2" role="alert">{t("queue.preorderConfigMismatch")}</p>
             )}
@@ -1014,7 +1023,7 @@ function CreateQueueDialog({
           {!editing && datacenters.length > 0 && (
             <div className="border border-border rounded-2xl p-3 text-[12px] text-muted-foreground">
               <Trans
-                i18nKey="queue.summary"
+                i18nKey={purchaseMode === "total" ? "queue.summaryTotal" : "queue.summary"}
                 values={{
                   tasks: totalTasks,
                   dcs: datacenters.length,
@@ -1125,7 +1134,10 @@ export function QueueRow({
             <span className="font-mono font-semibold text-sm">{item.planCode}</span>
             <AccountChip accountId={item.accountId} />
             {item.preorder && <Chip tone="warning">{t("queue.preorderBadge")}</Chip>}
+            {item.orderGroup && <Chip>{t("queue.groupLimit", { n: item.groupLimit })}</Chip>}
             <Chip><OrderDurationLabel value={item.duration} /></Chip>
+            {item.stopReason && <Chip tone="warning">{t(`queue.${item.stopReason}`)}</Chip>}
+            {item.status === "running" && item.orderPhase && <Chip tone="info">{t(`queue.phase.${item.orderPhase}`)}</Chip>}
             {item.coupon && <Chip>{t("queue.couponValue", { code: item.coupon })}</Chip>}
             <Chip tone="default">DC {item.datacenter.toUpperCase()}</Chip>
             {item.options && item.options.length > 0 && (
@@ -1154,7 +1166,13 @@ export function QueueRow({
             ) : item.status === "completed" ? (
               <Link to="/history" className="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline">{item.orderId ? t("queue.orderRecord", { id: item.orderId }) : t("queue.viewHistory")}</Link>
             ) : item.status === "paused" ? (
-              <span>{t("queue.waitingResume")}</span>
+              <span>{t(item.stopReason ? `queue.${item.stopReason}` : "queue.waitingResume")}</span>
+            ) : item.orderPhase === "waitingQuota" ? (
+              <span>{t("queue.quotaWaitHint")}</span>
+            ) : item.orderPhase === "submitting" ? (
+              <span>{t("queue.phase.submitting")}</span>
+            ) : item.preorder && item.orderPhase ? (
+              <span>{t("queue.liveSaleHint")}</span>
             ) : (
               <span className="inline-flex items-center gap-1">
                 {t("queue.nextAttempt")}
@@ -1208,7 +1226,7 @@ export function QueueRow({
         <div className="flex items-center gap-2 flex-shrink-0">
           {chip}
           {item.status !== "completed" && <Button variant="ghost" size="sm" onClick={onEdit} aria-label={t("queue.edit")}><Pencil className="w-4 h-4" />{t("queue.edit")}</Button>}
-          {item.status !== "completed" && item.status !== "failed" && (
+          {item.status !== "completed" && item.status !== "failed" && item.stopReason !== "groupComplete" && (
             <Button variant="ghost" size="sm" onClick={onToggle} aria-label={item.status === "paused" ? t("queue.resume") : t("queue.pause")}>
               {item.status === "paused" ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
               {item.status === "paused" ? t("queue.resume") : t("queue.pause")}

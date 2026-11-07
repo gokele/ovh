@@ -1,3 +1,5 @@
+import { OrderPurchaseScope, type PurchaseMode } from "@/components/queue/OrderPurchaseScope";
+import { hasPreorderHardware } from "@/lib/preorder-options";
 import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { preorderVariantCoversAll, preorderOptions, retainPreorderPlan } from "@/lib/preorder-options";
 import { useOrderDurations } from "@/hooks/use-order-durations";
@@ -551,11 +553,13 @@ function DetailContent({
   );
   const [selectedDCs, setSelectedDCs] = useState<string[]>([]);
   const [quantity, setQuantity] = useState("1");
+  const [chosenScope, setChosenScope] = useState<PurchaseMode | "">("");
   const [retryInterval, setRetryInterval] = useState("60");
   // 默认不自动付款:自动扣钱必须是用户显式打开的
   const [autoPay, setAutoPay] = useState(false);
   const [preorderPlan, setPreorderPlan] = useState(server.prerelease ? server.planCode : "");
   const preorder = !!server.prerelease || preorderPlan === server.planCode;
+  const purchaseMode: PurchaseMode = chosenScope || (preorder ? "total" : "perDatacenter");
   useEffect(() => setPreorderPlan((previous) => retainPreorderPlan(previous, server.planCode, !!server.prerelease)), [server.planCode, server.prerelease]);
   const [duration, setDuration] = useState("P1M");
   const [coupon, setCoupon] = useState("");
@@ -641,8 +645,8 @@ function DetailContent({
     },
     [picked, preorder, grouped]
   );
-  const preorderConfigMismatch = preorder && selectedValues.length > 0 &&
-    !!orderVariants?.length && !orderVariants.some((v) => preorderVariantCoversAll(v.fqn, selectedValues));
+  const preorderConfigMismatch = preorder && (!hasPreorderHardware(selectedValues) || (selectedValues.length > 0 &&
+    !!orderVariants?.length && !orderVariants.some((v) => preorderVariantCoversAll(v.fqn, selectedValues))));
   const durationOptions = useOrderDurations(accountId, server.planCode, "eco", true);
   const durationSupported = supportsDuration(durationOptions.data, duration);
   const preparation = useOrderPrewarm(durationSupported && !!accountId && selectedDCs.length > 0 && !preorderConfigMismatch, {
@@ -741,7 +745,7 @@ function DetailContent({
               onPick={(value) => setPicked((p) => ({ ...p, [g]: value }))}
             />
           ))}
-        {preorderConfigMismatch && <p className="text-xs text-destructive" role="alert">{t("queue.preorderConfigMismatch")}</p>}
+        {preorderConfigMismatch && <p className="text-xs text-destructive" role="alert">{t(!hasPreorderHardware(selectedValues) ? "queue.selectHardwareFirst" : "queue.preorderConfigMismatch")}</p>}
 
         {/* 库存接口挂了 —— 下面的红绿点这时候不代表真实库存,必须在按下抢购之前说清楚。 */}
         {stockFailed && (
@@ -857,10 +861,12 @@ function DetailContent({
                 </p>
               )}
             </div>
+            {purchaseMode === "total" && <p className="text-sm font-medium">{t("queue.totalMaximum", { n: qty })}</p>}
+            <OrderPurchaseScope id="server-purchase-scope" value={purchaseMode} onChange={setChosenScope} />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] text-muted-foreground mb-1">
-                  {t("servers.detail.qtyPerDc")}
+                  {t(purchaseMode === "total" ? "queue.qtyTotal" : "servers.detail.qtyPerDc")}
                   <span className="ml-1 opacity-60">{t("servers.detail.qtyMax", { n: MAX_ORDER_QUANTITY })}</span>
                 </label>
                 <Input
@@ -896,7 +902,8 @@ function DetailContent({
         <div className="mr-auto text-[12px] text-muted-foreground">
           <div className="mb-1 font-medium text-foreground">{t("orderDuration.label")} · <OrderDurationLabel value={duration} /></div>
           {selectedDCs.length > 0
-            ? t("servers.detail.willCreate", {
+            ? t(purchaseMode === "total" ? "queue.totalMaximum" : "servers.detail.willCreate", {
+                n: qty,
                 tasks: totalTasks,
                 dcs: selectedDCs.length,
                 qty,
@@ -972,6 +979,7 @@ function DetailContent({
               coupon,
               duration,
               preorder,
+              purchaseMode,
             });
             if (result.success > 0) {
               preparation.submitted();

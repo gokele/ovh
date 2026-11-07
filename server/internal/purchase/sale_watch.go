@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/orderterm"
+	"github.com/ovh-buy/server/internal/types"
 	ovhsdk "github.com/ovh/go-ovh/ovh"
 )
 
@@ -27,10 +29,13 @@ type saleListener struct {
 type accountSaleWatch struct {
 	cancel    context.CancelFunc
 	listeners map[*saleListener]bool
+	account   types.OVHAccount
+	latest    map[string]saleSnapshot
+	retryAt   time.Time
 }
 
 // One read-only offer poll per account, regardless of the number of tasks/DCs.
-// An offer change wakes tasks; it never authorizes checkout or replaces stock validation.
+// Base and addon changes wake tasks; the purchase path verifies the complete configuration.
 type saleWatcher struct {
 	state    *app.State
 	ctx      context.Context
@@ -58,12 +63,17 @@ func (s *saleWatcher) subscribe(account, plan, duration string) (<-chan struct{}
 	watch := s.accounts[account]
 	if watch == nil {
 		ctx, cancel := context.WithCancel(s.ctx)
-		watch = &accountSaleWatch{cancel: cancel, listeners: map[*saleListener]bool{}}
+		watch = &accountSaleWatch{cancel: cancel, listeners: map[*saleListener]bool{}, latest: map[string]saleSnapshot{}}
 		s.accounts[account] = watch
 		s.wg.Add(1)
 		go func() { defer s.wg.Done(); s.run(ctx, account, watch) }()
 	}
 	watch.listeners[listener] = true
+	if snapshot := watch.latest[plan]; snapshot.fresh(watch.account, plan) {
+		if _, ok := salePrice(snapshot.base["prices"], duration, ""); ok {
+			listener.changes <- struct{}{}
+		}
+	}
 	return listener.changes, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -87,7 +97,7 @@ func (s *saleWatcher) close() {
 	s.wg.Wait()
 }
 
-func (s *saleWatcher) publish(watch *accountSaleWatch, offers []map[string]interface{}) {
+func (s *saleWatcher) publish(watch *accountSaleWatch, offers []map[string]interface{}, addons ...map[string][]map[string]interface{}) {
 	byPlan := make(map[string]map[string]interface{}, len(offers))
 	for _, offer := range offers {
 		if plan, ok := offer["planCode"].(string); ok {
@@ -96,13 +106,22 @@ func (s *saleWatcher) publish(watch *accountSaleWatch, offers []map[string]inter
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if watch.latest == nil {
+		watch.latest = map[string]saleSnapshot{}
+	}
+	watch.retryAt = time.Time{}
 	for listener := range watch.listeners {
 		offer := byPlan[listener.plan]
-		if _, _, ok := orderterm.Pick(offer["prices"], listener.duration, ""); !ok {
+		var options []map[string]interface{}
+		if len(addons) > 0 {
+			options = addons[0][listener.plan]
+		}
+		watch.latest[listener.plan] = saleSnapshot{account: watch.account, plan: listener.plan, base: offer, options: options, at: time.Now()}
+		if _, ok := salePrice(offer["prices"], listener.duration, ""); !ok {
 			listener.last = [32]byte{}
 			continue
 		}
-		encoded, _ := json.Marshal(offer["prices"])
+		encoded, _ := json.Marshal([]interface{}{offer["prices"], options})
 		signature := sha256.Sum256(encoded)
 		if listener.last == signature {
 			continue
@@ -115,6 +134,67 @@ func (s *saleWatcher) publish(watch *accountSaleWatch, offers []map[string]inter
 	}
 }
 
+func (s *saleWatcher) latest(account, plan string) saleSnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if watch := s.accounts[account]; watch != nil {
+		snapshot := watch.latest[plan]
+		snapshot.retryAt = watch.retryAt
+		return snapshot
+	}
+	return saleSnapshot{}
+}
+
+func (s *saleWatcher) pollOptions(ctx context.Context, probe *saleProbe, watch *accountSaleWatch, offers []map[string]interface{}) (map[string][]map[string]interface{}, time.Duration, error) {
+	s.mu.Lock()
+	plans := map[string]bool{}
+	for listener := range watch.listeners {
+		for _, offer := range offers {
+			if offer["planCode"] == listener.plan {
+				if _, ok := salePrice(offer["prices"], listener.duration, ""); ok {
+					plans[listener.plan] = true
+				}
+				break
+			}
+		}
+	}
+	s.mu.Unlock()
+	result := map[string][]map[string]interface{}{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var firstErr error
+	var retryAfter time.Duration
+	limit := make(chan struct{}, 4)
+	for plan := range plans {
+		wg.Add(1)
+		go func(plan string) {
+			defer wg.Done()
+			select {
+			case limit <- struct{}{}:
+				defer func() { <-limit }()
+			case <-ctx.Done():
+				return
+			}
+			var options []map[string]interface{}
+			after, err := saleRequest(ctx, probe.session.client, http.MethodGet, "/order/cart/"+probe.cart.id+"/eco/options?planCode="+url.QueryEscape(plan), nil, &options)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				if after > retryAfter {
+					retryAfter = after
+				}
+				return
+			}
+			result[plan] = options
+		}(plan)
+	}
+	wg.Wait()
+	return result, retryAfter, firstErr
+}
+
 func (s *saleWatcher) run(ctx context.Context, account string, watch *accountSaleWatch) {
 	probe := saleProbe{state: s.state, account: account}
 	defer probe.close()
@@ -122,14 +202,24 @@ func (s *saleWatcher) run(ctx context.Context, account string, watch *accountSal
 	for ctx.Err() == nil {
 		pollCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		offers, retryAfter, err := probe.poll(pollCtx)
+		var options map[string][]map[string]interface{}
+		if err == nil {
+			options, retryAfter, err = s.pollOptions(pollCtx, &probe, watch, offers)
+		}
 		cancel()
 		delay := salePollInterval
 		if err == nil {
 			failures = 0
-			s.publish(watch, offers)
+			s.mu.Lock()
+			watch.account = probe.session.account
+			s.mu.Unlock()
+			s.publish(watch, offers, options)
 		} else {
 			failures++
 			delay = saleRetryDelay(failures, retryAfter)
+			s.mu.Lock()
+			watch.retryAt = time.Now().Add(delay)
+			s.mu.Unlock()
 			if failures == 1 {
 				s.state.Logger.Debug(fmt.Sprintf("账户 %s 的预售销售探测失败，%s 后重试（任务保留原有重试）：%s", account, delay.Round(time.Millisecond), err), "purchase")
 			}

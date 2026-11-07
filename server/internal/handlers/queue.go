@@ -15,6 +15,7 @@ import (
 	"github.com/ovh-buy/server/internal/app"
 	"github.com/ovh-buy/server/internal/catalog"
 	"github.com/ovh-buy/server/internal/orderterm"
+	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/purchase"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -28,6 +29,9 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			AccountID     string   `json:"account_id"`
 			PlanCode      string   `json:"planCode"`
 			Datacenter    string   `json:"datacenter"`
+			Datacenters   []string `json:"datacenters"`
+			Quantity      *int     `json:"quantity"`
+			PurchaseMode  string   `json:"purchaseMode"`
 			Options       []string `json:"options"`
 			RetryInterval int      `json:"retryInterval"`
 			// AutoPay 下单成功后用默认支付方式自动付款(显式开关,默认关)
@@ -56,10 +60,31 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 		}
 		body.PlanCode = strings.TrimSpace(body.PlanCode)
 		body.Datacenter = strings.TrimSpace(body.Datacenter)
-		if body.PlanCode == "" || body.Datacenter == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "缺少 planCode 或 datacenter", "code": "E75DA4B08"})
+		if len(body.Datacenters) == 0 && body.Datacenter != "" {
+			body.Datacenters = []string{body.Datacenter}
+		} else if body.Datacenter != "" {
+			c.JSON(400, gin.H{"error": "datacenter 与 datacenters 不能同时填写"})
 			return
 		}
+		qty := 1
+		if body.Quantity != nil {
+			qty = *body.Quantity
+		}
+		if body.PlanCode == "" || qty < 1 || qty > types.MaxOrderQuantity || len(body.Datacenters) == 0 || len(body.Datacenters)*qty > types.MaxOrderFanout || (body.PurchaseMode != "" && body.PurchaseMode != "perDatacenter" && body.PurchaseMode != "total") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请填写型号、机房及有效数量和购买方式"})
+			return
+		}
+		seen := map[string]bool{}
+		for i, dc := range body.Datacenters {
+			dc = ovh.ConvertDisplayDCToAPIDC(strings.TrimSpace(dc))
+			if dc == "" || seen[dc] {
+				c.JSON(400, gin.H{"error": "机房不能为空或重复"})
+				return
+			}
+			seen[dc] = true
+			body.Datacenters[i] = dc
+		}
+
 		// 入队前挡住"这个账户根本买不到这台机器"的任务(跨区 / 非 Eco / planCode 不存在)。
 		// 前端的下单对话框有独立的账户选择器(web/src/routes/servers.tsx:646),
 		// 机型列表却是按另一个账户拉的 —— 拿欧区机型配美区账户是一键就能做出来的组合。
@@ -74,26 +99,28 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 		}
 		// 没给 / 给 0 = 用全局默认(设置页可改);超出区间夹回来
 		body.RetryInterval = types.ClampRetryInterval(body.RetryInterval, state.Config.RetryInterval())
-		item := types.QueueItem{
-			ID:            uuid.NewString(),
-			AccountID:     body.AccountID,
-			Duration:      body.Duration,
-			PlanCode:      body.PlanCode,
-			Datacenter:    body.Datacenter,
-			Options:       body.Options,
-			Status:        "running",
-			CreatedAt:     types.NowISO(),
-			UpdatedAt:     types.NowISO(),
-			RetryInterval: body.RetryInterval,
-			RetryCount:    0,
-			LastCheckTime: 0,
-			AutoPay:       body.AutoPay,
-			Preorder:      body.Preorder,
-			Coupon:        strings.TrimSpace(body.Coupon),
+		items := make([]types.QueueItem, 0, len(body.Datacenters)*qty)
+		ids := make([]string, 0, cap(items))
+		group := ""
+		if body.PurchaseMode == "total" {
+			group = uuid.NewString()
 		}
+		for _, dc := range body.Datacenters {
+			for n := 0; n < qty; n++ {
+				item := types.QueueItem{ID: uuid.NewString(), AccountID: body.AccountID, Duration: body.Duration, PlanCode: body.PlanCode, Datacenter: dc,
+					Options: append([]string(nil), body.Options...), Status: "running", CreatedAt: types.NowISO(), UpdatedAt: types.NowISO(), RetryInterval: body.RetryInterval,
+					AutoPay: body.AutoPay, Preorder: body.Preorder, Coupon: strings.TrimSpace(body.Coupon), OrderGroup: group}
+				if group != "" {
+					item.GroupLimit = qty
+				}
+				items = append(items, item)
+				ids = append(ids, item.ID)
+			}
+		}
+
 		// 入队 + 落库是一件事:EnqueueItems 失败会把这条从内存撤回,
 		// 不留"这次能跑但重启就丢"的半成功任务
-		if err := state.EnqueueItems([]types.QueueItem{item}, false); err != nil {
+		if err := state.EnqueueItems(items, false); err != nil {
 			state.Logger.Error("添加任务后保存队列失败,已撤回: "+err.Error(), "queue")
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status": "error",
@@ -101,9 +128,8 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			})
 			return
 		}
-		state.Logger.Info("添加任务 "+item.ID+" ("+item.PlanCode+" 在 "+item.Datacenter+", 账户 "+body.AccountID+") 到队列并立即启动 (状态: running)", "")
-		// 不再有 warning 分支:落库要么成功、要么整条撤回并报错,没有中间态
-		c.JSON(http.StatusOK, gin.H{"status": "success", "id": item.ID})
+		state.Logger.Info(fmt.Sprintf("添加 %d 个 %s 抢购任务（账户 %s，总量限制 %s）", len(items), body.PlanCode, body.AccountID, body.PurchaseMode), "queue")
+		c.JSON(http.StatusOK, gin.H{"status": "success", "id": ids[0], "ids": ids, "count": len(ids)})
 	}
 }
 

@@ -107,11 +107,11 @@ func TestUserPreorderEndToEndSimulation(t *testing.T) {
 					if !open {
 						return response(r, 200, []interface{}{})
 					}
-					return response(r, 200, []map[string]interface{}{{"planCode": plan, "prices": []map[string]interface{}{{"duration": duration, "pricingMode": "default"}}}})
+					return response(r, 200, []map[string]interface{}{{"planCode": plan, "prices": []map[string]interface{}{{"duration": duration, "pricingMode": "default", "price": map[string]interface{}{"value": 30, "currencyCode": "EUR"}}}}})
 				case strings.HasSuffix(path, "/eco/options") && r.Method == "GET":
 					options := []map[string]interface{}{}
 					for _, code := range []string{offeredRAM, offeredDisk, hdd} {
-						options = append(options, map[string]interface{}{"planCode": code + "-" + plan, "prices": []map[string]interface{}{{"duration": duration, "pricingMode": "default"}}})
+						options = append(options, map[string]interface{}{"planCode": code + "-" + plan, "prices": []map[string]interface{}{{"duration": duration, "pricingMode": "default", "price": map[string]interface{}{"value": 30, "currencyCode": "EUR"}}}})
 					}
 					return response(r, 200, options)
 				case (strings.HasSuffix(path, "/eco") || strings.HasSuffix(path, "/eco/options")) && r.Method == "POST":

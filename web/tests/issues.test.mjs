@@ -235,7 +235,7 @@ test("preorder option labels retain DDR, ECC, frequency and every disk group", a
 });
 
 
-test("coupon is trimmed and sent to every datacenter and quantity task", async () => {
+test("coupon and quantity scope are sent in one atomic queue request", async () => {
   const { useCreateQueueItem } = await server.ssrLoadModule("/src/hooks/use-queue.ts");
   const { api } = await server.ssrLoadModule("/src/lib/api.ts");
   const client = new QueryClient();
@@ -244,15 +244,18 @@ test("coupon is trimmed and sent to every datacenter and quantity task", async (
   api.defaults.adapter = async (config) => {
     assert.equal(config.url, "/queue");
     bodies.push(JSON.parse(config.data));
-    return { data: {}, status: 200, statusText: "OK", headers: {}, config };
+    return { data: { count: JSON.parse(config.data).datacenters.length * JSON.parse(config.data).quantity }, status: 200, statusText: "OK", headers: {}, config };
   };
   let mutation;
   function Probe() { mutation = useCreateQueueItem(); return null; }
   try {
     renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
-    const result = await mutation.mutateAsync({ account_id: "eu", planCode: "24sk202", datacenters: ["gra", "rbx"], quantity: 2, options: ["ram-64g"], preorder: true, coupon: " Save10 " });
+    const result = await mutation.mutateAsync({ account_id: "eu", planCode: "24sk202", datacenters: ["gra", "rbx"], quantity: 2, options: ["ram-64g"], preorder: true, purchaseMode: "total", coupon: " Save10 " });
     assert.equal(result.success, 4);
-    assert.deepEqual(bodies.map((b) => b.datacenter), ["gra", "gra", "rbx", "rbx"]);
+    assert.equal(bodies.length, 1);
+    assert.deepEqual(bodies[0].datacenters, ["gra", "rbx"]);
+    assert.equal(bodies[0].quantity, 2);
+    assert.equal(bodies[0].purchaseMode, "total");
     for (const body of bodies) {
       assert.equal(body.coupon, "Save10");
       assert.equal(body.autoPay, false);
@@ -954,4 +957,25 @@ test("purchase period field labels and unsupported states work in both languages
     assert.ok(html.includes(i18n.t("orderDuration.unsupported")));
     assert.ok(!html.includes("orderDuration."));
   }
+});
+
+
+test("presale tasks require explicit RAM and complete disks, and scope labels work in both languages", async () => {
+  const { hasPreorderHardware } = await server.ssrLoadModule("/src/lib/preorder-options.ts");
+  const { OrderPurchaseScope } = await server.ssrLoadModule("/src/components/queue/OrderPurchaseScope.tsx");
+  const { default: i18n } = await server.ssrLoadModule("/src/i18n/index.ts");
+  assert.equal(hasPreorderHardware([]), false);
+  assert.equal(hasPreorderHardware(["ram-32g-ddr4-ecc-2400"]), false);
+  assert.equal(hasPreorderHardware(["ram-32g-ddr4-ecc-2400", "hybridsoftraid-2x8000sa-2x480ssd"]), true);
+  const original = i18n.language;
+  try {
+    for (const lang of ["zh", "en"]) {
+      await i18n.changeLanguage(lang);
+      const html = renderToStaticMarkup(createElement(OrderPurchaseScope, { id: "test-scope", value: "total", onChange() {} }));
+      assert.match(html, /for="test-scope"/);
+      assert.match(html, lang === "zh" ? /所选机房合计/ : /Total across selected datacenters/);
+      assert.doesNotMatch(html, /queue\.(scope|purchase)/);
+      for (const key of ["groupComplete", "groupUncertain", "phase.waitingQuote", "phase.waitingOptions", "phase.waitingQuota"]) assert.notEqual(i18n.t(`queue.${key}`), `queue.${key}`);
+    }
+  } finally { await i18n.changeLanguage(original); }
 });

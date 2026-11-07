@@ -16,3 +16,6 @@ export function preorderVariantCoversAll(fqn: string, options: string[]): boolea
     return parts.some((part) => part === wanted);
   });
 }
+export function hasPreorderHardware(options: string[]): boolean {
+  return options.some((code) => /^ram-/i.test(code)) && options.some((code) => /^(?:hybridsoft|soft|hard|no)?raid-/i.test(code));
+}
