@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"fmt"
+	"github.com/ovh-buy/server/internal/price"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,7 +12,9 @@ import (
 
 // Monitor 服务器补货监控器
 type Monitor struct {
-	state *app.State
+	// priceFn 询价实现;nil 时在进程内调用 price.GetInternalCached。仅测试注入。
+	priceFn func(accountID, planCode, datacenter string, options []string, duration string) price.Result
+	state   *app.State
 
 	subsMu        sync.Mutex
 	subscriptions []*Subscription

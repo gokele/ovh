@@ -1,11 +1,10 @@
 package monitor
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
+	"time"
+
+	"github.com/ovh-buy/server/internal/price"
 )
 
 func TestPriceGateRejectsInvalidAmounts(t *testing.T) {
@@ -20,15 +19,41 @@ func TestPriceGateRejectsInvalidAmounts(t *testing.T) {
 		{"object", map[string]int{"value": 10}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "price": map[string]interface{}{"prices": map[string]interface{}{"withTax": tc.value}}})
-			}))
-			defer server.Close()
 			m := renderTestMonitor(t)
-			m.state.Port = strings.TrimPrefix(server.URL, "http://127.0.0.1:")
-			if valid, _ := m.verifyPriceAvailable("plan", "gra", nil); valid != tc.valid {
+			m.priceFn = func(string, string, string, []string, string) price.Result {
+				return price.Result{Success: true, Price: &price.PriceInfo{Prices: map[string]interface{}{"withTax": tc.value}}}
+			}
+			if valid, _, _ := m.verifyPriceAvailable("plan", "gra", nil); valid != tc.valid {
 				t.Fatalf("valid=%t, want %t", valid, tc.valid)
 			}
 		})
+	}
+}
+
+// 询价暂时失败或超时:返回「没验成」而不是「不可下单」;明确的业务失败仍是不可下单。
+func TestPriceGateSeparatesTransientFromDefiniteFailures(t *testing.T) {
+	m := renderTestMonitor(t)
+	m.priceFn = func(string, string, string, []string, string) price.Result {
+		return price.Result{Error: "429 Too Many Requests", Transient: true}
+	}
+	if ok, _, transient := m.verifyPriceAvailable("plan", "gra", nil); ok || !transient {
+		t.Fatalf("429 must be reported as transient: ok=%t transient=%t", ok, transient)
+	}
+	m.priceFn = func(string, string, string, []string, string) price.Result {
+		return price.Result{Error: "该配置在指定数据中心不可用"}
+	}
+	if ok, _, transient := m.verifyPriceAvailable("plan", "gra", nil); ok || transient {
+		t.Fatal("a definite rejection must not be transient")
+	}
+	release := make(chan struct{})
+	defer close(release)
+	m.priceFn = func(string, string, string, []string, string) price.Result {
+		<-release
+		return price.Result{Success: true}
+	}
+	start := time.Now()
+	result, transient := m.lookupPrice("plan", "gra", nil, 50*time.Millisecond)
+	if !transient || result["success"] == true || time.Since(start) > time.Second {
+		t.Fatalf("slow pricing must time out as transient: %v %t", result, transient)
 	}
 }

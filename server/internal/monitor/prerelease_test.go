@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"fmt"
+	"github.com/ovh-buy/server/internal/price"
 	"io"
 	"log/slog"
 	"net/http"
@@ -30,10 +31,13 @@ func TestPrereleaseMonitorDoesNotAlertOrOrderBeforeListing(t *testing.T) {
 	for _, tc := range []struct {
 		name, subsidiary, plan string
 		listed                 bool
+		transient              bool
 	}{
-		{"not listed", "FI", "27sysle02-v1", false},
-		{"listed", "PT", "27sysle02-v1", true},
-		{"other product family", "LT", "25scale01-v1", false},
+		{"not listed", "FI", "27sysle02-v1", false, false},
+		{"listed", "PT", "27sysle02-v1", true, false},
+		{"other product family", "LT", "25scale01-v1", false, false},
+		// 补货时询价超时/限流:不能因此跳过自动下单
+		{"transient price failure still orders", "PT", "27sysle02-v1", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -84,12 +88,22 @@ func TestPrereleaseMonitorDoesNotAlertOrOrderBeforeListing(t *testing.T) {
 			}
 			client.Client = &http.Client{Transport: transport}
 			m := New(st)
+			m.priceFn = func(string, string, string, []string, string) price.Result {
+				quotes.Add(1)
+				if tc.transient {
+					return price.Result{Error: "价格校验超过 8 秒未完成", Transient: true}
+				}
+				if tc.listed {
+					return price.Result{Success: true, Price: &price.PriceInfo{Prices: map[string]interface{}{"withTax": 30, "currencyCode": "EUR"}}}
+				}
+				return price.Result{Error: "plan is not in this subsidiary's catalog"}
+			}
 			oldStatus := "price_check_failed"
 			if tc.name == "other product family" {
 				oldStatus = "unavailable"
 			}
 			m.AddSubscription(plan, []string{"bhs"}, true, true, "", map[string]string{"bhs|" + fqn: oldStatus}, nil,
-				!tc.listed, 1, st.Accounts[0].ID, nil, "")
+				!tc.listed || tc.transient, 1, st.Accounts[0].ID, nil, "")
 			// A restored old failure must not cause repeated initial alerts either.
 			sub := fromDBSub(toDBSub(m.subscriptions[0]))
 			m.subscriptions[0] = sub
@@ -103,7 +117,11 @@ func TestPrereleaseMonitorDoesNotAlertOrOrderBeforeListing(t *testing.T) {
 				// Expire the 100ms shared stock snapshot between observations.
 				time.Sleep(110 * time.Millisecond)
 			}
-			if tc.listed {
+			if tc.transient {
+				if alerts.Load() != 1 || quotes.Load() == 0 || len(st.Queue) == 0 || sub.statusSnapshot()["bhs|"+fqn] != "available" {
+					t.Fatalf("transient price failure must still alert and auto-order: alerts=%d quotes=%d queue=%d status=%v", alerts.Load(), quotes.Load(), len(st.Queue), sub.statusSnapshot())
+				}
+			} else if tc.listed {
 				if alerts.Load() != 1 || quotes.Load() == 0 || sub.statusSnapshot()["bhs|"+fqn] != "available" {
 					t.Fatalf("listed recovery must alert once: alerts=%d quotes=%d status=%v", alerts.Load(), quotes.Load(), sub.statusSnapshot())
 				}

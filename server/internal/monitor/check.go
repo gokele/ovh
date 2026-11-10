@@ -518,7 +518,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 		m.prepareAlertTargets(sub, cfg, choice.accountID, effectiveOptions, alertTargets)
 
 		// 并发价格校验
-		priceCheckResults := map[string][2]interface{}{}
+		priceCheckResults := map[string][3]interface{}{}
 		if len(priceCheckTasks) > 0 {
 			var pcMu sync.Mutex
 			var wg sync.WaitGroup
@@ -534,12 +534,12 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 					defer wg.Done()
 					defer func() { <-sem }()
 					ready := m.state.OrderPrewarm != nil && m.state.OrderPrewarm.Ready(types.QueueItem{AccountID: choice.accountID, PlanCode: planCode, Datacenter: dc, Options: effectiveOptions, Duration: cfg.Duration})
-					ok, errMsg := true, ""
+					ok, errMsg, transient := true, "", false
 					if !ready {
-						ok, errMsg = m.verifyPriceAvailable(planCode, dc, priceCfg)
+						ok, errMsg, transient = m.verifyPriceAvailable(planCode, dc, priceCfg)
 					}
 					pcMu.Lock()
-					priceCheckResults[dc] = [2]interface{}{ok, errMsg}
+					priceCheckResults[dc] = [3]interface{}{ok, errMsg, transient}
 					pcMu.Unlock()
 					if ok {
 						m.state.Logger.Info(fmt.Sprintf("%s@%s [%s] 价格校验通过 [config-trace:%s]",
@@ -554,6 +554,8 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 		}
 
 		notifications := []notification{}
+		// priceUnverified 本轮价格没验成但按有货处理的机房原因,写进有货通知
+		var priceUnverified []string
 
 		for dc, ds := range dcStatusMap {
 			// 状态机(以及落进 lastStatus 的值)只认 available / unavailable /
@@ -567,7 +569,15 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 				if v, ok := priceCheckResults[dc]; ok {
 					okBool, _ := v[0].(bool)
 					errStr, _ := v[1].(string)
-					if !okBool {
+					transient, _ := v[2].(bool)
+					if !okBool && transient {
+						// 没验成(超时、网络、429、5xx)不等于不可下单:照常当作有货交给抢购任务,
+						// 任务结账前会自己建车并逐项核对型号、配置、周期与数量。
+						actualStatus = "available"
+						priceUnverified = append(priceUnverified, errStr)
+						m.state.Logger.Warn(fmt.Sprintf("%s@%s [%s] 价格校验暂时未完成(%s),按有货处理,下单前由抢购任务完整核对",
+							planCode, dc, configDisplay, errStr), "monitor")
+					} else if !okBool {
 						actualStatus = "price_check_failed"
 						priceCheckFailed = true
 						priceCheckError = errStr
@@ -796,6 +806,14 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			errIfNoPrice := ""
 			if priceText == "" {
 				errIfNoPrice = priceFetchError
+			}
+			if len(priceUnverified) > 0 {
+				note := "价格校验未完成（" + priceUnverified[0] + "），已照常交给抢购任务，下单前会完整核对购物车"
+				if errIfNoPrice != "" {
+					errIfNoPrice += "；" + note
+				} else {
+					errIfNoPrice = note
+				}
 			}
 			if !m.checkCurrent(sub, cfg) {
 				return
