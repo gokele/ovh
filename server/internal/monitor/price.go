@@ -215,7 +215,15 @@ func (m *Monitor) verifyPriceAvailable(planCode, datacenter string, configInfo m
 	return true, "", false
 }
 
+// GetPriceInfoText 通知里的周期价格文本(不含一次性安装费)。
 func (m *Monitor) GetPriceInfoText(planCode, datacenter string, configInfo map[string]interface{}) string {
+	text, _ := m.priceTexts(planCode, datacenter, configInfo)
+	return text
+}
+
+// priceTexts 返回 (周期价格, 一次性安装费)。周期价格用 summary 拆出的 recurringWithTax;
+// 安装费取同一份 summary,与周期价格同口径(含税)。
+func (m *Monitor) priceTexts(planCode, datacenter string, configInfo map[string]interface{}) (string, string) {
 	options := optionsFromConfig(configInfo)
 
 	m.state.Logger.Debug(fmt.Sprintf("开始获取价格: plan_code=%s, datacenter=%s, options=%v",
@@ -226,20 +234,20 @@ func (m *Monitor) GetPriceInfoText(planCode, datacenter string, configInfo map[s
 	if ok, _ := result["success"].(bool); !ok {
 		errMsg, _ := result["error"].(string)
 		m.state.Logger.Warn("价格获取失败: "+errMsg, "monitor")
-		return ""
+		return "", ""
 	}
 	priceInfo, _ := result["price"].(map[string]interface{})
 	if priceInfo == nil {
-		return ""
+		return "", ""
 	}
 	prices, _ := priceInfo["prices"].(map[string]interface{})
 	if prices == nil {
-		return ""
+		return "", ""
 	}
 	withTaxRaw, ok := prices["withTax"]
 	if !ok || withTaxRaw == nil {
 		m.state.Logger.Warn("价格获取成功但withTax为None", "monitor")
-		return ""
+		return "", ""
 	}
 	accountID := accountIDFromConfig(configInfo)
 	subsidiary := m.subsidiaryOfPricingAccount(accountID)
@@ -261,40 +269,50 @@ func (m *Monitor) GetPriceInfoText(planCode, datacenter string, configInfo map[s
 				planCode, datacenter, strings.ToUpper(currency), subsidiary, want), "monitor")
 		}
 	}
-	if v, ok := numconv.ToFloat64(withTaxRaw); ok {
+	// summary 的 withTax 是首张账单合计(含安装费);能拆出周期费时只展示周期费
+	amountRaw := withTaxRaw
+	if r, ok := prices["recurringWithTax"]; ok && r != nil {
+		amountRaw = r
+	}
+	setup := ""
+	if s, ok := numconv.ToFloat64(prices["setupWithTax"]); ok && s > 0 {
+		setup = formatAmount(currency, s)
+	}
+	if v, ok := numconv.ToFloat64(amountRaw); ok {
 		text := formatMoney(currency, v)
 		if duration, _ := configInfo["duration"].(string); duration != "" && duration != "P1M" {
 			text = formatAmount(currency, v) + " / " + orderterm.Label(duration)
 		}
 		m.state.Logger.Debug("价格获取成功: "+text, "monitor")
-		return text
+		return text, setup
 	}
-	return ""
+	return "", ""
 }
 
 // getPriceWithTimeout 带 30 秒超时的询价
-func (m *Monitor) getPriceWithTimeout(planCode, datacenter string, configInfo map[string]interface{}, timeout time.Duration) (string, string) {
+// getPriceWithTimeout 返回 (周期价格, 安装费, 失败说明)。
+func (m *Monitor) getPriceWithTimeout(planCode, datacenter string, configInfo map[string]interface{}, timeout time.Duration) (string, string, string) {
 	type res struct {
-		text string
+		text, setup string
 	}
 	ch := make(chan res, 1)
 	start := time.Now()
 	go func() {
-		text := m.GetPriceInfoText(planCode, datacenter, configInfo)
-		ch <- res{text: text}
+		text, setup := m.priceTexts(planCode, datacenter, configInfo)
+		ch <- res{text: text, setup: setup}
 	}()
 	select {
 	case r := <-ch:
 		if r.text == "" {
 			elapsed := time.Since(start).Seconds()
-			return "", fmt.Sprintf("价格接口未返回结果（耗时%.1f秒）", elapsed)
+			return "", "", fmt.Sprintf("价格接口未返回结果（耗时%.1f秒）", elapsed)
 		}
-		return r.text, ""
+		return r.text, r.setup, ""
 	case <-time.After(timeout):
 		elapsed := time.Since(start).Seconds()
 		errMsg := fmt.Sprintf("价格接口超时（等待%.1f秒）", elapsed)
 		m.state.Logger.Warn("价格获取超时，发送不带价格的通知。后台请求将继续运行直到完成。", "monitor")
-		return "", errMsg
+		return "", "", errMsg
 	}
 }
 

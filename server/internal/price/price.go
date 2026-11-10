@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ovh-buy/server/internal/orderterm"
+	"math"
 	"net/url"
 	"strings"
 
@@ -448,6 +449,8 @@ func GetInternal(state *app.State, accountID, planCode, datacenter string, optio
 		}
 	}
 
+	splitRecurringAndSetup(priceInfo, cartSummary)
+
 	withTaxStr := fmt.Sprintf("%v", priceInfo.Prices["withTax"])
 	currencyStr := fmt.Sprintf("%v", priceInfo.Prices["currencyCode"])
 	state.Logger.Info(fmt.Sprintf("价格查询成功: 总价含税=%s %s", withTaxStr, currencyStr), "price")
@@ -545,4 +548,57 @@ func extractPriceField(v interface{}) (interface{}, string) {
 		return f, ""
 	}
 	return nil, ""
+}
+
+// splitRecurringAndSetup 把 summary 的总价拆成周期费与一次性安装费。
+//
+// GET /order/cart/{id}/summary 的 prices 是**首张账单的合计**:首个周期 + 安装费。
+// 以前直接把它当成「每月价格」展示,同时又单独显示安装费,安装费被算了两次
+// (例:€14.62/月 + €23.36 安装费被印成「€37.98/月」)。
+// details[] 里 detailType=INSTALLATION 的行就是安装费(不含税);各行税率相同,
+// 含税部分按不含税金额的比例拆分。withTax/withoutTax 保持为合计,供「价格有效」闸门使用。
+func splitRecurringAndSetup(info *PriceInfo, summary map[string]interface{}) {
+	withTax, okWith := numconv.ToFloat64(info.Prices["withTax"])
+	withoutTax, okWithout := numconv.ToFloat64(info.Prices["withoutTax"])
+	if !okWith || !okWithout || withoutTax <= 0 {
+		return
+	}
+	setupLines, allLines := 0.0, 0.0
+	if details, ok := summary["details"].([]interface{}); ok {
+		for _, raw := range details {
+			d, _ := raw.(map[string]interface{})
+			if d == nil {
+				continue
+			}
+			v, _ := extractPriceField(d["totalPrice"])
+			f, ok := numconv.ToFloat64(v)
+			if !ok {
+				continue
+			}
+			allLines += f
+			if d["detailType"] == "INSTALLATION" && f > 0 {
+				setupLines += f
+			}
+		}
+	}
+	if setupLines <= 0 {
+		// 没有安装费行:合计就是周期费
+		info.Prices["recurringWithTax"] = withTax
+		info.Prices["recurringWithoutTax"] = withoutTax
+		return
+	}
+	// 明细行通常不含税(税只在订单级 prices 上);若明细合计更接近含税总价,则按含税解读
+	setupExcl, setupWith := setupLines, withTax*setupLines/withoutTax
+	if math.Abs(allLines-withTax) < math.Abs(allLines-withoutTax) {
+		setupWith, setupExcl = setupLines, withoutTax*setupLines/withTax
+	}
+	if setupWith > withTax || setupExcl > withoutTax {
+		return // 数据异常时不拆,保持合计
+	}
+	recurringExcl, recurringWith := withoutTax-setupExcl, withTax-setupWith
+	round := func(v float64) float64 { return math.Round(v*100) / 100 }
+	info.Prices["recurringWithTax"] = round(recurringWith)
+	info.Prices["recurringWithoutTax"] = round(recurringExcl)
+	info.Prices["setupWithTax"] = round(setupWith)
+	info.Prices["setupWithoutTax"] = round(setupExcl)
 }

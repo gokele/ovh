@@ -741,7 +741,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 		}
 
 		// 价格查询（同一配置只查一次）
-		var priceText string
+		var priceText, setupText string
 		var priceFetchError string
 		hasAvail := false
 		for _, n := range notifications {
@@ -759,7 +759,7 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 				}
 			}
 			if firstDC != "" {
-				priceText, priceFetchError = m.getPriceWithTimeout(planCode, firstDC, priceCfg, 30*time.Second)
+				priceText, setupText, priceFetchError = m.getPriceWithTimeout(planCode, firstDC, priceCfg, 30*time.Second)
 				if priceText != "" {
 					m.state.Logger.Debug(fmt.Sprintf("配置 %s 价格获取成功: %s，将在所有通知中复用", configDisplay, priceText), "monitor")
 				} else {
@@ -782,7 +782,10 @@ func (m *Monitor) CheckAvailabilityChange(sub *Subscription, traceID string) {
 			// 安装费从公开目录算(已缓存 2 小时,不占账户配额)。
 			// 不走询价接口:那个要真的建购物车再删,一次好几秒 ——
 			// 而补货通知的全部价值就在于"有货那一刻立刻发出去"。
-			if ip := m.installPriceText(planCode, choice.accountID, effectiveOptions); ip != "" {
+			// 优先用询价 summary 拆出的安装费(与周期价格同一份数据、同为含税);拿不到才用目录
+			if setupText != "" {
+				configInfoWithPrice["install_price"] = setupText
+			} else if ip := m.installPriceText(planCode, choice.accountID, effectiveOptions); ip != "" {
 				configInfoWithPrice["install_price"] = ip
 			}
 			availDCs := make([]map[string]interface{}, 0, len(availables))

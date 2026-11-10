@@ -57,3 +57,18 @@ func TestPriceGateSeparatesTransientFromDefiniteFailures(t *testing.T) {
 		t.Fatalf("slow pricing must time out as transient: %v %t", result, transient)
 	}
 }
+
+// 通知的「/月」只显示周期费,安装费单独一行且与月费同口径(含税)。
+func TestPriceTextExcludesSetupFee(t *testing.T) {
+	m := renderTestMonitor(t)
+	m.priceFn = func(string, string, string, []string, string) price.Result {
+		return price.Result{Success: true, Price: &price.PriceInfo{Prices: map[string]interface{}{
+			"withTax": 37.98, "withoutTax": 31.65, "currencyCode": "EUR",
+			"recurringWithTax": 14.62, "setupWithTax": 23.36,
+		}}}
+	}
+	text, setup := m.priceTexts("26sk20", "gra", map[string]interface{}{"duration": "P1M"})
+	if text != "€14.62/月" || setup != "€23.36" {
+		t.Fatalf("price text = %q setup = %q", text, setup)
+	}
+}
