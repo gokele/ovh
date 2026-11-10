@@ -86,6 +86,18 @@ func (w *stockWatcher) subscribe(account, plan string) func() {
 	}
 }
 
+// pollInterval 跟随监控检查间隔加快(设置页最低 1 秒),但不慢于默认 2 秒;
+// 失败退避仍在 run 中按倍数放大。
+func (w *stockWatcher) pollInterval() time.Duration {
+	interval := w.interval
+	if w.state != nil {
+		if s := w.state.MonitorIntervalSeconds.Load(); s > 0 && time.Duration(s)*time.Second < interval {
+			interval = time.Duration(s) * time.Second
+		}
+	}
+	return interval
+}
+
 func (w *stockWatcher) close() {
 	if w == nil {
 		return
@@ -109,7 +121,7 @@ func (w *stockWatcher) run(ctx context.Context, key stockWatchKey) {
 			return w.fetch(pollCtx, w.state, session, key.account, key.plan)
 		})
 		cancel()
-		delay := w.interval
+		delay := w.pollInterval()
 		if err != nil && ctx.Err() == nil {
 			failures++
 			for i := 1; i < failures && delay < 30*time.Second; i++ {

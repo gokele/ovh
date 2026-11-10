@@ -93,3 +93,20 @@ func TestStaleStockSignalStillWakesTask(t *testing.T) {
 		t.Fatal("stale signal must trigger a fresh stock read, not be reused for checkout")
 	}
 }
+
+// 共享库存探测跟随更快的监控间隔,但永远不慢于默认 2 秒。
+func TestStockPollFollowsFasterMonitorInterval(t *testing.T) {
+	state := queueCompletionState(t)
+	w := newStockWatcher(context.Background(), state)
+	if got := w.pollInterval(); got != stockPollInterval {
+		t.Fatalf("default = %s", got)
+	}
+	state.MonitorIntervalSeconds.Store(1)
+	if got := w.pollInterval(); got != time.Second {
+		t.Fatalf("1s monitor should speed polling, got %s", got)
+	}
+	state.MonitorIntervalSeconds.Store(30)
+	if got := w.pollInterval(); got != stockPollInterval {
+		t.Fatalf("slow monitor must not slow polling, got %s", got)
+	}
+}

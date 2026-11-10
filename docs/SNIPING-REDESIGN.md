@@ -140,3 +140,16 @@
 - 它的 region 静态表在美区会发出目录里不存在的值;本项目按目录/`requiredConfiguration` 取。
 - 它结账时放弃 14 天撤回权;本项目有测试禁止发送该字段。
 - 它没有结账登记,网络错误后会重试结账,可能重复下单;本项目结果不明即暂停。
+
+## 11. 第二轮核对与提速(2026-11-10)
+
+接口用法:对照 EU/US 官方 `order.json`,建车 `order.cart.Creation`(仅 ovhSubsidiary 必填)、加购 `GenericProductCreation`、选项 `GenericOptionCreation`(含 itemId)、配置 `ItemConfigurationCreation`(label/value)、优惠码 `CouponCreation`、结账 `order.cart.Checkout`(两个字段均非必填,不发 waiveRetractationPeriod)全部与代码一致,未发现错误用法。
+
+| 改动 | 省下的等待 |
+|---|---|
+| `orderterm.VerifyCart` 同层项目并行读取(先依次签名,再并发发送) | 预售开售时 N 个选项的 N 次串行读取变为 1 次 |
+| 预售非月付:建车时直接用销售探测几秒内的 `/eco` 报价确定周期与计价方式 | 1 次往返 |
+| `readSaleSnapshot` 同时读取基础与选项报价 | 1 次往返 |
+| 共享库存探测跟随监控间隔(最快 1 秒,不慢于 2 秒) | 平均发现延迟最多减半 |
+
+未改:配置项与选项写入仍串行(同一购物车并发写的行为没有官方保证,失败即丢单);结账前登记仍写库。

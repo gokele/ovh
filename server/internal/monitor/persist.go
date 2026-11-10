@@ -145,6 +145,7 @@ func (m *Monitor) LoadFromDB() {
 		interval = ClampCheckInterval(saved)
 	}
 	m.checkInterval = interval
+	m.state.MonitorIntervalSeconds.Store(int64(interval))
 	m.state.Logger.Info(fmt.Sprintf("监控检查间隔: %d 秒", interval), "monitor")
 	m.state.Logger.Info("已加载订阅", "monitor")
 }

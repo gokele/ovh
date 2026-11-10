@@ -403,6 +403,7 @@ func (m *Monitor) SetCheckInterval(v int) int {
 	m.subsMu.Lock()
 	m.checkInterval = v
 	m.subsMu.Unlock()
+	m.state.MonitorIntervalSeconds.Store(int64(v))
 	m.state.Logger.Info(fmt.Sprintf("监控检查间隔已设置为 %d 秒", v), "monitor")
 	return v
 }

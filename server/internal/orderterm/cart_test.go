@@ -148,3 +148,32 @@ func TestCartRequiresEveryExpectedHardwareSKU(t *testing.T) {
 		})
 	}
 }
+
+// 同一层的购物车项目并行读取:三个各慢 150ms 的项目不能串行累加到 450ms。
+func TestCartItemsAreReadInParallel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/auth/time":
+			fmt.Fprint(w, time.Now().Unix())
+		case "/order/cart/fast":
+			fmt.Fprint(w, `{"items":[1,2,3]}`)
+		default:
+			time.Sleep(150 * time.Millisecond)
+			id := strings.TrimPrefix(r.URL.Path, "/order/cart/fast/item/")
+			plan := map[string]string{"1": "plan", "2": "ram", "3": "disk"}[id]
+			fmt.Fprintf(w, `{"itemId":%s,"duration":"P1M","settings":{"planCode":%q,"quantity":1}}`, id, plan)
+		}
+	}))
+	defer server.Close()
+	client, err := ovhsdk.NewClient(server.URL, "ak", "as", "ck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if err := VerifyCart(context.Background(), client, "fast", 1, "P1M", "plan", "ram", "disk"); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 350*time.Millisecond {
+		t.Fatalf("item reads ran serially: %s", elapsed)
+	}
+}

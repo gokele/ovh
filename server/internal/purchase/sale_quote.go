@@ -90,10 +90,30 @@ func (s saleSnapshot) ready(period, mode string, selected []string, selectedMode
 	return true
 }
 
+// readSaleSnapshot 同时读取基础报价与该型号的选项报价(都是只读 GET),开售时少一次串行往返。
+// go-ovh 签名会改写共享 Timeout,所以两次签名都在当前 goroutine 完成后再并发发送。
+// 基础商品不在售时忽略选项结果,与原先「先看基础再读选项」的判定一致。
 func readSaleSnapshot(ctx context.Context, client *ovhsdk.Client, account types.OVHAccount, cartID, plan string) (saleSnapshot, error) {
 	snapshot := saleSnapshot{account: account, plan: plan}
+	baseReq, err := client.NewRequest(http.MethodGet, "/order/cart/"+cartID+"/eco", nil, true)
+	if err != nil {
+		return snapshot, err
+	}
+	optReq, err := client.NewRequest(http.MethodGet, "/order/cart/"+cartID+"/eco/options?planCode="+url.QueryEscape(plan), nil, true)
+	if err != nil {
+		return snapshot, err
+	}
+	var options []map[string]interface{}
+	var optAfter time.Duration
+	var optErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		optAfter, optErr = sendSaleRequest(ctx, client, optReq, &options)
+	}()
 	var offers []map[string]interface{}
-	after, err := saleRequest(ctx, client, http.MethodGet, "/order/cart/"+cartID+"/eco", nil, &offers)
+	after, err := sendSaleRequest(ctx, client, baseReq, &offers)
+	<-done
 	if err != nil {
 		snapshot.retryAt = time.Now().Add(after)
 		return snapshot, err
@@ -108,11 +128,11 @@ func readSaleSnapshot(ctx context.Context, client *ovhsdk.Client, account types.
 		snapshot.at = time.Now()
 		return snapshot, nil
 	}
-	after, err = saleRequest(ctx, client, http.MethodGet, "/order/cart/"+cartID+"/eco/options?planCode="+url.QueryEscape(plan), nil, &snapshot.options)
-	if err != nil {
-		snapshot.retryAt = time.Now().Add(after)
-		return snapshot, err
+	if optErr != nil {
+		snapshot.retryAt = time.Now().Add(optAfter)
+		return snapshot, optErr
 	}
+	snapshot.options = options
 	snapshot.at = time.Now()
 	return snapshot, nil
 }

@@ -173,7 +173,15 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 	if resumed == nil {
 		// 月付沿用快速路径；其他周期先取 OVH 的实际 duration/pricingMode。
 		state.Logger.Info(fmt.Sprintf("添加基础商品 %s 到购物车 (使用 /eco)", item.PlanCode), "purchase")
-		if selectedDuration != orderterm.Default {
+		quoted := false
+		if sale, ok := ctx.Value(saleSignalKey{}).(saleSnapshot); item.Preorder && selectedDuration != orderterm.Default && ok && sale.fresh(account, item.PlanCode) && sale.base != nil {
+			// 销售探测几秒内刚读过同一账户的 GET /order/cart/{id}/eco,周期与计价方式直接取它,
+			// 开售瞬间少一次往返;取不到才回退到下面的实时读取。
+			if d, mode, picked := orderterm.Pick(sale.base["prices"], selectedDuration, ""); picked {
+				baseDuration, basePricingMode, quoted = d, mode, true
+			}
+		}
+		if selectedDuration != orderterm.Default && !quoted {
 			baseDuration, basePricingMode, err = orderterm.Lookup(ctx, client, cartID, "eco", item.PlanCode, selectedDuration)
 			if err != nil {
 				if item.Preorder && (errors.Is(err, orderterm.ErrUnavailable) || listingNotReady(err)) {

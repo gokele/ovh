@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -133,7 +134,9 @@ type State struct {
 	QueueMu          sync.Mutex
 	Queue            []types.QueueItem
 	StockSignals     StockSignals
-	OrderPrewarm     OrderPrewarmer
+	// MonitorIntervalSeconds 由监控写入当前检查间隔,抢购的共享库存探测据此加快(不慢于 2 秒)
+	MonitorIntervalSeconds atomic.Int64
+	OrderPrewarm           OrderPrewarmer
 	// QueueMu 同时保护用户对监控自动建单的停止记录。
 	automaticOrderBlocks   map[string]bool
 	pausedMonitorScopes    []MonitorQueueScope
