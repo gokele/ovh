@@ -122,3 +122,28 @@ func (b *StockSignals) Fetch(ctx context.Context, account, plan string, fetch fu
 	}
 	return signal, err
 }
+
+// Observe 记录一次外部探测结果并投递给订阅者:只在比已有观察更新时写入,
+// 让任务自己的 Fetch 在 100ms 内复用它;过期或乱序到达的结果直接丢弃。
+func (b *StockSignals) Observe(signal StockSignal) bool {
+	key := stockKey{signal.AccountID, signal.PlanCode}
+	b.mu.Lock()
+	if b.observations == nil {
+		b.observations = map[stockKey]StockSignal{}
+		b.flights = map[stockKey]*stockFlight{}
+	}
+	if old, ok := b.observations[key]; ok && !signal.DetectedAt.After(old.DetectedAt) {
+		b.mu.Unlock()
+		return false
+	}
+	if len(b.observations) >= 512 {
+		for old := range b.observations {
+			delete(b.observations, old)
+			break
+		}
+	}
+	b.observations[key] = signal
+	b.mu.Unlock()
+	b.Publish(signal)
+	return true
+}

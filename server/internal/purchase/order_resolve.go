@@ -66,7 +66,13 @@ type resolveTarget struct {
 	apiDC    string
 	duration string
 	sentAt   time.Time
+	// autoResume 结账收到 429(限流)时为 true:OVH 几乎可以肯定没有处理这次请求。
+	// 只有在结账后满 autoResumeAfter 仍然一笔新订单都没有(不只是没有吻合的)时才自动恢复任务。
+	autoResume bool
 }
+
+// autoResumeAfter 自动恢复前至少观察的时间。
+const autoResumeAfter = time.Minute
 
 // startOrderResolver 在后台核对一笔结果不明的结账;同一任务同时只运行一个核对。
 func startOrderResolver(state *app.State, target resolveTarget) {
@@ -96,8 +102,10 @@ func runOrderResolver(state *app.State, target resolveTarget, schedule []time.Du
 	}
 	us := ovh.EndpointRegion(target.account.Endpoint) == "US"
 	var lastCandidates []string
+	var elapsed time.Duration
 	for _, delay := range schedule {
 		sleep(delay)
+		elapsed += delay
 		if !resolverStillNeeded(state, target.item.ID) {
 			return
 		}
@@ -109,6 +117,11 @@ func runOrderResolver(state *app.State, target resolveTarget, schedule []time.Du
 			continue
 		}
 		lastCandidates = candidates
+		if target.autoResume && !us && len(candidates) == 0 && elapsed >= autoResumeAfter {
+			if autoResumeTask(state, target) {
+				return
+			}
+		}
 		if us || len(matches) != 1 {
 			if len(matches) > 1 {
 				break // 多笔吻合:无法判断是哪一笔,交给用户
@@ -303,4 +316,20 @@ func buildUnresolvedMessage(target resolveTarget, candidates []string, us bool) 
 	}
 	b.WriteString("\n任务保持暂停。请到 OVH 订单页确认：\n- 有这笔订单：去付款，任务不用恢复\n- 没有：点下面的按钮恢复任务")
 	return b.String()
+}
+
+// autoResumeTask 429 后观察期内账户没有任何新订单:恢复任务继续抢购并通知用户。
+// 与手动恢复同一路径(清除结账登记与名额),任务已不在暂停状态时不做任何事。
+func autoResumeTask(state *app.State, target resolveTarget) bool {
+	if !resolverStillNeeded(state, target.item.ID) {
+		return false
+	}
+	if err := state.ResumeQueueItem(target.item.ID, "running"); err != nil {
+		state.Logger.Warn("429 后自动恢复任务失败,保持暂停: "+err.Error(), "purchase")
+		return false
+	}
+	state.Logger.Info(fmt.Sprintf("任务 %s 结账被限流(429),%s 内账户没有新订单,已自动恢复", target.item.ID, autoResumeAfter), "purchase")
+	notify.Broadcast(state, fmt.Sprintf("🔁 %s@%s 结账时被 OVH 限流（429）。\n结账后 1 分钟内账户里没有任何新订单，确认未下单，任务已自动恢复继续抢购。",
+		target.item.PlanCode, strings.ToUpper(target.item.Datacenter)), nil)
+	return true
 }

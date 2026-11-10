@@ -110,3 +110,86 @@ func TestStockPollFollowsFasterMonitorInterval(t *testing.T) {
 		t.Fatalf("slow monitor must not slow polling, got %s", got)
 	}
 }
+
+// 同区两个账户只走一路探测,两个账户的任务都收到信号。
+func TestStockWatcherSharesAcrossSameRegionAccounts(t *testing.T) {
+	state := queueCompletionState(t)
+	state.Accounts = []types.OVHAccount{{ID: "eu1", Endpoint: "ovh-eu"}, {ID: "eu2", Endpoint: "ovh-eu"}, {ID: "us1", Endpoint: "ovh-us"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newStockWatcher(ctx, state)
+	w.interval = 30 * time.Millisecond
+	w.fetch = func(context.Context, *app.State, *cartSession, string, string) ([]map[string]interface{}, error) {
+		return []map[string]interface{}{{"datacenters": []interface{}{map[string]interface{}{"datacenter": "gra", "availability": "1H-low"}}}}, nil
+	}
+	s1, u1 := state.StockSignals.Subscribe("eu1", "plan")
+	defer u1()
+	s2, u2 := state.StockSignals.Subscribe("eu2", "plan")
+	defer u2()
+	defer w.subscribe("eu1", "plan")()
+	defer w.subscribe("eu2", "plan")()
+	defer w.subscribe("us1", "plan")()
+	w.mu.Lock()
+	if len(w.watches) != 2 {
+		t.Fatalf("want one EU watch + one US watch, got %d", len(w.watches))
+	}
+	w.mu.Unlock()
+	for _, ch := range []<-chan app.StockSignal{s1, s2} {
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatal("same-region account did not receive the shared signal")
+		}
+	}
+	w.close()
+}
+
+// 往返慢于节拍时探测照常按节拍发出(最多 2 个重叠),迟到的旧结果被丢弃。
+func TestStockWatcherKeepsCadenceAndDropsLateResults(t *testing.T) {
+	state := queueCompletionState(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newStockWatcher(ctx, state)
+	w.interval = 100 * time.Millisecond
+	var calls, inflight, peak atomic.Int32
+	w.fetch = func(context.Context, *app.State, *cartSession, string, string) ([]map[string]interface{}, error) {
+		n := calls.Add(1)
+		cur := inflight.Add(1)
+		for {
+			p := peak.Load()
+			if cur <= p || peak.CompareAndSwap(p, cur) {
+				break
+			}
+		}
+		defer inflight.Add(-1)
+		delay := 50 * time.Millisecond
+		if n == 1 {
+			delay = 260 * time.Millisecond // 第一个请求最慢,结果最后到
+		}
+		time.Sleep(delay)
+		return []map[string]interface{}{{"call": n}}, nil
+	}
+	signals, unsub := state.StockSignals.Subscribe("acc", "plan")
+	defer unsub()
+	stop := w.subscribe("acc", "plan")
+	time.Sleep(650 * time.Millisecond)
+	stop()
+	w.close()
+	if c := calls.Load(); c < 5 {
+		t.Fatalf("slow round trips stretched the cadence: only %d polls", c)
+	}
+	if peak.Load() > stockMaxInFlight {
+		t.Fatalf("in-flight requests exceeded the cap: %d", peak.Load())
+	}
+	for {
+		select {
+		case s := <-signals:
+			if s.Variants[0]["call"] == int32(1) {
+				t.Fatal("late result from the first (oldest) request was published")
+			}
+			continue
+		default:
+		}
+		break
+	}
+}

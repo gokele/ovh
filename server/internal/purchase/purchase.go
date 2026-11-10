@@ -2,7 +2,9 @@ package purchase
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -176,6 +178,12 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			tl.mark("查库存")
 			recordTiming(timingKey, tl, "failed")
 			errMsg := err.Error()
+			if IsTransient(err) {
+				// 查库存不是下单:网络抖动、429、5xx 不写失败历史(否则会覆盖这个任务真实的上一次结果),
+				// 等共享库存探测的下一次信号或 2 秒后再看。
+				state.Logger.Debug(fmt.Sprintf("查询 %s 库存暂时失败,稍后重试: %s", item.PlanCode, errMsg), "purchase")
+				return Outcome{WaitingForStock: true, RetrySoon: 2 * time.Second}
+			}
 			state.Logger.Error(fmt.Sprintf("购买 %s 时发生 OVH API 错误: %s", item.PlanCode, errMsg), "purchase")
 			recordFailure(state, item, ovh.Explain(err))
 			return attemptOutcome(err)
@@ -459,7 +467,9 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 				map[string]interface{}{"inline_keyboard": [][]map[string]interface{}{{
 					telegram.TaskButton("确认 OVH 没有这笔订单，恢复任务", item.ID, telegram.TaskResume),
 				}}})
-			startOrderResolver(state, resolveTarget{item: *item, account: cart.account, apiDC: apiDC, duration: cart.duration, sentAt: sentAt})
+			var apiErr *ovhsdk.APIError
+			rateLimited := errors.As(err, &apiErr) && apiErr.Code == http.StatusTooManyRequests
+			startOrderResolver(state, resolveTarget{item: *item, account: cart.account, apiDC: apiDC, duration: cart.duration, sentAt: sentAt, autoResume: rateLimited})
 			return Outcome{Attempted: false, PauseTask: true}
 		}
 		if item.Preorder && listingNotReady(err) && !retryPrepared {

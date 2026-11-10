@@ -138,3 +138,37 @@ func TestResolverSkipsClaimedOrdersAndUSAccounts(t *testing.T) {
 		t.Fatalf("US account must not be auto-confirmed without the details extension: %q", got)
 	}
 }
+
+// 429 后满 1 分钟账户里没有任何新订单:自动恢复;只要出现新订单(哪怕不吻合)就保持暂停。
+func TestResolverAutoResumesAfterRateLimitOnlyWithNoNewOrders(t *testing.T) {
+	resolver = &orderResolver{active: map[string]bool{}, claimed: map[string]bool{}}
+	state, target := resolveFixture(t, "ovh-eu", map[int64][3]string{})
+	target.autoResume = true
+	runOrderResolver(state, target, []time.Duration{30 * time.Second, 30 * time.Second}, noSleep)
+	if got := taskStatus(state, "task-1"); got != "running" {
+		t.Fatalf("429 with no new orders should resume, got %q", got)
+	}
+
+	resolver = &orderResolver{active: map[string]bool{}, claimed: map[string]bool{}}
+	state, target = resolveFixture(t, "ovh-eu", map[int64][3]string{900: {"other-plan", "rbx", "P1M"}})
+	target.autoResume = true
+	runOrderResolver(state, target, []time.Duration{30 * time.Second, 30 * time.Second}, noSleep)
+	if got := taskStatus(state, "task-1"); got != "paused" {
+		t.Fatalf("any new order must keep the task paused, got %q", got)
+	}
+
+	resolver = &orderResolver{active: map[string]bool{}, claimed: map[string]bool{}}
+	state, target = resolveFixture(t, "ovh-eu", map[int64][3]string{})
+	runOrderResolver(state, target, []time.Duration{30 * time.Second, 30 * time.Second}, noSleep)
+	if got := taskStatus(state, "task-1"); got != "paused" {
+		t.Fatalf("non-429 uncertain results must never auto-resume, got %q", got)
+	}
+
+	resolver = &orderResolver{active: map[string]bool{}, claimed: map[string]bool{}}
+	state, target = resolveFixture(t, "ovh-eu", map[int64][3]string{})
+	target.autoResume = true
+	runOrderResolver(state, target, []time.Duration{10 * time.Second}, noSleep)
+	if got := taskStatus(state, "task-1"); got != "paused" {
+		t.Fatalf("must observe for a full minute before resuming, got %q", got)
+	}
+}
