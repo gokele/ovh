@@ -699,6 +699,7 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 	// 96 个 plan × 200ms 串行 = 20 秒；改 15 并发 ≈ 1.5 秒
 	type availEntry struct {
 		availabilities []map[string]interface{}
+		failed         bool
 	}
 	availByPlan := make(map[string]*availEntry, len(plans))
 	var availMu sync.Mutex
@@ -721,21 +722,19 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 		go func(planCode string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			var avs []map[string]interface{}
-			q := url.Values{}
-			q.Set("planCode", planCode)
-			err := client.Get("/dedicated/server/datacenter/availabilities?"+q.Encode(), &avs)
+			// 库存接口官方免鉴权:不签名,不占账户鉴权额度
+			avs, err := ovh.GetAvailabilities(context.Background(), client, planCode)
 			if err != nil {
 				// 限流/瞬断退避重试一次,仍失败才计入失败数
 				time.Sleep(500 * time.Millisecond)
-				err = client.Get("/dedicated/server/datacenter/availabilities?"+q.Encode(), &avs)
+				avs, err = ovh.GetAvailabilities(context.Background(), client, planCode)
 			}
 			availMu.Lock()
 			if err != nil {
 				availFailed++
 				state.Logger.Warn(fmt.Sprintf("预拉 %s 的可用性失败: %s（该机型的机房列表将为空）", planCode, err.Error()), "")
 			}
-			availByPlan[planCode] = &availEntry{availabilities: avs}
+			availByPlan[planCode] = &availEntry{availabilities: avs, failed: err != nil}
 			availMu.Unlock()
 		}(pc)
 	}
@@ -760,8 +759,10 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 		// 从预拉结果取（保持串行解析以确保 1:1）
 		datacenters := []types.Datacenter{}
 		var availabilities []map[string]interface{}
+		stockStale := false
 		if entry, ok := availByPlan[planCode]; ok {
 			availabilities = entry.availabilities
+			stockStale = entry.failed
 		}
 		for _, item := range availabilities {
 			if dcsRaw, ok := item["datacenters"].([]interface{}); ok {
@@ -1041,6 +1042,7 @@ func LoadServerList(state *app.State, accountID string) ([]types.ServerPlan, int
 		if serverInfo.CPU == "N/A" {
 			extractCPUFromNames(plan, &serverInfo, state)
 		}
+		serverInfo.StockStale = stockStale
 		result = append(result, serverInfo)
 	}
 

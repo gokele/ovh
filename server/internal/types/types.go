@@ -260,6 +260,8 @@ type ServerPlan struct {
 	Datacenters      []Datacenter   `json:"datacenters"`
 	DefaultOptions   []ServerOption `json:"defaultOptions"`
 	AvailableOptions []ServerOption `json:"availableOptions"`
+	// StockStale 本次刷新没能读到该型号的库存;机房列表沿用上一份缓存(没有缓存时为空)
+	StockStale bool `json:"stockStale,omitempty"`
 }
 
 // SubscriptionHistoryEntry 监控订阅的历史记录条目

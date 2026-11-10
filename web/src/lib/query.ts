@@ -188,7 +188,8 @@ export const qk = {
   // 设置
   settings: {
     config: () => ["settings", "config"] as const,
-    cacheInfo: () => ["settings", "cache-info"] as const,
+    // 带账户时只看该账户视角的目录缓存;不带(设置页)看默认视角。前缀失效可一次刷新全部
+    cacheInfo: (account?: string) => (account ? (["settings", "cache-info", account] as const) : (["settings", "cache-info"] as const)),
     telegramPoller: () => ["settings", "telegram-poller"] as const,
   },
 

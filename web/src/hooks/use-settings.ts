@@ -56,10 +56,11 @@ export function useSaveSettings() {
 }
 
 /** 缓存信息 */
-export function useCacheInfo() {
+/** 目录缓存状态。account 与服务器列表使用同一账户,否则徽章会显示另一个账户视角的缓存年龄。 */
+export function useCacheInfo(account?: string) {
   return useQuery({
-    queryKey: qk.settings.cacheInfo(),
-    queryFn: async () => (await api.get("/cache/info")).data,
+    queryKey: qk.settings.cacheInfo(account),
+    queryFn: async () => (await api.get("/cache/info", { params: account ? { account } : undefined })).data,
   });
 }
 

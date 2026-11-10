@@ -24,7 +24,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { LoadFailed, LoadFailedBanner } from "@/components/common/LoadFailed";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { useServers, useAddToMonitor, type ServerPlan } from "@/hooks/use-servers";
+import { useServers, useAddToMonitor, type ServerPlan, useCatalogAccountId } from "@/hooks/use-servers";
 import { useAccountInfo } from "@/hooks/use-account";
 import { useCreateQueueItem } from "@/hooks/use-queue";
 import { useCacheInfo } from "@/hooks/use-settings";
@@ -1050,7 +1050,10 @@ function SpecCard({ icon, label, value }: { icon: React.ReactNode; label: string
 /** 服务器目录缓存状态徽章：基于 /api/cache/info 显示当前数据是几分钟前的缓存还是已过期 */
 function CacheBadge() {
   const { t } = useTranslation();
-  const info = useCacheInfo();
+  // 徽章必须看与列表同一个账户视角的缓存:以前固定看默认账户,
+  // 切到其他账户后刷新的是那个账户的目录,徽章却一直显示默认账户的旧缓存年龄。
+  const accountId = useCatalogAccountId();
+  const info = useCacheInfo(accountId || undefined);
   const backend = info.data?.backend;
   if (!backend || !backend.hasCachedData) {
     return <span className="text-[11px] text-muted-foreground">{t("servers.cache.notLoaded")}</span>;

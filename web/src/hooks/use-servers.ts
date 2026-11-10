@@ -25,6 +25,8 @@ export interface ServerPlan {
   vrackBandwidth: string;
   defaultOptions: ServerOption[];
   availableOptions: ServerOption[];
+  /** 本次目录刷新没能读到该型号库存,机房列表沿用上一份缓存 */
+  stockStale?: boolean;
   datacenters: {
     datacenter: string;
     dcName: string;
@@ -41,6 +43,14 @@ export interface ServerPlan {
  *                   走 react-query 自己的请求流程，data 一定通知订阅者重渲染
  *  - isRefreshing = q.isRefetching：只在 refetch 期间为 true，跟首次加载 isLoading 严格分开
  */
+/** 服务器目录实际使用的账户 ID:与 useServers 同一规则,供缓存徽章等配套组件复用。 */
+export function useCatalogAccountId(accountIdOverride?: string): string {
+  const [activeId] = useActiveServerControlAccount();
+  const { data: accounts } = useAccounts();
+  const requestedId = accountIdOverride ?? activeId;
+  return findAccountByID(accounts, requestedId) ? requestedId : "";
+}
+
 export function useServers(showApiServers: boolean = true, accountIdOverride?: string) {
   const qc = useQueryClient();
   // 目录跟着当前账户走:后端 /api/servers 支持 ?account=,按该账户的 zone(子公司)+ endpoint
@@ -64,6 +74,8 @@ export function useServers(showApiServers: boolean = true, accountIdOverride?: s
       // 后端正常返回 { servers: [...] },这里防的是响应结构意外的情况 ——
       // 反向代理插了一页、网关返回 200 带错误体、以后重构改了字段名。
       const raw = res.data?.servers ?? res.data;
+      // 列表请求可能触发后端重新加载目录:随后刷新缓存徽章,让「X 分钟前」与刚拿到的列表一致
+      qc.invalidateQueries({ queryKey: ["settings", "cache-info"] });
       return (Array.isArray(raw) ? raw : []) as ServerPlan[];
     },
     // 账户列表还没到手时不发请求:否则会先按默认视角拉一份完整目录(后端要打 ~100 次 OVH),
