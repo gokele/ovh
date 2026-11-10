@@ -470,6 +470,7 @@ func rebuildKeyboard(state *app.State, chatID interface{}, messageID int64, pres
 // 不用记、不用打字,在手机上尤其重要。
 // 这是让一个 bot 显得"有人管"最便宜的一件事,而以前一条都没注册过。
 var BotCommands = []map[string]string{
+	{"command": "menu", "description": "按钮菜单：总览 / 任务 / 订阅 / 订单 / 速度"},
 	{"command": "help", "description": "怎么用 / 下单格式"},
 	{"command": "watch", "description": "盯着补货就抢（/watch 型号 [机房] [x数量]）"},
 	{"command": "unwatch", "description": "不盯了（/unwatch 型号）"},
@@ -479,6 +480,9 @@ var BotCommands = []map[string]string{
 	{"command": "subs", "description": "监控订阅列表"},
 	{"command": "recent", "description": "最近的抢购结果"},
 	{"command": "accounts", "description": "可用的 OVH 账户"},
+	{"command": "speed", "description": "抢购速度：发现库存到发出结账"},
+	{"command": "monitor", "description": "启动 / 停止监控（/monitor on|off）"},
+	{"command": "pauseall", "description": "暂停全部运行中的任务"},
 }
 
 // RegisterCommands 把命令菜单推给 Telegram。

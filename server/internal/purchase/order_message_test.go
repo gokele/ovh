@@ -17,14 +17,9 @@ func TestDumpOrderMessages(t *testing.T) {
 	}
 	url := "https://manager.eu.ovhcloud.com/dedicated/#/billing/order?orderId=108523471"
 
-	fmt.Println("\n════════ 抢购成功（默认：不自动付款）════════")
-	fmt.Println(BuildOrderSuccessMessage(item, "108523471", url))
-
-	item.AutoPay = true
-	fmt.Println("\n════════ 抢购成功（开了自动付款）════════")
+	fmt.Println("\n════════ 抢购成功（订单待付款）════════")
 	fmt.Println(BuildOrderSuccessMessage(item, "108523471", url))
 
 	fmt.Println("\n════════ 拿不到控制面板链接时 ════════")
-	item.AutoPay = false
 	fmt.Println(BuildOrderSuccessMessage(item, "108523471", ""))
 }

@@ -543,10 +543,8 @@ function CreateQueueDialog({
   useEffect(() => {
     if (!touchedRef.current) setRetryInterval(String(cfgDefault));
   }, [cfgDefault]);
-  // 默认不自动付款:自动扣钱必须显式打开。
   // 这个对话框和服务器卡片弹的那个是两条建任务入口,开关两边都要有 ——
   // 上一版只加了卡片那边,这边漏了
-  const [autoPay, setAutoPay] = useState(false);
   const [duration, setDuration] = useState("P1M");
   const [coupon, setCoupon] = useState("");
   // 用户选的 addon,按组索引。每次切 planCode 自动清空(让用户重新选)。
@@ -563,7 +561,6 @@ function CreateQueueDialog({
         setQuantity(String(editing.groupLimit || 1));
         setRetryInterval(String(editing.retryInterval || cfgDefault));
         touchedRef.current = true;
-        setAutoPay(!!editing.autoPay);
         setDuration(editing.duration || "P1M");
         setCoupon(editing.coupon || "");
       }
@@ -659,7 +656,7 @@ function CreateQueueDialog({
   const canSubmit = durationSupported && !!activeAcc && planCode.trim().length > 0 && datacenters.length > 0 && qty > 0 && !prereleaseMismatch && (!preorder || hasPreorderHardware(parsedOptions));
   const preparation = useOrderPrewarm(open && !editing && canSubmit, {
     account_id: accountId, planCode: planCode.trim(), datacenters, options: parsedOptions,
-    quantity: qty, autoPay, coupon, duration, preorder,
+    quantity: qty, coupon, duration, preorder,
   });
 
   const reset = () => {
@@ -668,7 +665,6 @@ function CreateQueueDialog({
     setDatacenters([]);
     setQuantity("1");
     setChosenScope("");
-    setAutoPay(false);
     setDuration("P1M");
     setCoupon("");
     touchedRef.current = false;
@@ -701,7 +697,7 @@ function CreateQueueDialog({
     if (editing) {
       try {
         await update.mutateAsync({ id: editing.id, datacenter: datacenters[0], options: parsedOptions,
-          retryInterval: Number(retryInterval) || cfgDefault, autoPay, coupon: coupon.trim(), duration });
+          retryInterval: Number(retryInterval) || cfgDefault, coupon: coupon.trim(), duration });
         reset(); onOpenChange(false);
       } catch { /* Error is shown by the mutation hook; keep the form open. */ }
       return;
@@ -713,7 +709,6 @@ function CreateQueueDialog({
       quantity: qty,
       retryInterval: Number(retryInterval) || cfgDefault,
       options: parsedOptions,
-      autoPay,
       coupon,
       duration,
       preorder,
@@ -953,13 +948,7 @@ function CreateQueueDialog({
             </p>
           </div>
 
-          <label className="flex items-center gap-2 cursor-pointer text-[13px]">
-            <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
-            {t("queue.autoPay")}
-          </label>
-          <p className="text-[11px] text-muted-foreground -mt-2">
-            {autoPay ? t("queue.autoPayOn") : t("queue.autoPayOff")}
-          </p>
+          <p className="text-[11px] text-muted-foreground">{t("queue.payManual")}</p>
 
           {/* 可选配置:planCode 在 catalog 里 → 走 chip 选择;
                 planCode 自定义不在 catalog → 走手填。两者互斥不同时存在。 */}
@@ -1160,11 +1149,6 @@ export function QueueRow({
               // 机型下架或目录没拉到时也能显示。
               <Chip tone="default" title={item.options.join("\n")}>
                 {describeOptionCodes(item.options)}
-              </Chip>
-            )}
-            {item.autoPay && (
-              <Chip tone="warning" title={t("queue.autoPayChipTitle")}>
-                {t("queue.autoPayChip")}
               </Chip>
             )}
             {item.status !== "completed" && <TimingChip totalMs={timing?.totalMs} phases={timing?.phases} />}

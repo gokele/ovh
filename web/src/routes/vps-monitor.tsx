@@ -391,11 +391,11 @@ function VPSRow({
               {sub.autoOrder && sub.autoOrderAccountId && (
                 <Chip
                   tone="solid"
-                  title={sub.autoPay ? t("vpsMonitor.row.autoPayTitle") : t("vpsMonitor.row.manualPayTitle")}
+                  title={t("vpsMonitor.row.manualPayTitle")}
                 >
                   {t("vpsMonitor.row.autoOrder")}
                   {sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
-                  {sub.autoPay ? t("vpsMonitor.row.autoPaySuffix") : ""}
+                  
                 </Chip>
               )}
             </div>
@@ -565,7 +565,6 @@ function AddVPSDialog({
   // 空 = 用 OVH 默认镜像。VPS 的系统是下单时就要定的配置项,不是买完再装
   const [os, setOs] = useState("");
   // 默认不自动付款:自动扣钱必须显式打开
-  const [autoPay, setAutoPay] = useState(false);
   const [duration, setDuration] = useState("P1M");
   // 订阅的下单账户 = 左侧菜单栏(手机端在顶栏)的全局账户,不再单独选
   const [globalAccountId] = useActiveAccount();
@@ -601,7 +600,6 @@ function AddVPSDialog({
     setAutoOrder(false);
     setQuantity(1);
     setOs("");
-    setAutoPay(false);
     setDuration("P1M");
   };
 
@@ -619,7 +617,6 @@ function AddVPSDialog({
       setAutoOrder(!!editing.autoOrder);
       setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
       setOs(editing.os || "");
-      setAutoPay(!!editing.autoPay);
         setDuration(editing.duration || "P1M");
     } else {
       reset();
@@ -671,7 +668,6 @@ function AddVPSDialog({
       quantity: autoOrder ? quantity : undefined,
       os: autoOrder ? os : "",
       autoOrderAccountId: autoOrder ? autoOrderAccountId : "",
-      autoPay: autoOrder ? autoPay : false,
       duration,
     };
     const done = {
@@ -940,13 +936,7 @@ function AddVPSDialog({
                 <p className="text-[11px] text-muted-foreground mt-1">
                   {t("vpsMonitor.dialog.osHint")}
                 </p>
-                <label className="flex items-center gap-2 mt-2 cursor-pointer text-[12px]">
-                  <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
-                  {t("vpsMonitor.dialog.autoPay")}
-                </label>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {t("vpsMonitor.dialog.autoPayHint")}
-                </p>
+                <p className="text-[11px] text-muted-foreground mt-1.5">{t("vpsMonitor.row.manualPayTitle")}</p>
               </div>
             </div>
           )}

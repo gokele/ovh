@@ -74,7 +74,7 @@ func (m *Monitor) prepareMonitorTargets(sub *Subscription, cfg subCheckConfig, a
 		sort.Strings(ordered)
 		for _, dc := range ordered {
 			for n := 0; n < quantity && len(items) < types.MaxOrderFanout; n++ {
-				items = append(items, types.QueueItem{AccountID: cfg.AutoOrderAccountID, PlanCode: sub.PlanCode, Duration: cfg.Duration, Datacenter: dc, Options: append([]string(nil), options...), AutoPay: cfg.AutoPay})
+				items = append(items, types.QueueItem{AccountID: cfg.AutoOrderAccountID, PlanCode: sub.PlanCode, Duration: cfg.Duration, Datacenter: dc, Options: append([]string(nil), options...)})
 			}
 		}
 	}

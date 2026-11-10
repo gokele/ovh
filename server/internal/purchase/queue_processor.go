@@ -297,6 +297,9 @@ func taskWorker(ctx context.Context, state *app.State, item types.QueueItem, pur
 		if outcome.RetryAfter > interval {
 			interval = outcome.RetryAfter
 		}
+		if outcome.RetrySoon > 0 && outcome.RetrySoon < interval {
+			interval = outcome.RetrySoon
+		}
 		timer := time.NewTimer(interval)
 		waiting := true
 		for waiting {

@@ -177,7 +177,7 @@ func LastTimings() map[string]lastTiming {
 // recordTimingToHistory 把这一单的阶段耗时写进历史记录。
 // 独立成一个函数而不是塞进 recordSuccess:成功路径上 recordSuccess 有两条分支
 // (更新已有条目 / 新建条目),在两处各写一遍迟早会漏一处。
-func recordTimingToHistory(state *app.State, taskID string, t *timeline) {
+func recordTimingToHistory(state *app.State, taskID, createdAt string, t *timeline) {
 	if t == nil || len(t.items) == 0 {
 		return
 	}
@@ -190,7 +190,77 @@ func recordTimingToHistory(state *app.State, taskID string, t *timeline) {
 		if state.History[i].TaskID == taskID {
 			state.History[i].Timing = t.entries()
 			state.History[i].TotalMs = t.total().Milliseconds()
+			if d := t.dispatch; d != nil && d.WroteRequest {
+				state.History[i].DetectionToWriteUs = d.DetectionToWriteUS
+				state.History[i].Prewarmed = d.Prewarmed
+				state.History[i].ConnectionReused = d.ConnectionReused
+			}
+			if created, ok := types.ParseTS(createdAt); ok {
+				state.History[i].WaitMs = time.Since(created).Milliseconds()
+			}
 			return
 		}
+	}
+}
+
+// orderTimingNote 成功通知里的「抢购耗时」段落:发现库存到发出结账、本轮链路、从建任务到抢到。
+// 只写确实测到的数字;没有写出记录或没有创建时间的项直接省略。
+func orderTimingNote(t *timeline, createdAt string) string {
+	if t == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("⏱ 抢购耗时\n")
+	if d := t.dispatch; d != nil && d.WroteRequest {
+		b.WriteString("发现库存 → 发出结账：" + formatMicros(d.DetectionToWriteUS))
+		var notes []string
+		if d.Prewarmed {
+			notes = append(notes, "购物车已预装")
+		}
+		if d.ConnectionReused {
+			notes = append(notes, "复用连接")
+		}
+		if len(notes) > 0 {
+			b.WriteString("（" + strings.Join(notes, "，") + "）")
+		}
+		b.WriteString("\n")
+	}
+	// 截止到最后一个阶段(下单返回)为止,不把之后的落库和通知时间算进去
+	if total := t.last.Sub(t.start); total > 0 {
+		b.WriteString(fmt.Sprintf("本轮链路：%dms", total.Milliseconds()))
+		if len(t.items) > 0 {
+			parts := make([]string, 0, len(t.items))
+			for _, p := range t.items {
+				parts = append(parts, fmt.Sprintf("%s %dms", p.Name, p.Dur.Milliseconds()))
+			}
+			b.WriteString("（" + strings.Join(parts, " · ") + "）")
+		}
+		b.WriteString("\n")
+	}
+	if created, ok := types.ParseTS(createdAt); ok {
+		b.WriteString("从创建任务到抢到：" + formatWait(time.Since(created)) + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// formatMicros 亚毫秒保留两位小数,其余按毫秒显示。
+func formatMicros(us int64) string {
+	if us < 1000 {
+		return fmt.Sprintf("%.2fms", float64(us)/1000)
+	}
+	return fmt.Sprintf("%dms", us/1000)
+}
+
+// formatWait 等待时长:秒 / 分秒 / 时分 / 天时。
+func formatWait(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%d 秒", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%d 分 %d 秒", int(d.Minutes()), int(d.Seconds())%60)
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d 小时 %d 分", int(d.Hours()), int(d.Minutes())%60)
+	default:
+		return fmt.Sprintf("%d 天 %d 小时", int(d.Hours())/24, int(d.Hours())%24)
 	}
 }

@@ -30,6 +30,10 @@ type historyRow struct {
 	OrderStatusAt  string         `db:"order_status_at"`
 	TimingJSON     sql.NullString `db:"timing"`
 	TotalMs        int64          `db:"total_ms"`
+	DetectionUs    int64          `db:"detection_to_write_us"`
+	Prewarmed      int            `db:"prewarmed"`
+	ConnReused     int            `db:"connection_reused"`
+	WaitMs         int64          `db:"wait_ms"`
 }
 
 func rowToHistory(r historyRow) types.PurchaseHistoryEntry {
@@ -58,27 +62,31 @@ func rowToHistory(r historyRow) types.PurchaseHistoryEntry {
 		_ = json.Unmarshal([]byte(r.TimingJSON.String), &timing)
 	}
 	return types.PurchaseHistoryEntry{
-		ID:             r.ID,
-		AccountID:      r.AccountID,
-		TaskID:         r.TaskID,
-		Duration:       r.Duration,
-		PlanCode:       r.PlanCode,
-		Datacenter:     r.Datacenter,
-		Options:        opts,
-		Status:         r.Status,
-		OrderID:        r.OrderID,
-		OrderURL:       r.OrderURL,
-		ErrorMessage:   errMsg,
-		CouponWarning:  r.CouponWarning,
-		PurchaseTime:   r.PurchaseTime,
-		AttemptCount:   r.AttemptCount,
-		ExpirationTime: r.ExpirationTime,
-		RetractionTime: r.RetractionTime,
-		Price:          price,
-		OrderStatus:    r.OrderStatus,
-		OrderStatusAt:  r.OrderStatusAt,
-		Timing:         timing,
-		TotalMs:        r.TotalMs,
+		ID:                 r.ID,
+		AccountID:          r.AccountID,
+		TaskID:             r.TaskID,
+		Duration:           r.Duration,
+		PlanCode:           r.PlanCode,
+		Datacenter:         r.Datacenter,
+		Options:            opts,
+		Status:             r.Status,
+		OrderID:            r.OrderID,
+		OrderURL:           r.OrderURL,
+		ErrorMessage:       errMsg,
+		CouponWarning:      r.CouponWarning,
+		PurchaseTime:       r.PurchaseTime,
+		AttemptCount:       r.AttemptCount,
+		ExpirationTime:     r.ExpirationTime,
+		RetractionTime:     r.RetractionTime,
+		Price:              price,
+		OrderStatus:        r.OrderStatus,
+		OrderStatusAt:      r.OrderStatusAt,
+		Timing:             timing,
+		TotalMs:            r.TotalMs,
+		DetectionToWriteUs: r.DetectionUs,
+		Prewarmed:          r.Prewarmed == 1,
+		ConnectionReused:   r.ConnReused == 1,
+		WaitMs:             r.WaitMs,
 	}
 }
 
@@ -109,6 +117,10 @@ func historyToRow(h types.PurchaseHistoryEntry) (historyRow, error) {
 		OrderStatus:    h.OrderStatus,
 		OrderStatusAt:  h.OrderStatusAt,
 		TotalMs:        h.TotalMs,
+		DetectionUs:    h.DetectionToWriteUs,
+		Prewarmed:      boolInt(h.Prewarmed),
+		ConnReused:     boolInt(h.ConnectionReused),
+		WaitMs:         h.WaitMs,
 	}
 	if len(h.Timing) > 0 {
 		if tj, err := json.Marshal(h.Timing); err == nil {
@@ -160,11 +172,13 @@ func (db *DB) ReplaceHistory(items []types.PurchaseHistoryEntry) error {
 			INSERT INTO history
 			(id, account_id, task_id, duration, plan_code, datacenter, options, status, order_id, order_url,
 			 error_message, purchase_time, attempt_count, expiration_time, retraction_time, price,
-			 order_status, order_status_at, timing, total_ms, coupon_warning)
+			 order_status, order_status_at, timing, total_ms, coupon_warning,
+			 detection_to_write_us, prewarmed, connection_reused, wait_ms)
 			VALUES
 			(:id, :account_id, :task_id, :duration, :plan_code, :datacenter, :options, :status, :order_id, :order_url,
 			 :error_message, :purchase_time, :attempt_count, :expiration_time, :retraction_time, :price,
-			 :order_status, :order_status_at, :timing, :total_ms, :coupon_warning)
+			 :order_status, :order_status_at, :timing, :total_ms, :coupon_warning,
+			 :detection_to_write_us, :prewarmed, :connection_reused, :wait_ms)
 		`, r)
 		if err != nil {
 			return fmt.Errorf("insert history %s: %w", h.ID, err)
@@ -180,4 +194,12 @@ func (db *DB) ClearHistory() (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// boolInt SQLite 用 0/1 存布尔值。
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

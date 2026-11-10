@@ -8,7 +8,7 @@ import (
 
 // VPS 订阅的自动下单配置必须真的落库。
 //
-// 这四个字段(AutoOrder / Quantity / AutoPay / OS)在 types 里早就有,
+// 这几个字段(AutoOrder / Quantity / OS)在 types 里早就有,
 // 但表里一直没列、行结构也没映射 —— 写入被静默丢弃,读回来全是零值。
 // 后果:VPS 自动下单重启即失效(界面开关还亮着),而且删任意账户时
 // reloadAfterAccountDelete 会用零值回灌内存,当场清零。
@@ -34,7 +34,6 @@ func TestVPSSubscriptionRoundTrip(t *testing.T) {
 		AutoOrderAccountID: "acc-1",
 		AutoOrder:          true,
 		Quantity:           3,
-		AutoPay:            true,
 		OS:                 "debian12_64",
 	}
 	if err := database.ReplaceVPSSubscriptions([]types.VPSSubscription{want}); err != nil {
@@ -53,9 +52,6 @@ func TestVPSSubscriptionRoundTrip(t *testing.T) {
 	}
 	if g.Quantity != 3 {
 		t.Errorf("Quantity 没存住:期望 3,实际 %d", g.Quantity)
-	}
-	if !g.AutoPay {
-		t.Error("AutoPay 没存住 —— 用户开了自动付款,重启后变成不付款")
 	}
 	if g.OS != "debian12_64" {
 		t.Errorf("OS 没存住:期望 debian12_64,实际 %q —— 自动下单会用 OVH 默认系统", g.OS)

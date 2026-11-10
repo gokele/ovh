@@ -264,8 +264,8 @@ func purchaseVPS(ctx context.Context, state *app.State, sub types.VPSSubscriptio
 	// POST /me/order/{id}/waiveRetraction,而结账时传 true 则不可逆。
 	checkoutSent = true
 	if err := client.PostWithContext(context.WithoutCancel(ctx), "/order/cart/"+cartID+"/checkout", map[string]interface{}{
-		// 订阅上显式打开"自动付款"才为 true;默认不替用户扣钱
-		"autoPayWithPreferredPaymentMethod": sub.AutoPay,
+		// 自动付款功能已删除:结账永远不使用默认支付方式扣款,由用户在 OVH 订单页自行付款
+		"autoPayWithPreferredPaymentMethod": false,
 	}, &checkoutResult); err != nil {
 		if ovh.CheckoutUncertain(err) {
 			success = true // 保留购物车及登记,不确定的结账不能安全重发。
@@ -535,10 +535,6 @@ func autoOrderOnRestock(ctx context.Context, state *app.State, sub types.VPSSubs
 			// "成功"= 订单已创建、未付款、逾期作废。通知里必须说清楚。
 			payNote := "⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n" +
 				"(撤回资格与退款金额以 OVH 订单页面显示为准)"
-			if sub.AutoPay {
-				payNote = "💳 已请求用账户默认支付方式自动付款,请打开订单链接核对扣款是否成功。\n" +
-					"(撤回资格与退款金额以 OVH 订单页面显示为准)"
-			}
 			// 同独服:通知里发需要登录的控制面板深链,不发 checkout 那个带凭证的 url。
 			// 带凭证那份存在本地历史里,界面上照样一键可付。
 			linkURL := "请在 OVH 控制台 → 账单 → 订单 中查看"

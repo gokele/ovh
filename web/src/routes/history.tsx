@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Chip } from "@/components/common/Chip";
 import { AccountChip } from "@/components/common/AccountChip";
 import { TimingChip } from "@/components/common/TimingChip";
+import { OrderSpeed } from "@/components/common/OrderSpeed";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadFailed } from "@/components/common/LoadFailed";
@@ -310,6 +311,7 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
           {item.planCode}
           <AccountChip accountId={item.accountId} />
           <TimingChip totalMs={item.totalMs} phases={item.timing} />
+          <OrderSpeed detectionToWriteUs={item.detectionToWriteUs} prewarmed={item.prewarmed} connectionReused={item.connectionReused} waitMs={item.waitMs} />
           <span className="text-xs text-muted-foreground"><OrderDurationLabel value={item.duration} /></span>
           {item.couponWarning && <p className="w-full text-[11px] font-normal text-warning break-words" role="status">{item.couponWarning}</p>}
         </div>
@@ -389,6 +391,7 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
             <AccountChip accountId={item.accountId} />
             <Chip tone="default" className="text-[10px]">{item.datacenter.toUpperCase()}</Chip>
             <TimingChip totalMs={item.totalMs} phases={item.timing} />
+          <OrderSpeed detectionToWriteUs={item.detectionToWriteUs} prewarmed={item.prewarmed} connectionReused={item.connectionReused} waitMs={item.waitMs} />
             <span className="text-xs text-muted-foreground"><OrderDurationLabel value={item.duration} /></span>
           {item.couponWarning && <p className="w-full text-[11px] font-normal text-warning break-words" role="status">{item.couponWarning}</p>}
           </div>

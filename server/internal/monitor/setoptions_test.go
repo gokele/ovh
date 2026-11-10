@@ -7,7 +7,7 @@ import "testing"
 // 为什么单独测这个:改配置的另一条路是"删了重建"(AddSubscription 是 upsert),
 // 那会清空 LastStatus —— 下一轮检查就把"本来就有货"当成 无货→有货 的跳变,
 // 发一条根本没发生的补货通知,开了自动下单的还会真下单。
-// 同理 AutoOrder / Quantity / AutoOrderAccountID / AutoPay 是用户的花钱设置,
+// 同理 AutoOrder / Quantity / AutoOrderAccountID 是用户的花钱设置,
 // 调用方凑不齐这些字段时走 upsert 就等于把它们悄悄改掉。
 func TestSetSubscriptionOptionsOnlyTouchesOptions(t *testing.T) {
 	m := &Monitor{
@@ -19,7 +19,6 @@ func TestSetSubscriptionOptionsOnlyTouchesOptions(t *testing.T) {
 			AutoOrder:          true,
 			Quantity:           3,
 			AutoOrderAccountID: "acc-eu",
-			AutoPay:            true,
 			LastStatus:         map[string]string{"gra": "1H-low"},
 			History:            []HistoryEntry{{Datacenter: "gra", Status: "1H-low"}},
 		}},
@@ -34,7 +33,7 @@ func TestSetSubscriptionOptionsOnlyTouchesOptions(t *testing.T) {
 		t.Fatalf("Options 没改成: %v", s.Options)
 	}
 	// 花钱相关的设置必须原样
-	if !s.AutoOrder || s.Quantity != 3 || s.AutoOrderAccountID != "acc-eu" || !s.AutoPay {
+	if !s.AutoOrder || s.Quantity != 3 || s.AutoOrderAccountID != "acc-eu" {
 		t.Fatalf("自动下单设置被改动了: %+v", s)
 	}
 	// 状态与历史必须原样 —— 清掉会造成一条虚假的补货通知

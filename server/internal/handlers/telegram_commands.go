@@ -44,8 +44,19 @@ func handleCommand(state *app.State, mon *monitor.Monitor, chatID interface{}, m
 
 	var reply string
 	switch cmd {
-	case "start", "help", "h", "?":
-		reply = helpText()
+	case "start", "menu", "m":
+		sendMenu(state, mon, chatID, messageID)
+		return true
+	case "help", "h", "?":
+		telegram.SendReply(state, chatID, clampReply(helpText()), messageID)
+		sendMenu(state, mon, chatID, 0)
+		return true
+	case "monitor", "mon":
+		reply = monitorText(state, mon, args)
+	case "speed":
+		reply = speedText(state)
+	case "pauseall":
+		reply = pauseAllText(state)
 	case "status", "s":
 		reply = statusText(state, mon)
 	case "queue", "q":
@@ -84,8 +95,16 @@ func handleCommand(state *app.State, mon *monitor.Monitor, chatID interface{}, m
 	case "accounts", "acc":
 		reply = accountsText(state, chatID, messageID)
 	case "subs", "sub":
+		if kb := subsKeyboard(mon); kb != nil {
+			telegram.SendKeyboard(state, chatID, messageID, clampReply(subsText(state, mon)), kb)
+			return true
+		}
 		reply = subsText(state, mon)
 	case "recent", "history":
+		if kb := recentKeyboard(state); kb != nil {
+			telegram.SendKeyboard(state, chatID, messageID, clampReply(recentText(state)), kb)
+			return true
+		}
 		reply = recentText(state)
 	default:
 		reply = "❓ 不认识的命令: /" + cmd + "\n\n发 /help 看能用什么。"
@@ -132,13 +151,17 @@ func helpText() string {
 	b.WriteString("   **按配置逐套**触发的。不挑配置就是每套都要，\n")
 	b.WriteString("   「抢 1 台」会变成「每套配置在每个机房各抢 1 台」。\n\n")
 	b.WriteString("【命令】\n")
+	b.WriteString("  /menu     按钮菜单（总览、任务、订阅、订单、速度、监控开关）\n")
 	b.WriteString("  /status   监控与队列总览\n")
-	b.WriteString("  /queue    正在抢的任务\n")
+	b.WriteString("  /queue    正在抢的任务（可暂停/恢复/删除）\n")
+	b.WriteString("  /pauseall 暂停全部运行中的任务\n")
+	b.WriteString("  /monitor on|off  启动 / 停止监控\n")
+	b.WriteString("  /speed    抢购速度：发现库存到发出结账\n")
 	b.WriteString("  /cancel <任务号|all>  取消任务\n")
 	b.WriteString("  /interval [秒]   看/改新任务的默认重试间隔\n")
-	b.WriteString("  /subs     在盯哪些型号\n")
+	b.WriteString("  /subs     在盯哪些型号（可暂停/恢复/删除）\n")
 	b.WriteString("  /accounts 看/切当前下单账户\n")
-	b.WriteString("  /recent   最近的抢购结果\n\n")
+	b.WriteString("  /recent   最近的抢购结果（未付款订单带订单页链接）\n\n")
 	b.WriteString("💡 上架通知里的按钮可以直接下单，比打字快。\n")
 	b.WriteString("💡 多账户的话先 /accounts 确认当前用的是哪个 —— ")
 	b.WriteString("三个大区的型号代码不一样，选错区永远抢不到。\n")

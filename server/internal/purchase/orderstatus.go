@@ -13,8 +13,8 @@ import (
 
 // 订单支付状态。
 //
-// "下单成功"≠"已付款":checkout 是 autoPayWithPreferredPaymentMethod:false(除非开了
-// 自动付款开关),订单创建后要用户自己付,逾期作废。历史里以前只有"success",
+// "下单成功"≠"已付款":checkout 恒为 autoPayWithPreferredPaymentMethod:false
+// (自动付款功能已删除),订单创建后要用户自己付,逾期作废。历史里以前只有"success",
 // 用户永远不知道这单到底付了没、有没有过期。
 //
 // 状态来自 GET /me/order/{orderId}/status,三区都有,返回 billing.order.OrderStatusEnum:

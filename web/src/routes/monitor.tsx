@@ -411,11 +411,11 @@ function SubRow({
                 <>
                   <Chip
                     tone="solid"
-                    title={sub.autoPay ? t("monitor.row.autoPayTitle") : t("monitor.row.manualPayTitle")}
+                    title={t("monitor.row.manualPayTitle")}
                   >
                     {t("monitor.row.autoOrder")}
                     {sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
-                    {sub.autoPay ? t("monitor.row.autoPaySuffix") : ""}
+                    
                   </Chip>
                   <span className="text-[11px] text-muted-foreground">→</span>
                   <AccountChip accountId={sub.autoOrderAccountId} />
@@ -580,7 +580,6 @@ function AddSubscriptionDialog({
   const [autoOrder, setAutoOrder] = useState(false);
   const [quantity, setQuantity] = useState(1);
   // 默认不自动付款:自动扣钱必须显式打开
-  const [autoPay, setAutoPay] = useState(false);
   const [duration, setDuration] = useState("P1M");
   // 只盯哪一套配置。空 = 盯全部配置(老行为)。
   // 后端引擎一直支持,以前前端没接 —— 于是网页建的订阅永远是「盯全部」,
@@ -627,7 +626,6 @@ function AddSubscriptionDialog({
     setNotifyUnavailable(false);
     setAutoOrder(false);
     setQuantity(1);
-    setAutoPay(false);
     setDuration("P1M");
     setPicked({});
     setExtraOptions("");
@@ -652,7 +650,6 @@ function AddSubscriptionDialog({
       setNotifyUnavailable(editing.notifyUnavailable);
       setAutoOrder(!!editing.autoOrder);
       setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
-      setAutoPay(!!editing.autoPay);
       setDuration(editing.duration || "P1M");
       // 配置的回填交给下面那个 effect —— 它要等目录到位才能把 addon code
       // 映射成 chip,而目录是异步来的,不能塞进这个"打开即重灌"的 effect 里
@@ -732,7 +729,6 @@ function AddSubscriptionDialog({
       autoOrder,
       quantity: autoOrder ? quantity : undefined,
       autoOrderAccountId: autoOrder ? autoOrderAccountId : "",
-      autoPay: autoOrder ? autoPay : false,
       duration,
       // 始终显式传:PUT 用 *[]string 区分「没传」和「改成空数组」,
       // 不传的话后端保留旧值,用户在界面上清空了配置却不生效
@@ -954,13 +950,7 @@ function AddSubscriptionDialog({
                 <p className="text-[11px] text-muted-foreground mt-1.5">
                   {t("monitor.dialog.qtyHint")}
                 </p>
-                <label className="flex items-center gap-2 mt-2 cursor-pointer text-[12px]">
-                  <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
-                  {t("monitor.dialog.autoPay")}
-                </label>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {t("monitor.dialog.autoPayHint")}
-                </p>
+                <p className="text-[11px] text-muted-foreground mt-1.5">{t("monitor.row.manualPayTitle")}</p>
             </div>
             </div>
           )}

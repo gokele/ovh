@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
-	"sync"
 
 	ovhsdk "github.com/ovh/go-ovh/ovh"
+
+	"github.com/ovh-buy/server/internal/ovh"
 )
 
 var ErrCartPeriod = errors.New("购物车购买周期不一致或无法确认，已停止下单")
@@ -113,40 +113,14 @@ func VerifyCart(ctx context.Context, client *ovhsdk.Client, cartID string, baseI
 	return nil
 }
 
-// getItems 并行读取购物车项目。go-ovh 的 NewRequest 会改写共享 http.Client.Timeout,
-// 所以先在当前 goroutine 依次签名,再并发发送;任一失败即返回第一个错误。
+// getItems 并行读取同一层的购物车项目(只读)。
 func getItems(ctx context.Context, client *ovhsdk.Client, cartID string, ids []int64, target func(int) interface{}) error {
-	requests := make([]*http.Request, len(ids))
+	paths := make([]string, len(ids))
 	for i, id := range ids {
-		req, err := client.NewRequest(http.MethodGet, fmt.Sprintf("/order/cart/%s/item/%d", cartID, id), nil, true)
-		if err != nil {
-			return fmt.Errorf("读取项目 %d 购买周期失败: %w", id, err)
-		}
-		requests[i] = req.WithContext(ctx)
+		paths[i] = fmt.Sprintf("/order/cart/%s/item/%d", cartID, id)
 	}
-	errs := make([]error, len(ids))
-	var wg sync.WaitGroup
-	limit := make(chan struct{}, 8)
-	for i := range requests {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			limit <- struct{}{}
-			defer func() { <-limit }()
-			resp, err := client.Do(requests[i])
-			if err == nil {
-				err = client.UnmarshalResponse(resp, target(i))
-			}
-			if err != nil {
-				errs[i] = fmt.Errorf("读取项目 %d 购买周期失败: %w", ids[i], err)
-			}
-		}(i)
-	}
-	wg.Wait()
-	for _, err := range errs {
-		if err != nil {
-			return err
-		}
+	if err := ovh.GetParallel(ctx, client, paths, 8, target); err != nil {
+		return fmt.Errorf("读取购物车项目购买周期失败: %w", err)
 	}
 	return nil
 }

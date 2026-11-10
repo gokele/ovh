@@ -121,7 +121,7 @@ POST   /api/telegram/webhook              (OVH bot 回调，白名单)
 4. `POST /order/cart/{id}/item/{itemId}/configuration` × 3：`dedicated_datacenter` / `dedicated_os` / `region`
 5. `POST /order/cart/{id}/eco/options` × N：用户选的 addon planCode
 6. `GET /order/cart/{id}/summary`
-7. `POST /order/cart/{id}/checkout` body `{autoPayWithPreferredPaymentMethod, waiveRetractationPeriod}`
+7. `POST /order/cart/{id}/checkout` body `{autoPayWithPreferredPaymentMethod: false}`(不自动付款,不发送 waiveRetractationPeriod)
 
 下单 subsidiary 由全局 `cfg.Zone`（settings.zone）决定。前端无需在每次任务里指定。
 

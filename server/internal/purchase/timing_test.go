@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ovh-buy/server/internal/ovh"
 )
 
 func TestTimelineRecordsPhasesInOrder(t *testing.T) {
@@ -85,5 +87,24 @@ func TestRecordTimingCaps(t *testing.T) {
 	}
 	if n := len(LastTimings()); n > 500 {
 		t.Errorf("最多留 500 条,实际 %d", n)
+	}
+}
+
+// 成功通知的耗时段落:只写测到的数字,亚毫秒保留小数。
+func TestOrderTimingNote(t *testing.T) {
+	tl := newTimeline()
+	tl.items = []phase{{"查库存", 12 * time.Millisecond}, {"下单", 400 * time.Millisecond}}
+	tl.last = tl.start.Add(412 * time.Millisecond)
+	tl.dispatch = &ovh.DispatchSnapshot{WroteRequest: true, DetectionToWriteUS: 250, Prewarmed: true, ConnectionReused: true}
+	created := time.Now().Add(-(2*time.Hour + 13*time.Minute)).UTC().Format(time.RFC3339)
+	note := orderTimingNote(tl, created)
+	for _, want := range []string{"发现库存 → 发出结账：0.25ms（购物车已预装，复用连接）", "本轮链路：412ms（查库存 12ms · 下单 400ms）", "从创建任务到抢到：2 小时 13 分"} {
+		if !strings.Contains(note, want) {
+			t.Fatalf("note missing %q:\n%s", want, note)
+		}
+	}
+	tl.dispatch = &ovh.DispatchSnapshot{WroteRequest: false}
+	if strings.Contains(orderTimingNote(tl, ""), "发现库存") {
+		t.Fatal("unwritten dispatch must not report a detection time")
 	}
 }

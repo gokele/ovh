@@ -51,7 +51,7 @@ func (p *monitorTestPool) get(owner string) monitorWarmRecord {
 func TestMonitorPreparationFollowsRevisionPauseAndStop(t *testing.T) {
 	m := renderTestMonitor(t)
 	// Add before attaching the pool, so the setup itself does not launch network work.
-	m.AddSubscription("plan", []string{"gra"}, true, false, "", nil, nil, true, 2, "eu", true, []string{"ram-32g"}, "")
+	m.AddSubscription("plan", []string{"gra"}, true, false, "", nil, nil, true, 2, "eu", []string{"ram-32g"}, "")
 	pool := &monitorTestPool{records: map[string]monitorWarmRecord{}}
 	m.state.OrderPrewarm = pool
 	m.running = true
@@ -60,7 +60,7 @@ func TestMonitorPreparationFollowsRevisionPauseAndStop(t *testing.T) {
 	owner := prewarmOwner(sub, cfg)
 	m.syncPrewarm()
 	record := pool.get(owner)
-	if len(record.items) != 2 || record.active == nil || !record.active() || record.items[0].AccountID != "eu" || !record.items[0].AutoPay || len(m.state.Queue) != 0 {
+	if len(record.items) != 2 || record.active == nil || !record.active() || record.items[0].AccountID != "eu" || len(m.state.Queue) != 0 {
 		t.Fatal(record)
 	}
 	key := OptionsKey(cfg.Options)

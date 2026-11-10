@@ -36,15 +36,18 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			PurchaseMode  string   `json:"purchaseMode"`
 			Options       []string `json:"options"`
 			RetryInterval int      `json:"retryInterval"`
-			// AutoPay 下单成功后用默认支付方式自动付款(显式开关,默认关)
-			AutoPay  bool `json:"autoPay"`
-			Preorder bool `json:"preorder"`
+			// LegacyAutoPay 旧页面字段,仅为兼容;true 会被拒绝(自动付款功能已删除)
+			LegacyAutoPay *bool `json:"autoPay"`
+			Preorder      bool  `json:"preorder"`
 			// PreorderWaitStock 预售等库存出现再结账,默认开售即下
 			PreorderWaitStock bool   `json:"preorderWaitStock"`
 			Coupon            string `json:"coupon"`
 		}
 		if err := bindOrderJSON(c, &body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "任务参数格式不正确", "details": err.Error()})
+			return
+		}
+		if rejectAutoPay(c, body.LegacyAutoPay) {
 			return
 		}
 		duration, termErr := orderterm.Normalize(body.Duration)
@@ -119,7 +122,7 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 				for n := 0; n < qty; n++ {
 					item := types.QueueItem{ID: uuid.NewString(), AccountID: account, Duration: body.Duration, PlanCode: body.PlanCode, Datacenter: dc,
 						Options: append([]string(nil), body.Options...), Status: "running", CreatedAt: types.NowISO(), UpdatedAt: types.NowISO(), RetryInterval: body.RetryInterval,
-						AutoPay: body.AutoPay, Preorder: body.Preorder, PreorderWaitStock: body.Preorder && body.PreorderWaitStock, Coupon: strings.TrimSpace(body.Coupon), OrderGroup: dcGroup}
+						Preorder: body.Preorder, PreorderWaitStock: body.Preorder && body.PreorderWaitStock, Coupon: strings.TrimSpace(body.Coupon), OrderGroup: dcGroup}
 					if dcGroup != "" {
 						item.GroupLimit = qty
 					}
@@ -194,11 +197,15 @@ func UpdateQueueItem(state *app.State) gin.HandlerFunc {
 			Datacenter    string   `json:"datacenter"`
 			Options       []string `json:"options"`
 			RetryInterval int      `json:"retryInterval"`
-			AutoPay       bool     `json:"autoPay"`
-			Coupon        string   `json:"coupon"`
+			// LegacyAutoPay 旧页面字段,仅为兼容;true 会被拒绝(自动付款功能已删除)
+			LegacyAutoPay *bool  `json:"autoPay"`
+			Coupon        string `json:"coupon"`
 		}
 		if err := bindOrderJSON(c, &body); err != nil || strings.TrimSpace(body.Datacenter) == "" || body.RetryInterval < types.MinRetryInterval || body.RetryInterval > types.MaxRetryInterval {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "请填写机房及有效的重试间隔"})
+			return
+		}
+		if rejectAutoPay(c, body.LegacyAutoPay) {
 			return
 		}
 		if body.Duration != nil {
@@ -207,7 +214,7 @@ func UpdateQueueItem(state *app.State) gin.HandlerFunc {
 				return
 			}
 		}
-		if err := state.UpdateQueueItem(c.Param("id"), strings.TrimSpace(body.Datacenter), body.Options, body.RetryInterval, body.AutoPay, strings.TrimSpace(body.Coupon), body.Duration); err != nil {
+		if err := state.UpdateQueueItem(c.Param("id"), strings.TrimSpace(body.Datacenter), body.Options, body.RetryInterval, strings.TrimSpace(body.Coupon), body.Duration); err != nil {
 			status := http.StatusInternalServerError
 			if errors.Is(err, app.ErrQueueNotFound) {
 				status = http.StatusNotFound

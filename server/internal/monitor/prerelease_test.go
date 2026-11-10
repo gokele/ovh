@@ -89,7 +89,7 @@ func TestPrereleaseMonitorDoesNotAlertOrOrderBeforeListing(t *testing.T) {
 				oldStatus = "unavailable"
 			}
 			m.AddSubscription(plan, []string{"bhs"}, true, true, "", map[string]string{"bhs|" + fqn: oldStatus}, nil,
-				!tc.listed, 1, st.Accounts[0].ID, false, nil, "")
+				!tc.listed, 1, st.Accounts[0].ID, nil, "")
 			// A restored old failure must not cause repeated initial alerts either.
 			sub := fromDBSub(toDBSub(m.subscriptions[0]))
 			m.subscriptions[0] = sub

@@ -20,15 +20,19 @@ func queueKeyboard(state *app.State) map[string]interface{} {
 			break
 		}
 		label := fmt.Sprintf("%d. %s@%s", i+1, it.PlanCode, strings.ToUpper(orAny(it.Datacenter)))
+		del := cbButton("🗑", map[string]string{"a": "sx", "t": putAction(tgAction{kind: "task-delete", taskID: it.ID}), "s": "1"})
 		switch it.Status {
 		case "running", "pending":
-			rows = append(rows, []map[string]interface{}{telegram.TaskButton("⏸ 暂停 "+label, it.ID, telegram.TaskPause)})
+			rows = append(rows, []map[string]interface{}{telegram.TaskButton("⏸ 暂停 "+label, it.ID, telegram.TaskPause), del})
 		case "paused":
-			rows = append(rows, []map[string]interface{}{telegram.TaskButton("▶️ 恢复 "+label, it.ID, telegram.TaskResume)})
+			rows = append(rows, []map[string]interface{}{telegram.TaskButton("▶️ 恢复 "+label, it.ID, telegram.TaskResume), del})
 		}
 	}
 	if len(rows) == 0 {
 		return nil
+	}
+	if len(rows) > 1 {
+		rows = append(rows, []map[string]interface{}{cbButton("⏸ 全部暂停", map[string]string{"a": "qa"})})
 	}
 	return map[string]interface{}{"inline_keyboard": rows}
 }

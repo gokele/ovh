@@ -1873,6 +1873,24 @@
       ]
     }
   },
+  "GET /me/order/{orderId}/details/{orderDetailId}/extension": {
+    "CA": {
+      "status": "BETA",
+      "response": "billing.ItemDetail",
+      "params": [
+        "path:orderDetailId:long:true",
+        "path:orderId:long:true"
+      ]
+    },
+    "EU": {
+      "status": "BETA",
+      "response": "billing.ItemDetail",
+      "params": [
+        "path:orderDetailId:long:true",
+        "path:orderId:long:true"
+      ]
+    }
+  },
   "GET /me/order/{orderId}/paymentMethods": {
     "CA": {
       "status": "BETA",

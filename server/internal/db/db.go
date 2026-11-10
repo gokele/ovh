@@ -86,7 +86,7 @@ func (db *DB) migrate() error {
 	// retraction_time:撤销权截止日。老库没有这一列,而 ListHistory 用 SELECT * + sqlx 严格映射,
 	// 只加结构体字段不加列会让整个历史列表报 missing destination name,两者必须同一次上线。
 	// failure_count:只记真正提交并失败的次数(无货轮次不计),MaxRetries 靠它封顶
-	// auto_pay:下单后用默认支付方式自动付款的显式开关
+	// auto_pay:旧版「自动付款」开关;功能已删除,列仅为兼容旧库保留,写入恒为 0
 	if err := db.addColumnIfMissing("queue", "auto_pay", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
@@ -98,6 +98,17 @@ func (db *DB) migrate() error {
 	}
 	if err := db.addColumnIfMissing("queue", "coupon", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
+	}
+	// 抢购耗时:发现库存→结账写出(微秒)、是否预装/复用连接、从建任务到抢到(毫秒)
+	for _, c := range [][2]string{
+		{"detection_to_write_us", "INTEGER NOT NULL DEFAULT 0"},
+		{"prewarmed", "INTEGER NOT NULL DEFAULT 0"},
+		{"connection_reused", "INTEGER NOT NULL DEFAULT 0"},
+		{"wait_ms", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		if err := db.addColumnIfMissing("history", c[0], c[1]); err != nil {
+			return err
+		}
 	}
 	if err := db.addColumnIfMissing("history", "coupon_warning", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err

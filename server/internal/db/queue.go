@@ -27,13 +27,14 @@ type queueRow struct {
 	Priority           int     `db:"priority"`
 	FromTelegram       int     `db:"from_telegram"`
 	ConfigSniperTaskID string  `db:"config_sniper_task_id"`
-	AutoPay            int     `db:"auto_pay"`
-	Preorder           int     `db:"preorder"`
-	PreorderWaitStock  int     `db:"preorder_wait_stock"`
-	Coupon             string  `db:"coupon"`
-	OrderGroup         string  `db:"order_group"`
-	GroupLimit         int     `db:"group_limit"`
-	StopReason         string  `db:"stop_reason"`
+	// AutoPay 旧版「自动付款」列,功能已删除:读取时忽略,写入恒为 0(清掉旧值)
+	AutoPay           int    `db:"auto_pay"`
+	Preorder          int    `db:"preorder"`
+	PreorderWaitStock int    `db:"preorder_wait_stock"`
+	Coupon            string `db:"coupon"`
+	OrderGroup        string `db:"order_group"`
+	GroupLimit        int    `db:"group_limit"`
+	StopReason        string `db:"stop_reason"`
 }
 
 func rowToQueueItem(r queueRow) (types.QueueItem, error) {
@@ -65,7 +66,6 @@ func rowToQueueItem(r queueRow) (types.QueueItem, error) {
 		Priority:           r.Priority,
 		FromTelegram:       r.FromTelegram == 1,
 		ConfigSniperTaskID: r.ConfigSniperTaskID,
-		AutoPay:            r.AutoPay == 1,
 		Preorder:           r.Preorder == 1,
 		PreorderWaitStock:  r.Preorder == 1 && r.PreorderWaitStock == 1,
 		Coupon:             r.Coupon,
@@ -108,7 +108,6 @@ func queueItemToRow(q types.QueueItem) (queueRow, error) {
 		Priority:           q.Priority,
 		FromTelegram:       bi(q.FromTelegram),
 		ConfigSniperTaskID: q.ConfigSniperTaskID,
-		AutoPay:            bi(q.AutoPay),
 		Preorder:           bi(q.Preorder),
 		PreorderWaitStock:  bi(q.Preorder && q.PreorderWaitStock),
 		Coupon:             q.Coupon,

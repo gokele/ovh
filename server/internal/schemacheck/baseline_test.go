@@ -116,6 +116,8 @@ var usedEndpoints = []string{
 	"POST /support/tickets/{ticketId}/close",
 	"POST /support/tickets/{ticketId}/reopen",
 
+	// 结果不明的结账核对(只读):按时间列订单 → 明细 → 下单时的 plan/配置
+	"GET /me/order/{orderId}/details/{orderDetailId}/extension",
 	"GET /me/order/{orderId}/paymentMethods",
 	"GET /me/order/{orderId}/availablePaymentMethod",
 	"GET /me/payment/method/{paymentMethodId}",

@@ -51,7 +51,6 @@ func TestPoolPreparationIsReadOnlyAndConsumedOnce(t *testing.T) {
 		func(i *types.QueueItem) { i.PlanCode = "other" },
 		func(i *types.QueueItem) { i.Options = []string{"ram-64g"} },
 		func(i *types.QueueItem) { i.Coupon = "discount" },
-		func(i *types.QueueItem) { i.AutoPay = true },
 		func(i *types.QueueItem) { i.Duration = "P12M" },
 		func(i *types.QueueItem) { i.Preorder = true },
 	} {

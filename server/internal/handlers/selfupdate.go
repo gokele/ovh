@@ -99,7 +99,7 @@ func SelfUpdate(state *app.State, restart func(exePath string)) gin.HandlerFunc 
 
 		rel, err := updater.FetchLatest()
 		if err != nil {
-			updateMu.Unlock()  // 还没移交给 goroutine,提前退出要自己还
+			updateMu.Unlock() // 还没移交给 goroutine,提前退出要自己还
 			c.JSON(http.StatusBadGateway, gin.H{"success": false, "error": err.Error()})
 			return
 		}
@@ -115,7 +115,7 @@ func SelfUpdate(state *app.State, restart func(exePath string)) gin.HandlerFunc 
 		}
 
 		setProgressLocked(updater.Progress{Phase: "downloading", Message: "正在下载 v" + latest, Version: latest})
-		updateMu.Unlock()  // 原子段结束:phase 已是 downloading,后续请求被 updateRunning 挡住
+		updateMu.Unlock() // 原子段结束:phase 已是 downloading,后续请求被 updateRunning 挡住
 		state.Logger.Info("[更新] 开始自更新: "+Version+" → "+latest, "version")
 
 		go func() {

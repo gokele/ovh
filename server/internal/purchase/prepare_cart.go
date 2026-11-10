@@ -519,9 +519,7 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 		return nil, Outcome{Fatal: errors.Is(err, orderterm.ErrCartPeriod), Reason: err.Error()}
 	}
 	// URL、序列化正文和静态头在等待库存时全部确定,不会提前发送 checkout。
-	call, err := ovh.PreparePost(client, "/order/cart/"+cartID+"/checkout", map[string]interface{}{
-		"autoPayWithPreferredPaymentMethod": item.AutoPay,
-	})
+	call, err := ovh.PreparePost(client, "/order/cart/"+cartID+"/checkout", checkoutPayload())
 	if err != nil {
 		return nil, attemptOutcome(err)
 	}
@@ -535,4 +533,12 @@ func prepareCart(ctx context.Context, state *app.State, item *types.QueueItem, a
 func listingNotReady(err error) bool {
 	var apiErr *ovhsdk.APIError
 	return errors.As(err, &apiErr) && (apiErr.Code == 400 || apiErr.Code == 404 || apiErr.Code == 409)
+}
+
+// checkoutPayload 结账请求体。自动付款功能已删除:永不使用默认支付方式扣款;
+// 也不发送 waiveRetractationPeriod,保留 14 天撤回权。
+func checkoutPayload() map[string]interface{} {
+	return map[string]interface{}{
+		"autoPayWithPreferredPaymentMethod": false,
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,6 +49,9 @@ func (t *DispatchTrace) context(ctx context.Context) context.Context {
 		},
 	})
 }
+
+// ErrCheckoutAlreadySent 同一份预构造结账被第二次调用;它说明之前已经发过,绝不能当作「未发出」。
+var ErrCheckoutAlreadySent = errors.New("prepared checkout has already been sent")
 
 // PreparedCall 的请求体、URL、静态请求头和签名前缀在等库存时生成,每辆购物车只允许发送一次。
 type PreparedCall struct {
@@ -96,7 +100,7 @@ func PreparePost(client *ovhsdk.Client, path string, body interface{}) (*Prepare
 // Send 只更新时间戳和 SHA1 签名;没有日志、序列化、数据库访问或隐式 POST 重试。
 func (p *PreparedCall) Send(ctx context.Context, trace *DispatchTrace, result interface{}) error {
 	if !p.sent.CompareAndSwap(false, true) {
-		return fmt.Errorf("prepared checkout has already been sent")
+		return ErrCheckoutAlreadySent
 	}
 	input := strconv.AppendInt(p.prefix, time.Now().Add(-p.delta).Unix(), 10)
 	sum := sha1.Sum(input)

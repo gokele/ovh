@@ -228,12 +228,11 @@ func TestPreparedCartIsReusedOnStockSignal(t *testing.T) {
 	t.Logf("prepared full purchase dispatch over real local TCP: %dus", timing.Dispatch.DetectionToWriteUS)
 }
 
-func TestPreparedSessionCannotKeepOldPaymentOrHardwareIntent(t *testing.T) {
+func TestPreparedSessionCannotKeepOldCouponOrHardwareIntent(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		change func(*types.QueueItem)
 	}{
-		{"payment", func(i *types.QueueItem) { i.AutoPay = true }},
 		{"coupon", func(i *types.QueueItem) { i.Coupon = "discount" }},
 		{"hardware", func(i *types.QueueItem) { i.Options = []string{"ram-64g"} }},
 		{"model", func(i *types.QueueItem) { i.PlanCode = "other" }},

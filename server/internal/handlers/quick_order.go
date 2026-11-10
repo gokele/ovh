@@ -35,11 +35,15 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 			Options            []string `json:"options"`
 			FromMonitor        bool     `json:"fromMonitor"`
 			SkipDuplicateCheck bool     `json:"skipDuplicateCheck"`
-			AutoPay            bool     `json:"autoPay"`
-			Coupon             string   `json:"coupon"`
+			// LegacyAutoPay 旧页面字段,仅为兼容;true 会被拒绝(自动付款功能已删除)
+			LegacyAutoPay *bool  `json:"autoPay"`
+			Coupon        string `json:"coupon"`
 		}
 		if err := bindOrderJSON(c, &body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "任务参数格式不正确", "details": err.Error()})
+			return
+		}
+		if rejectAutoPay(c, body.LegacyAutoPay) {
 			return
 		}
 		duration, termErr := orderterm.Normalize(body.Duration)
@@ -134,7 +138,7 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 		// 精确匹配的备车直接复用其已确认报价,其他手动下单仍现场验价。
 		var priceResult price.Result
 		if pool, ok := state.OrderPrewarm.(*purchase.CartPool); ok {
-			priceResult.Price = pool.Quote(types.QueueItem{AccountID: body.AccountID, Duration: body.Duration, PlanCode: body.PlanCode, Datacenter: body.Datacenter, Options: options, AutoPay: body.AutoPay, Coupon: body.Coupon})
+			priceResult.Price = pool.Quote(types.QueueItem{AccountID: body.AccountID, Duration: body.Duration, PlanCode: body.PlanCode, Datacenter: body.Datacenter, Options: options, Coupon: body.Coupon})
 		}
 		prepared := priceResult.Price != nil
 		if !prepared {
@@ -252,7 +256,6 @@ func QuickOrder(state *app.State) gin.HandlerFunc {
 			Options:    options,
 			Status:     "running",
 			RetryCount: 0,
-			AutoPay:    body.AutoPay,
 			Coupon:     strings.TrimSpace(body.Coupon),
 			// MaxRetries 封顶的是**真正提交并失败的次数**(FailureCount),无货轮次不计。
 			// 早先按"检查轮次"封顶是错的:监控只在 无货→有货 的跳变上重新触发 quick-order,

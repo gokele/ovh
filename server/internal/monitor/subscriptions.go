@@ -15,7 +15,7 @@ import (
 // 非空则只盯匹配那套 addon 的配置 —— 见 configMatchesFilter 上的说明。
 func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyAvailable, notifyUnavailable bool,
 	serverName string, lastStatus map[string]string, history []HistoryEntry, autoOrder bool, quantity int,
-	autoOrderAccountID string, autoPay bool, options []string, duration string) {
+	autoOrderAccountID string, options []string, duration string) {
 
 	m.subsMu.Lock()
 	defer m.subsMu.Unlock()
@@ -47,8 +47,6 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 			}
 			s.ServerName = serverName
 			s.AutoOrderAccountID = autoOrderAccountID
-			// 自动付款依附于自动下单:不下单就谈不上付款
-			s.AutoPay = autoPay && autoOrder
 			s.Duration = duration
 			// 配置筛选:显式传 nil 和传空切片都当成"盯全部配置"。
 			// 这是就地改配置的路径,options 也要跟着改,否则用户在 TG 上重挑一次配置不生效。
@@ -85,7 +83,6 @@ func (m *Monitor) AddSubscription(planCode string, datacenters []string, notifyA
 		CreatedAt:          time.Now().Format(time.RFC3339Nano),
 		History:            history,
 		AutoOrderAccountID: autoOrderAccountID,
-		AutoPay:            autoPay && autoOrder,
 		Duration:           duration,
 		Options:            options,
 	}
@@ -140,7 +137,7 @@ var ErrSubscriptionConflict = errors.New("已存在同型号同配置的订阅,�
 
 // UpdateSubscriptionFields 用原配置键定位,保留暂停状态、历史和库存基准。
 func (m *Monitor) UpdateSubscriptionFields(planCode string, originalKey *string, datacenters []string, notifyAvailable, notifyUnavailable bool,
-	autoOrder bool, quantity int, autoOrderAccountID string, autoPay bool, options []string, duration string) error {
+	autoOrder bool, quantity int, autoOrderAccountID string, options []string, duration string) error {
 	var err error
 	duration, err = orderterm.Normalize(duration)
 	if err != nil {
@@ -172,7 +169,6 @@ func (m *Monitor) UpdateSubscriptionFields(planCode string, originalKey *string,
 			s.Quantity = quantity
 		}
 		s.AutoOrderAccountID = autoOrderAccountID
-		s.AutoPay = autoPay && autoOrder
 		s.Duration = duration
 		s.Options = append([]string(nil), options...)
 		s.mu.Unlock()
@@ -297,7 +293,7 @@ func (m *Monitor) FindSubscription(planCode string, optionsKey ...string) *Subsc
 // 返回 false = 没有这条订阅。
 //
 // 为什么不复用 AddSubscription:它是 upsert,调用方得把所有字段重新凑齐,
-// 漏一个就等于把用户的设置改掉(自动下单账户、数量、autoPay 都在里面)。
+// 漏一个就等于把用户的设置改掉(自动下单账户、数量都在里面)。
 // 而且这里只动 Options,不碰 LastStatus / History —— 状态一清,
 // 下一轮就会把"本来就有货"当成补货跳变,发一条根本没发生的通知外加真下单。
 func (m *Monitor) SetSubscriptionOptions(planCode string, options []string) bool {
@@ -463,7 +459,6 @@ func (m *Monitor) SubscriptionConfig(planCode string, optionsKey ...string) Subs
 			AutoOrder:          s.AutoOrder,
 			Quantity:           s.Quantity,
 			AutoOrderAccountID: s.AutoOrderAccountID,
-			AutoPay:            s.AutoPay,
 			Duration:           s.Duration,
 			Options:            append([]string(nil), s.Options...),
 		}
@@ -484,7 +479,6 @@ type SubscriptionConfig struct {
 	AutoOrder          bool
 	Quantity           int
 	AutoOrderAccountID string
-	AutoPay            bool
 	// Options 只盯这套配置。空 = 全部配置。
 	Options []string
 }

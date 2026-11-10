@@ -56,7 +56,7 @@ func disableAutoOrder(state *app.State, snapshot types.VPSSubscription) {
 	for i := range state.VPSSubscriptions {
 		live := &state.VPSSubscriptions[i]
 		if live.ID == snapshot.ID && live.Revision == snapshot.Revision {
-			live.AutoOrder, live.AutoPay = false, false
+			live.AutoOrder = false
 			live.Revision++
 			break
 		}

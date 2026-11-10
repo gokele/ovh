@@ -99,10 +99,14 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 			AutoOrder          bool     `json:"autoOrder"`
 			Quantity           int      `json:"quantity"`
 			OS                 string   `json:"os"`
-			AutoPay            bool     `json:"autoPay"`
+			// LegacyAutoPay 旧页面字段,仅为兼容;true 会被拒绝(自动付款功能已删除)
+			LegacyAutoPay *bool `json:"autoPay"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "请求参数格式错误"})
+			return
+		}
+		if rejectAutoPay(c, body.LegacyAutoPay) {
 			return
 		}
 		duration, termErr := orderterm.Normalize(body.Duration)
@@ -220,7 +224,6 @@ func AddVPSSubscription(state *app.State) gin.HandlerFunc {
 			AutoOrder:          body.AutoOrder && body.AutoOrderAccountID != "",
 			Quantity:           body.Quantity,
 			OS:                 strings.TrimSpace(body.OS),
-			AutoPay:            body.AutoPay && body.AutoOrder && body.AutoOrderAccountID != "",
 		}
 		if sub.AutoOrder && sub.Quantity < 1 {
 			sub.Quantity = 1

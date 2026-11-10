@@ -12,13 +12,12 @@ import (
 
 func TestPreorderReusesOnlyConfirmedEmptyAssignedCart(t *testing.T) {
 	for _, tc := range []struct {
-		name, emptyResponse   string
-		status                int
-		keep, expire, payment bool
+		name, emptyResponse string
+		status              int
+		keep, expire        bool
 	}{
 		{name: "empty", status: 400, keep: true},
 		{name: "expired empty", status: 400, keep: true, expire: true},
-		{name: "changed payment", status: 400, keep: true, payment: true},
 		{name: "partial item", status: 400, emptyResponse: `{"items":[99]}`},
 		{name: "missing item list", status: 400, emptyResponse: `{}`},
 		{name: "unknown item list", status: 400, emptyResponse: `{"items":null}`},
@@ -71,16 +70,13 @@ func TestPreorderReusesOnlyConfirmedEmptyAssignedCart(t *testing.T) {
 			if tc.expire {
 				session.empty.expires = time.Now().Add(-time.Second)
 			}
-			if tc.payment {
-				item.AutoPay = true
-			}
 			open.Store(true)
 			out = PurchaseServer(ctx, state, &item)
 			if !out.Success || checkouts.Load() != 1 || session.empty != nil {
 				t.Fatal("preorder did not complete safely", out, checkouts.Load())
 			}
 			want := int32(2)
-			if tc.keep && !tc.expire && !tc.payment {
+			if tc.keep && !tc.expire {
 				want = 1
 			}
 			if carts.Load() != want || assigns.Load() != want {

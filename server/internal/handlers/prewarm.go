@@ -22,13 +22,17 @@ func PrepareOrderCart(state *app.State) gin.HandlerFunc {
 			Datacenters []string `json:"datacenters"`
 			Options     []string `json:"options"`
 			Quantity    int      `json:"quantity"`
-			AutoPay     bool     `json:"autoPay"`
-			Coupon      string   `json:"coupon"`
-			Preorder    bool     `json:"preorder"`
-			Standby     bool     `json:"standby"`
+			// LegacyAutoPay 旧页面字段,仅为兼容;true 会被拒绝(自动付款功能已删除)
+			LegacyAutoPay *bool  `json:"autoPay"`
+			Coupon        string `json:"coupon"`
+			Preorder      bool   `json:"preorder"`
+			Standby       bool   `json:"standby"`
 		}
 		if err := bindOrderJSON(c, &body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "备车参数不完整或数量超限", "code": "PREWARM_INVALID", "details": err.Error()})
+			return
+		}
+		if rejectAutoPay(c, body.LegacyAutoPay) {
 			return
 		}
 		if !validPrewarmID(body.ID) || body.AccountID == "" || strings.TrimSpace(body.PlanCode) == "" || len(body.PlanCode) > 200 || len(body.Datacenters) == 0 || body.Quantity < 1 || body.Quantity > types.MaxOrderQuantity || len(body.Datacenters)*body.Quantity > types.MaxOrderFanout {
@@ -56,7 +60,7 @@ func PrepareOrderCart(state *app.State) gin.HandlerFunc {
 			}
 			seen[dc] = true
 			for n := 0; n < body.Quantity; n++ {
-				items = append(items, types.QueueItem{AccountID: body.AccountID, Duration: body.Duration, PlanCode: strings.TrimSpace(body.PlanCode), Datacenter: dc, Options: body.Options, AutoPay: body.AutoPay, Coupon: strings.TrimSpace(body.Coupon), Preorder: body.Preorder})
+				items = append(items, types.QueueItem{AccountID: body.AccountID, Duration: body.Duration, PlanCode: strings.TrimSpace(body.PlanCode), Datacenter: dc, Options: body.Options, Coupon: strings.TrimSpace(body.Coupon), Preorder: body.Preorder})
 			}
 		}
 		lease := 2 * time.Minute
