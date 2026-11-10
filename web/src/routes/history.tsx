@@ -1,4 +1,5 @@
 import { OrderDurationLabel } from "@/components/queue/OrderDurationField";
+import { Link } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
 import { Clock, RefreshCw, Trash2, Search, ExternalLink, AlertCircle, Hourglass } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -216,7 +217,28 @@ function HistoryPage() {
         </Card>
       ) : filtered.length === 0 ? (
         <Card>
-          <EmptyState icon={Clock} title={t("history.emptyTitle")} />
+          {items.length === 0 ? (
+            <EmptyState
+              illustration="history"
+              title={t("history.emptyNoneTitle")}
+              description={t("history.emptyNoneDesc")}
+              action={
+                <Button variant="outline" asChild>
+                  <Link to="/servers">{t("queue.emptyBrowse")}</Link>
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              illustration="search"
+              title={t("history.emptyTitle")}
+              action={
+                <Button variant="outline" onClick={() => { setSearch(""); setStatusFilter("all"); }}>
+                  {t("history.clearFilters")}
+                </Button>
+              }
+            />
+          )}
         </Card>
       ) : (
         <>

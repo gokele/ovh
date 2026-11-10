@@ -256,3 +256,40 @@ func TestSaleProbeHonorsRetryAfterAndCanBeCancelled(t *testing.T) {
 		t.Fatal("backoff did not grow or was unbounded")
 	}
 }
+
+// 基础商品刚开售就唤醒任务建车;已开售型号不被覆盖成空选项,也不重复唤醒。
+func TestBaseOpeningWakesBeforeOptionPricesWithoutClobbering(t *testing.T) {
+	s := newSaleWatcher(context.Background(), nil)
+	listener := &saleListener{plan: "27skle01-v1", duration: "P1M", changes: make(chan struct{}, 1)}
+	watch := &accountSaleWatch{listeners: map[*saleListener]bool{listener: true}, latest: map[string]saleSnapshot{}}
+	closed := saleOffers(t, `[{"planCode":"27skle01-v1","prices":[]}]`)
+	open := saleOffers(t, `[{"planCode":"27skle01-v1","prices":[{"duration":"P1M","pricingMode":"default","price":{"value":30,"currencyCode":"EUR"}}]}]`)
+	s.publishBaseOpen(watch, closed)
+	select {
+	case <-listener.changes:
+		t.Fatal("unpriced base must not wake tasks")
+	default:
+	}
+	s.publishBaseOpen(watch, open)
+	select {
+	case <-listener.changes:
+	default:
+		t.Fatal("base opening did not wake the task before option prices")
+	}
+	if watch.latest[listener.plan].ready("P1M", "default", nil) {
+		t.Fatal("base-only snapshot must never be ready to check out")
+	}
+	// 选项报价到达后,再次的 base-only 发布不能把它清空。
+	withOptions := watch.latest[listener.plan]
+	withOptions.options = []map[string]interface{}{{"planCode": "ram"}}
+	watch.latest[listener.plan] = withOptions
+	s.publishBaseOpen(watch, open)
+	select {
+	case <-listener.changes:
+		t.Fatal("already-open model woke again")
+	default:
+	}
+	if len(watch.latest[listener.plan].options) != 1 {
+		t.Fatal("option quotes were clobbered by a base-only publish")
+	}
+}

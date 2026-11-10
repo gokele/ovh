@@ -155,8 +155,11 @@ export const snipePagesZh = {
     clear: "清空",
     timingsFailedTitle: "上一轮耗时/结果读取失败,任务照常在跑",
     loadFailedTitle: "队列读取失败,不代表队列是空的",
-    emptyTitle: "暂无任务",
-    emptyDesc: "点击右上角“新建抢购任务”开始抢购",
+    emptyTitle: "还没有抢购任务",
+    emptyDesc: "从服务器列表挑好机型和机房，或直接新建任务。有货时任务会自动下单。",
+    emptyCreate: "新建抢购任务",
+    emptyBrowse: "去服务器列表挑机型",
+    emptyShowAll: "显示全部任务",
     selectedCount: "已选 {{n}} 个",
     pause: "暂停",
     resume: "恢复",
@@ -290,6 +293,9 @@ export const snipePagesZh = {
     loadFailedHint:
       "未付款的订单仍在走 15 天倒计时,别把这片空白当成\"没有订单\"。请重试,或直接去 OVH 管理面板确认待付款的订单。",
     emptyTitle: "没有匹配的订单",
+    emptyNoneTitle: "还没有抢购记录",
+    emptyNoneDesc: "抢到的订单、失败原因和待核对的结账都会记在这里。",
+    clearFilters: "清除筛选",
     col: {
       model: "型号",
       dc: "机房",

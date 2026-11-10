@@ -30,8 +30,9 @@ export const watchPagesZh = {
     },
     list: {
       failed: "订阅列表读取失败",
-      empty: "暂无订阅",
-      emptyDesc: "点击\"添加订阅\"按钮开始监控服务器",
+      empty: "还没有监控订阅",
+      emptyDesc: "订阅型号和机房后，补货会第一时间通知你，也可以设置自动下单。",
+      emptyAdd: "添加订阅",
     },
     remove: {
       title: "取消订阅",
@@ -156,7 +157,7 @@ export const watchPagesZh = {
     list: {
       failed: "VPS 订阅列表读取失败",
       empty: "暂无 VPS 订阅",
-      emptyDesc: "点击\"添加订阅\"按钮，选择 VPS 型号开始监控",
+      emptyDesc: "选择 VPS 型号和机房，补货时第一时间通知你。",
     },
     remove: {
       title: "取消订阅",

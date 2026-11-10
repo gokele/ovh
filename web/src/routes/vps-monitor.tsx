@@ -266,9 +266,10 @@ function VPSMonitorPage() {
       ) : subs.length === 0 ? (
         <Card>
           <EmptyState
-            icon={Cloud}
+            illustration="monitor"
             title={t("vpsMonitor.list.empty")}
             description={t("vpsMonitor.list.emptyDesc")}
+            action={<Button onClick={() => setOpenAdd(true)}>{t("monitor.list.emptyAdd")}</Button>}
           />
         </Card>
       ) : (

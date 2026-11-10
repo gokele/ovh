@@ -138,7 +138,7 @@ function ServerControlPage() {
       ) : servers.length === 0 ? (
         <Card>
           <EmptyState
-            icon={Server}
+            illustration="control"
             title={t("serverList.list.empty")}
             description={t("serverList.list.emptyDesc")}
           />

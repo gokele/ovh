@@ -406,6 +406,9 @@ const pack: CommonLayerPack = {
     },
   },
   shell: {
+    tabbar: "Main pages",
+    more: "More",
+    runningTasks: "{{n}} tasks running",
     closeMenu: "Close menu",
     prevPage: "Previous",
     nextPage: "Next",

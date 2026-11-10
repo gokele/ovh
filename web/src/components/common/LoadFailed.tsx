@@ -3,6 +3,7 @@ import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiMessage } from "@/lib/api-error";
 import i18n from "@/i18n";
+import { Illustration } from "@/components/illustrations/Illustration";
 
 /**
  * 「读取失败」占位 —— 必须跟空态分开渲染。
@@ -30,12 +31,18 @@ export function LoadFailed({
   return (
     <div
       className={`border border-destructive/40 bg-destructive/5 rounded-2xl flex flex-col items-center gap-2 text-center ${
-        compact ? "p-4" : "py-12 px-6"
+        compact ? "p-4" : "py-10 px-6"
       }`}
+      role="alert"
     >
-      <Icon className={compact ? "w-6 h-6 text-destructive" : "w-9 h-9 text-destructive"} strokeWidth={1.5} />
+      {/* 整块失败用「拔掉的插头」插画,与空态插画一眼区分;紧凑场景保留图标 */}
+      {compact ? (
+        <Icon className="w-6 h-6 text-destructive" strokeWidth={1.5} aria-hidden />
+      ) : (
+        <Illustration name="error" className="w-36 h-[108px]" />
+      )}
       <p className="text-[13px] font-semibold text-foreground">{title ?? i18n.t("common.readFailed")}</p>
-      <p className="text-[11px] text-muted-foreground max-w-sm">{msg}</p>
+      <p className="text-[11px] text-muted-foreground max-w-sm break-words">{msg}</p>
       {onRetry && (
         <Button size="sm" variant="outline" className="mt-1" onClick={onRetry}>
           {i18n.t("common.retry")}

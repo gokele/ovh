@@ -389,6 +389,9 @@ export const commonLayerZh = {
     },
   },
   shell: {
+    tabbar: "主要页面",
+    more: "更多",
+    runningTasks: "{{n}} 个任务运行中",
     closeMenu: "关闭菜单",
     prevPage: "上一页",
     nextPage: "下一页",

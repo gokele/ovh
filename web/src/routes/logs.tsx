@@ -114,7 +114,7 @@ function LogsPage() {
         ) : filtered.length === 0 ? (
           /* 到这儿才是真空态。再分一次:后端确实没日志,还是被搜索/级别筛掉了 */
           <EmptyState
-            icon={FileText}
+            illustration={items.length === 0 ? "logs" : "search"}
             title={items.length === 0 ? t("logs.emptyNoLogs") : t("logs.emptyFiltered")}
             description={items.length === 0 ? undefined : t("logs.emptyFilteredDesc", { total: items.length })}
           />

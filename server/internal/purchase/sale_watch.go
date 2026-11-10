@@ -145,6 +145,38 @@ func (s *saleWatcher) publishSelected(watch *accountSaleWatch, offers []map[stri
 	}
 }
 
+// publishBaseOpen 只处理「上一轮所选周期没有价格、这一轮有了」的型号:记录不含选项的快照并唤醒。
+// 已开售型号不受影响,避免把已有的选项报价覆盖成空,也不会每轮重复唤醒。
+// 不含选项的快照 ready() 恒为 false,所以这一步只会建车,不会结账。
+func (s *saleWatcher) publishBaseOpen(watch *accountSaleWatch, offers []map[string]interface{}) {
+	byPlan := make(map[string]map[string]interface{}, len(offers))
+	for _, offer := range offers {
+		if plan, ok := offer["planCode"].(string); ok {
+			byPlan[plan] = offer
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if watch.latest == nil {
+		watch.latest = map[string]saleSnapshot{}
+	}
+	for listener := range watch.listeners {
+		offer := byPlan[listener.plan]
+		if _, open := salePrice(offer["prices"], listener.duration, ""); !open {
+			continue
+		}
+		previous := watch.latest[listener.plan]
+		if _, wasOpen := salePrice(previous.base["prices"], listener.duration, ""); wasOpen {
+			continue
+		}
+		watch.latest[listener.plan] = saleSnapshot{account: watch.account, plan: listener.plan, base: offer, at: time.Now()}
+		select {
+		case listener.changes <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func (s *saleWatcher) latest(account, plan string) saleSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -243,6 +275,9 @@ func (s *saleWatcher) run(ctx context.Context, account string, watch *accountSal
 			s.mu.Lock()
 			watch.account = probe.session.account
 			s.mu.Unlock()
+			// 基础商品刚开售就先唤醒任务去建车(加基础商品、机房/系统/区域配置),
+			// 与下面的选项报价读取并行,而不是等全部选项价格回来再串行建车。
+			s.publishBaseOpen(watch, offers)
 			options, retryAfter, err = s.pollOptions(pollCtx, &probe, watch, offers)
 		}
 		cancel()

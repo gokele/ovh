@@ -16,7 +16,11 @@ export function QueueStatusFilter({
   const { t } = useTranslation();
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2" aria-label={t("queue.filterLabel")}>
+      <div
+        className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-0.5 [scrollbar-width:none] sm:flex-wrap sm:overflow-visible"
+        role="group"
+        aria-label={t("queue.filterLabel")}
+      >
         {(["all", "running", "paused", "completed", "failed"] as const).map(
           (status) => {
             const count = items.filter(
@@ -31,7 +35,7 @@ export function QueueStatusFilter({
                 type="button"
                 aria-pressed={value === status}
                 onClick={() => onChange(status)}
-                className={`inline-flex min-h-11 items-center gap-2 rounded-xl border px-4 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === status ? "border-foreground bg-foreground text-background" : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                className={`inline-flex shrink-0 whitespace-nowrap min-h-11 items-center gap-2 rounded-xl border px-4 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === status ? "border-foreground bg-foreground text-background" : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
                 <span>
                   {status === "all"

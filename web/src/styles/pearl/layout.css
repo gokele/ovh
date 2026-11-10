@@ -352,6 +352,65 @@
   .page-title { font-size: 22px; }
   .page-head-side { width: 100%; justify-content: space-between; }
   .crumbs { display: none; }
+  /* 手机:顶栏显示当前页名,底部标签栏常驻拇指区 */
+  .m-title { font-size: 15px; font-weight: 650; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .workspace { grid-template-rows: var(--topbar-h) minmax(0, 1fr) auto; }
+  .page { padding-bottom: 28px; }
+  /* 顶栏已显示页名,页内大标题在手机上视觉隐藏(保留给读屏),只留说明 */
+  .page-head .page-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .page-head { margin-bottom: 14px; gap: 10px 16px; }
+  .page-desc { font-size: 12.5px; }
+  /* 页面操作区:一行横滑,不再折成参差的两三行;主操作在最左侧拇指可达 */
+  .page-head .page-actions { width: 100%; min-width: 0; }
+  .page-head .page-actions > div {
+    justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    margin: 0 -16px; padding: 2px 16px; scroll-padding-inline: 16px;
+  }
+  .page-head .page-actions > div::-webkit-scrollbar { display: none; }
+  .page-head .page-actions button, .page-head .page-actions a { flex-shrink: 0; white-space: nowrap; }
   .search-form .field, .search-form .field.is-wide { width: 100%; }
   .search-form .search-actions { margin-left: 0; }
+}
+
+/* ── 手机底部标签栏 ─────────────────────────────────────────────
+   位于 workspace 第三行而不是 fixed 覆盖:内容滚动宿主自然在它上方结束,
+   不需要猜底部留白;安全区由自身 padding 吸收。 */
+.m-title { display: none; }
+.m-tabbar { display: none; }
+@media (max-width: 820px) {
+  .m-title { display: block; }
+  .m-tabbar {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: var(--rail-bg);
+    backdrop-filter: blur(18px);
+    position: relative;
+    z-index: 3;
+  }
+  .m-tab {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    min-height: 48px; border-radius: 12px; color: var(--ink-faint);
+    font: inherit; font-size: 10.5px; font-weight: 560; background: none; border: 0; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: color .2s ease, background-color .2s ease;
+  }
+  .m-tab:active { background: var(--line); }
+  .m-tab:focus-visible { outline: 2px solid var(--ink-soft); outline-offset: -2px; }
+  .m-tab.is-active { color: var(--ink); }
+  .m-tab-ico { position: relative; display: inline-flex; }
+  .m-tab.is-active .m-tab-ico::after {
+    content: ""; position: absolute; left: 50%; bottom: -5px; width: 4px; height: 4px; margin-left: -2px;
+    border-radius: 999px; background: currentColor;
+  }
+  .m-tab-label { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .m-tab-badge {
+    position: absolute; top: -6px; left: 13px; min-width: 16px; height: 16px; padding: 0 4px;
+    border-radius: 999px; background: var(--red); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+    box-shadow: 0 0 0 2px var(--rail-bg);
+  }
+}
+@media (max-width: 820px) and (prefers-reduced-motion: reduce) {
+  .m-tab { transition: none; }
 }

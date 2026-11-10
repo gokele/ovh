@@ -3,6 +3,7 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { PanelLeftClose, PanelLeftOpen, Menu, Shield, Github } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { MobileTabBar } from "./MobileTabBar";
 import { NAV_GROUPS } from "@/components/layout/nav";
 import { AccountSwitcher } from "@/components/layout/AccountSwitcher";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
@@ -228,6 +229,7 @@ export function AppShell() {
                 <Menu size={17} strokeWidth={1.9} />
               </button>
             )}
+            {mobile && <span className="m-title">{crumbs.label || t("nav.appName")}</span>}
             <nav className="crumbs" aria-label="breadcrumb">
               <span>{t("nav.appName")}</span>
               {crumbs.groupLabel && (
@@ -261,6 +263,7 @@ export function AppShell() {
               <Outlet />
             </div>
           </div>
+          {mobile && <MobileTabBar onMore={() => setMobileOpen(true)} moreActive={mobileOpen} />}
         </div>
       </div>
     </div>

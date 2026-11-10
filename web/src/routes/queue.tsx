@@ -265,9 +265,21 @@ function QueuePage() {
       ) : visibleItems.length === 0 ? (
         <Card>
           <EmptyState
-            icon={ClipboardList}
+            illustration={filter === "all" ? "queue" : "search"}
             title={t(filter === "all" ? "queue.emptyTitle" : "queue.filterEmpty")}
             description={t(filter === "all" ? "queue.emptyDesc" : "queue.filterEmptyHint")}
+            action={
+              filter === "all" ? (
+                <>
+                  <Button onClick={() => setShowCreateDialog(true)}>{t("queue.emptyCreate")}</Button>
+                  <Button variant="outline" asChild>
+                    <Link to="/servers">{t("queue.emptyBrowse")}</Link>
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" onClick={() => setFilter("all")}>{t("queue.emptyShowAll")}</Button>
+              )
+            }
           />
         </Card>
       ) : (

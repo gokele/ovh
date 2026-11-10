@@ -156,7 +156,10 @@ export const snipePagesEn = {
     timingsFailedTitle: "Failed to load last-round timings/results; tasks keep running",
     loadFailedTitle: "Failed to load the queue — it does not mean the queue is empty",
     emptyTitle: "No tasks",
-    emptyDesc: "Click \"New Sniping Task\" in the top right to start sniping",
+    emptyDesc: "Pick a model and datacenter from the server list, or create a task directly. Tasks order automatically when stock appears.",
+    emptyCreate: "New sniping task",
+    emptyBrowse: "Browse servers",
+    emptyShowAll: "Show all tasks",
     selectedCount: "{{n}} selected",
     pause: "Pause",
     resume: "Resume",
@@ -290,6 +293,9 @@ export const snipePagesEn = {
     loadFailedHint:
       "Unpaid orders keep running down their 15-day countdown. Do not read this blank as \"no orders\". Retry, or open the OVH manager to check unpaid orders.",
     emptyTitle: "No matching orders",
+    emptyNoneTitle: "No orders yet",
+    emptyNoneDesc: "Won orders, failure reasons and checkouts awaiting review will appear here.",
+    clearFilters: "Clear filters",
     col: {
       model: "Model",
       dc: "DC",

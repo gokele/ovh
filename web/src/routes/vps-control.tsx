@@ -196,7 +196,7 @@ function VpsControlPage() {
         <Card>
           <CardContent className="py-12">
             <EmptyState
-              icon={Cloud}
+              illustration="control"
               title={t("vpsList.list.empty")}
               description={t("vpsList.list.emptyDesc")}
             />

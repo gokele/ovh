@@ -34,7 +34,8 @@ const pack: WatchPagesPack = {
     list: {
       failed: "Failed to load the subscription list",
       empty: "No subscriptions",
-      emptyDesc: "Click \"Add subscription\" to start monitoring servers",
+      emptyDesc: "Subscribe to models and datacenters to get restock alerts instantly, with optional auto-ordering.",
+      emptyAdd: "Add subscription",
     },
     remove: {
       title: "Unsubscribe",
@@ -161,7 +162,7 @@ const pack: WatchPagesPack = {
     list: {
       failed: "Failed to load the VPS subscription list",
       empty: "No VPS subscriptions",
-      emptyDesc: "Click \"Add subscription\" and pick a VPS model to start monitoring",
+      emptyDesc: "Pick a VPS model and datacenter to get notified the moment it restocks.",
     },
     remove: {
       title: "Unsubscribe",

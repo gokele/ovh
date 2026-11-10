@@ -225,3 +225,43 @@
     animation: none;
   }
 }
+
+/* ── 自绘插画(components/illustrations):全部取主题变量,明暗自动适配 ── */
+.illo { display: block; }
+.illo-shadow { fill: var(--ink); opacity: .07; }
+.illo-halo { fill: color-mix(in srgb, var(--blue) 10%, transparent); }
+.illo-halo-strong { fill: color-mix(in srgb, var(--blue) 16%, transparent); }
+.illo-halo-danger { fill: color-mix(in srgb, var(--red) 10%, transparent); }
+html.dark .illo-card { fill: color-mix(in srgb, var(--surface-solid) 78%, var(--ink) 22%); stroke: color-mix(in srgb, var(--ink) 26%, transparent); }
+html.dark .illo-halo { fill: color-mix(in srgb, var(--blue) 16%, transparent); }
+html.dark .illo-line { fill: color-mix(in srgb, var(--ink) 28%, transparent); }
+.illo-ring { fill: none; stroke: color-mix(in srgb, var(--blue) 26%, transparent); stroke-width: 1.5; stroke-dasharray: 3 4; }
+.illo-card { fill: var(--surface-solid); stroke: color-mix(in srgb, var(--ink) 14%, transparent); stroke-width: 1.2; }
+.illo-panel { fill: color-mix(in srgb, var(--ink) 10%, transparent); }
+.illo-panel-2 { fill: color-mix(in srgb, var(--ink) 6%, transparent); stroke: color-mix(in srgb, var(--ink) 10%, transparent); stroke-width: 1; }
+.illo-line { fill: color-mix(in srgb, var(--ink) 16%, transparent); }
+.illo-ink { fill: var(--ink-soft); }
+.illo-accent { fill: var(--blue); }
+.illo-accent-soft { fill: color-mix(in srgb, var(--blue) 35%, transparent); }
+.illo-warm { fill: #f5a524; }
+.illo-stroke-accent, .illo-stroke-ink, .illo-stroke-warm, .illo-stroke-danger, .illo-stroke-card {
+  fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
+}
+.illo-stroke-accent { stroke: var(--blue); }
+.illo-stroke-ink { stroke: var(--ink-soft); stroke-width: 2.2; }
+.illo-stroke-warm { stroke: #f5a524; stroke-width: 4; }
+.illo-stroke-danger { stroke: var(--red); stroke-width: 2.4; }
+.illo-stroke-card { stroke: #fff; stroke-width: 2.4; }
+
+@keyframes illo-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes illo-twinkle { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@keyframes illo-sweep { to { transform: rotate(360deg); } }
+@keyframes illo-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+/* 空态插画动效只播几轮后停下,不长时间占用注意力 */
+.illo-float { animation: illo-float 3.2s ease-in-out 3; }
+.illo-twinkle { transform-box: fill-box; animation: illo-twinkle 2.4s ease-in-out 3; }
+.illo-sweep { transform-origin: 80px 58px; animation: illo-sweep 4s linear 2; }
+.illo-pulse, .illo-blink { animation: illo-pulse 1.6s ease-in-out 4; }
+@media (prefers-reduced-motion: reduce) {
+  .illo-float, .illo-twinkle, .illo-sweep, .illo-pulse, .illo-blink { animation: none; }
+}

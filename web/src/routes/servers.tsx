@@ -305,9 +305,16 @@ function ServersPage() {
       ) : sorted.length === 0 ? (
         <Card>
           <EmptyState
-            icon={Server}
+            illustration={list.length === 0 ? "servers" : "search"}
             title={t("servers.notFound")}
             description={list.length === 0 ? t("servers.emptyApi") : t("servers.emptySearch")}
+            action={
+              list.length > 0 && (search || onlyAvailable) ? (
+                <Button variant="outline" onClick={() => { setSearch(""); setOnlyAvailable(false); }}>
+                  {t("history.clearFilters")}
+                </Button>
+              ) : undefined
+            }
           />
         </Card>
       ) : (

@@ -246,9 +246,10 @@ function MonitorPage() {
       ) : subs.length === 0 ? (
         <Card>
           <EmptyState
-            icon={Bell}
+            illustration="monitor"
             title={t("monitor.list.empty")}
             description={t("monitor.list.emptyDesc")}
+            action={<Button onClick={() => setOpenAdd(true)}>{t("monitor.list.emptyAdd")}</Button>}
           />
         </Card>
       ) : (
