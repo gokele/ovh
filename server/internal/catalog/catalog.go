@@ -80,12 +80,8 @@ func CheckServerAvailabilityWithConfigs(state *app.State, planCode string, accou
 
 	state.Logger.Info(fmt.Sprintf("[配置监控] 查询 %s 的所有配置组合(%s 站点 / 子公司 %s)...", planCode, region, subsidiary), "monitor")
 
-	q := url.Values{}
-	q.Set("planCode", planCode)
 	observation, err := state.StockSignals.Fetch(context.Background(), acc.ID, planCode, func() ([]map[string]interface{}, error) {
-		var variants []map[string]interface{}
-		err := client.Get("/dedicated/server/datacenter/availabilities?"+q.Encode(), &variants)
-		return variants, err
+		return ovh.GetAvailabilities(context.Background(), client, planCode)
 	})
 	if err != nil {
 		state.Logger.Error("读取库存失败: "+err.Error(), "monitor")
@@ -392,10 +388,8 @@ func CheckServerAvailability(state *app.State, planCode string, options []string
 
 	state.Logger.Info(fmt.Sprintf("查询 %s 的可用性...", planCode), "")
 
-	var availabilities []map[string]interface{}
-	q := url.Values{}
-	q.Set("planCode", planCode)
-	if err := client.Get("/dedicated/server/datacenter/availabilities?"+q.Encode(), &availabilities); err != nil {
+	availabilities, err := ovh.GetAvailabilities(context.Background(), client, planCode)
+	if err != nil {
 		state.Logger.Error(fmt.Sprintf("Failed to check availability for %s: %s", planCode, err.Error()), "")
 		return nil, err
 	}

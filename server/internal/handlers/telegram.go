@@ -164,6 +164,11 @@ func handleTelegramCallback(state *app.State, mon *monitor.Monitor, u *updateCtx
 			return
 		}
 	}
+	if action == "qt" {
+		handleTaskCallback(state, cb, callbackObj, chatID, int64(messageID))
+		u.JSON(http.StatusOK, gin.H{"ok": true, "handled": "queue_task"})
+		return
+	}
 	if action != "add_to_queue" {
 		state.Logger.Warn("未知的action: "+action, "telegram")
 		u.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "Unknown action: " + action})

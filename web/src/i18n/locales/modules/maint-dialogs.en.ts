@@ -342,6 +342,8 @@ const pack: MaintDialogsPack = {
       bannerDesc: "Delivered hardware is better than ordered: {{items}}",
       gainPct: "+{{pct}}%",
       gainMedia: "media upgrade",
+      upgraded: "Upgraded",
+      lead: "The datacenter delivered better hardware than you ordered. Changed parts are listed below.",
       plateOrdered: "ORDERED",
       plateActual: "DELIVERED",
       kind: {

@@ -122,8 +122,9 @@ func ProcessQueueLoop(state *app.State) {
 func processQueueLoop(loopCtx context.Context, state *app.State, purchase func(context.Context, *app.State, *types.QueueItem) Outcome) {
 	ctx, cancel := context.WithCancel(loopCtx)
 	sales := newSaleWatcher(ctx, state)
+	stocks := newStockWatcher(ctx, state)
 	var wg sync.WaitGroup
-	defer func() { cancel(); sales.close(); wg.Wait() }()
+	defer func() { cancel(); sales.close(); stocks.close(); wg.Wait() }()
 	wg.Add(1)
 	go func() { defer wg.Done(); transportWarmLoop(ctx, state) }()
 	type worker struct {
@@ -195,6 +196,9 @@ func processQueueLoop(loopCtx context.Context, state *app.State, purchase func(c
 					defer wg.Done()
 					defer close(done)
 					defer stop()
+					if !item.Preorder || item.PreorderWaitStock {
+						defer stocks.subscribe(stockWatchAccount(state, item.AccountID), item.PlanCode)()
+					}
 					taskWorker(workerCtx, state, item, purchase, sales)
 				}(item)
 			}
@@ -210,6 +214,14 @@ func processQueueLoop(loopCtx context.Context, state *app.State, purchase func(c
 		case <-state.QueueChanges():
 		}
 	}
+}
+
+// stockWatchAccount 与 taskWorker 使用同一个解析后的账户 ID 订阅信号。
+func stockWatchAccount(state *app.State, account string) string {
+	if acc, ok := state.FindAccount(account); ok {
+		return acc.ID
+	}
+	return account
 }
 
 // taskWorker 的直接信箱可以在重试定时器之前唤醒已预装的无货任务。
@@ -300,9 +312,13 @@ func taskWorker(ctx context.Context, state *app.State, item types.QueueItem, pur
 					waiting = false
 				}
 			case observed := <-signals:
-				if outcome.WaitingForStock && stockSignalOrderable(observed, *current) && time.Since(observed.DetectedAt) < time.Second {
+				if outcome.WaitingForStock && stockSignalOrderable(observed, *current) {
 					timer.Stop()
-					signal = &observed
+					// 任务忙于建车时收到的信号可能已超过 1 秒:不再丢弃,立即唤醒并重新查库存,
+					// 只有新鲜信号才直接复用,避免按陈旧库存结账。
+					if time.Since(observed.DetectedAt) < time.Second {
+						signal = &observed
+					}
 					waiting = false
 				}
 			}

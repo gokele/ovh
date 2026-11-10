@@ -198,9 +198,30 @@
   animation-fill-mode: forwards;
 }
 
+/* 中奖插画:芯片缓慢升起一次,星光轻闪三次后停下;不做无限循环 */
+@keyframes lottery-chip-rise {
+  from { transform: translateY(14px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes lottery-sparkle-twinkle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.lottery-chip {
+  animation: lottery-chip-rise 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.lottery-sparkle {
+  transform-box: fill-box;
+  animation: lottery-sparkle-twinkle 1.6s ease-in-out 3;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lottery-confetti-particle {
     animation: none;
     display: none;
+  }
+  .lottery-chip,
+  .lottery-sparkle {
+    animation: none;
   }
 }

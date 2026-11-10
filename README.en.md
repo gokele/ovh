@@ -8,6 +8,8 @@ Watches stock across OVH datacenters in real time and auto-orders purchasable se
 
 > Go (Gin) + SQLite backend, Vite/React + TanStack + shadcn-ui frontend, `//go:embed` single-binary deployment (SQLite embedded, cross-platform with zero dependencies), mandatory OvhCredsGate, multi-account support, dual SQLite drivers (`modernc.org/sqlite` pure-Go / `mattn/go-sqlite3` cgo, auto-selected via build tags), **bilingual UI (Chinese/English, follows the browser, can be pinned manually)**, and automatic GitHub Releases update checks.
 
+Performance: [prebuilt carts, connection warming and dispatch measurements](docs/PERFORMANCE.md#checkout-latency-english).
+
 ## Download
 
 Grab the binary for your platform from [Releases](https://github.com/gokele/ovh/releases), extract and run — **no Go, Node, or SQLite required**:

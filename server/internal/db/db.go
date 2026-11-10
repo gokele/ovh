@@ -93,6 +93,9 @@ func (db *DB) migrate() error {
 	if err := db.addColumnIfMissing("queue", "preorder", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
+	if err := db.addColumnIfMissing("queue", "preorder_wait_stock", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	if err := db.addColumnIfMissing("queue", "coupon", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}

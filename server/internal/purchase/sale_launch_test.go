@@ -24,6 +24,7 @@ type launchFixtureState struct {
 	stockReads                                                atomic.Int32
 	checkoutStatus, sent, basePosts, optionPosts, configPosts atomic.Int32
 	options                                                   string
+	stockNow                                                  atomic.Value
 }
 
 // Every write is handled by the local hotFixture server; outbound public reads are intercepted.
@@ -47,7 +48,11 @@ func saleLaunchFixture(t *testing.T, period, stockStatus string) *launchFixtureS
 			if h.rejectStock.Load() {
 				return testSaleResponse(r, 503, `{"message":"stock feed unavailable"}`), nil
 			}
-			body = fmt.Sprintf(`[{"fqn":"plan.ram-32g-ddr4-ecc-2400.softraid-2x450nvme","datacenters":[{"datacenter":"gra","availability":%q},{"datacenter":"fra","availability":%q}]}]`, stockStatus, stockStatus)
+			current := stockStatus
+			if v, ok := h.stockNow.Load().(string); ok {
+				current = v
+			}
+			body = fmt.Sprintf(`[{"fqn":"plan.ram-32g-ddr4-ecc-2400.softraid-2x450nvme","datacenters":[{"datacenter":"gra","availability":%q},{"datacenter":"fra","availability":%q}]}]`, current, current)
 		case strings.HasSuffix(path, "/eco") && r.Method == "GET":
 			body = `[]`
 			if h.baseOpen.Load() {
@@ -369,4 +374,49 @@ func TestVerifiedFullConfigurationUsesSaleSignalWithoutAnotherStockRequest(t *te
 		t.Fatal("prepared dispatch not traced", trace)
 	}
 	t.Logf("verified sale signal to local TCP write: %d microseconds", trace.DetectionToWriteUS)
+}
+
+// 有货再下:报价开放后备好车但不结账,直到库存接口在目标机房出现可下单状态。
+func TestPreorderWaitStockHoldsArmedCartUntilStockAppears(t *testing.T) {
+	h := saleLaunchFixture(t, "P1M", "comingSoon")
+	h.item.PreorderWaitStock = true
+	h.baseOpen.Store(true)
+	h.optionsOpen.Store(true)
+	session := &cartSession{}
+	defer session.discard()
+	ctx := context.WithValue(context.Background(), cartSessionKey{}, session)
+	out := PurchaseServer(ctx, h.state, &h.item)
+	if !out.WaitingForStock || h.sent.Load() != 0 {
+		t.Fatalf("must wait for stock without checkout: %+v sent=%d", out, h.sent.Load())
+	}
+	if session.cart == nil {
+		t.Fatal("prepared cart should be kept while waiting for stock")
+	}
+	posts := h.basePosts.Load()
+	h.stockNow.Store("1H-low")
+	time.Sleep(150 * time.Millisecond) // 越过 StockSignals 的 100ms 合并窗口
+	out = PurchaseServer(ctx, h.state, &h.item)
+	if !out.Success || h.sent.Load() != 1 {
+		t.Fatalf("stock appeared but no checkout: %+v sent=%d", out, h.sent.Load())
+	}
+	if h.basePosts.Load() != posts {
+		t.Fatal("armed cart should be reused, not rebuilt")
+	}
+}
+
+// 有货再下不能走"已核验配置跳过库存"的捷径:报价信号新鲜也必须真的读库存。
+func TestPreorderWaitStockNeverSkipsStockRead(t *testing.T) {
+	h := saleLaunchFixture(t, "P1M", "comingSoon")
+	h.item.PreorderWaitStock = true
+	session := &cartSession{cart: &preparedCart{fqn: "plan.ram-32g-ddr4-ecc-2400.softraid-2x450nvme"}}
+	sale := saleSnapshot{account: types.OVHAccount{ID: "x"}, plan: "plan", at: time.Now()}
+	session.account = sale.account
+	ctx := context.WithValue(context.Background(), saleSignalKey{}, sale)
+	if fqn, _ := preorderPinnedFQN(ctx, session, &h.item, nil, "", []string{"ram-32g-ddr4-ecc-2400", "softraid-2x450nvme"}); fqn != "" {
+		t.Fatal("wait-for-stock presale must not pin FQN", fqn)
+	}
+	h.item.PreorderWaitStock = false
+	if fqn, _ := preorderPinnedFQN(ctx, session, &h.item, nil, "", []string{"ram-32g-ddr4-ecc-2400", "softraid-2x450nvme"}); fqn == "" {
+		t.Fatal("sale-triggered presale should keep the verified shortcut")
+	}
 }

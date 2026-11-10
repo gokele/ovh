@@ -53,6 +53,7 @@ import { lookupDcStatus, datacentersForPlan } from "@/lib/datacenters";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
 import { formatMoney, currencyUnknownHint, comparePrices } from "@/lib/money";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
+import { OrderAccountPicker, PreorderTriggerPicker, rememberAccounts, rememberedAccounts, type PreorderTrigger } from "@/components/queue/OrderAccountPicker";
 import { endpointRegion, regionLabel } from "@/lib/ovh-regions";
 import { clampOrderPlan, MAX_ORDER_QUANTITY, MAX_ORDER_FANOUT } from "@/lib/order-limits";
 import { mergeStockPlans, matchesServerSearch } from "@/lib/stock-plans";
@@ -563,11 +564,27 @@ function DetailContent({
   useEffect(() => setPreorderPlan((previous) => retainPreorderPlan(previous, server.planCode, !!server.prerelease)), [server.planCode, server.prerelease]);
   const [duration, setDuration] = useState("P1M");
   const [coupon, setCoupon] = useState("");
+  const [preorderTrigger, setPreorderTrigger] = useState<PreorderTrigger>("onSale");
+  // 多账户:默认上次在该型号用过的同区账户,其次是当前账户。
+  const [pickedAccounts, setPickedAccounts] = useState<string[]>([]);
+  const orderRegionKey = endpointRegion(activeAccount?.endpoint);
+  const orderAccounts = useMemo(() => {
+    const valid = (ids: string[]) =>
+      ids.filter((id) => {
+        const acc = findAccountByID(accounts, id);
+        return !!acc && endpointRegion(acc.endpoint) === orderRegionKey;
+      });
+    const chosen = valid(pickedAccounts);
+    if (chosen.length > 0) return chosen;
+    const remembered = valid(rememberedAccounts(server.planCode));
+    if (remembered.length > 0) return remembered;
+    return accountId ? [accountId] : [];
+  }, [pickedAccounts, accounts, orderRegionKey, server.planCode, accountId]);
   const toggleDC = (code: string) =>
     setSelectedDCs((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
   // 和后端同一套上限:界面上先把数量收住,别让用户看到一个建不出来的数字。
   // 真正的闸门在后端 EnqueueItems,这里只是提前说清楚。
-  const orderPlan = clampOrderPlan(selectedDCs.length, Number(quantity) || 1);
+  const orderPlan = clampOrderPlan(selectedDCs.length * Math.max(1, orderAccounts.length), Number(quantity) || 1);
   const qty = orderPlan.quantity;
   const totalTasks = orderPlan.total;
   // 静态可用性兜底：实时还没返回时也能看到目录里的初始数据
@@ -689,6 +706,10 @@ function DetailContent({
 
       <div className="overflow-y-auto -mx-6 px-6 space-y-6 flex-1">
         {preorder && <p className="text-xs text-warning" role="status">{t("queue.preorderHint")}</p>}
+        {preorder && <PreorderTriggerPicker value={preorderTrigger} onChange={setPreorderTrigger} />}
+        {accounts && accountId && (
+          <OrderAccountPicker accounts={accounts} primaryId={accountId} selected={orderAccounts} onChange={setPickedAccounts} />
+        )}
         {/* 价格 Hero（随下方配置实时变化） */}
         <div className="border border-border rounded-2xl p-4 bg-secondary/30 flex items-end justify-between gap-3 flex-wrap">
           <div>
@@ -970,6 +991,8 @@ function DetailContent({
             }
             const result = await create.mutateAsync({
               account_id: accountId,
+              account_ids: orderAccounts.length > 0 ? orderAccounts : [accountId],
+              preorderWaitStock: preorder && preorderTrigger === "inStock",
               planCode: server.planCode,
               datacenters: selectedDCs,
               quantity: qty,
@@ -982,6 +1005,7 @@ function DetailContent({
               purchaseMode,
             });
             if (result.success > 0) {
+              rememberAccounts(server.planCode, orderAccounts);
               preparation.submitted();
               toast.success(t("servers.toast.created", { success: result.success, total: result.total }));
               onClose();

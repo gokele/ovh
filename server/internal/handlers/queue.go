@@ -25,8 +25,10 @@ import (
 func AddQueueItem(state *app.State) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
-			Duration      string   `json:"duration"`
-			AccountID     string   `json:"account_id"`
+			Duration  string `json:"duration"`
+			AccountID string `json:"account_id"`
+			// AccountIDs 多账户一起抢同一单:任一账户抢到都计入同一份数量上限,台数不会按账户翻倍。
+			AccountIDs    []string `json:"account_ids"`
 			PlanCode      string   `json:"planCode"`
 			Datacenter    string   `json:"datacenter"`
 			Datacenters   []string `json:"datacenters"`
@@ -35,9 +37,11 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			Options       []string `json:"options"`
 			RetryInterval int      `json:"retryInterval"`
 			// AutoPay 下单成功后用默认支付方式自动付款(显式开关,默认关)
-			AutoPay  bool   `json:"autoPay"`
-			Preorder bool   `json:"preorder"`
-			Coupon   string `json:"coupon"`
+			AutoPay  bool `json:"autoPay"`
+			Preorder bool `json:"preorder"`
+			// PreorderWaitStock 预售等库存出现再结账,默认开售即下
+			PreorderWaitStock bool   `json:"preorderWaitStock"`
+			Coupon            string `json:"coupon"`
 		}
 		if err := bindOrderJSON(c, &body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "任务参数格式不正确", "details": err.Error()})
@@ -50,14 +54,12 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 		}
 		body.Duration = duration
 
-		if body.AccountID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "缺少 account_id", "code": "E34CBF1D4"})
+		accounts, accErr := queueAccounts(state, body.AccountID, body.AccountIDs)
+		if accErr != nil {
+			c.JSON(http.StatusBadRequest, accErr)
 			return
 		}
-		if _, ok := state.FindAccount(body.AccountID); !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "account_id 不存在", "code": "E7B315B13"})
-			return
-		}
+		body.AccountID = accounts[0]
 		body.PlanCode = strings.TrimSpace(body.PlanCode)
 		body.Datacenter = strings.TrimSpace(body.Datacenter)
 		if len(body.Datacenters) == 0 && body.Datacenter != "" {
@@ -70,7 +72,7 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 		if body.Quantity != nil {
 			qty = *body.Quantity
 		}
-		if body.PlanCode == "" || qty < 1 || qty > types.MaxOrderQuantity || len(body.Datacenters) == 0 || len(body.Datacenters)*qty > types.MaxOrderFanout || (body.PurchaseMode != "" && body.PurchaseMode != "perDatacenter" && body.PurchaseMode != "total") {
+		if body.PlanCode == "" || qty < 1 || qty > types.MaxOrderQuantity || len(body.Datacenters) == 0 || len(accounts)*len(body.Datacenters)*qty > types.MaxOrderFanout || (body.PurchaseMode != "" && body.PurchaseMode != "perDatacenter" && body.PurchaseMode != "total") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请填写型号、机房及有效数量和购买方式"})
 			return
 		}
@@ -92,29 +94,38 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 		// → 按 retryInterval 永远重试,日志里永远只有一句"当前无货",用户看不出错在哪。
 		// 所以在这里就说清楚,而不是让它在后台空转到天荒地老。
 		// 探测失败(catalog.PlanVerdictUnknown)不拦 —— 一次网络瞬断不该让用户下不了单。
-		if verdict, hint := catalog.ClassifyPlan(state, body.AccountID, body.PlanCode, "queue"); hint != "" && !(body.Preorder && verdict == catalog.PlanVerdictPrerelease) {
-			state.Logger.Warn(fmt.Sprintf("[queue] 拒绝任务(判定 %d): %s", verdict, hint), "queue")
-			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": hint})
-			return
+		for _, account := range accounts {
+			if verdict, hint := catalog.ClassifyPlan(state, account, body.PlanCode, "queue"); hint != "" && !(body.Preorder && verdict == catalog.PlanVerdictPrerelease) {
+				state.Logger.Warn(fmt.Sprintf("[queue] 拒绝任务(判定 %d): %s", verdict, hint), "queue")
+				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": hint, "account_id": account})
+				return
+			}
 		}
 		// 没给 / 给 0 = 用全局默认(设置页可改);超出区间夹回来
 		body.RetryInterval = types.ClampRetryInterval(body.RetryInterval, state.Config.RetryInterval())
-		items := make([]types.QueueItem, 0, len(body.Datacenters)*qty)
+		items := make([]types.QueueItem, 0, len(accounts)*len(body.Datacenters)*qty)
 		ids := make([]string, 0, cap(items))
 		group := ""
 		if body.PurchaseMode == "total" {
 			group = uuid.NewString()
 		}
 		for _, dc := range body.Datacenters {
-			for n := 0; n < qty; n++ {
-				item := types.QueueItem{ID: uuid.NewString(), AccountID: body.AccountID, Duration: body.Duration, PlanCode: body.PlanCode, Datacenter: dc,
-					Options: append([]string(nil), body.Options...), Status: "running", CreatedAt: types.NowISO(), UpdatedAt: types.NowISO(), RetryInterval: body.RetryInterval,
-					AutoPay: body.AutoPay, Preorder: body.Preorder, Coupon: strings.TrimSpace(body.Coupon), OrderGroup: group}
-				if group != "" {
-					item.GroupLimit = qty
+			dcGroup := group
+			if dcGroup == "" && len(accounts) > 1 {
+				// 按机房下单 + 多账户:每个机房一份上限,多个账户只是多几条抢的通道。
+				dcGroup = uuid.NewString()
+			}
+			for _, account := range accounts {
+				for n := 0; n < qty; n++ {
+					item := types.QueueItem{ID: uuid.NewString(), AccountID: account, Duration: body.Duration, PlanCode: body.PlanCode, Datacenter: dc,
+						Options: append([]string(nil), body.Options...), Status: "running", CreatedAt: types.NowISO(), UpdatedAt: types.NowISO(), RetryInterval: body.RetryInterval,
+						AutoPay: body.AutoPay, Preorder: body.Preorder, PreorderWaitStock: body.Preorder && body.PreorderWaitStock, Coupon: strings.TrimSpace(body.Coupon), OrderGroup: dcGroup}
+					if dcGroup != "" {
+						item.GroupLimit = qty
+					}
+					items = append(items, item)
+					ids = append(ids, item.ID)
 				}
-				items = append(items, item)
-				ids = append(ids, item.ID)
 			}
 		}
 
@@ -128,7 +139,7 @@ func AddQueueItem(state *app.State) gin.HandlerFunc {
 			})
 			return
 		}
-		state.Logger.Info(fmt.Sprintf("添加 %d 个 %s 抢购任务（账户 %s，总量限制 %s）", len(items), body.PlanCode, body.AccountID, body.PurchaseMode), "queue")
+		state.Logger.Info(fmt.Sprintf("添加 %d 个 %s 抢购任务（账户 %s，总量限制 %s）", len(items), body.PlanCode, strings.Join(accounts, ","), body.PurchaseMode), "queue")
 		c.JSON(http.StatusOK, gin.H{"status": "success", "id": ids[0], "ids": ids, "count": len(ids)})
 	}
 }
@@ -416,4 +427,30 @@ func ClearPurchaseHistory(state *app.State) gin.HandlerFunc {
 		state.Logger.Info("Purchase history cleared", "")
 		c.JSON(http.StatusOK, gin.H{"status": "success"})
 	}
+}
+
+// queueAccounts 解析下单账户:兼容旧的单个 account_id,也接受多账户 account_ids。
+// 返回去重后的实际账户 ID,第一个是主账户;任一账户不存在都整单拒绝。
+func queueAccounts(state *app.State, single string, many []string) ([]string, gin.H) {
+	refs := append([]string(nil), many...)
+	if len(refs) == 0 && single != "" {
+		refs = []string{single}
+	}
+	if len(refs) == 0 {
+		return nil, gin.H{"status": "error", "error": "缺少 account_id", "code": "E34CBF1D4"}
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		acc, ok := state.FindAccount(strings.TrimSpace(ref))
+		if !ok || strings.TrimSpace(ref) == "" {
+			return nil, gin.H{"status": "error", "error": "account_id 不存在", "code": "E7B315B13", "account_id": ref}
+		}
+		if seen[acc.ID] {
+			continue
+		}
+		seen[acc.ID] = true
+		out = append(out, acc.ID)
+	}
+	return out, nil
 }

@@ -25,6 +25,8 @@ type cartSession struct {
 	empty        *emptyCart
 	partial      *partialCart
 	sale         saleSnapshot
+	// checkoutClear: 本会话已确认没有结账登记,且之后本会话未再登记。
+	checkoutClear bool
 }
 
 type partialCart struct {

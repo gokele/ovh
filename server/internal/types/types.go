@@ -167,9 +167,12 @@ type QueueItem struct {
 	// (checkout 的 autoPayWithPreferredPaymentMethod,schema 描述:
 	// "order will be automatically paid with preferred payment method")。
 	// 默认 false:自动扣钱必须是用户显式打开的开关,不能是隐含行为。
-	AutoPay            bool   `json:"autoPay,omitempty"`
-	Coupon             string `json:"coupon,omitempty"`
-	Preorder           bool   `json:"preorder,omitempty"` // 本地预订:等账户销售目录上架后再尝试下单
+	AutoPay  bool   `json:"autoPay,omitempty"`
+	Coupon   string `json:"coupon,omitempty"`
+	Preorder bool   `json:"preorder,omitempty"` // 本地预订:等账户销售目录上架后再尝试下单
+	// PreorderWaitStock 预售触发方式:false=开售即下(报价开放即结账,按官方排期交付);
+	// true=有货再下(报价开放后还要等库存接口在目标机房出现可下单状态)。仅 Preorder 时有效。
+	PreorderWaitStock  bool   `json:"preorderWaitStock,omitempty"`
 	ConfigSniperTaskID string `json:"configSniperTaskId,omitempty"`
 	OrderGroup         string `json:"orderGroup,omitempty"`
 	GroupLimit         int    `json:"groupLimit,omitempty"`

@@ -29,6 +29,7 @@ type queueRow struct {
 	ConfigSniperTaskID string  `db:"config_sniper_task_id"`
 	AutoPay            int     `db:"auto_pay"`
 	Preorder           int     `db:"preorder"`
+	PreorderWaitStock  int     `db:"preorder_wait_stock"`
 	Coupon             string  `db:"coupon"`
 	OrderGroup         string  `db:"order_group"`
 	GroupLimit         int     `db:"group_limit"`
@@ -66,6 +67,7 @@ func rowToQueueItem(r queueRow) (types.QueueItem, error) {
 		ConfigSniperTaskID: r.ConfigSniperTaskID,
 		AutoPay:            r.AutoPay == 1,
 		Preorder:           r.Preorder == 1,
+		PreorderWaitStock:  r.Preorder == 1 && r.PreorderWaitStock == 1,
 		Coupon:             r.Coupon,
 		OrderGroup:         r.OrderGroup,
 		GroupLimit:         r.GroupLimit,
@@ -108,6 +110,7 @@ func queueItemToRow(q types.QueueItem) (queueRow, error) {
 		ConfigSniperTaskID: q.ConfigSniperTaskID,
 		AutoPay:            bi(q.AutoPay),
 		Preorder:           bi(q.Preorder),
+		PreorderWaitStock:  bi(q.Preorder && q.PreorderWaitStock),
 		Coupon:             q.Coupon,
 		OrderGroup:         q.OrderGroup,
 		GroupLimit:         q.GroupLimit,
@@ -152,11 +155,11 @@ func (db *DB) ReplaceQueue(items []types.QueueItem) error {
 			INSERT INTO queue
 			(id, account_id, duration, plan_code, datacenter, options, status, created_at, updated_at,
 			 retry_interval, retry_count, failure_count, max_retries, last_check_time,
-			 quick_order, priority, from_telegram, config_sniper_task_id, auto_pay, preorder, coupon, order_group, group_limit, stop_reason)
+			 quick_order, priority, from_telegram, config_sniper_task_id, auto_pay, preorder, preorder_wait_stock, coupon, order_group, group_limit, stop_reason)
 			VALUES
 			(:id, :account_id, :duration, :plan_code, :datacenter, :options, :status, :created_at, :updated_at,
 			 :retry_interval, :retry_count, :failure_count, :max_retries, :last_check_time,
-			 :quick_order, :priority, :from_telegram, :config_sniper_task_id, :auto_pay, :preorder, :coupon, :order_group, :group_limit, :stop_reason)
+			 :quick_order, :priority, :from_telegram, :config_sniper_task_id, :auto_pay, :preorder, :preorder_wait_stock, :coupon, :order_group, :group_limit, :stop_reason)
 		`, r)
 		if err != nil {
 			return fmt.Errorf("insert queue %s: %w", q.ID, err)

@@ -337,6 +337,8 @@ export const maintDialogsZh = {
       bannerDesc: "实际交付优于订购：{{items}}",
       gainPct: "+{{pct}}%",
       gainMedia: "介质升级",
+      upgraded: "已升级",
+      lead: "机房实际交付的硬件比订购配置更好，下面是有变化的部件。",
       plateOrdered: "订购配置",
       plateActual: "实际交付",
       kind: {

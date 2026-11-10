@@ -10,6 +10,8 @@ OVH 独立服务器 / VPS / Eco 系列**抢购 + 监控 + 管理**控制台。
 > 强制 OvhCredsGate、多账户支持、双 SQLite driver(`modernc.org/sqlite` 纯 Go / `mattn/go-sqlite3` cgo, build tag 自动选)、
 > **中英双语界面(跟随浏览器,可手动固定)**、自动检测 GitHub Releases 更新。
 
+性能说明：[预装购物车、连接预热与派发延迟测量](docs/PERFORMANCE.md)。
+
 ## 下载
 
 去 [Releases](https://github.com/gokele/ovh/releases) 拿对应平台的二进制,解压即用,**不需要装 Go、Node 或 SQLite**:

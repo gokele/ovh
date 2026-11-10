@@ -49,6 +49,10 @@ func handleCommand(state *app.State, mon *monitor.Monitor, chatID interface{}, m
 	case "status", "s":
 		reply = statusText(state, mon)
 	case "queue", "q":
+		if kb := queueKeyboard(state); kb != nil {
+			telegram.SendKeyboard(state, chatID, messageID, clampReply(queueText(state)), kb)
+			return true
+		}
 		reply = queueText(state)
 	case "cancel":
 		reply = cancelText(state, args)
@@ -267,7 +271,7 @@ func queueText(state *app.State) string {
 			dc = "任意机房"
 		}
 		b.WriteString(fmt.Sprintf("%d. %s @ %s\n", i+1, it.PlanCode, strings.ToUpper(dc)))
-		b.WriteString(fmt.Sprintf("   状态 %s · 每 %d 秒重试", it.Status,
+		b.WriteString(fmt.Sprintf("   %s · 失败后每 %d 秒重试", taskStatusLabel(it),
 			types.ClampRetryInterval(it.RetryInterval, state.Config.RetryInterval())))
 		if it.FailureCount > 0 {
 			b.WriteString(fmt.Sprintf(" · 已失败 %d 次", it.FailureCount))
@@ -277,7 +281,7 @@ func queueText(state *app.State) string {
 		}
 		b.WriteString("\n   取消：/cancel " + shortID(it.ID) + "\n")
 	}
-	b.WriteString("\n全部取消：/cancel all")
+	b.WriteString("\n下面的按钮可暂停/恢复单个任务。全部取消：/cancel all")
 	return b.String()
 }
 
@@ -551,4 +555,32 @@ func hasExplicitDuration(args []string) bool {
 		}
 	}
 	return false
+}
+
+// taskStatusLabel 把内部状态和阶段翻成人话;预售还区分开售即下/有货再下。
+func taskStatusLabel(it types.QueueItem) string {
+	label := map[string]string{"running": "▶️ 抢购中", "pending": "⏳ 待执行", "paused": "⏸ 已暂停"}[it.Status]
+	if label == "" {
+		label = it.Status
+	}
+	if it.Status == "running" {
+		if phase := map[string]string{
+			"waitingStock":   "等库存",
+			"waitingQuote":   "等官方报价",
+			"waitingBase":    "等主机开售",
+			"waitingOptions": "等所选配置开售",
+			"waitingQuota":   "同组其他任务结账中",
+			"submitting":     "正在结账",
+		}[it.OrderPhase]; phase != "" {
+			label += "（" + phase + "）"
+		}
+	}
+	if it.Preorder {
+		if it.PreorderWaitStock {
+			label += " · 预售有货再下"
+		} else {
+			label += " · 预售开售即下"
+		}
+	}
+	return label
 }

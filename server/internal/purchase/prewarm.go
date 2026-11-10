@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -248,9 +247,7 @@ func (p *CartPool) assemble(ctx context.Context, entry *warmEntry) (*preparedCar
 	stockAvailable := false
 	{
 		observation, err := p.state.StockSignals.Fetch(ctx, item.AccountID, item.PlanCode, func() ([]map[string]interface{}, error) {
-			var variants []map[string]interface{}
-			err := client.GetWithContext(ctx, "/dedicated/server/datacenter/availabilities?planCode="+url.QueryEscape(item.PlanCode), &variants)
-			return variants, err
+			return ovh.GetAvailabilities(ctx, client, item.PlanCode)
 		})
 		if err != nil {
 			return nil, err

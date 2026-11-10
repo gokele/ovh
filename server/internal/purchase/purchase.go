@@ -3,7 +3,6 @@ package purchase
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/ovh-buy/server/internal/notify"
 	"github.com/ovh-buy/server/internal/numconv"
 	"github.com/ovh-buy/server/internal/orderterm"
+	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/ovh"
 	"github.com/ovh-buy/server/internal/types"
 	"time"
@@ -74,11 +74,21 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	if state.DB == nil || item.ID == "" {
 		return Outcome{Fatal: true, Reason: "数据库或任务 ID 不可用,未发起下单"}
 	}
-	if found, err := state.DB.GetKV(db.QueueCheckoutKey(item.ID), &map[string]interface{}{}); err != nil {
-		return Outcome{PauseTask: true, Reason: "无法核对结账登记,未发起下单: " + err.Error()}
-	} else if found {
-		_ = state.DB.MarkQueueOrder(*item, "uncertain")
-		return Outcome{PauseTask: true, Reason: "此任务已有结账登记,请先核对 OVH 订单后再决定是否恢复任务"}
+	session, managed := ctx.Value(cartSessionKey{}).(*cartSession)
+	if !managed {
+		session = &cartSession{}
+		defer session.discard()
+	}
+	// 结账登记只由本任务 worker 写入或释放;同一会话确认过一次不存在后,热路径不再重复读库。
+	// 登记本身(ClaimQueueOrder)仍在结账前原子写入。
+	if !session.checkoutClear {
+		if found, err := state.DB.GetKV(db.QueueCheckoutKey(item.ID), &map[string]interface{}{}); err != nil {
+			return Outcome{PauseTask: true, Reason: "无法核对结账登记,未发起下单: " + err.Error()}
+		} else if found {
+			_ = state.DB.MarkQueueOrder(*item, "uncertain")
+			return Outcome{PauseTask: true, Reason: "此任务已有结账登记,请先核对 OVH 订单后再决定是否恢复任务"}
+		}
+		session.checkoutClear = managed
 	}
 	if item.OrderGroup != "" {
 		quota, err := state.DB.QueueQuota(*item)
@@ -95,11 +105,6 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			return Outcome{WaitingForQuota: true}
 		}
 	}
-	session, managed := ctx.Value(cartSessionKey{}).(*cartSession)
-	if !managed {
-		session = &cartSession{}
-		defer session.discard()
-	}
 	client, err := session.clientFor(state, item.AccountID)
 	if err != nil {
 		// 账户不存在 / 凭据缺失 / endpoint 非法 —— 都是重试一万次也不会变的错。
@@ -112,13 +117,8 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	}
 	item.AccountID = session.accountID
 	if item.Preorder {
-		signal, _ := ctx.Value(saleSignalKey{}).(saleSnapshot)
-		until := signal.retryAt
-		if session.sale.retryAt.After(until) {
-			until = session.sale.retryAt
-		}
-		if until.After(time.Now()) {
-			return Outcome{WaitingForCatalog: true, Reason: "销售接口等待重试", RetryAfter: time.Until(until)}
+		if out, wait := preorderSaleBackoff(ctx, session); wait {
+			return out
 		}
 	}
 	tl := newTimeline()
@@ -139,15 +139,10 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 
 	preorderStock, preorderOrder := item.Options, item.Options
 	if item.Preorder {
-		if session.cart != nil {
-			// The cart was verified against this exact intent; a catalog refresh is not on the dispatch path.
-			preorderStock, preorderOrder = session.cart.stockOptions, session.cart.orderOptions
-		} else {
-			preorderStock, preorderOrder, err = catalog.ResolvePreorderOptions(state, item.AccountID, item.PlanCode, item.Options)
-			if err != nil {
-				state.Logger.Info("预订等待配置目录: "+err.Error(), "purchase")
-				return Outcome{WaitingForCatalog: true, Reason: err.Error()}
-			}
+		var out Outcome
+		var wait bool
+		if preorderStock, preorderOrder, out, wait = preorderHardware(state, session, item); wait {
+			return out
 		}
 	}
 	// 每一轮都打点。抢购的胜负常常只差几百毫秒,而"差在哪"没有数字就只能靠猜。
@@ -158,23 +153,10 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 
 	// 检查可用性
 	var availabilities []map[string]interface{}
-	q := url.Values{}
-	q.Set("planCode", item.PlanCode)
 	detectedAt := time.Time{}
 	pinnedFQN := ""
-	if sale, ok := ctx.Value(saleSignalKey{}).(saleSnapshot); item.Preorder && ok && sale.fresh(session.account, item.PlanCode) {
-		if session.cart != nil {
-			pinnedFQN = session.cart.fqn
-		} else if p := session.partial; p != nil && p.intent == intent && p.client == client && time.Now().Before(p.expires) {
-			pinnedFQN = p.fqn
-		}
-		// Only a fully specified, previously verified configuration can bypass another stock RTT.
-		if len(preorderStock) == 0 || len(strings.Split(pinnedFQN, "."))-1 != len(preorderStock) || !preorderFQNCoversOptions(pinnedFQN, preorderStock) {
-			pinnedFQN = ""
-		}
-		if pinnedFQN != "" {
-			detectedAt = sale.at
-		}
+	if item.Preorder {
+		pinnedFQN, detectedAt = preorderPinnedFQN(ctx, session, item, client, intent, preorderStock)
 	}
 	if pinnedFQN != "" {
 		// This is the saved preparation, not a claim of fresh available inventory. Checkout still requires all live quotes.
@@ -183,9 +165,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 		availabilities, detectedAt = signal.Variants, signal.DetectedAt
 	} else {
 		observation, err := state.StockSignals.Fetch(ctx, session.accountID, item.PlanCode, func() ([]map[string]interface{}, error) {
-			var variants []map[string]interface{}
-			err := client.GetWithContext(ctx, "/dedicated/server/datacenter/availabilities?"+q.Encode(), &variants)
-			return variants, err
+			return ovh.GetAvailabilities(ctx, client, item.PlanCode)
 		})
 		if err != nil {
 			if ctx.Err() != nil {
@@ -233,13 +213,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	}
 	candidates := availabilities
 	if item.Preorder {
-		candidates = nil
-		for _, av := range availabilities {
-			fqn, _ := av["fqn"].(string)
-			if strings.EqualFold(strings.SplitN(fqn, ".", 2)[0], item.PlanCode) {
-				candidates = append(candidates, av)
-			}
-		}
+		candidates = preorderCandidates(availabilities, item.PlanCode)
 	}
 	if len(wantedHW) > 0 {
 		matchedAvs := []map[string]interface{}{}
@@ -359,18 +333,15 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	subsidiary := cart.subsidiary
 	couponWarning := cart.couponWarning
 	if item.Preorder {
-		sale, out := preorderSaleQuote(ctx, session, cart, item)
-		if out.WaitingForCatalog || out.Cancelled {
-			if out.RetryImmediately {
-				cart.cleanup()
-				session.cart = nil
-				session.nextPrepare = time.Time{}
-				invalidateEcoOptions(state, item, session.account)
-			}
+		at, fire, out := preorderConfirmSale(ctx, state, session, cart, item, foundAvailable)
+		if !fire {
 			return out
 		}
+		if !item.PreorderWaitStock {
+			// 开售即下:报价开放即为触发时刻。有货再下保留库存检测时间。
+			detectedAt = at
+		}
 		foundAvailable = true
-		detectedAt = sale.at
 		prewarmed = cart.preparedAt.Before(detectedAt)
 	}
 	if !foundAvailable {
@@ -394,6 +365,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	if !exists || !ovh.SameClientConfiguration(currentAccount, cart.account) || currentAccount.Zone != cart.account.Zone {
 		return cancelledOutcome(state, item, "账户配置已变化")
 	}
+	session.checkoutClear = false
 	claimed, err := state.DB.ClaimQueueOrder(*item)
 	if err == nil && !claimed && item.OrderGroup != "" {
 		return Outcome{WaitingForQuota: true}
@@ -461,7 +433,10 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 				"⚠️ 抢购 %s@%s 结账结果不明确,无法确认订单是否已创建\n\n"+
 					"任务已暂停。请到 OVH 订单页查看是否已有一笔未付订单:\n"+
 					"- 有:等付款即可,任务不需要恢复\n"+
-					"- 没有:在队列页把任务恢复运行", item.PlanCode, item.Datacenter), nil)
+					"- 没有:点下面的按钮或在队列页恢复运行", item.PlanCode, item.Datacenter),
+				map[string]interface{}{"inline_keyboard": [][]map[string]interface{}{{
+					telegram.TaskButton("确认 OVH 没有这笔订单，恢复任务", item.ID, telegram.TaskResume),
+				}}})
 			return Outcome{Attempted: false, PauseTask: true}
 		}
 		if item.Preorder && listingNotReady(err) && !retryPrepared {

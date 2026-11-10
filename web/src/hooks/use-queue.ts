@@ -94,6 +94,8 @@ export function useCreateQueueItem() {
   return useMutation({
     mutationFn: async (payload: {
       account_id: string;
+      /** 多账户一起抢,共享数量上限;缺省为 account_id 单账户 */
+      account_ids?: string[];
       planCode: string;
       datacenters: string[];
       options?: string[];
@@ -103,12 +105,15 @@ export function useCreateQueueItem() {
       coupon?: string;
       duration?: string;
       preorder?: boolean;
-	  purchaseMode?: "perDatacenter" | "total";
+      /** 预售有货再下;默认开售即下 */
+      preorderWaitStock?: boolean;
+      purchaseMode?: "perDatacenter" | "total";
     }) => {
       const dcs = payload.datacenters;
+      const accountIds = payload.account_ids?.length ? payload.account_ids : [payload.account_id];
       // 上界以前完全没有:填 9999 × 5 个机房 = 近 5 万次串行 POST。
       // 后端 EnqueueItems 也会拒,但那是在发出几百个请求之后 —— 这里先收住。
-      const plan = clampOrderPlan(dcs.length, payload.quantity ?? 1);
+      const plan = clampOrderPlan(dcs.length * accountIds.length, payload.quantity ?? 1);
       const qty = plan.quantity;
       if (plan.clamped) {
         toast.warning(
@@ -122,17 +127,18 @@ export function useCreateQueueItem() {
       }
       try {
         const result = await api.post<{ count: number }>("/queue", {
-        account_id: payload.account_id, planCode: payload.planCode, datacenters: dcs,
+        account_id: payload.account_id, account_ids: accountIds, planCode: payload.planCode, datacenters: dcs,
         quantity: qty, purchaseMode: payload.purchaseMode || "perDatacenter",
         retryInterval: payload.retryInterval, options: payload.options || [],
         autoPay: payload.autoPay ?? false, preorder: payload.preorder ?? false,
+        preorderWaitStock: (payload.preorder ?? false) && (payload.preorderWaitStock ?? false),
         coupon: payload.coupon?.trim() || undefined, duration: payload.duration || "P1M",
       });
-        return { success: result.data.count, failed: 0, total: dcs.length * qty, firstError: "" };
+        return { success: result.data.count, failed: 0, total: plan.total, firstError: "" };
       } catch (e) {
         const firstError = errorMessage(e);
         toast.error(i18n.t("hooksMsg.queue.someFailed", { reason: firstError }));
-        return { success: 0, failed: dcs.length * qty, total: dcs.length * qty, firstError };
+        return { success: 0, failed: plan.total, total: plan.total, firstError };
       }
     },
     onSuccess: () => {
