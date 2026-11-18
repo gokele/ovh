@@ -609,8 +609,15 @@ const SWITCH_CLS = "data-[state=checked]:bg-success data-[state=unchecked]:bg-in
  */
 function PrimaryAction({ item, onToggle, onBuyAgain }: Pick<QueueRowProps, "item" | "onToggle" | "onBuyAgain">) {
   const { t } = useTranslation();
-  const finished = item.status === "completed" || item.status === "failed";
-  if (finished) {
+  // 失败的任务:在原任务上重新开始(后端清零失败计数),不再复制出一条新任务
+  if (item.status === "failed") {
+    return (
+      <Button variant="outline" size="sm" className="h-8 px-3 gap-1.5 text-[12.5px] text-primary border-primary/40 hover:bg-primary/5" onClick={onToggle}>
+        <PlayCircle className="w-3.5 h-3.5" />{t("queue.restart")}
+      </Button>
+    );
+  }
+  if (item.status === "completed") {
     return onBuyAgain ? (
       <Button variant="outline" size="sm" className="h-8 px-3 gap-1.5 text-[12.5px] text-primary border-primary/40 hover:bg-primary/5" onClick={onBuyAgain}>
         <RotateCw className="w-3.5 h-3.5" />{t("queue.buyAgain")}

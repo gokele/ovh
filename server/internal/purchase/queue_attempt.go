@@ -89,11 +89,13 @@ func runQueueAttempt(ctx context.Context, state *app.State, it types.QueueItem, 
 		return outcome
 	}
 	if outcome.PauseTask {
-		// 结账不确定:暂停而不是重试(重试可能买两台)。不计失败次数
+		// 结账不确定:暂停而不是重试(重试可能买两台)。不计失败次数。
+		// 写明原因:界面提示先去 OVH 订单页核对,恢复前要求确认,避免直接恢复买重
 		state.QueueMu.Lock()
 		for i := range state.Queue {
 			if state.Queue[i].ID == it.ID {
 				state.Queue[i].Status = "paused"
+				state.Queue[i].StopReason = app.StopReasonCheckoutUncertain
 				state.Queue[i].UpdatedAt = types.NowISO()
 				break
 			}

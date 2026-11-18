@@ -28,6 +28,7 @@ import {
   RotateCw,
   Layers,
   List,
+  Eraser,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -283,9 +284,21 @@ function QueuePage() {
     queue.refetch();
   };
 
+  const [confirmAsk, confirmDialog] = useConfirm();
+
   /** 单条暂停/恢复:任务留在当前列表,提示条带「撤销」 */
   const toggleOne = async (q: QueueItem) => {
     const action = q.status === "running" || q.status === "pending" ? "pause" : "resume";
+    // 结账结果不确定而暂停的任务,直接恢复可能买两台:先确认已核对 OVH 订单
+    if (action === "resume" && (q.stopReason === "checkoutUncertain" || q.stopReason === "groupUncertain")) {
+      const ok = await confirmAsk({
+        title: t("queue.uncertainResumeTitle"),
+        description: t("queue.uncertainResumeDesc"),
+        tone: "danger",
+        confirmText: t("queue.uncertainResumeConfirm"),
+      });
+      if (!ok) return;
+    }
     keepVisible([q.id]);
     try {
       await toggle.mutateAsync({ id: q.id, action });
@@ -303,6 +316,15 @@ function QueuePage() {
   /** 套餐组一键暂停/恢复:逐条执行,汇总成一条提示,同样可撤销 */
   const groupAction = async (targets: QueueItem[], action: "pause" | "resume", planCode: string, whole = false) => {
     if (targets.length === 0) return;
+    if (action === "resume" && targets.some((i) => i.stopReason === "checkoutUncertain" || i.stopReason === "groupUncertain")) {
+      const ok = await confirmAsk({
+        title: t("queue.uncertainResumeTitle"),
+        description: t("queue.uncertainResumeDesc"),
+        tone: "danger",
+        confirmText: t("queue.uncertainResumeConfirm"),
+      });
+      if (!ok) return;
+    }
     keepVisible(targets.map((i) => i.id));
     setBatchRunning(true);
     const done: QueueItem[] = [];
@@ -337,7 +359,7 @@ function QueuePage() {
   };
 
   const [againItem, setAgainItem] = useState<QueueItem | null>(null);
-  const [confirmAsk, confirmDialog] = useConfirm();
+  const finishedAll = items.filter((i) => i.status === "completed" || i.status === "failed");
   const pausableAll = items.filter((i) => (i.status === "running" || i.status === "pending") && i.stopReason !== "groupComplete");
   const resumableAll = items.filter((i) => i.status === "paused" && i.stopReason !== "groupComplete");
 
@@ -349,11 +371,9 @@ function QueuePage() {
     onSelect: () => toggleSelect(q.id),
     onToggle: () => void toggleOne(q),
     onBuyAgain: () => setAgainItem(q),
-    onEdit: async () => {
-      if (q.status === "running" || q.status === "pending") {
-        try { await toggle.mutateAsync({ id: q.id, action: "pause" }); } catch { return; }
-      }
-      setEditingItem({ ...q, status: "paused" });
+    // 运行中的任务可以直接改:保存时后端中断旧配置那一轮,任务继续按新配置抢,不用先暂停再恢复
+    onEdit: () => {
+      setEditingItem(q);
       setShowCreateDialog(true);
     },
     onDelete: async () => {
@@ -484,6 +504,25 @@ function QueuePage() {
               <RefreshCw className={`w-4 h-4 ${queue.isFetching ? "animate-spin" : ""}`} />
               {t("queue.refresh")}
             </Button>
+            {/* 只清理已下单 / 失败的任务,不动正在抢的;「清空」仍保留给需要全部删除的情况 */}
+            {finishedAll.length > 0 && (
+              <Button
+                variant="outline"
+                disabled={batchRunning}
+                onClick={async () => {
+                  const ok = await confirmAsk({
+                    title: t("queue.cleanFinishedTitle", { n: finishedAll.length }),
+                    description: t("queue.cleanFinishedDesc"),
+                    confirmText: t("queue.cleanFinished"),
+                  });
+                  if (ok) void runBatch(t("queue.verbDelete"), finishedAll, (it) => remove.mutateAsync(it.id));
+                }}
+              >
+                <Eraser className="w-4 h-4" />
+                {t("queue.cleanFinished")}
+                <span className="tabular-nums opacity-60">{finishedAll.length}</span>
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => setShowClearDialog(true)}
@@ -856,7 +895,7 @@ function CreateQueueDialog({
     }
     if (editing) {
       try {
-        await update.mutateAsync({ id: editing.id, datacenter: datacenters[0], options: parsedOptions,
+        await update.mutateAsync({ id: editing.id, wasRunning: editing.status === "running" || editing.status === "pending", datacenter: datacenters[0], options: parsedOptions,
           retryInterval: Number(retryInterval) || cfgDefault, autoPay, coupon: coupon.trim(), duration });
         reset(); onOpenChange(false);
       } catch { /* Error is shown by the mutation hook; keep the form open. */ }

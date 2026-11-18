@@ -77,7 +77,11 @@ const pack: CommonLayerPack = {
     },
     monitor: {
       pausedWithQueue: "Monitoring paused; {{count}} matching purchase tasks paused",
-      resumedOnly: "Monitoring resumed. Resume paused purchase tasks manually in the queue.",
+      resumedNoTasks: "Monitor resumed",
+      resumeTasks: "Also resume {{count}} sniping tasks",
+      tasksResumed: "Resumed {{count}} sniping tasks",
+      tasksResumedPartial: "Resumed {{ok}}/{{total}} sniping tasks; check the queue for the rest",
+      resumedOnly: "Monitoring resumed. Tasks it paused are still paused.",
       saved: "Subscription saved",
       saveFailed: "Failed to save",
       updated: "Subscription updated",

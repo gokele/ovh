@@ -5,7 +5,7 @@ import { OrderDurationField, OrderDurationLabel } from "@/components/queue/Order
 import { preorderVariantCoversAll, preorderOptions, retainPreorderPlan } from "@/lib/preorder-options";
 import { useOrderDurations } from "@/hooks/use-order-durations";
 import { supportsDuration } from "@/lib/order-duration";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { OrderPrewarm } from "@/components/queue/OrderPrewarm";
 import { useOrderPrewarm } from "@/hooks/use-order-prewarm";
 import { useTranslation, Trans } from "react-i18next";
@@ -533,6 +533,7 @@ function DetailContent({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const addMon = useAddToMonitor();
   const create = useCreateQueueItem();
   const defaultAcc = useDefaultAccount();
@@ -1032,7 +1033,9 @@ function DetailContent({
             if (result.success > 0) {
               rememberAccounts(server.planCode, orderAccounts);
               preparation.submitted();
-              toast.success(t("servers.toast.created", { success: result.success, total: result.total }));
+              toast.success(t("servers.toast.created", { success: result.success, total: result.total }), {
+                action: { label: t("servers.toast.viewQueue"), onClick: () => void navigate({ to: "/queue" }) },
+              });
               onClose();
             }
             if (result.failed > 0) {

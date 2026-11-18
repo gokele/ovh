@@ -236,7 +236,10 @@ func (g *Guard) pauseQueue(accountID string) int {
 			continue
 		}
 		it.Status = "paused"
+		it.StopReason = app.StopReasonProxyFailed
 		it.UpdatedAt = types.NowISO()
+		// 中断正在用坏代理进行的那一轮,不让它跑完
+		g.state.UnregisterTaskCancel(it.ID)
 		n++
 	}
 	g.state.QueueMu.Unlock()

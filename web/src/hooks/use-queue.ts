@@ -152,12 +152,13 @@ export function useCreateQueueItem() {
 export function useUpdateQueueItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...patch }: { id: string; datacenter: string; options: string[]; retryInterval: number; autoPay: boolean; coupon: string; duration: string }) =>
+    // wasRunning 只用于提示文案,不发给后端
+    mutationFn: async ({ id, wasRunning: _wasRunning, ...patch }: { id: string; wasRunning?: boolean; datacenter: string; options: string[]; retryInterval: number; autoPay: boolean; coupon: string; duration: string }) =>
       (await api.put(`/queue/${encodeURIComponent(id)}`, patch)).data,
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: qk.queue.list() });
       qc.invalidateQueries({ queryKey: qk.stats() });
-      toast.success(i18n.t("queue.editSaved"));
+      toast.success(i18n.t(vars.wasRunning ? "queue.editSavedRunning" : "queue.editSaved"));
     },
     onError: (e: any) => toast.error(apiMessage(e) || i18n.t("queue.editFailed")),
   });

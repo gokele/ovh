@@ -79,6 +79,13 @@ func (s *State) SetPausedMonitorScopes(scopes []MonitorQueueScope) {
 }
 
 // PauseMonitorQueues 先中断本轮尝试并暂停内存任务,再持久化;保存失败也绝不继续执行。
+// 系统自动暂停任务时写入的原因;用户手动恢复(ResumeQueueItem)时清空。
+const (
+	StopReasonMonitorPaused     = "monitorPaused"
+	StopReasonProxyFailed       = "proxyFailed"
+	StopReasonCheckoutUncertain = "checkoutUncertain"
+)
+
 func (s *State) PauseMonitorQueues(scopes []MonitorQueueScope) (int, error) {
 	s.saveQueueMu.Lock()
 	defer s.saveQueueMu.Unlock()
@@ -95,6 +102,8 @@ func (s *State) PauseMonitorQueues(scopes []MonitorQueueScope) (int, error) {
 				continue
 			}
 			item.Status = "paused"
+			// 标明是监控暂停连带的,界面据此说明原因,恢复监控时也能找出这些任务一并恢复
+			item.StopReason = StopReasonMonitorPaused
 			item.UpdatedAt = types.NowISO()
 			s.UnregisterTaskCancel(item.ID)
 			count++

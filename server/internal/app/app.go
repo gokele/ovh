@@ -548,9 +548,15 @@ func (s *State) enqueueItems(items []types.QueueItem, prepend, automatic bool) e
 }
 
 var ErrQueueNotFound = errors.New("任务不存在")
-var ErrQueueNotEditable = errors.New("请先暂停任务再修改；已完成的任务不能修改")
+var ErrQueueNotEditable = errors.New("已下单的任务不能修改;如需再买,请用「再抢一单」新建任务")
 
-// UpdateQueueItem 仅编辑暂停/失败任务,落库成功后才发布新配置。
+// UpdateQueueItem 编辑任务配置,落库成功后才发布新配置。
+//
+// 运行中 / 待执行的任务可以直接改,不必先暂停:落库后取消这条任务正在用旧配置进行的那一轮
+// (与暂停同一个取消入口),任务保持原状态并立即唤醒调度器,下一轮按新配置执行。
+// 旧配置的购物车按 FQN 复用,配置一变自然不会再被用到。
+// 已经写出的结账请求可能已经成立,和暂停一样无法靠取消本地请求撤回。
+// 暂停 / 失败的任务改完保持暂停(失败任务改完即可重新开始),已下单的任务不能改。
 func (s *State) UpdateQueueItem(id, datacenter string, options []string, retryInterval int, autoPay bool, coupon string, duration *string) error {
 	if err := s.SaveBlocked("queue"); err != nil {
 		return err
@@ -564,9 +570,10 @@ func (s *State) UpdateQueueItem(id, datacenter string, options []string, retryIn
 		if next[i].ID != id {
 			continue
 		}
-		if next[i].Status != "paused" && next[i].Status != "failed" {
+		if next[i].Status == "completed" {
 			return ErrQueueNotEditable
 		}
+		active := next[i].Status == "running" || next[i].Status == "pending"
 		next[i].Datacenter = datacenter
 		next[i].Options = append([]string(nil), options...)
 		next[i].RetryInterval = retryInterval
@@ -579,14 +586,25 @@ func (s *State) UpdateQueueItem(id, datacenter string, options []string, retryIn
 			next[i].Duration = selected
 		}
 		next[i].Coupon = coupon
-		next[i].Status = "paused"
+		if !active {
+			next[i].Status = "paused"
+		}
 		next[i].FailureCount = 0
 		next[i].LastCheckTime = 0
+		next[i].OrderPhase = ""
 		next[i].UpdatedAt = types.NowISO()
 		if err := s.DB.ReplaceQueue(next); err != nil {
 			return err
 		}
 		s.Queue = next
+		if active {
+			// 换了机房时新机房的自动建单停止记录也要解除,与恢复任务一致
+			if err := s.SetAutomaticOrderBlockedLocked(next[i], false); err != nil {
+				s.Logger.Warn("任务已按新配置继续,自动建单停止记录未能更新: "+err.Error(), "queue")
+			}
+			s.UnregisterTaskCancel(id)
+			s.WakeQueue()
+		}
 		return nil
 	}
 	return ErrQueueNotFound

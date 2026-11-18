@@ -1,3 +1,4 @@
+import type { QueueItem } from "@/hooks/use-queue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/query";
@@ -142,7 +143,7 @@ export function useUpdateMonitorSubscription() {
 /** 创建新订阅（对外更语义化的别名） */
 export const useCreateMonitorSubscription = useUpsertMonitorSubscription;
 
-/** 暂停订阅及关联队列,恢复监控时不自动恢复队列。 */
+/** 暂停订阅及关联队列;恢复监控时不自动恢复队列,但提示条提供一键恢复被它暂停的任务。 */
 export function usePauseMonitorSubscription() {
   const qc = useQueryClient();
   return useMutation({
@@ -153,9 +154,40 @@ export function usePauseMonitorSubscription() {
           paused: v.paused,
         })
       ).data,
-    onSuccess: (data: { paused?: boolean; pausedTasks?: number }) => {
-      if (data.paused) toast.success(i18n.t("hooksMsg.monitor.pausedWithQueue", { count: data.pausedTasks || 0 }));
-      else toast.success(i18n.t("hooksMsg.monitor.resumedOnly"));
+    onSuccess: (data: { paused?: boolean; pausedTasks?: number }, vars) => {
+      if (data.paused) {
+        toast.success(i18n.t("hooksMsg.monitor.pausedWithQueue", { count: data.pausedTasks || 0 }));
+        return;
+      }
+      // 恢复监控不自动恢复抢购任务(避免意外下单),但给一个一键入口:
+      // 只列出被「监控暂停」连带暂停的同型号任务(stopReason=monitorPaused),由用户决定
+      const queue = qc.getQueryData<QueueItem[]>(qk.queue.list()) || [];
+      const held = queue.filter((q) => q.status === "paused" && q.stopReason === "monitorPaused" && q.planCode === vars.planCode);
+      if (held.length === 0) {
+        toast.success(i18n.t("hooksMsg.monitor.resumedNoTasks"));
+        return;
+      }
+      toast.success(i18n.t("hooksMsg.monitor.resumedOnly"), {
+        duration: 10000,
+        action: {
+          label: i18n.t("hooksMsg.monitor.resumeTasks", { count: held.length }),
+          onClick: async () => {
+            let ok = 0;
+            for (const q of held) {
+              try {
+                await api.put(`/queue/${encodeURIComponent(q.id)}/status`, { status: "running" });
+                ok++;
+              } catch {
+                /* 单条失败不阻断其余;汇总提示 */
+              }
+            }
+            qc.invalidateQueries({ queryKey: qk.queue.list() });
+            qc.invalidateQueries({ queryKey: qk.stats() });
+            if (ok === held.length) toast.success(i18n.t("hooksMsg.monitor.tasksResumed", { count: ok }));
+            else toast.error(i18n.t("hooksMsg.monitor.tasksResumedPartial", { ok, total: held.length }));
+          },
+        },
+      });
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: qk.monitor.list() });
