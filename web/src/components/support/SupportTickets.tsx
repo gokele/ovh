@@ -175,7 +175,7 @@ function SupportTicketsBody({ accountId }: { accountId: string }) {
             </div>
             {!list.data?.items.length ? (
               <EmptyState
-                icon={LifeBuoy}
+                illustration="support"
                 title={t("support.empty")}
                 description={t("support.emptyHint")}
               />

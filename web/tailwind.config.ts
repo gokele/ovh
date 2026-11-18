@@ -72,11 +72,11 @@ export default {
       },
       boxShadow: {
         none: "none",
-        DEFAULT: "none",
-        sm: "none",
-        md: "none",
-        lg: "none",
-        xl: "none",
+        DEFAULT: "0 1px 3px rgba(15, 35, 80, .08)",
+        sm: "0 1px 2px rgba(15, 35, 80, .06)",
+        md: "0 4px 12px -2px rgba(15, 35, 80, .10)",
+        lg: "0 10px 24px -6px rgba(15, 35, 80, .14)",
+        xl: "0 20px 40px -10px rgba(15, 35, 80, .18)",
       },
       fontFamily: {
         sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "sans-serif"],

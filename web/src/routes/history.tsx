@@ -1,3 +1,4 @@
+import { describeOptionCodes } from "@/lib/option-groups";
 import { OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { Link } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
@@ -89,7 +90,7 @@ function HistoryPrice({ item, strike }: { item: PurchaseHistory; strike: boolean
   const currency = (item.price?.currencyCode || "").trim();
   return (
     <span
-      className={`font-mono font-medium text-success ${strike ? "line-through" : ""}`}
+      className={`font-medium tabular-nums text-foreground ${strike ? "line-through" : ""}`}
       title={currency ? undefined : currencyUnknownHint()}
     >
       {value}
@@ -251,16 +252,16 @@ function HistoryPage() {
               <table className="w-full">
                 <thead>
                   <tr className="text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-b border-border whitespace-nowrap">
-                    <th className="px-4 py-2.5">{t("history.col.model")}</th>
+                    <th className="pl-4 pr-3 py-2.5">{t("history.col.model")}</th>
                     <th className="px-3 py-2.5">{t("history.col.dc")}</th>
                     <th className="px-3 py-2.5">{t("history.col.options")}</th>
-                    <th className="px-3 py-2.5">{t("history.col.price")}</th>
+                    <th className="px-3 py-2.5 text-right">{t("history.col.price")}</th>
                     <th className="px-3 py-2.5">{t("history.col.status")}</th>
                     <th className="px-3 py-2.5">{t("history.col.time")}</th>
                     <th className="px-3 py-2.5" title={t("history.col.remainingTitle")}>
                       {t("history.col.remaining")}
                     </th>
-                    <th className="px-4 py-2.5">{t("history.col.action")}</th>
+                    <th className="pl-3 pr-4 py-2.5 text-right">{t("history.col.action")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -307,25 +308,29 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
   // 24 小时内进入告警色
   const isUrgent = showCountdown && !isExpired && remainingMs < 24 * 60 * 60 * 1000;
   return (
-    <tr className={`text-[13px] hover:bg-muted/50 align-top ${isExpired ? "opacity-60" : ""}`}>
-      <td className={`px-4 py-3 font-mono font-semibold min-w-[220px] ${isExpired ? "line-through" : ""}`}>
-        <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
-          {item.planCode}
+    <tr className={`text-[13px] hover:bg-muted/40 align-top ${isExpired ? "opacity-55" : ""}`}>
+      <td className="pl-4 pr-3 py-3 min-w-[200px]">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-mono font-semibold whitespace-nowrap">{item.planCode}</span>
           <AccountChip accountId={item.accountId} />
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+          <span className="whitespace-nowrap"><OrderDurationLabel value={item.duration} /></span>
           <TimingChip totalMs={item.totalMs} phases={item.timing} />
           <OrderSpeed detectionToWriteUs={item.detectionToWriteUs} prewarmed={item.prewarmed} connectionReused={item.connectionReused} waitMs={item.waitMs} />
-          <span className="text-xs text-muted-foreground"><OrderDurationLabel value={item.duration} /></span>
-          {item.couponWarning && <p className="w-full text-[11px] font-normal text-warning break-words" role="status">{item.couponWarning}</p>}
+        </div>
+        {item.couponWarning && <p className="mt-1 text-[11px] text-warning break-words" role="status">{item.couponWarning}</p>}
+      </td>
+      <td className="px-3 py-3 whitespace-nowrap font-mono text-[12px]">{item.datacenter.toUpperCase()}</td>
+      <td className="px-3 py-3 w-full max-w-0">
+        <div className="truncate text-[12px] text-muted-foreground" title={item.options?.join("\n")}>
+          {item.options && item.options.length > 0 ? describeOptionCodes(item.options) : t("history.defaultOptions")}
         </div>
       </td>
-      <td className={`px-3 py-3 whitespace-nowrap ${isExpired ? "line-through" : ""}`}>{item.datacenter.toUpperCase()}</td>
-      <td className={`px-3 py-3 text-muted-foreground max-w-[180px] truncate ${isExpired ? "line-through" : ""}`} title={item.options?.join(", ")}>
-        {item.options && item.options.length > 0 ? item.options.join(", ") : t("history.defaultOptions")}
-      </td>
-      <td className="px-4 py-3">
+      <td className="px-3 py-3 whitespace-nowrap text-right">
         <HistoryPrice item={item} strike={isExpired} />
       </td>
-      <td className="px-4 py-3">
+      <td className="px-3 py-3 whitespace-nowrap">
         {item.status === "success" ? (
           <Chip tone={st.tone} title={t(st.titleKey)}>
             {t(st.labelKey)}
@@ -334,10 +339,10 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
           <Chip tone={item.status === "uncertain" ? "warning" : "danger"}>{t(item.status === "uncertain" ? "history.uncertain" : "history.failed")}</Chip>
         )}
       </td>
-      <td className="px-4 py-3 text-[11px] text-muted-foreground font-mono whitespace-nowrap">
+      <td className="px-3 py-3 text-[12px] text-muted-foreground tabular-nums whitespace-nowrap">
         {fmtDateTime(item.purchaseTime)}
       </td>
-      <td className="px-4 py-3 whitespace-nowrap">
+      <td className="px-3 py-3 whitespace-nowrap">
         {showCountdown ? (
           <Chip tone={isExpired ? "danger" : isUrgent ? "warning" : "info"}>
             <Hourglass className="w-3 h-3" />
@@ -347,7 +352,7 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
           <span className="text-muted-foreground">—</span>
         )}
       </td>
-      <td className="px-4 py-3">
+      <td className="pl-3 pr-4 py-3 whitespace-nowrap text-right">
         {item.status === "success" && item.orderUrl ? (
           <a
             href={item.orderUrl}
@@ -388,13 +393,9 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
     <div className={`px-4 py-3 space-y-2 ${isExpired ? "opacity-60" : ""}`}>
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <span className={`font-mono font-semibold text-[13px] ${isExpired ? "line-through" : ""}`}>{item.planCode}</span>
+            <span className="font-mono font-semibold text-[13px]">{item.planCode}</span>
+            <span className="font-mono text-[11px] text-muted-foreground">{item.datacenter.toUpperCase()}</span>
             <AccountChip accountId={item.accountId} />
-            <Chip tone="default" className="text-[10px]">{item.datacenter.toUpperCase()}</Chip>
-            <TimingChip totalMs={item.totalMs} phases={item.timing} />
-          <OrderSpeed detectionToWriteUs={item.detectionToWriteUs} prewarmed={item.prewarmed} connectionReused={item.connectionReused} waitMs={item.waitMs} />
-            <span className="text-xs text-muted-foreground"><OrderDurationLabel value={item.duration} /></span>
-          {item.couponWarning && <p className="w-full text-[11px] font-normal text-warning break-words" role="status">{item.couponWarning}</p>}
           </div>
           {item.status === "success" ? (
             <Chip tone={st.tone} title={t(st.titleKey)}>
@@ -404,11 +405,17 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
             <Chip tone={item.status === "uncertain" ? "warning" : "danger"}>{t(item.status === "uncertain" ? "history.uncertain" : "history.failed")}</Chip>
           )}
         </div>
-        <div className={`text-[11px] text-muted-foreground break-all ${isExpired ? "line-through" : ""}`}>
-          {item.options && item.options.length > 0 ? item.options.join(", ") : t("history.defaultOptions")}
+        <div className="truncate text-[11px] text-muted-foreground" title={item.options?.join("\n")}>
+          {item.options && item.options.length > 0 ? describeOptionCodes(item.options) : t("history.defaultOptions")}
         </div>
-        <div className="flex items-center justify-between gap-2 text-[11px]">
-          <span className="text-muted-foreground font-mono">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+          <span className="whitespace-nowrap"><OrderDurationLabel value={item.duration} /></span>
+          <TimingChip totalMs={item.totalMs} phases={item.timing} />
+          <OrderSpeed detectionToWriteUs={item.detectionToWriteUs} prewarmed={item.prewarmed} connectionReused={item.connectionReused} waitMs={item.waitMs} />
+        </div>
+        {item.couponWarning && <p className="text-[11px] text-warning break-words" role="status">{item.couponWarning}</p>}
+        <div className="flex items-center justify-between gap-2 text-[12px]">
+          <span className="text-muted-foreground tabular-nums whitespace-nowrap">
             {fmtDateTime(item.purchaseTime)}
           </span>
           {item.price?.withTax != null ? <HistoryPrice item={item} strike={isExpired} /> : null}

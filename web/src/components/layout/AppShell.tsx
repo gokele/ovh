@@ -1,6 +1,7 @@
+import { BrandLogo } from "@/components/common/BrandLogo";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { PanelLeftClose, PanelLeftOpen, Menu, Shield, Github } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Menu, Github } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { MobileTabBar } from "./MobileTabBar";
@@ -125,8 +126,7 @@ export function AppShell() {
         <aside className="rail m-rail">
           <Link to="/" className="rail-brand" aria-label={t("nav.appName")}>
             <span className="brand-mark">
-              <Shield className="w-4 h-4" strokeWidth={2} />
-              <span className="brand-dot" />
+              <BrandLogo className="w-full h-full" />
             </span>
             <span className="brand-text">
               <span className="brand-name">{t("nav.appName")}</span>

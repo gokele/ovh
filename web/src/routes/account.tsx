@@ -195,7 +195,7 @@ function EmailsTab() {
               description={t("account.emailsPartialDesc", { count: emails.data?.failedCount || 0 })}
             />
           ) : (
-            <EmptyState icon={Inbox} title={t("account.noEmails")} />
+            <EmptyState illustration="mail" title={t("account.noEmails")} />
           )
         ) : (
           <div className="max-h-[500px] overflow-y-auto">
@@ -238,7 +238,7 @@ function EmailsTab() {
               </pre>
             </>
           ) : (
-            <EmptyState icon={Mail} title={t("account.selectEmail")} />
+            <EmptyState illustration="mail" title={t("account.selectEmail")} />
           )}
         </CardContent>
       </Card>
@@ -282,7 +282,7 @@ function RefundsTab() {
               description={t("account.refundsPartialDesc", { count: refunds.data?.failedCount || 0 })}
             />
           ) : (
-            <EmptyState icon={Inbox} title={t("account.noRefunds")} />
+            <EmptyState illustration="refunds" title={t("account.noRefunds")} />
           )
         ) : (
           <div>
@@ -351,7 +351,7 @@ function OrdersTab() {
               description={t("account.ordersPartialDesc", { count: orders.data?.failedCount || 0 })}
             />
           ) : (
-            <EmptyState icon={ShoppingBag} title={t("account.noOrders")} />
+            <EmptyState illustration="orders" title={t("account.noOrders")} />
           )
         ) : (
           <div>

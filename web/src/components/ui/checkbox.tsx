@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
-import { Check } from "lucide-react";
+import { Check, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** shadcn-ui Checkbox：checked 时 button-primary 黑底白勾 */
@@ -19,12 +19,13 @@ const Checkbox = React.forwardRef<
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
       "disabled:cursor-not-allowed disabled:opacity-50",
       "data-[state=checked]:bg-button-primary data-[state=checked]:text-button-primary-foreground data-[state=checked]:border-button-primary",
+      "data-[state=indeterminate]:bg-button-primary data-[state=indeterminate]:text-button-primary-foreground data-[state=indeterminate]:border-button-primary",
       className
     )}
     {...props}
   >
     <CheckboxPrimitive.Indicator className={cn("flex items-center justify-center text-current")}>
-      <Check className="h-3 w-3" strokeWidth={3} />
+      {props.checked === "indeterminate" ? <Minus className="h-3 w-3" strokeWidth={3} /> : <Check className="h-3 w-3" strokeWidth={3} />}
     </CheckboxPrimitive.Indicator>
   </CheckboxPrimitive.Root>
 ));

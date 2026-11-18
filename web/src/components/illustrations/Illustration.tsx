@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-export type IllustrationName = "queue" | "monitor" | "history" | "search" | "servers" | "logs" | "error" | "orders" | "control";
+export type IllustrationName = "queue" | "monitor" | "history" | "search" | "servers" | "logs" | "error" | "orders" | "control" | "mail" | "support" | "refunds";
 
 /**
  * 自绘空态 / 错误插画。只用主题变量着色(.illo-* 类在 globals.css 定义),
@@ -151,6 +151,51 @@ const SCENES: Record<IllustrationName, React.ReactNode> = {
       <circle cx="65" cy="57" r="6" className="illo-accent-soft" />
       <path d="M114 78 l10 10" className="illo-stroke-warm" />
       <circle cx="112" cy="76" r="5" className="illo-warm" />
+    </g>
+  ),
+  // 飞出的信封:没有邮件 / 未选择邮件
+  mail: (
+    <g>
+      <circle cx="80" cy="56" r="40" className="illo-halo" />
+      <rect x="50" y="40" width="60" height="42" rx="7" className="illo-panel-2" transform="rotate(-6 80 61)" />
+      <g className="illo-float">
+        <rect x="48" y="36" width="64" height="44" rx="7" className="illo-card" />
+        <path d="M50 40 L80 62 L110 40" className="illo-stroke-accent" />
+        <circle cx="106" cy="38" r="7" className="illo-warm" />
+      </g>
+      <path d="M30 52 h10 M26 62 h12 M32 72 h8" className="illo-stroke-ink" />
+      {sparkle(124, 76, 0.85)}
+    </g>
+  ),
+  // 对话气泡与耳麦:没有客服工单
+  support: (
+    <g>
+      <circle cx="80" cy="56" r="40" className="illo-halo" />
+      <g className="illo-float">
+        <rect x="44" y="32" width="56" height="36" rx="10" className="illo-card" />
+        <path d="M58 68 l-4 10 l14 -10 Z" className="illo-card" />
+        <rect x="54" y="44" width="30" height="4" rx="2" className="illo-line" />
+        <rect x="54" y="53" width="20" height="4" rx="2" className="illo-accent" />
+      </g>
+      <rect x="78" y="56" width="42" height="28" rx="9" className="illo-accent" />
+      <circle cx="90" cy="70" r="2.6" fill="#fff" />
+      <circle cx="99" cy="70" r="2.6" fill="#fff" />
+      <circle cx="108" cy="70" r="2.6" fill="#fff" />
+      {sparkle(124, 36, 0.9, "illo-warm")}
+    </g>
+  ),
+  // 回旋箭头与硬币:没有退款
+  refunds: (
+    <g>
+      <circle cx="80" cy="56" r="40" className="illo-halo" />
+      <path d="M52 56 a28 28 0 1 1 8 20" className="illo-stroke-accent" />
+      <path d="M48 70 l12 6 l2 -13" className="illo-stroke-accent" />
+      <g className="illo-float">
+        <circle cx="80" cy="56" r="15" className="illo-warm" />
+        <circle cx="80" cy="56" r="10" fill="none" stroke="#fff" strokeOpacity=".7" strokeWidth="2" />
+        <path d="M80 49 v14 M76 52 h6 a2.5 2.5 0 0 1 0 5 h-4 a2.5 2.5 0 0 0 0 5 h6" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+      </g>
+      {sparkle(120, 34, 0.8)}
     </g>
   ),
 };

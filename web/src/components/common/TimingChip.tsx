@@ -58,8 +58,8 @@ export function TimingChip({
           : t("commons.timing.title")
       }
       className={
-        "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono " +
-        "bg-secondary text-muted-foreground hover:bg-muted transition-colors " +
+        "inline-flex items-center gap-1 whitespace-nowrap rounded text-[11px] tabular-nums " +
+        "text-muted-foreground hover:text-foreground underline-offset-2 hover:underline transition-colors " +
         (className || "")
       }
     >

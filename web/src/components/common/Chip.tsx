@@ -10,11 +10,11 @@ import { cn } from "@/lib/utils";
 type Tone = "default" | "success" | "warning" | "danger" | "info" | "solid";
 
 const toneClasses: Record<Tone, string> = {
-  default: "bg-secondary text-foreground border border-border",
-  success: "bg-success/10 text-success border border-success/30",
-  warning: "bg-warning/10 text-warning border border-warning/30",
-  danger: "bg-destructive/10 text-destructive border border-destructive/30",
-  info: "bg-info/10 text-info border border-info/30",
+  default: "bg-muted text-muted-foreground",
+  success: "bg-success/10 text-success",
+  warning: "bg-warning/[.12] text-warning",
+  danger: "bg-destructive/10 text-destructive",
+  info: "bg-primary/10 text-primary",
   solid: "bg-button-primary text-button-primary-foreground",
 };
 
@@ -28,8 +28,8 @@ export function Chip({ tone = "default", size = "sm", className, children, ...re
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full font-medium",
-        size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs",
+        "inline-flex items-center gap-1 rounded-full font-medium whitespace-nowrap leading-none tabular-nums",
+        size === "sm" ? "h-[22px] px-2 text-[11.5px]" : "h-6 px-2.5 text-xs",
         toneClasses[tone],
         className
       )}

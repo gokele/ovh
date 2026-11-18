@@ -1,6 +1,5 @@
 import { Hourglass, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Chip } from "@/components/common/Chip";
 
 /** 亚毫秒保留两位小数,否则按毫秒显示。 */
 export function formatMicros(us: number): string {
@@ -38,16 +37,16 @@ export function OrderSpeed({
   return (
     <>
       {detectionToWriteUs ? (
-        <Chip tone="success" title={[t("commons.timing.dispatchTitle"), notes].filter(Boolean).join("\n")}>
-          <Zap className="w-3 h-3" aria-hidden />
+        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground tabular-nums" title={[t("commons.timing.dispatchTitle"), notes].filter(Boolean).join("\n")}>
+          <Zap className="w-3 h-3 text-success" aria-hidden />
           {t("commons.timing.dispatch", { value: formatMicros(detectionToWriteUs) })}
-        </Chip>
+        </span>
       ) : null}
       {waitMs ? (
-        <Chip tone="default" title={t("commons.timing.waitTitle")}>
+        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground tabular-nums" title={t("commons.timing.waitTitle")}>
           <Hourglass className="w-3 h-3" aria-hidden />
           {formatWait(waitMs, t)}
-        </Chip>
+        </span>
       ) : null}
     </>
   );

@@ -22,7 +22,7 @@ export function Segmented<T extends string>({
   label: string;
 }) {
   return (
-    <div className="inline-flex flex-wrap max-w-full rounded-lg border border-border bg-muted/40 p-0.5" role="group" aria-label={label}>
+    <div className="inline-flex flex-wrap max-w-full rounded-[10px] bg-muted p-[3px]" role="group" aria-label={label}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -32,7 +32,7 @@ export function Segmented<T extends string>({
           className={cn(
             "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 h-8 text-[13px] transition-colors",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            value === o.value ? "bg-background text-foreground shadow-sm font-medium" : "text-muted-foreground hover:text-foreground",
+            value === o.value ? "bg-card text-primary shadow-sm font-medium" : "text-muted-foreground hover:text-foreground",
           )}
         >
           <span>{o.label}</span>
