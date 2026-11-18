@@ -45,8 +45,6 @@ import { useUpdateVpsTerminationPolicy } from "@/hooks/use-vps-control";
 import { RenewalDialog } from "@/components/server-control/RenewalDialog";
 import { EngagementDialog, type EngagementHooks } from "@/components/server-control/EngagementDialog";
 import { toast } from "sonner";
-import { ResourceSidebar } from "@/components/common/ResourceSidebar";
-import { useContainerWide } from "@/hooks/use-container-wide";
 
 /** 模块级文案助手共用的翻译函数类型 */
 type TFn = ReturnType<typeof useTranslation>["t"];
@@ -95,10 +93,11 @@ function VpsControlPage() {
   // 所以不单独报错 —— 真在这里加提示,反而会盖过同页更要命的那几处失败。
   const aliases = useServerAliases();
   const setAlias = useSetServerAlias();
-  const [layoutRef, wide] = useContainerWide(1080);
+  // 不再用左侧列表(太占地方):多台时用顶部下拉切换,只有一台时连选择卡也不出现
+  const multi = vpsList.length > 1;
 
   return (
-    <div ref={layoutRef} className="space-y-3 sm:space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       <PageHeader
         title={t("vpsList.title")}
         description={t("vpsList.description")}
@@ -117,8 +116,8 @@ function VpsControlPage() {
         }
       />
 
-      {/* 账户 + VPS 选择(宽屏改由左侧列表切换,这张卡只在需要报错时出现) */}
-      {(!wide || accountsQ.isError) && (
+      {/* 账户 + VPS 选择:多台需要切换、或需要报错时才出现 */}
+      {(multi || accountsQ.isError || q.isError) && (
       <Card>
         <CardContent className="p-4 flex flex-wrap items-center gap-3">
           {/* 当前账户不在这里重复显示 —— 顶栏(手机)/侧栏(桌面)的切换器是全站唯一的账户显示位。
@@ -137,7 +136,7 @@ function VpsControlPage() {
               </button>
             </div>
           )}
-          {!wide && (<>
+          {(multi || q.isError) && (<>
           <div className="flex items-center gap-2 flex-1 min-w-0 basis-[260px]">
             <span className="text-[12px] text-muted-foreground">VPS</span>
             <Select value={selectedName || ""} onValueChange={setSelectedName}>
@@ -210,25 +209,7 @@ function VpsControlPage() {
           </CardContent>
         </Card>
       ) : selected ? (
-        <div className={wide ? "grid gap-4 items-start grid-cols-[260px_minmax(0,1fr)]" : ""}>
-          {wide && (
-            <Card className="overflow-hidden sticky top-0">
-              <ResourceSidebar
-                label={t("vpsList.sidebar.title")}
-                searchPlaceholder={t("vpsList.sidebar.search")}
-                emptyText={t("vpsList.sidebar.noMatch")}
-                selected={selectedName}
-                onSelect={setSelectedName}
-                items={vpsList.map((v) => ({
-                  id: v.serviceName,
-                  title: aliasOf(aliases.data, v.serviceName, v.displayName || v.serviceName),
-                  sub: [v.model, (v.zone || "").replace(/^region openstack:\s*/i, "")].filter(Boolean).join(" · ") || undefined,
-                  meta: v.serviceName,
-                  tone: v.state === "running" ? "success" : v.state === "stopped" ? "warning" : "muted",
-                }))}
-              />
-            </Card>
-          )}
+        <div>
           <div className="min-w-0 space-y-3 sm:space-y-4">
             {q.isError && (
               <LoadFailedBanner

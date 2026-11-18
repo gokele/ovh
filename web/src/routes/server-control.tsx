@@ -1,14 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2, PartyPopper, Pencil } from "lucide-react";
+import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2, PartyPopper, Pencil, ChevronsUpDown, ChevronRight, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Chip } from "@/components/common/Chip";
 import { StatusDot } from "@/components/common/StatusDot";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -40,7 +38,9 @@ import { RetractionDialog } from "@/components/server-control/RetractionDialog";
 import { ReinstallDialog } from "@/components/server-control/ReinstallDialog";
 import { toast } from "sonner";
 import { ResourceSidebar } from "@/components/common/ResourceSidebar";
-import { useContainerWide } from "@/hooks/use-container-wide";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
+import { OsIcon } from "@/components/server-control/OsIcon";
 
 /** 模块级文案助手共用的翻译函数类型 */
 type TFn = ReturnType<typeof useTranslation>["t"];
@@ -89,8 +89,6 @@ function ServerControlPage() {
   const selected = servers.find((s) => s.serviceName === selectedName) || null;
   const aliasesQ = useServerAliases();
   const [renaming, setRenaming] = useState<OwnedServer | null>(null);
-  // 容器够宽(侧栏收起、大屏)才并排显示左侧列表,否则沿用下拉选择器,永不横向滚动
-  const [layoutRef, wide] = useContainerWide(1080);
 
   return (
     <div className="space-y-3 sm:space-y-6">
@@ -149,81 +147,39 @@ function ServerControlPage() {
           />
         </Card>
       ) : (
-        <div ref={layoutRef} className={wide ? "grid gap-4 items-start grid-cols-[260px_minmax(0,1fr)]" : ""}>
-          {wide && (
-            <Card className="overflow-hidden sticky top-0">
-              <ResourceSidebar
-                label={t("serverList.sidebar.title")}
-                searchPlaceholder={t("serverList.sidebar.search")}
-                emptyText={t("serverList.sidebar.noMatch")}
-                selected={selectedName}
-                onSelect={setSelectedName}
-                onContextMenu={(id) => setRenaming(servers.find((s) => s.serviceName === id) || null)}
-                items={servers.map((s) => ({
-                  id: s.serviceName,
-                  title: maskSensitive(aliasOf(aliasesQ.data, s.serviceName, s.name), hidden),
-                  sub: [s.commercialRange, (s.datacenter || "").toUpperCase()].filter(Boolean).join(" · "),
-                  meta: maskSensitive(s.ip, hidden),
-                  tone: s.state === "ok" ? "success" : "warning",
-                  badge: s.lottery?.won ? (
-                    <PartyPopper className="w-3 h-3 text-amber-500 flex-shrink-0" aria-label={t("serverList.lotteryBadge")} />
-                  ) : undefined,
-                }))}
-              />
-            </Card>
+        <div>
+          {selected && (
+            <ServerTabs
+              key={`${activeAccount}:${selected.serviceName}`}
+              server={selected}
+              title={maskSensitive(aliasOf(aliasesQ.data, selected.serviceName, selected.name), hidden)}
+              hidden={hidden}
+              onRename={() => setRenaming(selected)}
+              switcher={
+                servers.length > 1 ? (
+                  <ResourceSidebar
+                    label={t("serverList.sidebar.title")}
+                    searchPlaceholder={t("serverList.sidebar.search")}
+                    emptyText={t("serverList.sidebar.noMatch")}
+                    selected={selectedName}
+                    onSelect={setSelectedName}
+                    onContextMenu={(id) => setRenaming(servers.find((s) => s.serviceName === id) || null)}
+                    items={servers.map((s) => ({
+                      id: s.serviceName,
+                      title: maskSensitive(aliasOf(aliasesQ.data, s.serviceName, s.name), hidden),
+                      sub: [s.commercialRange, (s.datacenter || "").toUpperCase()].filter(Boolean).join(" · "),
+                      meta: maskSensitive(s.ip, hidden),
+                      tone: s.state === "ok" ? "success" : "warning",
+                      badge: s.lottery?.won ? (
+                        <PartyPopper className="w-3 h-3 text-amber-500 flex-shrink-0" aria-label={t("serverList.lotteryBadge")} />
+                      ) : undefined,
+                    }))}
+                  />
+                ) : undefined
+              }
+              count={servers.length}
+            />
           )}
-          <Card className="min-w-0">
-            <CardContent className="p-4 sm:p-5 space-y-4">
-              {/* 宽屏:左侧列表负责切换,这里是当前机器的标题行;窄屏:下拉选择器 */}
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-4 border-b border-border">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 min-w-0">
-                  {wide ? (
-                    selected && (
-                      <div className="min-w-0 flex items-center gap-2">
-                        <h2 className="text-base font-semibold truncate font-mono">
-                          {maskSensitive(aliasOf(aliasesQ.data, selected.serviceName, selected.name), hidden)}
-                        </h2>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          {selected.commercialRange} · {(selected.datacenter || "").toUpperCase()}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => setRenaming(selected)}
-                          aria-label={t("serverList.sidebar.rename")}
-                          title={t("serverList.sidebar.rename")}
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    )
-                  ) : (
-                    <ServerSelector
-                      servers={servers}
-                      selected={selected}
-                      onChange={(name) => setSelectedName(name)}
-                      hidden={hidden}
-                    />
-                  )}
-                  {selected && (
-                    <Chip tone={selected.state === "ok" ? "success" : "warning"} className="self-start sm:self-auto">
-                      <StatusDot tone={selected.state === "ok" ? "success" : "warning"} pulse={selected.state === "ok"} size="xs" />
-                      {selected.state}
-                    </Chip>
-                  )}
-                </div>
-                {selected && (
-                  // 只显示 IP。型号和机房在标题/选择器里已经有了。
-                  <div className="text-[11px] sm:text-[12px] text-muted-foreground break-all sm:truncate font-mono">
-                    {maskSensitive(selected.ip, hidden)}
-                  </div>
-                )}
-              </div>
-
-              {selected && <ServerTabs key={`${activeAccount}:${selected.serviceName}`} server={selected} />}
-            </CardContent>
-          </Card>
           <RenameDialog
             server={renaming}
             currentAlias={renaming ? aliasesQ.data?.[renaming.serviceName] || "" : ""}
@@ -233,156 +189,6 @@ function ServerControlPage() {
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * 顶部服务器选择器：胶囊样式 Select。
- * - 显示用 alias(有则用之,否则用原 name / service_name)
- * - 右键单击列表项弹"重命名"小菜单 → 进入 alias 编辑对话框
- */
-function ServerSelector({
-  servers,
-  selected,
-  onChange,
-  hidden,
-}: {
-  servers: OwnedServer[];
-  selected: OwnedServer | null;
-  onChange: (serviceName: string) => void;
-  hidden: boolean;
-}) {
-  const { t } = useTranslation();
-  // 别名读失败是这里唯一可以"静默降级"的一项:aliasOf 拿不到别名就回退显示原始名字
-  // (service_name / OVH 的 display name),显示出来的东西依然真实,只是少了自定义标签,
-  // 不会让用户对机器本身产生误判。所以不做失败提示,但下面重命名对话框要提醒一句 ——
-  // 那里的输入框留空 + 保存等于删除别名,而读失败时它看起来也是空的。
-  const aliasesQ = useServerAliases();
-  const aliases = aliasesQ.data;
-  const [ctxMenu, setCtxMenu] = useState<null | { server: OwnedServer; x: number; y: number }>(null);
-  const [renaming, setRenaming] = useState<null | OwnedServer>(null);
-
-  // 全局点击 / Esc 关闭 context menu
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const handler = () => setCtxMenu(null);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setCtxMenu(null); };
-    window.addEventListener("click", handler);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("click", handler);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [ctxMenu]);
-
-  const displayName = (s: OwnedServer) => aliasOf(aliases, s.serviceName, s.name);
-
-  return (
-    <>
-    <Select value={selected?.serviceName || ""} onValueChange={onChange}>
-      <SelectTrigger
-        className="w-full min-w-0 sm:min-w-[280px] sm:w-auto lg:min-w-[340px] h-9 font-mono text-sm [&>span]:min-w-0"
-        // 拦截右键 pointerdown(button=2),不让 Radix Select 打开下拉
-        onPointerDown={(e) => {
-          if (e.button === 2) {
-            e.preventDefault();
-            e.stopPropagation();
-          }
-        }}
-        // 右键当前选中那个胶囊 → 设别名(最直观)
-        onContextMenu={(e) => {
-          if (!selected) return;
-          e.preventDefault();
-          e.stopPropagation();
-          setCtxMenu({ server: selected, x: e.clientX, y: e.clientY });
-        }}
-        title={t("serverList.selector.title")}
-      >
-        <SelectValue placeholder={t("serverList.selector.placeholder")}>
-          {selected && (
-            <div className="flex items-center gap-2 min-w-0">
-              <StatusDot tone={selected.state === "ok" ? "success" : "warning"} size="xs" />
-              <span className="font-semibold truncate">{maskSensitive(displayName(selected), hidden)}</span>
-              {selected.lottery?.won && (
-                <PartyPopper className="w-3 h-3 text-amber-500 flex-shrink-0" aria-label={t("serverList.lotteryBadge")} />
-              )}
-              <span className="shrink-0 text-[11px] text-muted-foreground font-sans ml-1 whitespace-nowrap">
-                {selected.commercialRange} · {(selected.datacenter || "").toUpperCase()}
-              </span>
-            </div>
-          )}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent className="max-h-[400px]">
-        {servers.map((s) => (
-          <SelectItem
-            key={s.serviceName}
-            value={s.serviceName}
-            className="font-mono"
-          >
-            {/* 内层 div 兜底右键 —— Radix SelectItem 自己的 onContextMenu 偶尔被吞 */}
-            <div
-              className="flex items-center gap-2"
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setCtxMenu({ server: s, x: e.clientX, y: e.clientY });
-              }}
-            >
-              <StatusDot tone={s.state === "ok" ? "success" : "warning"} size="xs" />
-              <span className="font-semibold">{maskSensitive(displayName(s), hidden)}</span>
-              {s.lottery?.won && (
-                <PartyPopper className="w-3 h-3 text-amber-500 flex-shrink-0" aria-label={t("serverList.lotteryBadge")} />
-              )}
-              <span className="text-[11px] text-muted-foreground font-sans ml-1">
-                {s.commercialRange} · {(s.datacenter || "").toUpperCase()}
-              </span>
-            </div>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-
-    {/* 右键菜单:固定定位到鼠标位置,点空白 / Esc 关 */}
-    {ctxMenu && (
-      <div
-        className="fixed z-[200] min-w-[140px] rounded-lg border border-border bg-popover shadow-md py-1 text-sm"
-        style={{ left: ctxMenu.x, top: ctxMenu.y }}
-        onClick={(e) => e.stopPropagation()}
-        onContextMenu={(e) => e.preventDefault()}
-      >
-        <button
-          type="button"
-          className="w-full text-left px-3 py-1.5 hover:bg-muted text-foreground"
-          onClick={() => {
-            setRenaming(ctxMenu.server);
-            setCtxMenu(null);
-          }}
-        >
-          {t("serverList.ctx.setAlias")}
-        </button>
-        {aliases?.[ctxMenu.server.serviceName] && (
-          <button
-            type="button"
-            className="w-full text-left px-3 py-1.5 hover:bg-muted text-destructive"
-            onClick={() => {
-              setRenaming(ctxMenu.server);
-              setCtxMenu(null);
-            }}
-          >
-            {t("serverList.ctx.clearAlias")}
-          </button>
-        )}
-      </div>
-    )}
-
-    <RenameDialog
-      server={renaming}
-      currentAlias={renaming ? aliases?.[renaming.serviceName] || "" : ""}
-      aliasesUnavailable={aliasesQ.isError}
-      onClose={() => setRenaming(null)}
-    />
-    </>
   );
 }
 
@@ -456,7 +262,23 @@ function RenameDialog({
   );
 }
 
-function ServerTabs({ server }: { server: OwnedServer }) {
+function ServerTabs({
+  server,
+  title,
+  hidden,
+  onRename,
+  switcher,
+  count,
+}: {
+  server: OwnedServer;
+  /** 别名或主机名(已按「隐藏敏感信息」处理) */
+  title: string;
+  hidden: boolean;
+  onRename: () => void;
+  /** 多台服务器时的切换列表(点标题弹出);只有一台时为空 */
+  switcher?: React.ReactNode;
+  count: number;
+}) {
   const { t } = useTranslation();
   const info = useServerServiceInfo(server.serviceName);
   // 14 天无理由撤单的资格。只有 OVH 明确说还在窗口内才会渲染入口 ——
@@ -489,126 +311,200 @@ function ServerTabs({ server }: { server: OwnedServer }) {
     }
   };
 
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const exp = info.data?.expiration ? new Date(info.data.expiration).getTime() : NaN;
+  const daysLeft = Number.isFinite(exp) ? Math.ceil((exp - Date.now()) / 86400000) : null;
+  const expTone: FactTone | undefined = daysLeft === null ? undefined : daysLeft < 0 ? "danger" : daysLeft <= 7 ? "warning" : undefined;
+  const ok = server.state === "ok";
+  const titleNode = (
+    <span className="flex items-center gap-2 min-w-0">
+      <span className="text-[18px] sm:text-[20px] font-semibold tracking-tight truncate">{title}</span>
+      {switcher && <ChevronsUpDown className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />}
+    </span>
+  );
+
   return (
-    <>
-      <Tabs defaultValue="overview">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <TabsList className="grid grid-cols-4 sm:flex h-auto gap-1 p-1">
-            <TabsTrigger value="overview" className="text-[12px] sm:text-sm px-2 sm:px-3">{t("serverList.tabs.overview")}</TabsTrigger>
-            <TabsTrigger value="power" className="text-[12px] sm:text-sm px-2 sm:px-3">{t("serverList.tabs.power")}</TabsTrigger>
-            <TabsTrigger value="maintenance" className="text-[12px] sm:text-sm px-2 sm:px-3">{t("serverList.tabs.maintenance")}</TabsTrigger>
-            <TabsTrigger value="advanced" className="text-[12px] sm:text-sm px-2 sm:px-3">{t("serverList.tabs.advanced")}</TabsTrigger>
-          </TabsList>
-
-          {/* 服务信息胶囊条 + 全局开关 */}
-          {info.isPending ? (
-            <div className="flex flex-wrap gap-2">
-              <Skeleton className="h-7 w-28 rounded-full" />
-              <Skeleton className="h-7 w-28 rounded-full" />
-              <Skeleton className="h-7 w-20 rounded-full" />
-              <Skeleton className="h-7 w-32 rounded-full" />
+    <div className="space-y-4">
+      {/* 标题卡:系统图标 + 名称(多台时点开切换)+ 型号·机房·IP + 状态;下半部分是四格关键信息 */}
+      <Card className="overflow-hidden">
+        <div className="relative px-4 sm:px-6 pt-5 pb-4">
+          <div className="absolute inset-0 bg-gradient-to-r from-primary/[0.06] via-transparent to-transparent pointer-events-none" aria-hidden />
+          <div className="relative flex items-start gap-4">
+            <span className="hidden sm:flex w-12 h-12 rounded-xl bg-card ring-1 ring-border shadow-sm items-center justify-center shrink-0">
+              <OsIcon templateName={server.os || ""} size={26} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                {switcher ? (
+                  <Popover open={switchOpen} onOpenChange={setSwitchOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="min-w-0 -ml-1.5 px-1.5 py-0.5 rounded-lg hover:bg-muted/70 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={t("serverList.hero.switch", { n: count })}
+                        title={t("serverList.hero.switch", { n: count })}
+                      >
+                        {titleNode}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-[min(340px,calc(100vw-32px))] p-0 overflow-hidden" onClick={() => setSwitchOpen(false)}>
+                      {switcher}
+                    </PopoverContent>
+                  </Popover>
+                ) : (
+                  <h2 className="min-w-0">{titleNode}</h2>
+                )}
+                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onRename} aria-label={t("serverList.sidebar.rename")} title={t("serverList.sidebar.rename")}>
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
+                {title !== maskSensitive(server.serviceName, hidden) && <span className="font-mono">{maskSensitive(server.serviceName, hidden)}</span>}
+                <span className="font-medium text-foreground/80">{server.commercialRange}</span>
+                <span aria-hidden>·</span>
+                <span className="font-mono">{(server.datacenter || "").toUpperCase()}</span>
+                {server.ip && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 font-mono hover:text-primary transition-colors"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(server.ip).then(() => toast.success(t("serverList.hero.copied")));
+                      }}
+                      title={t("serverList.hero.copyIp")}
+                    >
+                      {maskSensitive(server.ip, hidden)}
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-          ) : (
-            <div className="flex flex-wrap gap-2 items-center">
-              {info.data && (
-                <>
-                  {/* 放在整行最前面,而且是唯一带强调色的一颗。
-                      这一行剩下的都是"看一眼就过"的信息(到期日、OS、续费),
-                      只有它是有硬截止时间的不可逆动作 —— 混在中间、样式又一样的话,
-                      一个 2 天后就永久消失的权利会被当成又一个日期划过去。
-
-                      过期 / 没有撤回权 / 没查到订单都不显示:
-                      一个点了必然失败的退款按钮比没有按钮更糟。 */}
-                  {retraction.data?.eligible && (
-                    <InfoPill
-                      icon={<Undo2 className="w-3.5 h-3.5" />}
-                      label={t("serverList.pill.retractable")}
-                      tone="urgent"
-                      value={
-                        typeof retraction.data.hoursLeft === "number"
-                          ? retraction.data.hoursLeft >= 24
-                            ? t("serverList.pill.daysLeft", { n: Math.floor(retraction.data.hoursLeft / 24) })
-                            : t("serverList.pill.hoursLeft", { n: retraction.data.hoursLeft })
-                          : t("serverList.pill.inWindow")
-                      }
-                      onClick={() => setRetractOpen(true)}
-                      title={retractionWindowText(t, retraction.data)}
-                    />
-                  )}
-                  {/* 能点的排前面(续费改策略、OS 开重装),纯展示的排后面。
-                      以前是「到期 开通 续费 OS」混排,而它们里只有两个能点 ——
-                      (开通日后来整个去掉了)
-                      鼠标不悬停上去根本看不出来,能改的设置就这么被当成了标签。 */}
-                  <InfoPill
-                    icon={<Repeat className="w-3.5 h-3.5" />}
-                    label={t("serverList.pill.renewal")}
-                    value={formatRenewal(t, info.data)}
-                    onClick={() => setRenewalOpen(true)}
-                  />
-                  <InfoPill
-                    icon={<Terminal className="w-3.5 h-3.5" />}
-                    label={t("serverList.pill.os")}
-                    value={server.os || "—"}
-                    onClick={() => setReinstallOpen(true)}
-                  />
-
-                  {/* 分隔:右边全是只读日期,点了没反应 */}
-                  <span className="w-px h-4 bg-border mx-0.5" aria-hidden />
-
-                  {/* 开通日整个去掉了 —— 一年也用不到一次,占的却是和到期日一样的宽度。
-                      到期日不一样:不续费就没了,是要盯的。 */}
-                  <InfoPill
-                    icon={<CalendarClock className="w-3.5 h-3.5" />}
-                    label={t("serverList.pill.expiration")}
-                    value={info.data.expiration ? fmtDate(info.data.expiration) : "—"}
-                  />
-                </>
+            <div className="shrink-0 flex flex-col sm:flex-row items-end sm:items-center gap-1.5">
+              {/* 中奖标记:列表摘要里的 won/tier(详情横幅在「概览」里)。以前挂在左侧列表行上,列表去掉后放到这里 */}
+              {server.lottery?.won && (
+                <span
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[12.5px] font-semibold text-amber-700 dark:text-amber-300 bg-gradient-to-r from-amber-100 to-yellow-50 dark:from-amber-500/20 dark:to-amber-400/10 ring-1 ring-amber-300/70 dark:ring-amber-400/30"
+                  title={t("serverList.lotteryBadge")}
+                >
+                  <PartyPopper className="w-3.5 h-3.5" />
+                  {t(`maint.overview.lottery.title${Math.min(Math.max(server.lottery.tier || 1, 1), 3)}`)}
+                </span>
               )}
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={`h-7 rounded-full ${monitoringUnknown ? "border-destructive/40 text-destructive" : ""}`}
-                    onClick={handleToggleMonitoring}
-                    disabled={toggleMon.isPending || monitoring.isPending}
-                  >
-                    <Activity
-                      className={`w-3.5 h-3.5 mr-1 ${
-                        monitoringUnknown
-                          ? "text-destructive"
-                          : monitoring.data
-                            ? "text-success"
-                            : "text-muted-foreground"
-                      }`}
-                    />
-                    {/* 三态分开写:读取中 / 读不到 / 真实开关状态。绝不能把"没读到"画成"已关" */}
-                    {monitoring.isPending
-                      ? t("serverList.monitor.loading")
-                      : monitoringUnknown
-                        ? t("serverList.monitor.unknown")
-                        : monitoring.data
-                          ? t("serverList.monitor.on")
-                          : t("serverList.monitor.off")}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {monitoringUnknown
-                    ? t("serverList.monitor.unknownTip", { err: errorMessage(monitoring.error) })
-                    : t("serverList.monitor.tip")}
-                </TooltipContent>
-              </Tooltip>
-
-              {/* 「网络规格」和「合同期」挪到了「维护」tab。
-                  它们是纯弹窗按钮 —— 没有值可显示,只是个入口,却各占 100px
-                  把这一行挤到换行(实测标签 + 胶囊需 1240px,容器只有 1230px)。
-                  而维护 tab 里本来就有「硬件更换」「变更联系人」两张同类卡片,
-                  它们属于同一类东西:偶尔打开一次的对话框,不是要瞄一眼的信息。 */}
+              <span
+                className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[12.5px] font-medium ${
+                  ok ? "bg-success/10 text-success" : "bg-warning/[.12] text-warning"
+                }`}
+              >
+                <StatusDot tone={ok ? "success" : "warning"} pulse={ok} size="xs" />
+                {ok ? t("serverList.hero.stateOk") : server.state}
+              </span>
             </div>
+          </div>
+        </div>
+
+        {/* 关键信息:能点的(续费、系统)带箭头;到期快到时变色;监控用开关 */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-border divide-x divide-y lg:divide-y-0 divide-border [&>*:nth-child(2n+1)]:border-l-0 lg:[&>*:nth-child(2n+1)]:border-l">
+          {info.isPending ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="px-4 sm:px-6 py-3.5">
+                <Skeleton className="h-3 w-12 mb-2" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            ))
+          ) : (
+            <>
+              <FactCell
+                icon={<Repeat className="w-3.5 h-3.5" />}
+                label={t("serverList.pill.renewal")}
+                value={info.data ? formatRenewal(t, info.data) : "—"}
+                onClick={info.data ? () => setRenewalOpen(true) : undefined}
+              />
+              <FactCell
+                icon={<Terminal className="w-3.5 h-3.5" />}
+                label={t("serverList.hero.os")}
+                value={server.os || "—"}
+                mono
+                onClick={() => setReinstallOpen(true)}
+              />
+              <FactCell
+                icon={<CalendarClock className="w-3.5 h-3.5" />}
+                label={t("serverList.pill.expiration")}
+                value={info.data?.expiration ? fmtDate(info.data.expiration) : "—"}
+                sub={daysLeft === null ? undefined : daysLeft < 0 ? t("serverList.hero.expired") : t("serverList.hero.daysLeft", { n: daysLeft })}
+                tone={expTone}
+              />
+              <div className="px-4 sm:px-6 py-3.5 min-w-0">
+                <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                  <Activity className="w-3.5 h-3.5" />
+                  {t("serverList.hero.monitor")}
+                </div>
+                <div className="mt-1 flex items-center gap-2 min-h-[24px]">
+                  {monitoring.isPending ? (
+                    <span className="text-[13.5px] text-muted-foreground">{t("serverList.hero.loading")}</span>
+                  ) : monitoringUnknown ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" onClick={handleToggleMonitoring} className="text-[13.5px] font-semibold text-destructive hover:underline">
+                          {t("serverList.hero.monitorUnknown")}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t("serverList.monitor.unknownTip", { err: errorMessage(monitoring.error) })}</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <>
+                      <Switch
+                        checked={!!monitoring.data}
+                        disabled={toggleMon.isPending}
+                        onCheckedChange={() => void handleToggleMonitoring()}
+                        className="data-[state=checked]:bg-success data-[state=unchecked]:bg-input"
+                        aria-label={t("serverList.monitor.tip")}
+                      />
+                      <span className={`text-[13.5px] font-semibold ${monitoring.data ? "text-success" : "text-muted-foreground"}`} title={t("serverList.monitor.tip")}>
+                        {monitoring.data ? t("serverList.hero.on") : t("serverList.hero.off")}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
 
+        {/* 可撤单:有硬截止的不可逆权利,单独一条醒目提示,不和普通信息混在一起 */}
+        {retraction.data?.eligible && (
+          <button
+            type="button"
+            onClick={() => setRetractOpen(true)}
+            title={retractionWindowText(t, retraction.data)}
+            className="w-full flex items-center gap-2 px-4 sm:px-6 py-2.5 border-t border-warning/30 bg-warning/[.08] hover:bg-warning/[.14] text-left text-[13px] transition-colors"
+          >
+            <Undo2 className="w-4 h-4 text-warning shrink-0" />
+            <span className="font-medium text-warning">{t("serverList.pill.retractable")}</span>
+            <span className="text-foreground/80">
+              {typeof retraction.data.hoursLeft === "number"
+                ? retraction.data.hoursLeft >= 24
+                  ? t("serverList.pill.daysLeft", { n: Math.floor(retraction.data.hoursLeft / 24) })
+                  : t("serverList.pill.hoursLeft", { n: retraction.data.hoursLeft })
+                : t("serverList.pill.inWindow")}
+            </span>
+            <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
+          </button>
+        )}
+      </Card>
+
+      <Card className="overflow-hidden">
+      <Tabs defaultValue="overview">
+        <div className="px-4 sm:px-6 pt-4">
+          <TabsList className="grid grid-cols-4 sm:inline-flex h-auto gap-1 p-1">
+            <TabsTrigger value="overview" className="text-[12px] sm:text-sm px-2 sm:px-4">{t("serverList.tabs.overview")}</TabsTrigger>
+            <TabsTrigger value="power" className="text-[12px] sm:text-sm px-2 sm:px-4">{t("serverList.tabs.power")}</TabsTrigger>
+            <TabsTrigger value="maintenance" className="text-[12px] sm:text-sm px-2 sm:px-4">{t("serverList.tabs.maintenance")}</TabsTrigger>
+            <TabsTrigger value="advanced" className="text-[12px] sm:text-sm px-2 sm:px-4">{t("serverList.tabs.advanced")}</TabsTrigger>
+          </TabsList>
+        </div>
+        <div className="px-4 sm:px-6 pb-5">
         <TabsContent value="overview">
           <OverviewTab server={server} />
         </TabsContent>
@@ -621,7 +517,9 @@ function ServerTabs({ server }: { server: OwnedServer }) {
         <TabsContent value="advanced">
           <AdvancedTab server={server} />
         </TabsContent>
+        </div>
       </Tabs>
+      </Card>
 
 
       {info.data && (
@@ -659,63 +557,57 @@ function ServerTabs({ server }: { server: OwnedServer }) {
         onOpenChange={setReinstallOpen}
       />
 
-    </>
+    </div>
   );
 }
 
-/** 紧凑胶囊:服务信息条的单元素。
- *  传 onClick → 视觉与右侧 outline 按钮(监控/网络规格)对齐:bg-background + accent hover,
- *  跟纯展示的胶囊(到期/OS,bg-secondary/50)在外观上明确区分。 */
-function InfoPill({
+type FactTone = "warning" | "danger";
+
+/** 标题卡下半部分的一格:标签 + 值(+ 次要说明);可点的带箭头,整格可点。 */
+function FactCell({
   icon,
   label,
   value,
+  sub,
   onClick,
   tone,
-  title,
+  mono,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  sub?: string;
   onClick?: () => void;
-  /** 悬停说明。给那些"一个数字说不清"的胶囊用(比如撤回期要写清起止) */
-  title?: string;
-  /**
-   * urgent:有硬截止时间的不可逆动作(目前只有撤单)。
-   *
-   * 不给它单独的视觉权重的话,「可撤单 还剩 2 天」会和「到期 2026/10/7」
-   * 「到期 2026/10/7」完全等价 —— 而前者是过了就永远没有的权利,
-   * 后者只是两个日期。一排一模一样的胶囊里,用户不会注意到那个倒计时。
-   */
-  tone?: "urgent";
+  tone?: FactTone;
+  mono?: boolean;
 }) {
-  // 注意:本项目 --accent 在亮色模式被定义为近黑色(用作强调对比),不能用作 hover bg。
-  // 跟旁边 Button outline 变体对齐(用 hover:bg-muted,见 button.tsx)。
-  const cls = [
-    "inline-flex items-center gap-1.5 h-7 pl-2 pr-2.5 rounded-full border text-[12px] whitespace-nowrap",
-    tone === "urgent"
-      ? "border-warning/50 bg-warning/10 hover:bg-warning/20 cursor-pointer transition-colors shadow-sm"
-      : onClick
-        ? "border-border bg-background hover:bg-muted cursor-pointer transition-colors shadow-sm"
-        : "border-border bg-secondary/50",
-  ].join(" ");
-  const inner = (
+  const valueCls = `max-w-full text-[13.5px] font-semibold truncate ${mono ? "font-mono" : ""} ${
+    tone === "danger" ? "text-destructive" : tone === "warning" ? "text-warning" : "text-foreground"
+  }`;
+  const body = (
     <>
-      <span className="flex items-center gap-1 text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
         {icon}
         {label}
-      </span>
-      <span className="font-medium text-foreground">{value}</span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 min-h-[24px]">
+        <span className={valueCls}>{value}</span>
+        {sub && (
+          <span className={`text-[11.5px] whitespace-nowrap ${tone ? (tone === "danger" ? "text-destructive" : "text-warning") : "text-muted-foreground"}`}>
+            {sub}
+          </span>
+        )}
+        {onClick && <ChevronRight className="ml-auto w-4 h-4 shrink-0 text-muted-foreground/70 group-hover:text-primary transition-colors" />}
+      </div>
     </>
   );
-  if (onClick) {
-    return (
-      <button type="button" onClick={onClick} className={cls} title={title}>
-        {inner}
-      </button>
-    );
-  }
-  return <div className={cls} title={title}>{inner}</div>;
+  return onClick ? (
+    <button type="button" onClick={onClick} className="group px-4 sm:px-6 py-3.5 min-w-0 text-left hover:bg-primary/[.035] transition-colors">
+      {body}
+    </button>
+  ) : (
+    <div className="px-4 sm:px-6 py-3.5 min-w-0">{body}</div>
+  );
 }
 
 /**
