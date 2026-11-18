@@ -9,6 +9,7 @@ import { QueueStatusFilter, type QueueFilter } from "@/components/queue/QueueSta
 import { QueueTable, type QueueRowProps } from "@/components/queue/QueueTable";
 import { FacetFilter, type FacetOption } from "@/components/queue/FacetFilter";
 import { useConfirm } from "@/components/common/ConfirmDialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { OrderPrewarm, StandbyCarts } from "@/components/queue/OrderPrewarm";
 import { useOrderPrewarm } from "@/hooks/use-order-prewarm";
@@ -28,7 +29,9 @@ import {
   RotateCw,
   Layers,
   List,
-  Eraser,
+  ChevronDown,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -359,7 +362,9 @@ function QueuePage() {
   };
 
   const [againItem, setAgainItem] = useState<QueueItem | null>(null);
-  const finishedAll = items.filter((i) => i.status === "completed" || i.status === "failed");
+  const completedAll = items.filter((i) => i.status === "completed");
+  const failedAll = items.filter((i) => i.status === "failed");
+  const [clearMenuOpen, setClearMenuOpen] = useState(false);
   const pausableAll = items.filter((i) => (i.status === "running" || i.status === "pending") && i.stopReason !== "groupComplete");
   const resumableAll = items.filter((i) => i.status === "paused" && i.stopReason !== "groupComplete");
 
@@ -504,33 +509,56 @@ function QueuePage() {
               <RefreshCw className={`w-4 h-4 ${queue.isFetching ? "animate-spin" : ""}`} />
               {t("queue.refresh")}
             </Button>
-            {/* 只清理已下单 / 失败的任务,不动正在抢的;「清空」仍保留给需要全部删除的情况 */}
-            {finishedAll.length > 0 && (
-              <Button
-                variant="outline"
-                disabled={batchRunning}
-                onClick={async () => {
-                  const ok = await confirmAsk({
-                    title: t("queue.cleanFinishedTitle", { n: finishedAll.length }),
-                    description: t("queue.cleanFinishedDesc"),
-                    confirmText: t("queue.cleanFinished"),
-                  });
-                  if (ok) void runBatch(t("queue.verbDelete"), finishedAll, (it) => remove.mutateAsync(it.id));
-                }}
-              >
-                <Eraser className="w-4 h-4" />
-                {t("queue.cleanFinished")}
-                <span className="tabular-nums opacity-60">{finishedAll.length}</span>
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              onClick={() => setShowClearDialog(true)}
-              disabled={items.length === 0}
-            >
-              <Trash2 className="w-4 h-4" />
-              {t("queue.clear")}
-            </Button>
+            {/* 清空分三种:已下单(抢成功)/ 失败 / 全部。前两种只删对应状态,不动正在抢和已暂停的 */}
+            <Popover open={clearMenuOpen} onOpenChange={setClearMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" disabled={items.length === 0 || batchRunning}>
+                  <Trash2 className="w-4 h-4" />
+                  {t("queue.clear")}
+                  <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-60 p-1.5">
+                {([
+                  ["completed", completedAll, t("queue.clearCompleted")],
+                  ["failed", failedAll, t("queue.clearFailed")],
+                ] as const).map(([key, list, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    disabled={list.length === 0}
+                    className="w-full flex items-center gap-2 px-2.5 h-9 rounded-md text-[13px] text-left hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                    onClick={async () => {
+                      setClearMenuOpen(false);
+                      const ok = await confirmAsk({
+                        title: t(key === "completed" ? "queue.clearCompletedTitle" : "queue.clearFailedTitle", { n: list.length }),
+                        description: t(key === "completed" ? "queue.clearCompletedDesc" : "queue.clearFailedDesc"),
+                        confirmText: t("queue.confirmDelete"),
+                        tone: "danger",
+                      });
+                      if (ok) void runBatch(t("queue.verbDelete"), list, (it) => remove.mutateAsync(it.id));
+                    }}
+                  >
+                    {key === "completed" ? <CheckCircle2 className="w-4 h-4 text-primary" /> : <XCircle className="w-4 h-4 text-destructive" />}
+                    <span className="flex-1">{label}</span>
+                    <span className="text-[12px] text-muted-foreground tabular-nums">{list.length}</span>
+                  </button>
+                ))}
+                <div className="my-1 h-px bg-border" />
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-2.5 h-9 rounded-md text-[13px] text-left text-destructive hover:bg-destructive/10 transition-colors"
+                  onClick={() => {
+                    setClearMenuOpen(false);
+                    setShowClearDialog(true);
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span className="flex-1">{t("queue.clearAll")}</span>
+                  <span className="text-[12px] tabular-nums opacity-70">{items.length}</span>
+                </button>
+              </PopoverContent>
+            </Popover>
           </div>
         }
       />
