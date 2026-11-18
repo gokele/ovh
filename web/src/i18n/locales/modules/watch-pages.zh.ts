@@ -14,7 +14,7 @@ export const watchPagesZh = {
     swimTitle: "今日机房时间线",
     heatTitle: "库存变化热力 7×24",
     title: "服务器监控",
-    description: "自动监控服务器可用性变化并推送通知。暂停监控会同时暂停关联抢购任务；恢复监控后,抢购任务需手动恢复。",
+    description: "自动监控服务器可用性变化并推送通知。暂停监控会同时暂停关联抢购任务;恢复监控时可一键恢复这些任务。",
     addAction: "添加订阅",
     clearAll: "清空全部",
     status: {

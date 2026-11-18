@@ -13,6 +13,9 @@ const pack: SettingsPagesPack = {
     title: "API Settings",
     description: "Configure the OVH API and notification settings",
     saving: "Saving...",
+    unsaved: "Unsaved changes",
+    unsavedBar: "Settings changed but not saved",
+    discard: "Discard",
     saveButton: "Save settings",
     saveDisabledHint:
       "Settings haven't finished loading; saving now would overwrite the backend's existing config with empty values",

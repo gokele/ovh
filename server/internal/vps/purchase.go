@@ -540,11 +540,10 @@ func autoOrderOnRestock(ctx context.Context, state *app.State, sub types.VPSSubs
 				payNote = "💳 已请求用账户默认支付方式自动付款,请打开订单链接核对扣款是否成功。\n" +
 					"(撤回资格与退款金额以 OVH 订单页面显示为准)"
 			}
-			// 同独服:通知里发需要登录的控制面板深链,不发 checkout 那个带凭证的 url。
-			// 带凭证那份存在本地历史里,界面上照样一键可付。
+			// 同独服:优先用结账返回的官方订单地址(免登录可查看和付款),拿不到时用控制面板深链
 			linkURL := "请在 OVH 控制台 → 账单 → 订单 中查看"
 			if acc, ok := state.FindAccount(sub.AutoOrderAccountID); ok {
-				if u := ovh.ManagerOrderURL(acc.Endpoint, out.OrderID); u != "" {
+				if u := ovh.OrderLink(acc.Endpoint, out.OrderID, out.OrderURL); u != "" {
 					linkURL = u
 				}
 			}

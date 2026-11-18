@@ -15,7 +15,7 @@ func TestDumpOrderMessages(t *testing.T) {
 		Datacenter: "waw",
 		Options:    []string{"ram-32g-ecc-2400", "softraid-2x2000sa"},
 	}
-	url := "https://manager.eu.ovhcloud.com/dedicated/#/billing/order?orderId=108523471"
+	url := "https://manager.eu.ovhcloud.com/#/dedicated/billing/orders/108523471"
 
 	fmt.Println("\n════════ 抢购成功（默认：不自动付款）════════")
 	fmt.Println(BuildOrderSuccessMessage(item, "108523471", url))

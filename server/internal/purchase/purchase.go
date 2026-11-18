@@ -513,7 +513,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			// 用独立 SDK 实例,不与 backfill 并发共用同一个 client。
 			if acc, ok := state.FindAccount(item.AccountID); ok {
 				if checkClient, err := state.OVH.IsolatedClientForAccount(acc); err == nil {
-					paycheck.Watch(state, checkClient, item.PlanCode+"@"+strings.ToUpper(item.Datacenter), orderID, ovh.ManagerOrderURL(acc.Endpoint, orderID))
+					paycheck.Watch(state, checkClient, item.PlanCode+"@"+strings.ToUpper(item.Datacenter), orderID, ovh.OrderLink(acc.Endpoint, orderID, orderURL))
 				}
 			}
 		}
@@ -526,7 +526,8 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	// 以前被 TG 配置判断包住:Webhook-only 用户收不到"抢到了但没付款",
 	// 订单逾期作废 —— 这是整条链路里最不能丢的一条消息(issue #2)。
 	acc, _ := state.FindAccount(item.AccountID)
-	message := BuildOrderSuccessMessage(&orderedItem, orderID, ovh.ManagerOrderURL(acc.Endpoint, orderID))
+	// 订单链接优先用结账返回的官方地址(带订单密码,免登录即可查看和付款)
+	message := BuildOrderSuccessMessage(&orderedItem, orderID, ovh.OrderLink(acc.Endpoint, orderID, orderURL))
 	if note := orderTimingNote(tl, item.CreatedAt); note != "" {
 		message += "\n\n" + note
 	}

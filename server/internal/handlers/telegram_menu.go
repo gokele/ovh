@@ -243,7 +243,7 @@ func recentKeyboard(state *app.State) map[string]interface{} {
 			continue
 		}
 		acc, _ := state.FindAccount(h.AccountID)
-		link := ovh.ManagerOrderURL(acc.Endpoint, h.OrderID)
+		link := ovh.OrderLink(acc.Endpoint, h.OrderID, h.OrderURL)
 		if link == "" {
 			continue
 		}

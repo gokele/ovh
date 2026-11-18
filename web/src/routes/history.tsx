@@ -396,22 +396,21 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
           <OrderSpeed detectionToWriteUs={item.detectionToWriteUs} prewarmed={item.prewarmed} connectionReused={item.connectionReused} waitMs={item.waitMs} />
         </div>
         {item.couponWarning && <p className="text-[11px] text-warning break-words" role="status">{item.couponWarning}</p>}
-        <div className="flex items-center justify-between gap-2 text-[12px]">
-          <span className="text-muted-foreground tabular-nums whitespace-nowrap">
-            {fmtDateTime(item.purchaseTime)}
-          </span>
-          {item.price?.withTax != null ? <HistoryPrice item={item} strike={isExpired} /> : null}
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          {showCountdown ? (
+        {/* 底部一行:日期 · 付款倒计时 …… 价格 + 操作(支付 / 错误) */}
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[12px]">
+          <span className="text-muted-foreground tabular-nums whitespace-nowrap">{fmtDateTime(item.purchaseTime)}</span>
+          {showCountdown && (
             <Chip tone={isExpired ? "danger" : isUrgent ? "warning" : "info"}>
               <Hourglass className="w-3 h-3" />
               {formatCountdown(remainingMs, t)}
             </Chip>
-          ) : <span />}
-          {(canPay(item, st, isExpired) || (item.status !== "success" && !!item.errorMessage)) && (
-            <HistoryActions item={item} payable={canPay(item, st, isExpired)} />
           )}
+          <span className="ml-auto inline-flex items-center gap-2.5">
+            {item.price?.withTax != null ? <HistoryPrice item={item} strike={isExpired} /> : null}
+            {(canPay(item, st, isExpired) || (item.status !== "success" && !!item.errorMessage)) && (
+              <HistoryActions item={item} payable={canPay(item, st, isExpired)} />
+            )}
+          </span>
         </div>
     </div>
   );

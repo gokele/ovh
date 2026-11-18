@@ -50,6 +50,10 @@ func ProcessUpdate(state *app.State, mon *monitor.Monitor, data map[string]inter
 	//     日志里只有一行「忽略重复投递」。对抢购工具来说这是最坏的失败模式。
 	if !telegram.IsAuthorizedActor(state, actorChatID(data), actorUserID(data)) {
 		state.Logger.Warn("拒绝未授权的 Telegram 请求(未写入幂等表)", "telegram")
+		// 按钮点击必须应答,否则客户端只转一下圈、看起来「点了没反应」
+		if cb, ok := data["callback_query"].(map[string]interface{}); ok {
+			telegram.AnswerCallback(state, idToString(cb["id"]), "无权限:这个账号不在机器人授权名单里", true)
+		}
 		u.JSON(http.StatusForbidden, gin.H{"ok": false, "error": "unauthorized_actor"})
 		return u
 	}
@@ -151,6 +155,7 @@ func handleTelegramCallback(state *app.State, mon *monitor.Monitor, u *updateCtx
 
 	callbackObj, ok := decodeCallbackData(state, cbData)
 	if !ok {
+		telegram.AnswerCallback(state, idToString(cb["id"]), "按钮数据无效,请发 /menu 重新打开菜单", true)
 		u.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "Invalid callback data format"})
 		return
 	}
@@ -187,6 +192,7 @@ func handleTelegramCallback(state *app.State, mon *monitor.Monitor, u *updateCtx
 	}
 	if action != "add_to_queue" {
 		state.Logger.Warn("未知的action: "+action, "telegram")
+		telegram.AnswerCallback(state, idToString(cb["id"]), "这个按钮已失效,请发 /menu 重新打开菜单", true)
 		u.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "Unknown action: " + action})
 		return
 	}

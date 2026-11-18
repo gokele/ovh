@@ -2,7 +2,10 @@ package ovh
 
 import "regexp"
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // ConvertDisplayDCToAPIDC 将前端显示的数据中心代码转换为 OVH API 代码
 func ConvertDisplayDCToAPIDC(datacenter string) string {
@@ -181,8 +184,8 @@ func EndpointRegion(endpoint string) string {
 // 那个下载链接是**带凭证的**,拿到就能看订单详情、账单地址,并走付款流程。
 // 而抢购成功通知会发进 Telegram 群和用户自己配的任意 webhook,
 // 那条链接等于对每个能看到消息的人开放。
-// 控制面板深链只有订单号,打开先要登录,能力不外泄,用户点一下照样能去付款。
-// 带凭证的原始 url 仍然存在本地历史里(那已经在本应用的鉴权后面)。
+// 控制面板深链只有订单号,打开先要登录;通知现在优先用带凭证的官方地址(见 OrderLink),
+// 这里作为拿不到官方地址时的兜底。带凭证的原始 url 也存在本地历史里。
 //
 // 三个大区各有各的控制面板,彼此不认对方的订单号(账户体系本来就独立)。
 func ManagerOrderURL(endpoint, orderID string) string {
@@ -196,5 +199,31 @@ func ManagerOrderURL(endpoint, orderID string) string {
 	case "CA":
 		host = "manager.ca.ovhcloud.com"
 	}
-	return "https://" + host + "/dedicated/#/billing/order?orderId=" + orderID
+	// 路由与官方控制台一致(ovh/manager: coreURLBuilder.buildURL('dedicated', '#/billing/orders/:orderId')),
+	// 新控制台的应用前缀在 # 之后:https://manager.eu.ovhcloud.com/#/dedicated/billing/orders/{id}。
+	// 以前写成 /dedicated/#/billing/order?orderId=,打开后找不到订单。
+	return "https://" + host + "/#/dedicated/billing/orders/" + url.PathEscape(orderID)
+}
+
+// OrderLink 通知里给出的订单链接:优先用结账接口返回的官方订单地址(order.Order.url,
+// 形如 https://www.ovh.com/cgi-bin/order/display-order.cgi?orderId=…&orderPassword=…),
+// 打开即可查看并付款,无需登录;拿不到或不是 https 的 OVH 地址时退回控制面板深链。
+//
+// 注意:官方地址带订单密码,通知会发到 Telegram / Webhook,能看到消息的人都能打开订单页并付款。
+// 这是按账户所有者的要求做的取舍。
+func OrderLink(endpoint, orderID, checkoutURL string) string {
+	if u, err := url.Parse(strings.TrimSpace(checkoutURL)); err == nil && u.Scheme == "https" && isOVHHost(u.Hostname()) {
+		return u.String()
+	}
+	return ManagerOrderURL(endpoint, orderID)
+}
+
+func isOVHHost(host string) bool {
+	host = strings.ToLower(host)
+	for _, suffix := range []string{"ovh.com", "ovhcloud.com", "ovh.ca", "ovh.us", "ovh.net", "ovh.ie", "ovh.co.uk", "ovh.de", "ovh.es", "ovh.it", "ovh.pl", "ovh.pt", "ovh.nl", "ovh.lt", "ovh.cz", "ovh.fi", "ovh.sn", "ovh.ma", "ovh.tn", "ovh.com.au"} {
+		if host == suffix || strings.HasSuffix(host, "."+suffix) {
+			return true
+		}
+	}
+	return false
 }

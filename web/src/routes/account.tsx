@@ -3,7 +3,7 @@ import { SupportTickets } from "@/components/support/SupportTickets";
 import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
 import { createFileRoute } from "@tanstack/react-router";
 import { User, Mail, RefreshCw, FileText, Inbox, ShieldCheck, ShoppingBag, ExternalLink, type LucideIcon } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fmtDateTime } from "@/i18n/format";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -68,7 +68,8 @@ function AccountPage() {
             icon={User}
             label={t("account.customerCode")}
             value={me?.customerCode}
-            sub={me?.nichandle}
+            // 美区账户的 NIC 就是邮箱,与右侧邮箱重复时不再显示
+            sub={me?.nichandle && me.nichandle !== me?.email ? me.nichandle : undefined}
             loading={loading}
           />
           <ProfileField
@@ -157,6 +158,14 @@ function EmailsTab() {
   const { t } = useTranslation();
   const emails = useEmails();
   const [selected, setSelected] = useState<EmailHistoryEntry | null>(null);
+  // 窄屏下列表和详情上下排列:点邮件后自动滚到详情,不用自己往下翻
+  const detailRef = useRef<HTMLDivElement>(null);
+  const pick = (e: EmailHistoryEntry) => {
+    setSelected(e);
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -205,7 +214,7 @@ function EmailsTab() {
               <button
                 key={e.id}
                 type="button"
-                onClick={() => setSelected(e)}
+                onClick={() => pick(e)}
                 className={
                   "w-full text-left px-4 py-3 hover:bg-muted transition-colors " +
                   (selected?.id === e.id ? "bg-secondary" : "")
@@ -223,7 +232,7 @@ function EmailsTab() {
         )}
       </Card>
 
-      <Card>
+      <Card ref={detailRef} className="scroll-mt-4">
         <CardContent className="p-4">
           <div className="flex items-center gap-2 mb-4">
             <FileText className="w-4 h-4 text-muted-foreground" />

@@ -17,7 +17,7 @@ const pack: WatchPagesPack = {
     swimTitle: "Today by datacenter",
     heatTitle: "Stock-change heat 7×24",
     title: "Server Monitor",
-    description: "Watch availability and receive alerts. Pausing monitoring also pauses matching purchase tasks; resume those manually in the queue.",
+    description: "Watches server availability and sends alerts. Pausing a monitor also pauses its related sniping tasks; resuming it offers to resume them in one click.",
     addAction: "Add subscription",
     clearAll: "Clear all",
     status: {

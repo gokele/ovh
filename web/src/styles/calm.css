@@ -407,6 +407,16 @@ html.dark[data-skin="pearl"] table tbody tr:hover { background: rgba(77, 141, 25
 .task-row > .tr-last { grid-area: last; }
 .task-row > .tr-act { grid-area: act; }
 .task-row.task-head { display: none; }
+/* 中间档(平板):第一行 机房+配置 …… 开关;第二行 下次尝试 | 上一轮 并排,每个任务两行 */
+@container (min-width: 560px) {
+  .task-row {
+    grid-template-columns: 20px 20px minmax(0, 1fr) minmax(0, 1.2fr) auto;
+    grid-template-areas:
+      "check icon main main act"
+      ". . next last last";
+    gap: 10px 16px;
+  }
+}
 @container (min-width: 860px) {
   .task-row {
     grid-template-columns: 20px 20px minmax(0, 1fr) 170px minmax(170px, .55fr) auto;

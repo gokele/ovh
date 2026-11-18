@@ -222,11 +222,35 @@ func (p *Poller) loop(gen int64) {
 			id := parseUpdateIDAny(up["update_id"])
 			// 先处理再推进 offset。反过来的话,处理途中崩掉这条就永远丢了 ——
 			// 而"丢一次下单"比"重复处理一次"严重得多,后者有 update_id 幂等表兜底。
-			p.handle(up)
+			p.handleWithDeadline(up, id)
 			if id > 0 {
 				p.advance(id + 1)
 			}
 		}
+	}
+}
+
+// handleSlowAfter 单条 update 处理超过这个时长就不再等它:后面的按钮点击继续处理,
+// 不会因为一条慢操作(查 OVH、启停监控)排队,导致后续按钮全部「点了没反应」。
+var handleSlowAfter = 10 * time.Second
+
+// handleWithDeadline 处理一条 update;超时后放行后续 update,慢的那条在后台继续执行完。
+// update_id 幂等表已在处理开头登记,即便 offset 先推进、进程随后重启也不会重复执行。
+func (p *Poller) handleWithDeadline(up map[string]interface{}, id int64) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				p.state.Logger.Error(fmt.Sprintf("处理 Telegram update %d 时异常: %v", id, r), "telegram")
+			}
+		}()
+		p.handle(up)
+	}()
+	select {
+	case <-done:
+	case <-time.After(handleSlowAfter):
+		p.state.Logger.Warn(fmt.Sprintf("Telegram update %d 处理超过 %s,先继续处理后续消息(这一条仍在后台执行)", id, handleSlowAfter), "telegram")
 	}
 }
 
