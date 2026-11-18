@@ -201,6 +201,28 @@ func (m *Monitor) publishPausedQueueScopesLocked() {
 	}
 }
 
+// HeldTasks 恢复订阅后,列出这条订阅当初连带暂停、现在可以一键恢复的任务。
+// 全局手动停止时所有订阅范围都视为仍暂停,不提供恢复入口。
+func (m *Monitor) HeldTasks(planCode string, optionsKey *string) []string {
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+	if m.state.MonitorStopped() {
+		return []string{}
+	}
+	for _, sub := range m.subscriptions {
+		if sub.PlanCode != planCode || (optionsKey != nil && OptionsKey(sub.Options) != *optionsKey) {
+			continue
+		}
+		cfg := sub.checkConfig()
+		if cfg.Paused {
+			return []string{}
+		}
+		scope := app.MonitorQueueScope{PlanCode: planCode, AccountID: cfg.AutoOrderAccountID, Datacenters: cfg.Datacenters, Options: cfg.Options}
+		return m.state.HeldMonitorTasks(scope, m.queueScopesLocked(false))
+	}
+	return []string{}
+}
+
 // SetPaused 暂停时联动关联队列;恢复只恢复监控,不自动继续扣款任务。
 // nil 定位第一条;指向空串则精确定位全部配置订阅。
 func (m *Monitor) SetPaused(planCode string, optionsKey *string, paused bool) (int, error) {

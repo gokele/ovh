@@ -128,7 +128,16 @@ function HistoryPage() {
   const refreshStatus = useRefreshOrderStatus();
   const navigate = useNavigate();
   const buyAgain = (item: PurchaseHistory) =>
-    void navigate({ to: "/queue", search: { create: item.planCode, options: (item.options || []).join(",") } });
+    void navigate({
+      to: "/queue",
+      search: {
+        create: item.planCode,
+        options: (item.options || []).join(","),
+        account: item.accountId || undefined,
+        dc: item.datacenter || undefined,
+        duration: item.duration || undefined,
+      },
+    });
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "success" | "failed" | "uncertain">("all");
   const [confirmClear, setConfirmClear] = useState(false);

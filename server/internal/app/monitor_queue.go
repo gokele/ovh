@@ -122,9 +122,40 @@ func (s *State) PauseMonitorQueues(scopes []MonitorQueueScope) (int, error) {
 	return count, s.DB.ReplaceQueue(s.Queue)
 }
 
+// HeldMonitorTasks 返回被监控暂停连带暂停、且属于 scope 的任务 ID;
+// 仍被 stillPaused 里任一暂停中订阅覆盖的任务不算(恢复一条订阅不该顺带放出另一条仍暂停订阅的任务)。
+func (s *State) HeldMonitorTasks(scope MonitorQueueScope, stillPaused []MonitorQueueScope) []string {
+	s.QueueMu.Lock()
+	defer s.QueueMu.Unlock()
+	ids := []string{}
+	for _, item := range s.Queue {
+		if item.Status != "paused" || item.StopReason != StopReasonMonitorPaused || !s.matchesMonitorScope(item, scope) {
+			continue
+		}
+		covered := false
+		for _, other := range stillPaused {
+			if s.matchesMonitorScope(item, other) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			ids = append(ids, item.ID)
+		}
+	}
+	return ids
+}
+
 // SetMonitorStopped 即使保存停止状态失败,本次进程仍拒绝迟到的自动建单。
 func (s *State) SetMonitorStopped(stopped bool) {
 	s.QueueMu.Lock()
 	s.monitorManuallyStopped = stopped
 	s.QueueMu.Unlock()
+}
+
+// MonitorStopped 当前是否处于全局手动停止监控。
+func (s *State) MonitorStopped() bool {
+	s.QueueMu.Lock()
+	defer s.QueueMu.Unlock()
+	return s.monitorManuallyStopped
 }

@@ -95,9 +95,14 @@ import { fmtDateTime } from "@/i18n/format";
 export const Route = createFileRoute("/queue")({
   component: QueuePage,
   /** 支持 ?create=KS-A-1&options=ram-64g,softraid-2x450nvme 形式：自动打开新建对话框并预填 */
-  validateSearch: (search): { create?: string; options?: string } => ({
+  // account / dc / duration:从购买历史「再抢一单」带过来,保证在原账户、原机房、原周期上新建,
+  // 而不是落到当前全局账户、还要重新选机房
+  validateSearch: (search): { create?: string; options?: string; account?: string; dc?: string; duration?: string } => ({
     create: typeof search.create === "string" ? search.create : undefined,
     options: typeof search.options === "string" ? search.options : undefined,
+    account: typeof search.account === "string" ? search.account : undefined,
+    dc: typeof search.dc === "string" ? search.dc : undefined,
+    duration: typeof search.duration === "string" ? search.duration : undefined,
   }),
 });
 
@@ -182,12 +187,13 @@ function QueuePage() {
   const remove = useRemoveQueueItem();
   const clear = useClearQueue();
   const navigate = Route.useNavigate();
-  const { create: createPlanCode, options: createOptions } = Route.useSearch();
+  const { create: createPlanCode, options: createOptions, account: createAccount, dc: createDc, duration: createDuration } = Route.useSearch();
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingItem, setEditingItem] = useState<QueueItem | null>(null);
   const [prefillPlanCode, setPrefillPlanCode] = useState<string>("");
   const [prefillOptions, setPrefillOptions] = useState<string>("");
+  const [prefillExtra, setPrefillExtra] = useState<CreatePrefill | null>(null);
 
   // 从其它页跳到 /queue?create=KS-A-1&options=...，自动打开新建对话框并预填
   // ?create= 不带型号(例如仪表盘的「创建抢购任务」)也打开空白对话框;打开后清掉参数,刷新不会再弹
@@ -195,11 +201,12 @@ function QueuePage() {
     if (createPlanCode !== undefined) {
       setPrefillPlanCode(createPlanCode);
       setPrefillOptions(createOptions || "");
+      setPrefillExtra(createAccount || createDc || createDuration ? { accountId: createAccount, datacenter: createDc, duration: createDuration } : null);
       setShowCreateDialog(true);
       void navigate({ to: "/queue", search: {}, replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createPlanCode, createOptions]);
+  }, [createPlanCode, createOptions, createAccount, createDc, createDuration]);
 
   const items = queue.data || [];
   // 默认看「运行中」:打开队列最关心的是正在抢的任务;已下单/失败记录在其它筛选里
@@ -741,16 +748,20 @@ function QueuePage() {
             setEditingItem(null);
             setPrefillPlanCode("");
             setPrefillOptions("");
+            setPrefillExtra(null);
             // 清掉 URL 上的 create / options 参数
             navigate({ search: () => ({}) as any, replace: true });
           }
         }}
         initialPlanCode={editingItem?.planCode || prefillPlanCode}
         initialOptions={editingItem ? (editingItem.options || []).join(",") : prefillOptions}
+        prefill={editingItem ? null : prefillExtra}
       />
     </div>
   );
 }
+
+type CreatePrefill = { accountId?: string; datacenter?: string; duration?: string };
 
 /** 创建抢购任务对话框 */
 function CreateQueueDialog({
@@ -759,12 +770,14 @@ function CreateQueueDialog({
   initialPlanCode,
   initialOptions,
   editing,
+  prefill,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   initialPlanCode?: string;
   initialOptions?: string;
   editing?: QueueItem | null;
+  prefill?: CreatePrefill | null;
 }) {
   const { t } = useTranslation();
   const create = useCreateQueueItem();
@@ -781,7 +794,8 @@ function CreateQueueDialog({
   // 还是我们没读到账户。
   const accountsQ = useAccounts();
   const accounts = accountsQ.data;
-  const accountId = selectedAccountId ||
+  // 预填的账户(历史「再抢一单」)已被删除时退回全局账户,不让创建按钮无故灰着;列表未读到前先保留原值
+  const accountId = (selectedAccountId && (!accounts || findAccountByID(accounts, selectedAccountId)) ? selectedAccountId : "") ||
     findAccountByID(accounts, globalAccountId)?.id ||
     accounts?.find((a) => a.isDefault)?.id || accounts?.[0]?.id || "";
   const activeAcc = findAccountByID(accounts, accountId);
@@ -823,8 +837,13 @@ function CreateQueueDialog({
 
   useEffect(() => {
     if (open) {
-      setSelectedAccountId(editing?.accountId || "");
+      setSelectedAccountId(editing?.accountId || prefill?.accountId || "");
       if (initialPlanCode) setPlanCode(initialPlanCode);
+      if (!editing && prefill?.datacenter) {
+        const dc = prefill.datacenter;
+        setDatacenters([OVH_DATACENTERS.find((d) => apiDatacenterCode(d.code) === apiDatacenterCode(dc))?.code || dc]);
+      }
+      if (!editing && prefill?.duration) setDuration(prefill.duration);
       if (editing) {
         setDatacenters([OVH_DATACENTERS.find((dc) => apiDatacenterCode(dc.code) === apiDatacenterCode(editing.datacenter))?.code || editing.datacenter]);
         setQuantity(String(editing.groupLimit || 1));
@@ -835,7 +854,7 @@ function CreateQueueDialog({
         setCoupon(editing.coupon || "");
       }
     }
-  }, [initialPlanCode, open, editing]);
+  }, [initialPlanCode, open, editing, prefill]);
 
   /** planCode 匹配到的服务器（用于显示名称提示） */
   const matchedServer = useMemo(

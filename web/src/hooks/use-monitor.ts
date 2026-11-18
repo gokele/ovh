@@ -154,7 +154,7 @@ export function usePauseMonitorSubscription() {
           paused: v.paused,
         })
       ).data,
-    onSuccess: (data: { paused?: boolean; pausedTasks?: number }, vars) => {
+    onSuccess: (data: { paused?: boolean; pausedTasks?: number; heldTaskIds?: string[] }, vars) => {
       if (data.paused) {
         toast.success(i18n.t("hooksMsg.monitor.pausedWithQueue", { count: data.pausedTasks || 0 }));
         return;
@@ -162,7 +162,12 @@ export function usePauseMonitorSubscription() {
       // 恢复监控不自动恢复抢购任务(避免意外下单),但给一个一键入口:
       // 只列出被「监控暂停」连带暂停的同型号任务(stopReason=monitorPaused),由用户决定
       const queue = qc.getQueryData<QueueItem[]>(qk.queue.list()) || [];
-      const held = queue.filter((q) => q.status === "paused" && q.stopReason === "monitorPaused" && q.planCode === vars.planCode);
+      // 后端按这条订阅的账户/机房/配置范围给出 heldTaskIds,并排除仍被其它暂停订阅覆盖的任务;
+      // 旧后端没有该字段时退回按型号筛选
+      // 直接用后端给的 ID,不依赖可能尚未刷新的本地队列缓存
+      const held: { id: string }[] = data.heldTaskIds
+        ? data.heldTaskIds.map((id) => ({ id }))
+        : queue.filter((q) => q.status === "paused" && q.stopReason === "monitorPaused" && q.planCode === vars.planCode);
       if (held.length === 0) {
         toast.success(i18n.t("hooksMsg.monitor.resumedNoTasks"));
         return;
