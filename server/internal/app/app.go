@@ -551,7 +551,7 @@ var ErrQueueNotFound = errors.New("任务不存在")
 var ErrQueueNotEditable = errors.New("请先暂停任务再修改；已完成的任务不能修改")
 
 // UpdateQueueItem 仅编辑暂停/失败任务,落库成功后才发布新配置。
-func (s *State) UpdateQueueItem(id, datacenter string, options []string, retryInterval int, coupon string, duration *string) error {
+func (s *State) UpdateQueueItem(id, datacenter string, options []string, retryInterval int, autoPay bool, coupon string, duration *string) error {
 	if err := s.SaveBlocked("queue"); err != nil {
 		return err
 	}
@@ -570,6 +570,7 @@ func (s *State) UpdateQueueItem(id, datacenter string, options []string, retryIn
 		next[i].Datacenter = datacenter
 		next[i].Options = append([]string(nil), options...)
 		next[i].RetryInterval = retryInterval
+		next[i].AutoPay = autoPay
 		if duration != nil {
 			selected, err := orderterm.Normalize(*duration)
 			if err != nil {

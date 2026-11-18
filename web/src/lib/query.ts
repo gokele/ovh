@@ -160,6 +160,7 @@ export const qk = {
   // 不带的话切账户的瞬间会把上一个账户的身份、KYC 状态、退款记录显示给下一个账户。
   account: {
     orderPayment: (accountId: string, orderId: number) => ["account", "order-payment", accountId, orderId] as const,
+    defaultPayment: (accountId: string) => ["account", "default-payment", accountId] as const,
     info: (accountId: string) => ["account", "info", accountId] as const,
     refunds: (accountId: string) => ["account", "refunds", accountId] as const,
     emails: (accountId: string) => ["account", "emails", accountId] as const,

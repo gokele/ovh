@@ -1,4 +1,5 @@
 import { OrderPurchaseScope, type PurchaseMode } from "@/components/queue/OrderPurchaseScope";
+import { AutoPayStatus } from "@/components/common/AutoPayStatus";
 import { hasPreorderHardware } from "@/lib/preorder-options";
 import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { preorderVariantCoversAll, preorderOptions, retainPreorderPlan } from "@/lib/preorder-options";
@@ -563,6 +564,8 @@ function DetailContent({
   const [quantity, setQuantity] = useState("1");
   const [chosenScope, setChosenScope] = useState<PurchaseMode | "">("");
   const [retryInterval, setRetryInterval] = useState("60");
+  // 默认不自动付款:自动扣钱必须是用户显式打开的
+  const [autoPay, setAutoPay] = useState(false);
   const [preorderPlan, setPreorderPlan] = useState(server.prerelease ? server.planCode : "");
   const preorder = !!server.prerelease || preorderPlan === server.planCode;
   const purchaseMode: PurchaseMode = chosenScope || (preorder ? "total" : "perDatacenter");
@@ -673,7 +676,7 @@ function DetailContent({
   const durationSupported = supportsDuration(durationOptions.data, duration);
   const preparation = useOrderPrewarm(durationSupported && !!accountId && selectedDCs.length > 0 && !preorderConfigMismatch, {
     account_id: accountId, planCode: server.planCode, datacenters: selectedDCs,
-    options: selectedValues, quantity: qty, coupon, duration, preorder,
+    options: selectedValues, quantity: qty, autoPay, coupon, duration, preorder,
   });
 
   // 价格用的 subsidiary(顶部下拉)属于哪个站点 vs 下单账户属于哪个站点
@@ -945,8 +948,19 @@ function DetailContent({
             // (schema 里 required:false,不传就是不弃权),撤回权现在是保留的,
             // 机器控制页还专门有撤单入口。留着这句话会让用户以为退不了。
             <span className="block text-[11px] mt-0.5">
-              {t("servers.detail.payManual")}
+              {autoPay ? t("servers.detail.autoPayOn") : t("servers.detail.autoPayOff")}
             </span>
+          )}
+          {selectedDCs.length > 0 && (
+            <label className="flex items-center gap-1.5 mt-1 cursor-pointer text-[11px]">
+              <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
+              {t("servers.detail.autoPayLabel")}
+            </label>
+          )}
+          {selectedDCs.length > 0 && autoPay && (
+            <div className="mt-1 space-y-0.5">
+              {orderAccounts.map((id) => <AutoPayStatus key={id} accountId={id} enabled />)}
+            </div>
           )}
         </div>
         <Button variant="outline" onClick={onClose} disabled={create.isPending}>
@@ -997,6 +1011,7 @@ function DetailContent({
               quantity: qty,
               retryInterval: Number(retryInterval) || 60,
               options: selectedValues,
+              autoPay,
               coupon,
               duration,
               preorder,

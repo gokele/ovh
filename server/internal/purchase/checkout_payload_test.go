@@ -52,23 +52,33 @@ func TestCheckoutNeverWaivesRetraction(t *testing.T) {
 	}
 }
 
-// 自动付款功能已删除:独服与 VPS 结账都必须固定 autoPayWithPreferredPaymentMethod:false,
-// 不能再由任务或订阅上的任何字段决定。它和撤回权是同一类东西:都是"替用户做花钱决定"。
-func TestCheckoutNeverAutoPays(t *testing.T) {
-	re := regexp.MustCompile(`"autoPayWithPreferredPaymentMethod":\s*([^,\s]+),`)
-	for _, path := range []string{"prepare_cart.go", "../vps/purchase.go"} {
+// 自动付款必须跟随用户在任务/订阅上显式打开的开关(默认关),不能写死成 true。
+// 它和撤回权是同一类东西:都是"替用户做花钱决定"。
+func TestCheckoutAutoPayFollowsUserSetting(t *testing.T) {
+	if checkoutPayload(false)["autoPayWithPreferredPaymentMethod"] != false || checkoutPayload(true)["autoPayWithPreferredPaymentMethod"] != true {
+		t.Fatal("checkoutPayload must pass the task's auto-pay setting through")
+	}
+	literal := regexp.MustCompile(`"autoPayWithPreferredPaymentMethod":\s*true`)
+	for _, path := range []string{"prepare_cart.go", "purchase.go", "../vps/purchase.go"} {
 		src, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		matches := re.FindAllStringSubmatch(string(src), -1)
-		if len(matches) == 0 {
-			t.Fatalf("%s: 找不到 autoPayWithPreferredPaymentMethod 的赋值", path)
+		if literal.Match(src) {
+			t.Fatalf("%s: autoPay 被写死成 true —— 会在用户没要求时自动扣款", path)
 		}
-		for _, m := range matches {
-			if m[1] != "false" {
-				t.Fatalf("%s: 结账自动付款必须恒为 false,当前值 %s", path, m[1])
-			}
+	}
+	for path, want := range map[string]string{
+		"prepare_cart.go":    "checkoutPayload(item.AutoPay)",
+		"purchase.go":        "checkoutPayload(item.AutoPay)",
+		"../vps/purchase.go": `"autoPayWithPreferredPaymentMethod": sub.AutoPay`,
+	} {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(src), want) {
+			t.Fatalf("%s 的结账请求必须使用用户的自动付款开关(%s)", path, want)
 		}
 	}
 }

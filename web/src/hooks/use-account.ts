@@ -168,3 +168,24 @@ export function usePayAccountOrder(accountId: string, orderId: number) {
     },
   });
 }
+
+/** 账户的默认支付方式:自动付款只会用它扣款,无效时 OVH 不扣款、订单保持待付款。只读。 */
+export interface DefaultPaymentInfo {
+  accountId: string;
+  usable: boolean;
+  found: boolean;
+  label?: string;
+  paymentType?: string;
+  status?: string;
+  expirationDate?: string;
+  reason?: string;
+}
+
+/** 打开自动付款开关时才查询;失败不阻止开启,由界面如实显示。 */
+export function useDefaultPaymentMethod(accountId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: qk.account.defaultPayment(accountId),
+    queryFn: async () => (await api.get<DefaultPaymentInfo>("/ovh/account/default-payment-method", { params: { account: accountId } })).data,
+    enabled: enabled && !!accountId, staleTime: 60_000, retry: false, refetchOnWindowFocus: false,
+  });
+}

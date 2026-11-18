@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -258,7 +259,7 @@ test("coupon and quantity scope are sent in one atomic queue request", async () 
     assert.equal(bodies[0].purchaseMode, "total");
     for (const body of bodies) {
       assert.equal(body.coupon, "Save10");
-      assert.equal("autoPay" in body, false); // 自动付款已删除:请求不再携带该字段
+      assert.equal(body.autoPay, false);
       assert.equal(body.preorder, true);
       assert.deepEqual(body.options, ["ram-64g"]);
     }
@@ -278,8 +279,12 @@ test("successful history keeps coupon fallback visible in desktop and mobile vie
   client.setQueryData(["history"], [{ id: "order", accountId: "eu", planCode: "24sk202", datacenter: "gra", status: "success", purchaseTime: "2026-10-23T00:00:00Z", couponWarning: warning }]);
   client.setQueryData(["accounts", "list"], []);
   try {
+    // 现在按容器宽度只渲染表格或紧凑列表其中一种,渲染出的那一种必须带着提示
     const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(HistoryRoute.options.component)));
-    assert.equal(html.split(warning).length - 1, 2);
+    assert.equal(html.split(warning).length - 1, 1);
+    // 表格行和紧凑行两种视图都保留优惠码提示
+    const source = readFileSync(new URL("../src/routes/history.tsx", import.meta.url), "utf8");
+    assert.equal(source.split("{item.couponWarning && ").length - 1, 2);
   } finally {
     client.clear();
   }
@@ -300,7 +305,7 @@ test("task edits update one queue item and monitor edits retain exact empty conf
   function Probe() { queue = useUpdateQueueItem(); monitor = useUpdateMonitorSubscription(); pause = usePauseMonitorSubscription(); return null; }
   try {
     renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(Probe)));
-    await queue.mutateAsync({ id: "task", datacenter: "rbx", options: ["ram-64g", "custom-addon"], retryInterval: 17, coupon: "Save10", duration: "P12M" });
+    await queue.mutateAsync({ id: "task", datacenter: "rbx", options: ["ram-64g", "custom-addon"], retryInterval: 17, autoPay: false, coupon: "Save10", duration: "P12M" });
     await monitor.mutateAsync({ planCode: "plan", optionsKey: "", notifyAvailable: false, options: ["ram-32g"] });
     await pause.mutateAsync({ planCode: "plan", optionsKey: "", paused: true });
     assert.equal(calls.length, 3);
@@ -900,10 +905,10 @@ test("a delayed 401 cannot erase a newly entered API key", async () => {
 
 test("prewarm identity includes account, payment and coupon while normalizing selection order", async () => {
   const { prewarmIdentity } = await server.ssrLoadModule("/src/lib/order-prewarm.ts");
-  const request = { account_id: "eu", planCode: "plan", datacenters: ["mum", "bhs"], options: ["ram-32g", "storage"], quantity: 1, coupon: "SAVE", preorder: false };
+  const request = { account_id: "eu", planCode: "plan", datacenters: ["mum", "bhs"], options: ["ram-32g", "storage"], quantity: 1, autoPay: false, coupon: "SAVE", preorder: false };
   const key = prewarmIdentity(request);
   assert.equal(key, prewarmIdentity({ ...request, datacenters: ["bhs", "ynm", "mum"], options: ["storage", "ram-32g", "storage"], coupon: " SAVE " }));
-  for (const change of [{ account_id: "us" }, { coupon: "OTHER" }, { options: ["ram-64g"] }, { quantity: 2 }]) {
+  for (const change of [{ account_id: "us" }, { autoPay: true }, { coupon: "OTHER" }, { options: ["ram-64g"] }, { quantity: 2 }]) {
     assert.notEqual(key, prewarmIdentity({ ...request, ...change }));
   }
 });
@@ -939,7 +944,7 @@ const { durationMonths, supportsDuration } = await server.ssrLoadModule("/src/li
 const { OrderDurationField, OrderDurationLabel } = await server.ssrLoadModule("/src/components/queue/OrderDurationField.tsx");
 test("annual periods match aliases and cannot consume a monthly prewarm", async () => {
   const { prewarmIdentity } = await server.ssrLoadModule("/src/lib/order-prewarm.ts");
-  const request = { account_id: "eu", planCode: "plan", datacenters: ["gra"], options: [], quantity: 1, coupon: "", preorder: false };
+  const request = { account_id: "eu", planCode: "plan", datacenters: ["gra"], options: [], quantity: 1, autoPay: false, coupon: "", preorder: false };
   assert.equal(durationMonths("P1Y"), 12);
   assert.equal(supportsDuration(["P12M"], "P1Y"), true);
   assert.equal(supportsDuration(["P1M"], "P12M"), false);

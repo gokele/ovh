@@ -235,13 +235,13 @@ function LogRow({ log }: { log: LogEntry }) {
     log.level === "WARNING" ? "warning" :
     log.level === "DEBUG" ? "default" : "info";
   return (
-    <div className="px-4 py-2 flex items-start gap-3 text-[12px] hover:bg-muted">
-      <span className="font-mono text-muted-foreground w-32 flex-shrink-0">
+    <div className="px-4 py-2 flex flex-wrap md:flex-nowrap items-start gap-x-3 gap-y-1 text-[12px] hover:bg-muted/50">
+      <span className="font-mono text-muted-foreground md:w-28 flex-shrink-0 whitespace-nowrap">
         {fmtPattern(log.timestamp, "MM/dd HH:mm:ss")}
       </span>
-      <Chip tone={tone as any} className="font-mono w-16 justify-center">{log.level}</Chip>
-      <span className="font-mono text-muted-foreground w-28 truncate flex-shrink-0">[{log.source}]</span>
-      <span className="flex-1 break-words">{maskLogLine(log.message, hidden)}</span>
+      <Chip tone={tone as any} className="font-mono w-16 justify-center shrink-0">{log.level}</Chip>
+      <span className="font-mono text-muted-foreground md:w-28 truncate flex-shrink-0 min-w-0">[{log.source}]</span>
+      <span className="basis-full md:basis-auto md:flex-1 min-w-0 [overflow-wrap:anywhere]">{maskLogLine(log.message, hidden)}</span>
     </div>
   );
 }

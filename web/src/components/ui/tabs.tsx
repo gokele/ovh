@@ -12,8 +12,8 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      // max-w-full + 横向滚动:窄屏标签不折行;justify-start 保证溢出时首项可见
-      "inline-flex h-10 max-w-full items-center justify-start overflow-x-auto [scrollbar-width:none] rounded-full bg-secondary p-1 text-muted-foreground",
+      // 窄屏放不下时换行,不横向滚动
+      "inline-flex flex-wrap min-h-10 max-w-full items-center justify-start gap-0.5 rounded-lg bg-secondary p-1 text-muted-foreground",
       className
     )}
     {...props}
@@ -28,7 +28,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-all",
+      "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3.5 py-1.5 text-sm font-medium transition-all",
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       "disabled:pointer-events-none disabled:opacity-50",
       "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:border data-[state=active]:border-border",

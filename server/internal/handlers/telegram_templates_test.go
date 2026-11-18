@@ -44,7 +44,7 @@ func TestDumpAllTemplates(t *testing.T) {
 	st.HistoryMu.Unlock()
 
 	mon.AddSubscription("24ska01", []string{"waw"}, true, false, "KS-5", nil, nil,
-		true, 1, "acc-test", []string{"ram-32g-ecc-2400", "softraid-2x2000sa"}, "")
+		true, 1, "acc-test", false, []string{"ram-32g-ecc-2400", "softraid-2x2000sa"}, "")
 
 	banner("/help")
 	fmt.Println(helpText())

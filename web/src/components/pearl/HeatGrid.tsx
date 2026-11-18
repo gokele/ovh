@@ -49,7 +49,7 @@ export function HeatGrid({ cells, loading }: { cells: HeatCellInput[]; loading?:
           <span className="tnum">{total}</span>
         )}
       </div>
-      <div className="heat-day" style={{ display: "grid", gridTemplateColumns: "34px 1fr", gap: 6 }}>
+      <div className="heat-day" style={{ display: "grid", gridTemplateColumns: "26px minmax(0, 1fr)", gap: 6 }}>
         {grid.map((row, d) => (
           <div key={d} style={{ display: "contents" }}>
             <span style={{ fontSize: 11, color: "var(--ink-faint)", alignSelf: "center", textAlign: "right" }}>{DAYS[d]}</span>

@@ -153,6 +153,8 @@
   min-width: 0;
   min-height: 0;
   display: grid;
+  /* 列宽必须封顶:不写的话隐式列是 auto,页面里最宽的一块内容会把整列撑出窗口 */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: var(--topbar-h) minmax(0, 1fr);
 }
 .topbar {

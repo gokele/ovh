@@ -33,6 +33,13 @@ export const watchPagesZh = {
       empty: "还没有监控订阅",
       emptyDesc: "订阅型号和机房后，补货会第一时间通知你，也可以设置自动下单。",
       emptyAdd: "添加订阅",
+      title: "订阅",
+      search: "搜索型号 / 名称 / 机房",
+      filterAll: "全部",
+      filterActive: "监控中",
+      filterPaused: "已暂停",
+      noMatch: "没有符合条件的订阅",
+      trend: "库存变化",
     },
     remove: {
       title: "取消订阅",
@@ -57,6 +64,8 @@ export const watchPagesZh = {
       notifyAvailable: "有货提醒",
       notifyUnavailable: "无货提醒",
       autoOrder: "自动下单",
+      autoPaySuffix: " · 自动付款",
+      autoPayTitle: "下单成功后自动付款",
       manualPayTitle: "只下单,需自己付款",
       autoNoAccount: "已勾自动下单但未选账户(只通知)",
       historyAria: "查看历史",
@@ -100,6 +109,9 @@ export const watchPagesZh = {
       qtyLabel: "下单数量",
       qtyPlaceholder: "默认 1",
       qtyHint: "总下单量 = 检测出的配置数 × 可用数据中心数 × 数量",
+      autoPay: "下单成功后自动付款",
+      autoPayHint:
+        "用 OVH 账户的默认支付方式扣款（需先在 OVH 设置好）。不勾则只下单，需要在订单过期前自己付款",
       submitting: "提交中…",
       checking: "校验通知…",
       save: "保存修改",
@@ -126,6 +138,7 @@ export const watchPagesZh = {
   },
 
   vpsMonitor: {
+    heatTitle: "库存变化热力 7×24",
     title: "VPS 补货通知",
     description: "选择 VPS 型号，自动监控所有数据中心的库存变化",
     addAction: "添加订阅",
@@ -153,6 +166,13 @@ export const watchPagesZh = {
       failed: "VPS 订阅列表读取失败",
       empty: "暂无 VPS 订阅",
       emptyDesc: "选择 VPS 型号和机房，补货时第一时间通知你。",
+      title: "订阅",
+      search: "搜索型号 / 名称 / 机房",
+      filterAll: "全部",
+      filterActive: "监控中",
+      filterPaused: "已暂停",
+      noMatch: "没有符合条件的订阅",
+      trend: "库存变化",
     },
     remove: {
       title: "取消订阅",
@@ -165,9 +185,12 @@ export const watchPagesZh = {
       confirm: "确认清空",
     },
     row: {
+      notifyOnly: "仅通知",
       retired: "已停售",
       retiredTitle: "OVH 已经不卖这个型号了，这条订阅永远不会有货",
       autoOrder: "自动下单",
+      autoPaySuffix: " · 自动付款",
+      autoPayTitle: "下单成功后自动付款",
       manualPayTitle: "只下单,需自己付款",
       dcs: "监控数据中心: {{dcs}}",
       allDcs: "监控所有数据中心",
@@ -219,6 +242,9 @@ export const watchPagesZh = {
       osSectionLabel: "安装系统",
       osDefault: "用 OVH 默认镜像",
       osHint: "VPS 和独服不同：系统是**下单时**就要定的，买完再换要重装。不确定就留默认",
+      autoPay: "下单成功后自动付款",
+      autoPayHint:
+        "用 OVH 账户的默认支付方式扣款（需先在 OVH 设置好）。不勾则只下单，需要在订单过期前自己付款",
       submitting: "提交中…",
       checking: "校验通知…",
       confirmAdd: "确认添加",
@@ -276,6 +302,7 @@ export const watchPagesZh = {
       empty: "暂无服务器",
       emptyDesc: "您的 OVH 账户下还没有独立服务器，或 API 没拿到数据",
     },
+    sidebar: { title: "服务器", search: "搜索名称 / IP / 机房", noMatch: "没有匹配的服务器", rename: "设置别名" },
     selector: {
       placeholder: "选择服务器",
       title: "左键打开列表;右键给当前服务器设别名",
@@ -344,6 +371,7 @@ export const watchPagesZh = {
     },
     renewalLabel: "续费",
     accountsFailed: "账户读取失败，本页按欧区渲染，区域相关功能可能不对",
+    sidebar: { title: "VPS", search: "搜索名称 / 服务名", noMatch: "没有匹配的 VPS" },
     select: {
       placeholderFailed: "列表读取失败",
       loading: "加载中…",

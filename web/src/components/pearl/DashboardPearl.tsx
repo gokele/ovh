@@ -1,30 +1,23 @@
 import { Link } from "@tanstack/react-router";
-import { Activity, ArrowRight, Bell, Bot, Cpu, HardDrive, Link2, MemoryStick, Server, ShieldCheck } from "lucide-react";
+import { ArrowRight, Bell, Bot, Link2, Server } from "lucide-react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { fmtDateTime } from "@/i18n/format";
 import { useStats } from "@/hooks/use-stats";
-import { useQueueList } from "@/hooks/use-queue";
+import { useQueueList, type QueueStatus } from "@/hooks/use-queue";
 import { useSystemMetrics, useAppVersion, useUpdateCheck } from "@/hooks/use-system-metrics";
 import { UpdateButton } from "@/components/common/UpdateButton";
-import { TickRing } from "@/components/pearl/TickRing";
+import { StatusDot } from "@/components/common/StatusDot";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 /**
- * 珍珠皮肤的工作台(scaffold-master 版式):
- * 页头(日期 + 问候 + 描述) → Bento 网格:
- *   hero(8 列)  活跃队列大读数 + 三项读数组 + 操作按钮
- *   side(4 列)  系统状态三行(API 连接 / 自动抢购 / 服务器监控)+ 版本
- *   wide(8 列)  宿主机资源三读数(CPU/内存/磁盘)
- *   narrow(4 列) 最近队列条目
- * 与经典皮肤共用同一批数据 hooks(同 query key 同 queryFn,缓存互通)。
+ * 仪表盘(克制版):
+ *   第一行 4 个读数卡:活跃队列 / 下单成功 / 下单失败 / 服务器(可用/总数)
+ *   第二行 最近队列(宽) + 系统状态与版本(窄)
+ *   第三行 宿主机资源:CPU / 内存 / 磁盘 三条细进度条
+ * 所有读数在未读到时显示 —,不把 0 当作缺省值。
  */
-
-function greetingKey(): string {
-  const h = new Date().getHours();
-  if (h < 5) return "dashboard.greetNight";
-  if (h < 12) return "dashboard.greetMorning";
-  if (h < 18) return "dashboard.greetAfternoon";
-  return "dashboard.greetEvening";
-}
 
 function fmtBytes(n: number): string {
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)}G`;
@@ -32,7 +25,56 @@ function fmtBytes(n: number): string {
   return `${(n / 1024).toFixed(0)}K`;
 }
 
-function SideRow({
+const QUEUE_TONE: Record<QueueStatus, "success" | "warning" | "muted" | "danger" | "info"> = {
+  running: "success",
+  pending: "muted",
+  paused: "warning",
+  completed: "info",
+  failed: "danger",
+};
+
+function Kpi({
+  label,
+  value,
+  sub,
+  to,
+  tone,
+}: {
+  label: string;
+  value: ReactNode;
+  sub?: ReactNode;
+  to?: "/queue" | "/history" | "/servers";
+  tone?: "danger" | "success";
+}) {
+  const body = (
+    <>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div
+        className={cn(
+          "mt-1 text-2xl font-semibold tabular-nums tracking-tight",
+          tone === "danger" && "text-destructive",
+          tone === "success" && "text-success",
+        )}
+      >
+        {value}
+      </div>
+      {sub && <div className="mt-1 text-[11px] text-muted-foreground truncate">{sub}</div>}
+    </>
+  );
+  return (
+    <Card className="p-4 min-w-0">
+      {to ? (
+        <Link to={to} className="block rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          {body}
+        </Link>
+      ) : (
+        body
+      )}
+    </Card>
+  );
+}
+
+function StatusLine({
   icon,
   label,
   on,
@@ -40,7 +82,7 @@ function SideRow({
   offText,
   unknown,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   on: boolean;
   onText: string;
@@ -48,16 +90,34 @@ function SideRow({
   unknown?: boolean;
 }) {
   return (
-    <div className="activity">
-      <span className="side-ico m-groove">{icon}</span>
-      <span className="activity-main">{label}</span>
-      {unknown ? (
-        <span className="delta-pill" style={{ background: "var(--hover-bg)", color: "var(--ink-soft)" }}>…</span>
-      ) : on ? (
-        <span className="delta-pill is-up">{onText}</span>
-      ) : (
-        <span className="delta-pill is-down">{offText}</span>
-      )}
+    <div className="flex items-center gap-3 py-2">
+      <span className="w-7 h-7 rounded-md bg-secondary flex items-center justify-center text-muted-foreground shrink-0">{icon}</span>
+      <span className="flex-1 min-w-0 text-[13px] truncate">{label}</span>
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
+        <StatusDot tone={unknown ? "muted" : on ? "success" : "warning"} size="xs" pulse={on && !unknown} />
+        {unknown ? "…" : on ? onText : offText}
+      </span>
+    </div>
+  );
+}
+
+function MeterRow({ label, percent, detail }: { label: string; percent?: number; detail?: string }) {
+  const { t } = useTranslation();
+  const known = typeof percent === "number" && Number.isFinite(percent);
+  const p = known ? Math.max(0, Math.min(100, percent)) : 0;
+  const tone = p >= 90 ? "bg-destructive" : p >= 75 ? "bg-warning" : "bg-foreground/70";
+  return (
+    <div className="min-w-0">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[13px] font-medium">{label}</span>
+        <span className="text-[13px] tabular-nums" title={known ? undefined : t("dashboard.valueUnknown")}>
+          {known ? `${p.toFixed(0)}%` : "—"}
+        </span>
+      </div>
+      <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={known ? Math.round(p) : undefined}>
+        <div className={cn("h-full rounded-full transition-[width]", tone)} style={{ width: `${p}%` }} />
+      </div>
+      {detail && <div className="mt-1 text-[11px] text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">{detail}</div>}
     </div>
   );
 }
@@ -68,105 +128,97 @@ export function DashboardPearl() {
   const queue = useQueueList();
   const sys = useSystemMetrics();
   const version = useAppVersion();
-  // UpdateButton 在 check 为空时直接 return null —— 必须把检查结果传进去,
-  // 否则按钮永远不渲染(经典版当年就为这个留过注释,移植时漏了)
+  // UpdateButton 在 check 为空时直接 return null —— 必须把检查结果传进去
   const update = useUpdateCheck();
 
   const s = stats.data;
   const unknown = stats.isError || stats.isPending;
-  const recentQueue = (queue.data || []).slice(0, 5);
+  const num = (v: number | undefined) => (stats.isPending ? "…" : stats.isError || v === undefined ? "—" : v);
+  const recentQueue = (queue.data || []).slice(0, 6);
+  const m = sys.data;
 
   return (
-    <div>
+    <div className="space-y-3 sm:space-y-5">
       <header className="page-head">
         <div className="page-head-main">
           <span className="page-date">{fmtDateTime(new Date().toISOString())}</span>
-          <h1 className="page-title">{t(greetingKey())}</h1>
+          <h1 className="page-title">{t("nav.dashboard")}</h1>
           <p className="page-desc">{t("dashboard.subtitle")}</p>
         </div>
-
       </header>
 
-      <div className="bento-grid">
-        {/* 主卡:活跃队列 */}
-        <section className="bento bento-hero">
-          <div className="hero-head">
-            <span className="eyebrow">{t("dashboard.kpi.activeQueues")}</span>
-            <span className="bento-meta">{stats.isPending ? "…" : s ? `SNIPER / ${s.totalServers ?? 0} SRV` : "—"}</span>
-          </div>
-          <div className="hero-body relative">
-            {/* 3D 火箭插图(3dicons.co,CC0):点睛 hero 右侧留白;仅 md+ 显示,
-                浮动动画只动 transform,偏好减少动效时静止 */}
-            <img
-              src="/illustrations/rocket-3d.png"
-              alt=""
-              aria-hidden="true"
-              className="hero-illo hidden md:block"
-              draggable={false}
-            />
-            <div className="hero-figure">
-              <div className="metric metric-xl">
-                <span className="metric-figure">
-                  {stats.isPending ? "—" : s?.activeQueues ?? 0}
-                </span>
-              </div>
-              <div className="hero-delta">
-                <span className="faint">{t("dashboard.heroDeltaHint")}</span>
-                <span className="delta-pill is-new">{t("dashboard.kpi.wonCount", { n: s?.purchaseSuccess ?? 0 })}</span>
-              </div>
-              <dl className="hero-readouts">
-                <div>
-                  <dt>{t("dashboard.kpi.totalServers")}</dt>
-                  <dd className="tnum">{s?.totalServers ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt>{t("dashboard.kpi.available")}</dt>
-                  <dd className="tnum">{s?.availableServers ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt>{t("dashboard.kpi.purchaseFailed")}</dt>
-                  <dd className="tnum">{s?.purchaseFailed ?? "—"}</dd>
-                </div>
-              </dl>
-            </div>
-            <div className="hero-actions">
-              <Link to="/queue" className="pill-btn is-dark">
-                {t("dashboard.kpi.viewQueue")} <ArrowRight size={14} />
-              </Link>
-              <Link to="/servers" className="pill-btn">
-                {t("dashboard.kpi.viewServers")}
-              </Link>
-            </div>
-          </div>
-        </section>
+      {stats.isError && (
+        <p className="text-xs text-destructive" role="status">
+          {t("dashboard.statsFailedTitle")}
+        </p>
+      )}
 
-        {/* 侧块:系统状态 + 版本 */}
-        <section className="bento bento-side">
-          <div className="side-top">
-            <span className="side-label">{t("dashboard.systemStatus")}</span>
-            <span className="side-ico m-groove">
-              <Activity size={16} />
-            </span>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+        <Kpi label={t("dashboard.kpi.activeQueues")} value={num(s?.activeQueues)} sub={t("dashboard.kpi.viewQueue")} to="/queue" />
+        <Kpi label={t("dashboard.kpi.purchaseSuccess")} value={num(s?.purchaseSuccess)} sub={t("dashboard.kpi.viewHistory")} to="/history" tone={s?.purchaseSuccess ? "success" : undefined} />
+        <Kpi label={t("dashboard.kpi.purchaseFailed")} value={num(s?.purchaseFailed)} sub={t("dashboard.kpi.viewHistory")} to="/history" tone={s?.purchaseFailed ? "danger" : undefined} />
+        <Kpi
+          label={t("dashboard.kpi.totalServers")}
+          value={num(s?.totalServers)}
+          sub={`${t("dashboard.kpi.available")} ${num(s?.availableServers)}`}
+          to="/servers"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
+        {/* 最近队列 */}
+        <Card className="lg:col-span-2 min-w-0 overflow-hidden">
+          <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border">
+            <span className="text-[13px] font-medium">{t("dashboard.recentQueue")}</span>
+            <Link to="/queue" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+              {t("dashboard.viewAll")} <ArrowRight className="w-3 h-3" />
+            </Link>
           </div>
-          <div className="activity-list">
-            <SideRow
-              icon={<Link2 size={15} />}
+          {queue.isError ? (
+            <p className="px-4 py-8 text-center text-sm text-destructive">{t("dashboard.queueFailedTitle")}</p>
+          ) : recentQueue.length === 0 ? (
+            <div className="px-4 py-10 flex flex-col items-center gap-2 text-muted-foreground">
+              <Server className="w-5 h-5" />
+              <span className="text-sm">{queue.isPending ? t("dashboard.reading") : t("dashboard.queueEmpty")}</span>
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {recentQueue.map((q) => (
+                <li key={q.id} className="flex items-center gap-3 px-4 py-2.5 min-w-0">
+                  <span className="font-mono text-[13px] font-medium truncate">{q.planCode}</span>
+                  <span className="text-xs text-muted-foreground uppercase shrink-0">{q.datacenter}</span>
+                  <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
+                    <StatusDot tone={QUEUE_TONE[q.status] ?? "muted"} size="xs" />
+                    {t(`queue.status.${q.status}`, { defaultValue: q.status })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* 系统状态 + 版本 */}
+        <Card className="min-w-0 overflow-hidden">
+          <div className="px-4 py-3 border-b border-border text-[13px] font-medium">{t("dashboard.systemStatus")}</div>
+          <div className="px-4 py-1 divide-y divide-border">
+            <StatusLine
+              icon={<Link2 className="w-3.5 h-3.5" />}
               label={t("dashboard.apiConn")}
               on={!!s && !stats.isError}
               onText={t("dashboard.connected")}
               offText={t("dashboard.disconnected")}
               unknown={stats.isPending}
             />
-            <SideRow
-              icon={<Bot size={15} />}
+            <StatusLine
+              icon={<Bot className="w-3.5 h-3.5" />}
               label={t("dashboard.autoSnipe")}
               on={(s?.activeQueues || 0) > 0}
               onText={t("dashboard.running")}
               offText={t("dashboard.noTasks")}
               unknown={unknown}
             />
-            <SideRow
-              icon={<Bell size={15} />}
+            <StatusLine
+              icon={<Bell className="w-3.5 h-3.5" />}
               label={t("dashboard.serverMonitor")}
               on={!!s?.monitorRunning}
               onText={t("dashboard.running")}
@@ -174,78 +226,40 @@ export function DashboardPearl() {
               unknown={unknown}
             />
           </div>
-          <div className="side-foot" style={{ flexWrap: "wrap", rowGap: 6 }}>
-            <span className="faint">{t("dashboard.systemVersion")}</span>
-            <span className="mono-time">v{version.data || "—"}</span>
-            {/* 更新入口在版本号右侧;容器徽章较长,放不下时独占一行并靠右对齐 */}
-            <span style={{ marginLeft: "auto", display: "inline-flex" }}>
+          <div className="px-4 py-3 border-t border-border flex flex-wrap items-center gap-x-2 gap-y-2">
+            <span className="text-xs text-muted-foreground">{t("dashboard.systemVersion")}</span>
+            <span className="font-mono text-xs" title={version.isError ? t("dashboard.versionFailedTitle", { error: String(version.error) }) : undefined}>
+              v{version.data || "—"}
+            </span>
+            <span className="ml-auto inline-flex">
               <UpdateButton check={update.data} />
             </span>
           </div>
-        </section>
-
-        {/* 宽块:宿主机资源三读数 */}
-        <section className="bento bento-wide">
-          <div className="bento-head">
-            <span className="eyebrow">{t("dashboard.hostMetrics")}</span>
-            <span className="bento-meta">
-              {sys.data ? `${sys.data.host.hostname} · ${sys.data.host.platform}` : "…"}
-            </span>
-          </div>
-          <div className="ring-wrap">
-            <TickRing value={sys.data?.cpu.percent} label="CPU" />
-            <TickRing value={sys.data?.memory.percent} label="MEM" />
-            <TickRing value={sys.data?.disk.percent} label="DISK" />
-          </div>
-          {/* 每条小字自身不折行(折行会把“剩余 5.6G”甩到第二行读不成句);放不下时整条换行 */}
-          {(sys.data?.memory || sys.data?.disk) && (
-            <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 10 }}>
-              <span className="readout-sub" style={{ whiteSpace: "nowrap" }}>
-                {t("dashboard.memory")} {t("dashboard.usedFree", { used: fmtBytes(sys.data.memory.usedBytes), free: fmtBytes(sys.data.memory.totalBytes - sys.data.memory.usedBytes) })}
-              </span>
-              <span className="readout-sub" style={{ whiteSpace: "nowrap" }}>
-                {t("dashboard.disk")} {t("dashboard.usedFree", { used: fmtBytes(sys.data.disk.usedBytes), free: fmtBytes(sys.data.disk.totalBytes - sys.data.disk.usedBytes) })}
-              </span>
-              {sys.data ? <span className="readout-sub" style={{ whiteSpace: "nowrap" }}>{t("dashboard.cores", { n: sys.data.cpu.cores })}</span> : null}
-            </div>
-          )}
-        </section>
-
-        {/* 窄块:最近队列 */}
-        <section className="bento bento-narrow">
-          <div className="bento-head">
-            <span className="eyebrow">{t("dashboard.recentQueue")}</span>
-            <Link to="/queue" className="quick-go" style={{ fontSize: 12 }}>
-              {t("dashboard.viewAll")} <ArrowRight size={12} style={{ display: "inline", verticalAlign: "-2px" }} />
-            </Link>
-          </div>
-          {recentQueue.length === 0 ? (
-            <div className="empty" style={{ padding: "14px 4px" }}>
-              <span className="empty-ico">
-                <Server size={16} />
-              </span>
-              <span className="empty-title">{t("dashboard.queueEmpty")}</span>
-            </div>
-          ) : (
-            <div className="activity-list">
-              {recentQueue.map((q) => (
-                <div className="activity" key={q.id}>
-                  <span className="side-ico m-groove">
-                    <ShieldCheck size={14} />
-                  </span>
-                  <span className="activity-main">
-                    <span className="cell-title" style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
-                      {q.planCode}
-                    </span>
-                    <span className="cell-sub">{q.datacenter}</span>
-                  </span>
-                  <span className="delta-pill">{q.status}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        </Card>
       </div>
+
+      {/* 宿主机资源 */}
+      <Card className="min-w-0 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border">
+          <span className="text-[13px] font-medium">{t("dashboard.hostMetrics")}</span>
+          <span className="text-xs text-muted-foreground font-mono truncate max-w-full">
+            {m ? `${m.host.hostname} · ${m.host.platform} · ${t("dashboard.cores", { n: m.cpu.cores })}` : sys.isError ? t("dashboard.readFailed") : "…"}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 p-4">
+          <MeterRow label={t("dashboard.cpu")} percent={m?.cpu.percent} />
+          <MeterRow
+            label={t("dashboard.memory")}
+            percent={m?.memory.percent}
+            detail={m?.memory ? t("dashboard.usedFree", { used: fmtBytes(m.memory.usedBytes), free: fmtBytes(m.memory.totalBytes - m.memory.usedBytes) }) : undefined}
+          />
+          <MeterRow
+            label={t("dashboard.disk")}
+            percent={m?.disk.percent}
+            detail={m?.disk ? t("dashboard.usedFree", { used: fmtBytes(m.disk.usedBytes), free: fmtBytes(m.disk.totalBytes - m.disk.usedBytes) }) : undefined}
+          />
+        </div>
+      </Card>
     </div>
   );
 }

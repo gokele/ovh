@@ -26,7 +26,7 @@ func TestQueueEditPreservesIdentityAndRequiresPause(t *testing.T) {
 		r.ServeHTTP(w, httptest.NewRequest(http.MethodPut, path, strings.NewReader(body)))
 		return w
 	}
-	const patch = `{"datacenter":" rbx ","options":["ram-64g","custom-addon"],"retryInterval":17,"autoPay":false,"coupon":" Save10 ","duration":"P1Y"}`
+	const patch = `{"datacenter":" rbx ","options":["ram-64g","custom-addon"],"retryInterval":17,"autoPay":true,"coupon":" Save10 ","duration":"P1Y"}`
 	if w := request("/queue/task", patch); w.Code != http.StatusConflict {
 		t.Fatalf("running edit must be rejected: %d %s", w.Code, w.Body.String())
 	}
@@ -41,7 +41,7 @@ func TestQueueEditPreservesIdentityAndRequiresPause(t *testing.T) {
 		t.Fatal(got, err)
 	}
 	q := got[0]
-	if q.ID != "task" || q.AccountID != "eu" || q.PlanCode != "24sk202" || !q.Preorder || q.Status != "paused" || q.RetryCount != 9 || q.FailureCount != 0 || q.Datacenter != "rbx" || q.Duration != "P12M" || q.Coupon != "Save10" || len(q.Options) != 2 || q.Options[1] != "custom-addon" || q.RetryInterval != 17 {
+	if q.ID != "task" || q.AccountID != "eu" || q.PlanCode != "24sk202" || !q.Preorder || q.Status != "paused" || q.RetryCount != 9 || q.FailureCount != 0 || q.Datacenter != "rbx" || q.Duration != "P12M" || q.Coupon != "Save10" || len(q.Options) != 2 || q.Options[1] != "custom-addon" || q.RetryInterval != 17 || !q.AutoPay {
 		t.Fatalf("bad edited task: %+v", q)
 	}
 	for _, body := range []string{`{"datacenter":"gra","retryInterval":17,"duration":"P0M"}`, `{"datacenter":"gra","retryInterval":0}`, `{"datacenter":"gra","retryInterval":17,"autoPay":"yes"}`, `{"datacenter":"gra","retryInterval":17,`} {
@@ -64,7 +64,7 @@ func TestQueueEditPreservesIdentityAndRequiresPause(t *testing.T) {
 func TestMonitorEditAndPauseSelectExactConfiguration(t *testing.T) {
 	st, mon := newWatchTestMonitor(t)
 	for _, options := range [][]string{{"ram-32g"}, {"ram-64g"}, nil} {
-		mon.AddSubscription("plan", []string{"gra"}, true, false, "", map[string]string{"gra": "unavailable"}, []monitor.HistoryEntry{{Status: "unavailable"}}, false, 0, "", options, "")
+		mon.AddSubscription("plan", []string{"gra"}, true, false, "", map[string]string{"gra": "unavailable"}, []monitor.HistoryEntry{{Status: "unavailable"}}, false, 0, "", false, options, "")
 	}
 	r := gin.New()
 	r.PUT("/monitor/:planCode", UpdateSubscription(st, mon))

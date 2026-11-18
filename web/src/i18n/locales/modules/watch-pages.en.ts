@@ -36,6 +36,13 @@ const pack: WatchPagesPack = {
       empty: "No subscriptions",
       emptyDesc: "Subscribe to models and datacenters to get restock alerts instantly, with optional auto-ordering.",
       emptyAdd: "Add subscription",
+      title: "Subscriptions",
+      search: "Search model / name / datacenter",
+      filterAll: "All",
+      filterActive: "Watching",
+      filterPaused: "Paused",
+      noMatch: "No subscriptions match",
+      trend: "Stock changes",
     },
     remove: {
       title: "Unsubscribe",
@@ -60,6 +67,8 @@ const pack: WatchPagesPack = {
       notifyAvailable: "In-stock alert",
       notifyUnavailable: "Out-of-stock alert",
       autoOrder: "Auto-order",
+      autoPaySuffix: " · auto-pay",
+      autoPayTitle: "Pay automatically once the order is placed",
       manualPayTitle: "Order only; you pay yourself",
       autoNoAccount: "Auto-order checked but no account selected (notify only)",
       historyAria: "View history",
@@ -104,6 +113,9 @@ const pack: WatchPagesPack = {
       qtyLabel: "Quantity",
       qtyPlaceholder: "Default 1",
       qtyHint: "Total orders = detected configurations × available datacenters × quantity",
+      autoPay: "Pay automatically once the order is placed",
+      autoPayHint:
+        "Charged to the OVH account's default payment method (set it up in OVH first). If unchecked, the order is placed only and you must pay before it expires",
       submitting: "Submitting…",
       checking: "Checking notification…",
       save: "Save changes",
@@ -130,6 +142,7 @@ const pack: WatchPagesPack = {
   },
 
   vpsMonitor: {
+    heatTitle: "Stock-change heat 7×24",
     title: "VPS Restock Alerts",
     description: "Pick VPS models and automatically watch stock changes across all datacenters",
     addAction: "Add subscription",
@@ -158,6 +171,13 @@ const pack: WatchPagesPack = {
       failed: "Failed to load the VPS subscription list",
       empty: "No VPS subscriptions",
       emptyDesc: "Pick a VPS model and datacenter to get notified the moment it restocks.",
+      title: "Subscriptions",
+      search: "Search model / name / datacenter",
+      filterAll: "All",
+      filterActive: "Watching",
+      filterPaused: "Paused",
+      noMatch: "No subscriptions match",
+      trend: "Stock changes",
     },
     remove: {
       title: "Unsubscribe",
@@ -170,9 +190,12 @@ const pack: WatchPagesPack = {
       confirm: "Clear",
     },
     row: {
+      notifyOnly: "Notify only",
       retired: "Retired",
       retiredTitle: "OVH no longer sells this model; this subscription will never see stock",
       autoOrder: "Auto-order",
+      autoPaySuffix: " · auto-pay",
+      autoPayTitle: "Pay automatically once the order is placed",
       manualPayTitle: "Order only; you pay yourself",
       dcs: "Monitoring datacenters: {{dcs}}",
       allDcs: "Monitoring all datacenters",
@@ -225,6 +248,9 @@ const pack: WatchPagesPack = {
       osDefault: "Use the OVH default image",
       osHint:
         "Unlike dedicated servers, a VPS OS must be chosen **at order time**; changing it later means a reinstall. Keep the default if unsure",
+      autoPay: "Pay automatically once the order is placed",
+      autoPayHint:
+        "Charged to the OVH account's default payment method (set it up in OVH first). If unchecked, the order is placed only and you must pay before it expires",
       submitting: "Submitting…",
       checking: "Checking notification…",
       confirmAdd: "Add",
@@ -281,6 +307,7 @@ const pack: WatchPagesPack = {
       empty: "No servers",
       emptyDesc: "Your OVH account has no dedicated servers yet, or the API returned no data",
     },
+    sidebar: { title: "Servers", search: "Search name / IP / datacenter", noMatch: "No matching servers", rename: "Set alias" },
     selector: {
       placeholder: "Select a server",
       title: "Left-click to open the list; right-click to rename the current server",
@@ -350,6 +377,7 @@ const pack: WatchPagesPack = {
     },
     renewalLabel: "Renewal",
     accountsFailed: "The account failed to load; this page renders as the EU region — region-dependent features may be wrong",
+    sidebar: { title: "VPS", search: "Search name / service", noMatch: "No matching VPS" },
     select: {
       placeholderFailed: "List failed to load",
       loading: "Loading…",

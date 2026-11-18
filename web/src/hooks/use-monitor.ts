@@ -17,6 +17,7 @@ export interface MonitorSubscription {
   /** 触发 auto-order 时用哪个 OVH 账户下单;空 = 只通知 */
   autoOrderAccountId?: string;
   /** 下单成功后自动付款(显式开关,默认关) */
+  autoPay?: boolean;
   /**
    * 只盯这套配置(addon planCode 列表)。空 / 缺省 = 盯该型号的全部配置。
    *

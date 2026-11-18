@@ -120,6 +120,8 @@ var usedEndpoints = []string{
 	"GET /me/order/{orderId}/details/{orderDetailId}/extension",
 	"GET /me/order/{orderId}/paymentMethods",
 	"GET /me/order/{orderId}/availablePaymentMethod",
+	// 自动付款前检查默认支付方式(只读)
+	"GET /me/payment/method",
 	"GET /me/payment/method/{paymentMethodId}",
 	"POST /me/order/{orderId}/pay",
 

@@ -263,6 +263,12 @@ const pack: CommonLayerPack = {
       updateNow: "Update now",
       upToDate: "Up to date v{{version}}",
     },
+    autoPay: {
+      checking: "Checking this account's default payment method…",
+      usable: "Default payment method ready: {{label}}. Orders will be charged automatically",
+      unusable: "Auto-pay will not work: {{reason}}. Set a valid default payment method in OVH, or orders must be paid manually",
+      unknown: "Could not check the default payment method ({{reason}}); confirm the charge after ordering",
+    },
     timing: {
       dispatch: "Detect→send {{value}}",
       dispatchTitle: "Time from seeing orderable stock to sending the checkout request",

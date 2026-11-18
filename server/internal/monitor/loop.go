@@ -280,7 +280,7 @@ func (m *Monitor) stopLocked() bool {
 }
 
 // batchOrder 直接把已验证配置的整批任务交给共享队列,不再调用自身 HTTP 接口。
-func (m *Monitor) batchOrder(planCode string, configInfo map[string]interface{}, targets []notification, quantity int, accountID string, shouldContinue func() bool) {
+func (m *Monitor) batchOrder(planCode string, configInfo map[string]interface{}, targets []notification, quantity int, accountID string, autoPay bool, shouldContinue func() bool) {
 	if !shouldContinue() || accountID == "" {
 		return
 	}
@@ -304,7 +304,7 @@ func (m *Monitor) batchOrder(planCode string, configInfo map[string]interface{},
 		return
 	}
 	duration, _ := configInfo["duration"].(string)
-	if err := m.state.EnqueueMonitorOrders(accountID, planCode, dcs, options, quantity, duration); err != nil {
+	if err := m.state.EnqueueMonitorOrders(accountID, planCode, dcs, options, quantity, autoPay, duration); err != nil {
 		m.state.Logger.Warn("[monitor->order] 入队未执行: "+err.Error(), "monitor")
 	}
 }

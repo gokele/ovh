@@ -1,4 +1,5 @@
 import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
+import { AutoPayStatus } from "@/components/common/AutoPayStatus";
 import { useOrderDurations } from "@/hooks/use-order-durations";
 import { supportsDuration } from "@/lib/order-duration";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -18,8 +19,9 @@ import {
   User,
   HelpCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
+import { ListToolbar, SearchBox } from "@/components/common/ListToolbar";
 import { HeatGrid } from "@/components/pearl/HeatGrid";
 import { useStockEvents } from "@/hooks/use-stock-history";
 import { Card, CardContent } from "@/components/ui/card";
@@ -124,25 +126,40 @@ function VPSMonitorPage() {
   const statNum = (v: number | undefined): number | string =>
     status.isPending ? "…" : status.isError || v === undefined ? "—" : v;
 
+  const [search, setSearch] = useState("");
+  const visibleSubs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return subs;
+    return subs.filter((s) =>
+      [s.planCode, modelLabel(s.planCode), s.ovhSubsidiary, ...s.datacenters].some((v) => (v || "").toLowerCase().includes(q)),
+    );
+  }, [subs, search]);
+
   return (
-    <div className="space-y-3 sm:space-y-6">
+    <div className="space-y-3 sm:space-y-5">
       <PageHeader
         icon={Cloud}
         title={t("vpsMonitor.title")}
         description={t("vpsMonitor.description")}
         action={
-          <div className="flex gap-2 flex-wrap">
-            <Button variant="outline" onClick={() => list.refetch()} disabled={list.isFetching}>
+          <div className="flex gap-2 flex-wrap justify-end">
+            <Button variant="outline" size="sm" onClick={() => list.refetch()} disabled={list.isFetching}>
               <RefreshCw className={`w-4 h-4 ${list.isFetching ? "animate-spin" : ""}`} />
               {t("common.refresh")}
             </Button>
-            <Button onClick={() => setOpenAdd(true)}>
-              <Plus className="w-4 h-4" />
-              {t("vpsMonitor.addAction")}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmClear(true)}
+              disabled={subs.length === 0}
+            >
+              <Trash2 className="w-4 h-4" />
+              {t("vpsMonitor.clear")}
             </Button>
             {/* 状态未知时这颗按钮只负责"把状态读回来",不做启停:
                 它的文案和它实际发的请求都是从 running 猜出来的,猜错就是误操作 */}
             <Button
+              size="sm"
               variant={statusUnknown || !running ? "outline" : "destructive"}
               onClick={() => (statusUnknown ? status.refetch() : toggle.mutate(running))}
               disabled={toggle.isPending || (statusUnknown && status.isFetching)}
@@ -169,42 +186,32 @@ function VPSMonitorPage() {
                     ? t("vpsMonitor.toggle.stop")
                     : t("vpsMonitor.toggle.start")}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => setConfirmClear(true)}
-              disabled={subs.length === 0}
-            >
-              <Trash2 className="w-4 h-4" />
-              {t("vpsMonitor.clear")}
+            <Button size="sm" onClick={() => setOpenAdd(true)}>
+              <Plus className="w-4 h-4" />
+              {t("vpsMonitor.addAction")}
             </Button>
           </div>
         }
       />
 
-      {vpsList.data && (vpsList.data || []).length > 0 && (
-        <section className="app-card panel">
-          <div className="panel-head"><span className="eyebrow">{t("vpsMonitor.heatTitle")}</span></div>
-          <div className="panel-body"><HeatGrid cells={(vpsEvents.data || []).map((e) => ({ ts: e.ts }))} loading={vpsEvents.isPending} /></div>
-        </section>
-      )}
 
 
       <Card>
-        <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
+        <CardContent className="px-4 py-3 flex flex-wrap items-center gap-x-8 gap-y-3">
+          <div className="flex items-center gap-3 min-w-0 mr-auto">
+            <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0">
               {statusUnknown ? (
                 <HelpCircle
-                  className={`w-5 h-5 ${status.isError ? "text-warning" : "text-muted-foreground"}`}
+                  className={`w-4 h-4 ${status.isError ? "text-warning" : "text-muted-foreground"}`}
                 />
               ) : running ? (
-                <Bell className="w-5 h-5 text-success" />
+                <Bell className="w-4 h-4 text-success" />
               ) : (
-                <BellOff className="w-5 h-5 text-muted-foreground" />
+                <BellOff className="w-4 h-4 text-muted-foreground" />
               )}
             </div>
-            <div>
-              <div className="text-sm font-semibold">{t("vpsMonitor.status.title")}</div>
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium">{t("vpsMonitor.status.title")}</div>
               <div className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
                 <StatusDot
                   tone={status.isError ? "warning" : running ? "success" : "muted"}
@@ -231,7 +238,7 @@ function VPSMonitorPage() {
               )}
             </div>
           </div>
-          <div className="flex gap-6 text-sm">
+          <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
             <Stat label={t("vpsMonitor.status.subsCount")} value={statNum(status.data?.subscriptions_count)} />
             <Stat
               label={t("vpsMonitor.status.interval")}
@@ -246,11 +253,11 @@ function VPSMonitorPage() {
       </Card>
 
       {list.isPending ? (
-        <div className="space-y-3">
+        <Card className="p-4 space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 rounded-2xl" />
+            <Skeleton key={i} className="h-14 rounded-lg" />
           ))}
-        </div>
+        </Card>
       ) : list.isError ? (
         /* 列表没读到 ≠ 一条订阅都没有。以前直接掉进"暂无 VPS 订阅",
            而订阅其实还在后端跑着 —— 用户看见空列表会照着再加一遍,
@@ -273,8 +280,18 @@ function VPSMonitorPage() {
           />
         </Card>
       ) : (
-        <div className="space-y-3">
-          {subs.map((s) => (
+        <Card className="overflow-hidden cq">
+          <ListToolbar
+            end={<SearchBox value={search} onChange={setSearch} placeholder={t("vpsMonitor.list.search")} className="w-full sm:w-60" />}
+          >
+            <span className="text-[13px] font-medium">{t("vpsMonitor.list.title")}</span>
+            <span className="text-xs text-muted-foreground tabular-nums">{visibleSubs.length}/{subs.length}</span>
+          </ListToolbar>
+          {visibleSubs.length === 0 ? (
+            <p className="px-4 py-10 text-center text-sm text-muted-foreground">{t("vpsMonitor.list.noMatch")}</p>
+          ) : (
+          <div className="divide-y divide-border">
+          {visibleSubs.map((s) => (
             <VPSRow
               key={s.id}
               sub={s}
@@ -287,7 +304,16 @@ function VPSMonitorPage() {
               onDelete={() => setConfirmRemove(s)}
             />
           ))}
-        </div>
+          </div>
+          )}
+        </Card>
+      )}
+
+      {vpsList.data && (vpsList.data || []).length > 0 && (
+        <section className="app-card panel">
+          <div className="panel-head"><span className="eyebrow">{t("vpsMonitor.heatTitle")}</span></div>
+          <div className="panel-body"><HeatGrid cells={(vpsEvents.data || []).map((e) => ({ ts: e.ts }))} loading={vpsEvents.isPending} /></div>
+        </section>
       )}
 
       {/* 添加订阅 Dialog */}
@@ -375,90 +401,88 @@ function VPSRow({
 }) {
   const { t } = useTranslation();
   return (
-    <Card>
-      <CardContent className="p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span className="font-semibold text-sm">{modelLabel(sub.planCode)}</span>
-              <span className="font-mono text-[11px] text-muted-foreground">{sub.planCode}</span>
-              <Chip tone="default">{sub.ovhSubsidiary}</Chip>
-              {sub.retired && (
-                <Chip tone="danger" title={t("vpsMonitor.row.retiredTitle")}>
-                  {t("vpsMonitor.row.retired")}
-                </Chip>
-              )}
-              {sub.autoOrder && sub.autoOrderAccountId && (
-                <Chip
-                  tone="solid"
-                  title={t("vpsMonitor.row.manualPayTitle")}
-                >
-                  {t("vpsMonitor.row.autoOrder")}
-                  {sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
-                  
-                </Chip>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground mb-1.5">
-              {sub.datacenters.length > 0
-                ? t("vpsMonitor.row.dcs", { dcs: sub.datacenters.join(", ") })
-                : t("vpsMonitor.row.allDcs")}
-            </p>
-            <div className="flex gap-1.5 flex-wrap items-center">
-              {sub.monitorLinux && <Chip tone="info">Linux</Chip>}
-              {sub.monitorWindows && <Chip tone="info">Windows</Chip>}
-              {sub.notifyAvailable && <Chip tone="success">{t("vpsMonitor.row.notifyAvailable")}</Chip>}
-              {sub.notifyUnavailable && <Chip tone="warning">{t("vpsMonitor.row.notifyUnavailable")}</Chip>}
-              <Chip><OrderDurationLabel value={sub.duration} /></Chip>
-              {sub.autoOrder && sub.autoOrderAccountId ? (
-                <>
-                  <Chip tone="solid">
-                    {t("vpsMonitor.row.autoOrder")}
-                    {sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
-                  </Chip>
-                  <span className="text-[11px] text-muted-foreground">→</span>
-                  <AccountChip accountId={sub.autoOrderAccountId} />
-                </>
-              ) : sub.autoOrder ? (
-                <Chip tone="warning">{t("vpsMonitor.row.autoNoAccount")}</Chip>
-              ) : null}
-            </div>
+    <div className="px-4 py-3">
+      <div className="list-row">
+        <div className="lr-main">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            <span className="font-semibold text-[13px] truncate">{modelLabel(sub.planCode)}</span>
+            <Chip tone="default">{sub.ovhSubsidiary}</Chip>
+            {sub.retired && (
+              <Chip tone="danger" title={t("vpsMonitor.row.retiredTitle")}>
+                {t("vpsMonitor.row.retired")}
+              </Chip>
+            )}
           </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onToggleExpand}
-              aria-label={t("vpsMonitor.row.historyAria")}
-            >
-              {expanded ? (
-                <ChevronUp className="w-4 h-4" />
-              ) : (
-                <HistoryIcon className="w-4 h-4" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onEdit}
-              aria-label={t("vpsMonitor.row.editAria")}
-              title={t("vpsMonitor.row.editTitle")}
-            >
-              <Pencil className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={t("common.delete")}>
-              <X className="w-4 h-4" />
-            </Button>
+          {modelLabel(sub.planCode) !== sub.planCode && (
+            <div className="font-mono text-[11px] text-muted-foreground truncate mt-0.5">{sub.planCode}</div>
+          )}
+          <div className="text-xs text-muted-foreground mt-0.5 break-words">
+            {sub.datacenters.length > 0
+              ? t("vpsMonitor.row.dcs", { dcs: sub.datacenters.join(", ") })
+              : t("vpsMonitor.row.allDcs")}
           </div>
         </div>
+        <div className="lr-meta flex gap-1.5 flex-wrap items-center">
+          {sub.monitorLinux && <Chip tone="info">Linux</Chip>}
+          {sub.monitorWindows && <Chip tone="info">Windows</Chip>}
+          {sub.notifyAvailable && <Chip tone="success">{t("vpsMonitor.row.notifyAvailable")}</Chip>}
+          {sub.notifyUnavailable && <Chip tone="warning">{t("vpsMonitor.row.notifyUnavailable")}</Chip>}
+          <Chip><OrderDurationLabel value={sub.duration} /></Chip>
+        </div>
+        <div className="lr-side flex gap-1.5 flex-wrap items-center">
+          {sub.autoOrder && sub.autoOrderAccountId ? (
+            <>
+              <Chip
+                tone="solid"
+                title={sub.autoPay ? t("vpsMonitor.row.autoPayTitle") : t("vpsMonitor.row.manualPayTitle")}
+              >
+                {t("vpsMonitor.row.autoOrder")}
+                {sub.quantity && sub.quantity > 1 ? ` ×${sub.quantity}` : ""}
+                {sub.autoPay ? t("vpsMonitor.row.autoPaySuffix") : ""}
+              </Chip>
+              <span className="text-[11px] text-muted-foreground">→</span>
+              <AccountChip accountId={sub.autoOrderAccountId} />
+            </>
+          ) : sub.autoOrder ? (
+            <Chip tone="warning">{t("vpsMonitor.row.autoNoAccount")}</Chip>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">{t("vpsMonitor.row.notifyOnly")}</span>
+          )}
+        </div>
+        <div className="lr-act flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={onToggleExpand}
+            aria-label={t("vpsMonitor.row.historyAria")}
+            title={t("vpsMonitor.row.historyAria")}
+            aria-expanded={expanded}
+          >
+            {expanded ? <ChevronUp className="w-4 h-4" /> : <HistoryIcon className="w-4 h-4" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={onEdit}
+            aria-label={t("vpsMonitor.row.editAria")}
+            title={t("vpsMonitor.row.editTitle")}
+          >
+            <Pencil className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" onClick={onDelete} aria-label={t("common.delete")} title={t("common.delete")}>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
 
-        {expanded && (
-          <div className="mt-4 pt-4 border-t border-border">
-            <VPSHistoryPanel id={sub.id} />
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <VPSHistoryPanel id={sub.id} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -565,6 +589,7 @@ function AddVPSDialog({
   // 空 = 用 OVH 默认镜像。VPS 的系统是下单时就要定的配置项,不是买完再装
   const [os, setOs] = useState("");
   // 默认不自动付款:自动扣钱必须显式打开
+  const [autoPay, setAutoPay] = useState(false);
   const [duration, setDuration] = useState("P1M");
   // 订阅的下单账户 = 左侧菜单栏(手机端在顶栏)的全局账户,不再单独选
   const [globalAccountId] = useActiveAccount();
@@ -600,6 +625,7 @@ function AddVPSDialog({
     setAutoOrder(false);
     setQuantity(1);
     setOs("");
+    setAutoPay(false);
     setDuration("P1M");
   };
 
@@ -617,6 +643,7 @@ function AddVPSDialog({
       setAutoOrder(!!editing.autoOrder);
       setQuantity(editing.quantity && editing.quantity > 0 ? editing.quantity : 1);
       setOs(editing.os || "");
+      setAutoPay(!!editing.autoPay);
         setDuration(editing.duration || "P1M");
     } else {
       reset();
@@ -668,6 +695,7 @@ function AddVPSDialog({
       quantity: autoOrder ? quantity : undefined,
       os: autoOrder ? os : "",
       autoOrderAccountId: autoOrder ? autoOrderAccountId : "",
+      autoPay: autoOrder ? autoPay : false,
       duration,
     };
     const done = {
@@ -936,7 +964,14 @@ function AddVPSDialog({
                 <p className="text-[11px] text-muted-foreground mt-1">
                   {t("vpsMonitor.dialog.osHint")}
                 </p>
-                <p className="text-[11px] text-muted-foreground mt-1.5">{t("vpsMonitor.row.manualPayTitle")}</p>
+                <label className="flex items-center gap-2 mt-2 cursor-pointer text-[12px]">
+                  <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
+                  {t("vpsMonitor.dialog.autoPay")}
+                </label>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {t("vpsMonitor.dialog.autoPayHint")}
+                </p>
+                <AutoPayStatus accountId={autoOrderAccountId} enabled={autoPay} />
               </div>
             </div>
           )}
@@ -978,7 +1013,7 @@ function Stat({ label, value }: { label: string; value: number | string }) {
   return (
     <div>
       <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="text-lg font-semibold">{value}</div>
+      <div className="text-base font-semibold tabular-nums">{value}</div>
     </div>
   );
 }

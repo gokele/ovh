@@ -19,7 +19,7 @@ func TestMonitorPauseAlsoPausesMatchingQueue(t *testing.T) {
 	st, mon := newWatchTestMonitor(t)
 	st.Accounts = []types.OVHAccount{{ID: "eu", IsDefault: true}}
 	options := []string{"ram-32g", "bandwidth-1000"}
-	mon.AddSubscription("plan", []string{"TOR"}, true, false, "", nil, nil, true, 1, "eu", options, "")
+	mon.AddSubscription("plan", []string{"TOR"}, true, false, "", nil, nil, true, 1, "eu", false, options, "")
 	matching := types.QueueItem{AccountID: "eu", PlanCode: "plan", Datacenter: "ca-east-tor-a", Options: options, Status: "running"}
 	tasks := []struct {
 		id, status, account, dc string
@@ -106,7 +106,7 @@ func TestMonitorPauseAlsoPausesMatchingQueue(t *testing.T) {
 // 即使暂停时还没有任务,已经在请求途中的自动建单也必须被挡住,且重启后仍有效。
 func TestPausedMonitorRejectsLateEnqueueAfterReload(t *testing.T) {
 	st, mon := newWatchTestMonitor(t)
-	mon.AddSubscription("plan", nil, true, false, "", nil, nil, true, 1, "eu", nil, "")
+	mon.AddSubscription("plan", nil, true, false, "", nil, nil, true, 1, "eu", false, nil, "")
 	r := gin.New()
 	r.POST("/pause/:planCode", PauseSubscription(st, mon))
 	w := payRequest(r, "POST", "/pause/plan", `{"optionsKey":"","paused":true}`)
@@ -129,8 +129,8 @@ func TestPausedMonitorRejectsLateEnqueueAfterReload(t *testing.T) {
 // 全局停止在监控已经没运行时也要暂停所有订阅关联任务,保留不相关任务。
 func TestStopMonitorPausesAllSubscribedQueues(t *testing.T) {
 	st, mon := newWatchTestMonitor(t)
-	mon.AddSubscription("a", nil, true, false, "", nil, nil, false, 0, "", nil, "")
-	mon.AddSubscription("b", []string{"gra"}, true, false, "", nil, nil, false, 0, "", nil, "")
+	mon.AddSubscription("a", nil, true, false, "", nil, nil, false, 0, "", false, nil, "")
+	mon.AddSubscription("b", []string{"gra"}, true, false, "", nil, nil, false, 0, "", false, nil, "")
 	st.Queue = []types.QueueItem{{ID: "a", PlanCode: "a", Status: "running"}, {ID: "b", PlanCode: "b", Datacenter: "gra", Status: "pending"}, {ID: "unrelated", PlanCode: "c", Status: "running"}, {ID: "other-dc", PlanCode: "b", Datacenter: "rbx", Status: "running"}}
 	router := gin.New()
 	router.POST("/stop", StopMonitor(st, mon))
@@ -155,7 +155,7 @@ func TestStopMonitorPausesAllSubscribedQueues(t *testing.T) {
 // 取消与自动入队竞争时,无论谁先获得队列锁,最终都不能残留运行中的关联任务。
 func TestMonitorPauseRacesAutomaticEnqueue(t *testing.T) {
 	st, mon := newWatchTestMonitor(t)
-	mon.AddSubscription("plan", nil, true, false, "", nil, nil, true, 1, "eu", nil, "")
+	mon.AddSubscription("plan", nil, true, false, "", nil, nil, true, 1, "eu", false, nil, "")
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := 0; i < 30; i++ {
@@ -186,7 +186,7 @@ func TestMonitorPauseRacesAutomaticEnqueue(t *testing.T) {
 // 队列保存失败也必须立刻停掉尝试并报错;已保存的监控暂停可在重启时修复旧队列。
 func TestMonitorPauseSaveFailureStaysStopped(t *testing.T) {
 	st, mon := newWatchTestMonitor(t)
-	mon.AddSubscription("plan", nil, true, false, "", nil, nil, false, 0, "", nil, "")
+	mon.AddSubscription("plan", nil, true, false, "", nil, nil, false, 0, "", false, nil, "")
 	st.Queue = []types.QueueItem{{ID: "task", PlanCode: "plan", Status: "running"}}
 	if err := st.SaveQueue(); err != nil {
 		t.Fatal(err)

@@ -69,7 +69,7 @@ func TestTelegramTaskDeleteNeedsConfirmAndPauseAll(t *testing.T) {
 // 订阅按钮:暂停/恢复按型号 + 配置精确定位,按钮在长度上限内。
 func TestTelegramSubscriptionPauseResume(t *testing.T) {
 	state, mon := newWatchTestMonitor(t)
-	mon.AddSubscription("24ska01", nil, true, false, "", nil, nil, false, 1, "", []string{"ram-64g-ecc-2133-24ska01", "softraid-2x2000sa-24ska01"}, "")
+	mon.AddSubscription("24ska01", nil, true, false, "", nil, nil, false, 1, "", false, []string{"ram-64g-ecc-2133-24ska01", "softraid-2x2000sa-24ska01"}, "")
 	kb := subsKeyboard(mon)
 	assertButtonsFit(t, kb)
 	rows := kb["inline_keyboard"].([][]map[string]interface{})

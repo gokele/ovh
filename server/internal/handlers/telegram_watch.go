@@ -123,7 +123,9 @@ func watchText(state *app.State, mon *monitor.Monitor, args []string) string {
 		}
 	}
 
-	mon.AddSubscription(planCode, dcs, true, false, "", nil, nil, autoOrder, quantity, accountID, nil, duration)
+	// autoPay 恒 false：自动付款是个要用户显式打开的开关，
+	// 不能因为他在手机上打了句 /watch 就替他决定花钱方式。
+	mon.AddSubscription(planCode, dcs, true, false, "", nil, nil, autoOrder, quantity, accountID, false, nil, duration)
 	if _, err := persistMonitorChanges(mon); err != nil {
 		return "保存监控配置失败,监控已停止,请检查存储后重试: " + err.Error()
 	}
@@ -156,7 +158,7 @@ func watchText(state *app.State, mon *monitor.Monitor, args []string) string {
 		b.WriteString(fmt.Sprintf(
 			"\n⚠️ 这是真实下单，而且 %d 是**每个机房、每套配置**各 %d 台。\n"+
 				"这个型号如果有多套配置同时补货，实际下单数 = 配置数 × 机房数 × %d。\n"+
-				"抢到的订单不会自动付款，请到 OVH 订单页付款。\n",
+				"抢到的订单默认不自动付款，需要你去付。\n",
 			quantity, quantity, quantity))
 	} else {
 		b.WriteString("补货时：只发通知，你点按钮再下单\n")

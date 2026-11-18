@@ -16,7 +16,7 @@ func TestMonitorDirectEnqueuePreservesQuantityAndDeduplicates(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = state.EnqueueMonitorOrders("eu", "plan", []string{"gra", "bhs"}, []string{"ram-32g"}, 2, "P12M")
+			_ = state.EnqueueMonitorOrders("eu", "plan", []string{"gra", "bhs"}, []string{"ram-32g"}, 2, true, "P12M")
 		}()
 	}
 	wg.Wait()
@@ -24,7 +24,7 @@ func TestMonitorDirectEnqueuePreservesQuantityAndDeduplicates(t *testing.T) {
 		t.Fatal("duplicate or missing tasks", len(state.Queue))
 	}
 	for _, item := range state.Queue {
-		if item.Duration != "P12M" || item.AccountID != "eu" || !item.QuickOrder || len(item.Options) != 1 || item.Options[0] != "ram-32g" {
+		if item.Duration != "P12M" || item.AccountID != "eu" || !item.AutoPay || !item.QuickOrder || len(item.Options) != 1 || item.Options[0] != "ram-32g" {
 			t.Fatal(item)
 		}
 	}
@@ -63,7 +63,7 @@ func TestMonitorDirectEnqueueCannotBypassStopOrPersistence(t *testing.T) {
 			case "quantity":
 				quantity = types.MaxOrderQuantity + 1
 			}
-			if err := state.EnqueueMonitorOrders("eu", "plan", []string{"gra"}, nil, quantity, ""); err == nil || len(state.Queue) != 0 {
+			if err := state.EnqueueMonitorOrders("eu", "plan", []string{"gra"}, nil, quantity, false, ""); err == nil || len(state.Queue) != 0 {
 				t.Fatal("safety gate bypassed", err, state.Queue)
 			}
 		})
@@ -75,7 +75,7 @@ func TestMonitorDirectEnqueueHonorsLegacyUnscopedTasks(t *testing.T) {
 	state := enqueueTestState(t)
 	state.Accounts = []types.OVHAccount{{ID: "eu", Endpoint: "ovh-eu"}}
 	state.Queue = []types.QueueItem{{ID: "legacy", PlanCode: "plan", Datacenter: "gra", Status: "running"}}
-	if err := state.EnqueueMonitorOrders("eu", "plan", []string{"gra"}, nil, 1, ""); err == nil || len(state.Queue) != 1 {
+	if err := state.EnqueueMonitorOrders("eu", "plan", []string{"gra"}, nil, 1, false, ""); err == nil || len(state.Queue) != 1 {
 		t.Fatal("legacy task duplicated", err)
 	}
 }

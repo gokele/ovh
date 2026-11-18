@@ -18,6 +18,7 @@ import (
 	"github.com/ovh-buy/server/internal/numconv"
 	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
+	"github.com/ovh-buy/server/internal/paycheck"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 	"time"
@@ -411,7 +412,7 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			recordFailureStatus(state, item, "结账请求未发出但登记未能清除,请人工核对: "+releaseErr.Error(), "uncertain")
 			return Outcome{PauseTask: true}
 		}
-		if call, prepErr := ovh.PreparePost(cart.client, "/order/cart/"+cart.id+"/checkout", checkoutPayload()); prepErr == nil && time.Now().Before(cart.expires) {
+		if call, prepErr := ovh.PreparePost(cart.client, "/order/cart/"+cart.id+"/checkout", checkoutPayload(item.AutoPay)); prepErr == nil && time.Now().Before(cart.expires) {
 			cart.call = call
 			session.cart = cart
 		} else {
@@ -507,6 +508,15 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 	// 异步补:从 /me/order/{orderID} 读 expirationDate + 价格,写回 history
 	if orderID != "" {
 		go backfillOrderDetail(state, client, item.ID, orderID)
+		if item.AutoPay {
+			// 请求了自动付款 ≠ 已扣款:后台核对订单状态,未付上时通知用户手动付款。
+			// 用独立 SDK 实例,不与 backfill 并发共用同一个 client。
+			if acc, ok := state.FindAccount(item.AccountID); ok {
+				if checkClient, err := state.OVH.IsolatedClientForAccount(acc); err == nil {
+					paycheck.Watch(state, checkClient, item.PlanCode+"@"+strings.ToUpper(item.Datacenter), orderID, ovh.ManagerOrderURL(acc.Endpoint, orderID))
+				}
+			}
+		}
 	}
 
 	state.Logger.Info(fmt.Sprintf("成功购买 %s 在 %s (订单ID: %s)",
@@ -979,6 +989,12 @@ func backfillOrderDetail(state *app.State, client *ovhsdk.Client, taskID, orderI
 func BuildOrderSuccessMessage(item *types.QueueItem, orderID, managerURL string) string {
 	payNote := "⚠️ 订单尚未付款：请尽快打开订单链接完成付款,逾期未付订单会自动作废。\n" +
 		"(撤回资格与退款金额以 OVH 订单页面显示为准)\n"
+	if item.AutoPay {
+		// 只承诺我们真正知道的:已请求自动付款 ≠ 扣款一定成功
+		// (默认支付方式失效/余额不足时 OVH 不会扣成),让用户去核对
+		payNote = "💳 已请求用账户默认支付方式自动付款,请打开订单链接核对扣款是否成功。\n" +
+			"(申请撤回的资格和退款金额以 OVH 订单页为准)\n"
+	}
 	// 发控制面板深链,不发 checkout 返回的那个 url ——
 	// 后者是带凭证的下载链接(OVH 的 billing.Order 里 url 旁边就是 password),
 	// 而这条消息会进 Telegram 群和用户配的任意 webhook。

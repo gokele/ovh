@@ -10,6 +10,8 @@ import "@/lib/skin";
 import "@/styles/globals.css";
 // 珍珠玻璃设计体系(来自 scaffold-master):层序 = tokens → base → materials → components → instruments → layout → pages + 桥接/定制
 import "@/styles/pearl-bundle.css";
+// 收敛层:压低装饰(渐变、光晕、大圆角),必须在 pearl-bundle 之后加载
+import "@/styles/calm.css";
 
 /**
  * 应用入口：

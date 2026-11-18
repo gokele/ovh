@@ -1,18 +1,17 @@
 import { OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { Link } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
-import { Clock, RefreshCw, Trash2, Search, ExternalLink, AlertCircle, Hourglass } from "lucide-react";
+import { Clock, RefreshCw, Trash2, ExternalLink, AlertCircle, Hourglass } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { fmtDateTime } from "@/i18n/format";
 import { PageHeader } from "@/components/common/PageHeader";
-import { PearlSearchForm } from "@/components/pearl/ListKit";
+import { ListToolbar, SearchBox, Segmented } from "@/components/common/ListToolbar";
+import { useContainerWide } from "@/hooks/use-container-wide";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Chip } from "@/components/common/Chip";
 import { AccountChip } from "@/components/common/AccountChip";
 import { TimingChip } from "@/components/common/TimingChip";
@@ -145,8 +144,34 @@ function HistoryPage() {
     });
   }, [items, search, statusFilter]);
 
+  const counts = useMemo(() => {
+    const c = { all: items.length, success: 0, failed: 0, uncertain: 0 };
+    for (const i of items) if (i.status in c) c[i.status as "success" | "failed" | "uncertain"]++;
+    return c;
+  }, [items]);
+  const [tableRef, wide] = useContainerWide(HISTORY_TABLE_MIN_WIDTH);
+  const toolbar = (
+    <ListToolbar
+      end={<SearchBox value={search} onChange={setSearch} placeholder={t("history.searchPlaceholder")} className="w-full sm:w-64" />}
+    >
+      <Segmented<"all" | "success" | "failed" | "uncertain">
+        label={t("history.allStatuses")}
+        value={statusFilter}
+        onChange={setStatusFilter}
+        options={[
+          { value: "all", label: t("history.allStatuses"), count: counts.all },
+          { value: "success", label: t("history.success"), count: counts.success },
+          { value: "failed", label: t("history.failed"), count: counts.failed },
+          ...(counts.uncertain > 0 || statusFilter === "uncertain"
+            ? [{ value: "uncertain" as const, label: t("history.uncertain"), count: counts.uncertain }]
+            : []),
+        ]}
+      />
+    </ListToolbar>
+  );
+
   return (
-    <div className="space-y-3 sm:space-y-6">
+    <div className="space-y-3 sm:space-y-5">
       <PageHeader
         icon={Clock}
         title={t("history.title")}
@@ -155,6 +180,7 @@ function HistoryPage() {
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               variant="outline"
+              size="sm"
               onClick={() => refreshStatus.mutate()}
               disabled={list.isFetching || refreshStatus.isPending}
               title={t("history.refreshStatusTitle")}
@@ -164,7 +190,7 @@ function HistoryPage() {
               />
               {t("history.refreshStatus")}
             </Button>
-            <Button variant="outline" onClick={() => setConfirmClear(true)} disabled={items.length === 0}>
+            <Button variant="outline" size="sm" onClick={() => setConfirmClear(true)} disabled={items.length === 0}>
               <Trash2 className="w-4 h-4" />
               {t("history.clear")}
             </Button>
@@ -172,28 +198,6 @@ function HistoryPage() {
         }
       />
 
-        <PearlSearchForm>
-          <div className="relative field" style={{ flex: "1 1 240px" }}>
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-            <Input
-              placeholder={t("history.searchPlaceholder")}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
-            <SelectTrigger>
-              <SelectValue placeholder={t("history.allStatuses")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("history.allStatuses")}</SelectItem>
-              <SelectItem value="success">{t("history.success")}</SelectItem>
-              <SelectItem value="failed">{t("history.failed")}</SelectItem>
-              <SelectItem value="uncertain">{t("history.uncertain")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </PearlSearchForm>
 
       {list.isPending ? (
         <Card>
@@ -216,65 +220,63 @@ function HistoryPage() {
             {t("history.loadFailedHint")}
           </p>
         </Card>
-      ) : filtered.length === 0 ? (
+      ) : items.length === 0 ? (
         <Card>
-          {items.length === 0 ? (
-            <EmptyState
-              illustration="history"
-              title={t("history.emptyNoneTitle")}
-              description={t("history.emptyNoneDesc")}
-              action={
-                <Button variant="outline" asChild>
-                  <Link to="/servers">{t("queue.emptyBrowse")}</Link>
-                </Button>
-              }
-            />
-          ) : (
-            <EmptyState
-              illustration="search"
-              title={t("history.emptyTitle")}
-              action={
-                <Button variant="outline" onClick={() => { setSearch(""); setStatusFilter("all"); }}>
-                  {t("history.clearFilters")}
-                </Button>
-              }
-            />
-          )}
+          <EmptyState
+            illustration="history"
+            title={t("history.emptyNoneTitle")}
+            description={t("history.emptyNoneDesc")}
+            action={
+              <Button variant="outline" asChild>
+                <Link to="/servers">{t("queue.emptyBrowse")}</Link>
+              </Button>
+            }
+          />
         </Card>
       ) : (
-        <>
-          {/* 桌面 / 平板:横向表格 */}
-          <Card className="hidden md:block overflow-x-auto table-wrap">
-            <div className="panel-head">
-              <span className="eyebrow">{t("history.title")}</span>
-              <span className="panel-meta">{items.length} / {filtered.length}</span>
-            </div>
-            <table className="table">
-              <thead>
-                <tr className="text-left text-[11px] font-medium text-muted-foreground border-b border-border">
-                  <th className="px-4 py-3">{t("history.col.model")}</th>
-                  <th className="px-4 py-3">{t("history.col.dc")}</th>
-                  <th className="px-4 py-3">{t("history.col.options")}</th>
-                  <th className="px-4 py-3">{t("history.col.price")}</th>
-                  <th className="px-4 py-3">{t("history.col.status")}</th>
-                  <th className="px-4 py-3">{t("history.col.time")}</th>
-                  <th className="px-4 py-3" title={t("history.col.remainingTitle")}>
-                {t("history.col.remaining")}
-              </th>
-                  <th className="px-4 py-3">{t("history.col.action")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.map((item) => <HistoryRow key={item.id} item={item} now={now} />)}
-              </tbody>
-            </table>
-          </Card>
-
-          {/* 手机:卡片堆叠,每条订单一张卡 */}
-          <div className="md:hidden space-y-2">
-            {filtered.map((item) => <HistoryCard key={item.id} item={item} now={now} />)}
+        <Card className="overflow-hidden">
+          {toolbar}
+          <div ref={tableRef}>
+            {filtered.length === 0 ? (
+              <EmptyState
+                illustration="search"
+                title={t("history.emptyTitle")}
+                action={
+                  <Button variant="outline" onClick={() => { setSearch(""); setStatusFilter("all"); }}>
+                    {t("history.clearFilters")}
+                  </Button>
+                }
+              />
+            ) : wide ? (
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-b border-border whitespace-nowrap">
+                    <th className="px-4 py-2.5">{t("history.col.model")}</th>
+                    <th className="px-3 py-2.5">{t("history.col.dc")}</th>
+                    <th className="px-3 py-2.5">{t("history.col.options")}</th>
+                    <th className="px-3 py-2.5">{t("history.col.price")}</th>
+                    <th className="px-3 py-2.5">{t("history.col.status")}</th>
+                    <th className="px-3 py-2.5">{t("history.col.time")}</th>
+                    <th className="px-3 py-2.5" title={t("history.col.remainingTitle")}>
+                      {t("history.col.remaining")}
+                    </th>
+                    <th className="px-4 py-2.5">{t("history.col.action")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filtered.map((item) => <HistoryRow key={item.id} item={item} now={now} />)}
+                </tbody>
+              </table>
+            ) : (
+              <div className="divide-y divide-border">
+                {filtered.map((item) => <HistoryCard key={item.id} item={item} now={now} />)}
+              </div>
+            )}
           </div>
-        </>
+          <div className="px-4 py-2.5 border-t border-border text-[11px] text-muted-foreground tabular-nums">
+            {filtered.length} / {items.length}
+          </div>
+        </Card>
       )}
 
       <Dialog open={confirmClear} onOpenChange={setConfirmClear}>
@@ -305,9 +307,9 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
   // 24 小时内进入告警色
   const isUrgent = showCountdown && !isExpired && remainingMs < 24 * 60 * 60 * 1000;
   return (
-    <tr className={`text-[13px] hover:bg-muted ${isExpired ? "opacity-60" : ""}`}>
-      <td className={`px-4 py-3 font-mono font-semibold ${isExpired ? "line-through" : ""}`}>
-        <div className="flex items-center gap-2 flex-wrap">
+    <tr className={`text-[13px] hover:bg-muted/50 align-top ${isExpired ? "opacity-60" : ""}`}>
+      <td className={`px-4 py-3 font-mono font-semibold min-w-[220px] ${isExpired ? "line-through" : ""}`}>
+        <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
           {item.planCode}
           <AccountChip accountId={item.accountId} />
           <TimingChip totalMs={item.totalMs} phases={item.timing} />
@@ -316,8 +318,8 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
           {item.couponWarning && <p className="w-full text-[11px] font-normal text-warning break-words" role="status">{item.couponWarning}</p>}
         </div>
       </td>
-      <td className={`px-4 py-3 ${isExpired ? "line-through" : ""}`}>{item.datacenter.toUpperCase()}</td>
-      <td className={`px-4 py-3 text-muted-foreground max-w-[200px] truncate ${isExpired ? "line-through" : ""}`}>
+      <td className={`px-3 py-3 whitespace-nowrap ${isExpired ? "line-through" : ""}`}>{item.datacenter.toUpperCase()}</td>
+      <td className={`px-3 py-3 text-muted-foreground max-w-[180px] truncate ${isExpired ? "line-through" : ""}`} title={item.options?.join(", ")}>
         {item.options && item.options.length > 0 ? item.options.join(", ") : t("history.defaultOptions")}
       </td>
       <td className="px-4 py-3">
@@ -383,8 +385,7 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
   const isExpired = showCountdown && remainingMs <= 0;
   const isUrgent = showCountdown && !isExpired && remainingMs < 24 * 60 * 60 * 1000;
   return (
-    <Card className={isExpired ? "opacity-60" : ""}>
-      <CardContent className="p-3 space-y-2">
+    <div className={`px-4 py-3 space-y-2 ${isExpired ? "opacity-60" : ""}`}>
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
             <span className={`font-mono font-semibold text-[13px] ${isExpired ? "line-through" : ""}`}>{item.planCode}</span>
@@ -440,7 +441,9 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
             </button>
           ) : null}
         </div>
-      </CardContent>
-    </Card>
+    </div>
   );
 }
+
+/** 历史表格完整显示所需的最小宽度;不足时改用紧凑列表。 */
+const HISTORY_TABLE_MIN_WIDTH = 940;

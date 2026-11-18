@@ -144,15 +144,9 @@ function SettingsPage() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr] gap-4">
-        {/* sub-nav:桌面竖向左栏,手机横向滚动 tab */}
-        {/* 手机端这是一条横滑的 tab 条。原来右边直接被裁断,「通知通道」只露半个字,
-            看不出还能往右滑 —— 加一层右侧渐隐当作可滚动的提示,
-            并且隐藏滚动条(移动端本来就不显示,桌面横滑时那条也碍眼)。 */}
+        {/* sub-nav:桌面竖向左栏;手机/平板为多列网格,全部可见,不横向滚动 */}
         <div className="relative lg:contents">
-          {/* nav 用了 -mx-3 出血到屏幕边,渐隐也要跟着 -right-3,
-              否则它只盖到栅格格子的边界,真正被裁断的那几像素还是硬切 */}
-          <div className="pointer-events-none absolute -right-3 top-0 bottom-0 w-10 bg-gradient-to-l from-background via-background/80 to-transparent lg:hidden z-10" />
-        <nav className="lg:space-y-1 flex lg:flex-col overflow-x-auto lg:overflow-visible gap-1 lg:gap-0 -mx-3 px-3 lg:mx-0 lg:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <nav className="lg:space-y-1 grid grid-cols-3 sm:grid-cols-4 lg:flex lg:flex-col gap-1 lg:gap-0">
           {SECTIONS.map((s) => {
             const Icon = s.icon;
             const a = active === s.id;
@@ -162,15 +156,15 @@ function SettingsPage() {
                 type="button"
                 onClick={() => setActive(s.id)}
                 className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-md text-[13px] transition-colors whitespace-nowrap flex-shrink-0",
+                  "flex items-center gap-2 px-2.5 lg:px-3 py-2 rounded-md text-[13px] transition-colors whitespace-nowrap min-w-0",
                   "lg:w-full lg:border-l-2",
                   a
                     ? "bg-secondary text-foreground font-medium lg:border-l-foreground"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground lg:border-l-transparent"
                 )}
               >
-                <Icon className="w-4 h-4" />
-                {t(s.label)}
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="truncate">{t(s.label)}</span>
               </button>
             );
           })}

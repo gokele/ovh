@@ -15,6 +15,7 @@ import (
 	"github.com/ovh-buy/server/internal/notify"
 	"github.com/ovh-buy/server/internal/orderterm"
 	"github.com/ovh-buy/server/internal/ovh"
+	"github.com/ovh-buy/server/internal/paycheck"
 	"github.com/ovh-buy/server/internal/telegram"
 	"github.com/ovh-buy/server/internal/types"
 )
@@ -288,6 +289,12 @@ func confirmResolvedOrder(state *app.State, client *ovhsdk.Client, target resolv
 	recordSuccess(state, &item, orderID, "", "", nil, "")
 	_ = state.SaveQueue()
 	go backfillOrderDetail(state, client, item.ID, orderID)
+	if item.AutoPay {
+		// 与正常成功路径一致:请求了自动付款也要核对是否真的扣上了
+		if checkClient, err := state.OVH.IsolatedClientForAccount(target.account); err == nil {
+			paycheck.Watch(state, checkClient, item.PlanCode+"@"+strings.ToUpper(item.Datacenter), orderID, ovh.ManagerOrderURL(target.account.Endpoint, orderID))
+		}
+	}
 	state.Logger.Info(fmt.Sprintf("结果不明的结账已核实: 任务 %s 对应订单 %s", item.ID, orderID), "purchase")
 	message := "✅ 已在 OVH 核实到这笔订单（结账时网络结果不明）\n\n" +
 		BuildOrderSuccessMessage(&item, orderID, ovh.ManagerOrderURL(target.account.Endpoint, orderID))

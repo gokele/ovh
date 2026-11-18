@@ -16,7 +16,7 @@ const SelectTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       // 同 input:手机端 16px 防 iOS 聚焦缩放,44px 高保证点击区
-      "flex h-11 sm:h-10 w-full items-center justify-between rounded-xl border border-input bg-background px-3.5 py-2 text-base sm:text-sm",
+      "flex h-10 sm:h-9 w-full items-center justify-between rounded-md border border-input bg-card px-3 py-2 text-base sm:text-sm",
       "placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring",
       "disabled:cursor-not-allowed disabled:opacity-50",
       "[&>span]:line-clamp-1",
@@ -42,7 +42,7 @@ const SelectContent = React.forwardRef<
       className={cn(
         // z-[110]：高于全屏遮罩（AuthGate z-100 / OvhCredsGate z-90 / Dialog z-50），
         // 保证 Select 弹层在任何 overlay 内打开都浮在最上面，不会被盖住。
-        "relative z-[110] max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground",
+        "relative z-[110] max-h-96 min-w-[8rem] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
         className
@@ -65,7 +65,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-default select-none items-center rounded-lg py-2.5 sm:py-1.5 pl-2 pr-8 text-[15px] sm:text-sm outline-none",
+      "relative flex w-full cursor-default select-none items-center rounded py-2.5 sm:py-1.5 pl-2 pr-8 text-[15px] sm:text-sm outline-none",
       "focus:bg-muted focus:text-foreground",
       "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className

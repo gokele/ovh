@@ -23,9 +23,8 @@ type vpsSubRow struct {
 	AutoOrderAccountID string `db:"auto_order_account_id"`
 	AutoOrder          int    `db:"auto_order"`
 	Quantity           int    `db:"quantity"`
-	// AutoPay 旧版「自动付款」列,功能已删除:读取时忽略,写入恒为 0(清掉旧值)
-	AutoPay int    `db:"auto_pay"`
-	OS      string `db:"os"`
+	AutoPay            int    `db:"auto_pay"`
+	OS                 string `db:"os"`
 }
 
 func rowToVPSSub(r vpsSubRow) (types.VPSSubscription, error) {
@@ -63,6 +62,7 @@ func rowToVPSSub(r vpsSubRow) (types.VPSSubscription, error) {
 		AutoOrderAccountID: r.AutoOrderAccountID,
 		AutoOrder:          r.AutoOrder == 1,
 		Quantity:           r.Quantity,
+		AutoPay:            r.AutoPay == 1,
 		OS:                 r.OS,
 	}, nil
 }
@@ -105,6 +105,7 @@ func vpsSubToRow(s types.VPSSubscription) (vpsSubRow, error) {
 		AutoOrderAccountID: s.AutoOrderAccountID,
 		AutoOrder:          bi(s.AutoOrder),
 		Quantity:           s.Quantity,
+		AutoPay:            bi(s.AutoPay),
 		OS:                 s.OS,
 	}, nil
 }

@@ -22,6 +22,7 @@ export interface VPSSubscription {
   /** 自动下单时装什么系统。空 = 用 OVH 默认镜像 */
   os?: string;
   /** 下单成功后自动付款(显式开关,默认关) */
+  autoPay?: boolean;
   /** 触发 auto-order 时用哪个 OVH 账户下单(空 = 只通知) */
   autoOrderAccountId?: string;
   lastStatus: Record<string, string>;

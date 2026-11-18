@@ -249,6 +249,12 @@ export const commonLayerZh = {
       updateNow: "立即更新",
       upToDate: "已是最新 v{{version}}",
     },
+    autoPay: {
+      checking: "正在检查该账户的默认支付方式…",
+      usable: "默认支付方式可用：{{label}}，抢到后将自动扣款",
+      unusable: "自动付款不会生效：{{reason}}。请先在 OVH 设置有效的默认支付方式，否则订单需手动付款",
+      unknown: "无法确认默认支付方式（{{reason}}），抢到后请留意是否已扣款",
+    },
     timing: {
       dispatch: "探测→写出 {{value}}",
       dispatchTitle: "从发现可下单库存到结账请求发出的耗时",

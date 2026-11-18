@@ -1,21 +1,21 @@
 {
   "DELETE /dedicated/server/{serviceName}/features/backupCloud": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "void",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "void",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "void",
       "params": [
         "path:serviceName:string:true"
@@ -470,21 +470,21 @@
   },
   "GET /dedicated/server/{serviceName}/backupCloudOfferDetails": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.backup.BackupOffer",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.backup.BackupOffer",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.backup.BackupOffer",
       "params": [
         "path:serviceName:string:true"
@@ -493,21 +493,21 @@
   },
   "GET /dedicated/server/{serviceName}/biosSettings": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.biosSettings.BiosSettings",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.biosSettings.BiosSettings",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.biosSettings.BiosSettings",
       "params": [
         "path:serviceName:string:true"
@@ -516,21 +516,21 @@
   },
   "GET /dedicated/server/{serviceName}/biosSettings/sgx": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.biosSettingsSgx.BiosSettingsSgx",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.biosSettingsSgx.BiosSettingsSgx",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.biosSettingsSgx.BiosSettingsSgx",
       "params": [
         "path:serviceName:string:true"
@@ -614,21 +614,21 @@
   },
   "GET /dedicated/server/{serviceName}/features/backupCloud": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.BackupCloud",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.BackupCloud",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.BackupCloud",
       "params": [
         "path:serviceName:string:true"
@@ -993,7 +993,7 @@
   },
   "GET /dedicated/server/{serviceName}/networkInterfaceController": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "macAddress[]",
       "params": [
         "path:serviceName:string:true",
@@ -1001,7 +1001,7 @@
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "macAddress[]",
       "params": [
         "path:serviceName:string:true",
@@ -1009,7 +1009,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "macAddress[]",
       "params": [
         "path:serviceName:string:true",
@@ -1019,7 +1019,7 @@
   },
   "GET /dedicated/server/{serviceName}/networkInterfaceController/{mac}/mrtg": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.MrtgTimestampValue[]",
       "params": [
         "path:mac:macAddress:true",
@@ -1029,7 +1029,7 @@
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.MrtgTimestampValue[]",
       "params": [
         "path:mac:macAddress:true",
@@ -1039,7 +1039,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.MrtgTimestampValue[]",
       "params": [
         "path:mac:macAddress:true",
@@ -1166,21 +1166,21 @@
   },
   "GET /dedicated/server/{serviceName}/plannedIntervention": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "long[]",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "long[]",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "long[]",
       "params": [
         "path:serviceName:string:true"
@@ -1189,7 +1189,7 @@
   },
   "GET /dedicated/server/{serviceName}/plannedIntervention/{interventionId}": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.PlannedIntervention",
       "params": [
         "path:interventionId:long:true",
@@ -1197,7 +1197,7 @@
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.PlannedIntervention",
       "params": [
         "path:interventionId:long:true",
@@ -1205,7 +1205,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.PlannedIntervention",
       "params": [
         "path:interventionId:long:true",
@@ -1469,7 +1469,7 @@
   },
   "GET /dedicated/server/{serviceName}/virtualNetworkInterface": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "uuid[]",
       "params": [
         "path:serviceName:string:true",
@@ -1480,7 +1480,7 @@
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "uuid[]",
       "params": [
         "path:serviceName:string:true",
@@ -1491,7 +1491,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "uuid[]",
       "params": [
         "path:serviceName:string:true",
@@ -1934,6 +1934,35 @@
       "response": "billing.order.OrderStatusEnum",
       "params": [
         "path:orderId:long:true"
+      ]
+    }
+  },
+  "GET /me/payment/method": {
+    "CA": {
+      "status": "PRODUCTION",
+      "response": "long[]",
+      "params": [
+        "query:default:boolean:false",
+        "query:paymentType:string:false",
+        "query:status:me.payment.method.StatusEnum:false"
+      ]
+    },
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "long[]",
+      "params": [
+        "query:default:boolean:false",
+        "query:paymentType:string:false",
+        "query:status:me.payment.method.StatusEnum:false"
+      ]
+    },
+    "US": {
+      "status": "PRODUCTION",
+      "response": "long[]",
+      "params": [
+        "query:default:boolean:false",
+        "query:paymentType:string:false",
+        "query:status:me.payment.method.StatusEnum:false"
       ]
     }
   },
@@ -2882,7 +2911,7 @@
   },
   "POST /dedicated/server/{serviceName}/features/backupCloud": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.BackupCloud",
       "params": [
         "body:cloudProjectId:string:false",
@@ -2891,7 +2920,7 @@
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.BackupCloud",
       "params": [
         "body:cloudProjectId:string:false",
@@ -2900,7 +2929,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.BackupCloud",
       "params": [
         "body:cloudProjectId:string:false",
@@ -2911,21 +2940,21 @@
   },
   "POST /dedicated/server/{serviceName}/features/backupCloud/password": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.backup.BackupPassword",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.backup.BackupPassword",
       "params": [
         "path:serviceName:string:true"
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.backup.BackupPassword",
       "params": [
         "path:serviceName:string:true"
@@ -3051,7 +3080,7 @@
   },
   "POST /dedicated/server/{serviceName}/ola/aggregation": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.Task",
       "params": [
         "body:name:string:true",
@@ -3060,7 +3089,7 @@
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.Task",
       "params": [
         "body:name:string:true",
@@ -3069,7 +3098,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.Task",
       "params": [
         "body:name:string:true",
@@ -3080,7 +3109,7 @@
   },
   "POST /dedicated/server/{serviceName}/ola/reset": {
     "CA": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.Task",
       "params": [
         "body:virtualNetworkInterface:uuid:true",
@@ -3088,7 +3117,7 @@
       ]
     },
     "EU": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.Task",
       "params": [
         "body:virtualNetworkInterface:uuid:true",
@@ -3096,7 +3125,7 @@
       ]
     },
     "US": {
-      "status": "BETA",
+      "status": "PRODUCTION",
       "response": "dedicated.server.Task",
       "params": [
         "body:virtualNetworkInterface:uuid:true",

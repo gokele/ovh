@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2, PartyPopper } from "lucide-react";
+import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2, PartyPopper, Pencil } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,6 +39,8 @@ import { RenewalDialog } from "@/components/server-control/RenewalDialog";
 import { RetractionDialog } from "@/components/server-control/RetractionDialog";
 import { ReinstallDialog } from "@/components/server-control/ReinstallDialog";
 import { toast } from "sonner";
+import { ResourceSidebar } from "@/components/common/ResourceSidebar";
+import { useContainerWide } from "@/hooks/use-container-wide";
 
 /** 模块级文案助手共用的翻译函数类型 */
 type TFn = ReturnType<typeof useTranslation>["t"];
@@ -85,7 +87,10 @@ function ServerControlPage() {
   }, [servers, selectedName]);
 
   const selected = servers.find((s) => s.serviceName === selectedName) || null;
-  const activeAcc = accounts?.find((a) => a.id === activeAccount);
+  const aliasesQ = useServerAliases();
+  const [renaming, setRenaming] = useState<OwnedServer | null>(null);
+  // 容器够宽(侧栏收起、大屏)才并排显示左侧列表,否则沿用下拉选择器,永不横向滚动
+  const [layoutRef, wide] = useContainerWide(1080);
 
   return (
     <div className="space-y-3 sm:space-y-6">
@@ -144,38 +149,88 @@ function ServerControlPage() {
           />
         </Card>
       ) : (
-        <Card>
-          <CardContent className="p-4 sm:p-6 space-y-4 sm:space-y-5">
-            {/* 服务器切换器 + 当前选中卡概览 */}
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-4 sm:pb-5 border-b border-border">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 min-w-0">
-                <ServerSelector
-                  servers={servers}
-                  selected={selected}
-                  onChange={(name) => setSelectedName(name)}
-                  hidden={hidden}
-                />
+        <div ref={layoutRef} className={wide ? "grid gap-4 items-start grid-cols-[260px_minmax(0,1fr)]" : ""}>
+          {wide && (
+            <Card className="overflow-hidden sticky top-0">
+              <ResourceSidebar
+                label={t("serverList.sidebar.title")}
+                searchPlaceholder={t("serverList.sidebar.search")}
+                emptyText={t("serverList.sidebar.noMatch")}
+                selected={selectedName}
+                onSelect={setSelectedName}
+                onContextMenu={(id) => setRenaming(servers.find((s) => s.serviceName === id) || null)}
+                items={servers.map((s) => ({
+                  id: s.serviceName,
+                  title: maskSensitive(aliasOf(aliasesQ.data, s.serviceName, s.name), hidden),
+                  sub: [s.commercialRange, (s.datacenter || "").toUpperCase()].filter(Boolean).join(" · "),
+                  meta: maskSensitive(s.ip, hidden),
+                  tone: s.state === "ok" ? "success" : "warning",
+                  badge: s.lottery?.won ? (
+                    <PartyPopper className="w-3 h-3 text-amber-500 flex-shrink-0" aria-label={t("serverList.lotteryBadge")} />
+                  ) : undefined,
+                }))}
+              />
+            </Card>
+          )}
+          <Card className="min-w-0">
+            <CardContent className="p-4 sm:p-5 space-y-4">
+              {/* 宽屏:左侧列表负责切换,这里是当前机器的标题行;窄屏:下拉选择器 */}
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-4 border-b border-border">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 min-w-0">
+                  {wide ? (
+                    selected && (
+                      <div className="min-w-0 flex items-center gap-2">
+                        <h2 className="text-base font-semibold truncate font-mono">
+                          {maskSensitive(aliasOf(aliasesQ.data, selected.serviceName, selected.name), hidden)}
+                        </h2>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {selected.commercialRange} · {(selected.datacenter || "").toUpperCase()}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => setRenaming(selected)}
+                          aria-label={t("serverList.sidebar.rename")}
+                          title={t("serverList.sidebar.rename")}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    )
+                  ) : (
+                    <ServerSelector
+                      servers={servers}
+                      selected={selected}
+                      onChange={(name) => setSelectedName(name)}
+                      hidden={hidden}
+                    />
+                  )}
+                  {selected && (
+                    <Chip tone={selected.state === "ok" ? "success" : "warning"} className="self-start sm:self-auto">
+                      <StatusDot tone={selected.state === "ok" ? "success" : "warning"} pulse={selected.state === "ok"} size="xs" />
+                      {selected.state}
+                    </Chip>
+                  )}
+                </div>
                 {selected && (
-                  <Chip tone={selected.state === "ok" ? "success" : "warning"} className="self-start sm:self-auto">
-                    <StatusDot tone={selected.state === "ok" ? "success" : "warning"} pulse={selected.state === "ok"} size="xs" />
-                    {selected.state}
-                  </Chip>
+                  // 只显示 IP。型号和机房在标题/选择器里已经有了。
+                  <div className="text-[11px] sm:text-[12px] text-muted-foreground break-all sm:truncate font-mono">
+                    {maskSensitive(selected.ip, hidden)}
+                  </div>
                 )}
               </div>
-              {selected && (
-                // 只显示 IP。型号和机房左边的选择器胶囊里已经有了,
-                // 下面的硬件卡片里还有第三遍 —— 同一串信息在一屏里出现三次,
-                // 而这一行唯一独有的信息就是 IP。
-                <div className="text-[11px] sm:text-[12px] text-muted-foreground break-all sm:truncate font-mono">
-                  {maskSensitive(selected.ip, hidden)}
-                </div>
-              )}
-            </div>
 
-            {/* Tabs */}
-            {selected && <ServerTabs key={`${activeAccount}:${selected.serviceName}`} server={selected} />}
-          </CardContent>
-        </Card>
+              {selected && <ServerTabs key={`${activeAccount}:${selected.serviceName}`} server={selected} />}
+            </CardContent>
+          </Card>
+          <RenameDialog
+            server={renaming}
+            currentAlias={renaming ? aliasesQ.data?.[renaming.serviceName] || "" : ""}
+            aliasesUnavailable={aliasesQ.isError}
+            onClose={() => setRenaming(null)}
+          />
+        </div>
       )}
     </div>
   );
@@ -226,7 +281,7 @@ function ServerSelector({
     <>
     <Select value={selected?.serviceName || ""} onValueChange={onChange}>
       <SelectTrigger
-        className="rounded-full w-full sm:min-w-[280px] sm:w-auto lg:min-w-[340px] h-10 font-mono text-sm"
+        className="w-full min-w-0 sm:min-w-[280px] sm:w-auto lg:min-w-[340px] h-9 font-mono text-sm [&>span]:min-w-0"
         // 拦截右键 pointerdown(button=2),不让 Radix Select 打开下拉
         onPointerDown={(e) => {
           if (e.button === 2) {
@@ -245,13 +300,13 @@ function ServerSelector({
       >
         <SelectValue placeholder={t("serverList.selector.placeholder")}>
           {selected && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <StatusDot tone={selected.state === "ok" ? "success" : "warning"} size="xs" />
-              <span className="font-semibold">{maskSensitive(displayName(selected), hidden)}</span>
+              <span className="font-semibold truncate">{maskSensitive(displayName(selected), hidden)}</span>
               {selected.lottery?.won && (
                 <PartyPopper className="w-3 h-3 text-amber-500 flex-shrink-0" aria-label={t("serverList.lotteryBadge")} />
               )}
-              <span className="text-[11px] text-muted-foreground font-sans ml-1">
+              <span className="shrink-0 text-[11px] text-muted-foreground font-sans ml-1 whitespace-nowrap">
                 {selected.commercialRange} · {(selected.datacenter || "").toUpperCase()}
               </span>
             </div>

@@ -18,16 +18,16 @@ func TestSubscriptionIdentityByOptions(t *testing.T) {
 	st := app.NewState(storage.Paths{LogsDir: filepath.Join(dir, "logs")}, nil, logger.New(filepath.Join(dir, "logs.json"), nil), nil)
 	m := New(st)
 
-	m.AddSubscription("26sk50a-v1", nil, true, false, "SK-A", nil, nil, false, 0, "", nil, "") // 盯全部
-	m.AddSubscription("26sk50a-v1", []string{"ram-32g-ecc-1333"}, true, false, "SK-A", nil, nil, false, 0, "", []string{"ram-32g-ecc-1333"}, "")
-	m.AddSubscription("26sk50a-v1", []string{"ram-64g-ecc-1333"}, true, false, "SK-A", nil, nil, false, 0, "", []string{"ram-64g-ecc-1333"}, "")
+	m.AddSubscription("26sk50a-v1", nil, true, false, "SK-A", nil, nil, false, 0, "", false, nil, "") // 盯全部
+	m.AddSubscription("26sk50a-v1", []string{"ram-32g-ecc-1333"}, true, false, "SK-A", nil, nil, false, 0, "", false, []string{"ram-32g-ecc-1333"}, "")
+	m.AddSubscription("26sk50a-v1", []string{"ram-64g-ecc-1333"}, true, false, "SK-A", nil, nil, false, 0, "", false, []string{"ram-64g-ecc-1333"}, "")
 
 	if got := len(m.Snapshot()); got != 3 {
 		t.Fatalf("同型号不同配置应为 3 条订阅(盯全部/32G/64G),实际 %d", got)
 	}
 
 	// 相同组合再添加 → 仍 3 条,就地更新
-	m.AddSubscription("26sk50a-v1", []string{"ram-32g-ecc-1333"}, false, true, "SK-A", nil, nil, false, 0, "", []string{"ram-32g-ecc-1333"}, "")
+	m.AddSubscription("26sk50a-v1", []string{"ram-32g-ecc-1333"}, false, true, "SK-A", nil, nil, false, 0, "", false, []string{"ram-32g-ecc-1333"}, "")
 	if got := len(m.Snapshot()); got != 3 {
 		t.Fatalf("同组合重复添加不应新增,实际 %d 条", got)
 	}

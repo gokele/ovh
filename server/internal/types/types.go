@@ -163,8 +163,13 @@ type QueueItem struct {
 	QuickOrder    bool    `json:"quickOrder,omitempty"`
 	Priority      int     `json:"priority,omitempty"`
 	FromTelegram  bool    `json:"fromTelegram,omitempty"`
-	Coupon        string  `json:"coupon,omitempty"`
-	Preorder      bool    `json:"preorder,omitempty"` // 本地预订:等账户销售目录上架后再尝试下单
+	// AutoPay 下单成功后让 OVH 用账户默认支付方式自动付款
+	// (checkout 的 autoPayWithPreferredPaymentMethod,schema 描述:
+	// "order will be automatically paid with preferred payment method")。
+	// 默认 false:自动扣钱必须是用户显式打开的开关,不能是隐含行为。
+	AutoPay  bool   `json:"autoPay,omitempty"`
+	Coupon   string `json:"coupon,omitempty"`
+	Preorder bool   `json:"preorder,omitempty"` // 本地预订:等账户销售目录上架后再尝试下单
 	// PreorderWaitStock 预售触发方式:false=开售即下(报价开放即结账,按官方排期交付);
 	// true=有货再下(报价开放后还要等库存接口在目标机房出现可下单状态)。仅 Preorder 时有效。
 	PreorderWaitStock  bool   `json:"preorderWaitStock,omitempty"`
@@ -288,6 +293,8 @@ type Subscription struct {
 	AutoOrder          bool                       `json:"autoOrder,omitempty"`
 	Quantity           int                        `json:"quantity,omitempty"`
 	AutoOrderAccountID string                     `json:"autoOrderAccountId,omitempty"` // 空 = 触发时只通知不下单
+	// AutoPay 下单成功后用默认支付方式自动付款(显式开关,默认关)
+	AutoPay bool `json:"autoPay,omitempty"`
 	// Paused 暂停监控:检查循环跳过,订阅与历史保留
 	Paused bool `json:"paused,omitempty"`
 	// Options 只盯这套配置(addon planCode 列表,如 ram-64g / softraid-2x480ssd)。
@@ -323,6 +330,8 @@ type VPSSubscription struct {
 	AutoOrder bool `json:"autoOrder,omitempty"`
 	// Quantity 每次下单几台
 	Quantity int `json:"quantity,omitempty"`
+	// AutoPay 下单成功后用 OVH 默认支付方式自动付款(用户显式开关)
+	AutoPay bool `json:"autoPay,omitempty"`
 	// OS 装什么系统。空 = 从购物车允许的镜像中选择。
 	// VPS 和独服不同:系统是下单时就要定的配置项,不是买完再装。
 	OS string `json:"os,omitempty"`

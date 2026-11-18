@@ -21,10 +21,9 @@ type monitorSubRow struct {
 	AutoOrder          int    `db:"auto_order"`
 	Quantity           int    `db:"quantity"`
 	AutoOrderAccountID string `db:"auto_order_account_id"`
-	// AutoPay 旧版「自动付款」列,功能已删除:读取时忽略,写入恒为 0(清掉旧值)
-	AutoPay     int    `db:"auto_pay"`
-	Paused      int    `db:"paused"`
-	OptionsJSON string `db:"options"`
+	AutoPay            int    `db:"auto_pay"`
+	Paused             int    `db:"paused"`
+	OptionsJSON        string `db:"options"`
 }
 
 func rowToMonitorSub(r monitorSubRow) (types.Subscription, error) {
@@ -60,6 +59,7 @@ func rowToMonitorSub(r monitorSubRow) (types.Subscription, error) {
 		AutoOrder:          r.AutoOrder == 1,
 		Quantity:           r.Quantity,
 		AutoOrderAccountID: r.AutoOrderAccountID,
+		AutoPay:            r.AutoPay == 1,
 		Paused:             r.Paused == 1,
 		Options:            opts,
 	}, nil
@@ -115,6 +115,7 @@ func monitorSubToRow(s types.Subscription) (monitorSubRow, error) {
 		AutoOrder:          bi(s.AutoOrder),
 		Quantity:           s.Quantity,
 		AutoOrderAccountID: s.AutoOrderAccountID,
+		AutoPay:            bi(s.AutoPay),
 		Paused:             bi(s.Paused),
 		OptionsJSON:        string(optsJSON),
 	}, nil

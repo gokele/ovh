@@ -17,7 +17,7 @@ import { PartialNotice } from "@/components/common/PartialNotice";
 import { LoadFailed, LoadFailedBanner } from "@/components/common/LoadFailed";
 import { useAccountInfo, useAccountScope, useRefunds, useEmails, useOrders, type EmailHistoryEntry, type OrderRecord } from "@/hooks/use-account";
 
-/** 账户管理：顶部 3 张 KPI + Tabs (邮件 / 订单 / 退款) */
+/** 账户管理：顶部账户资料条 + Tabs (邮件 / 订单 / 退款 / 工单 / 在线客服) */
 export const Route = createFileRoute("/account")({
   component: AccountPage,
 });
@@ -38,7 +38,7 @@ function AccountPage() {
           ovhSubsidiary 不在一起。凭据是有效的,所以别的地方一切正常,只有目录/价格/下单
           会静默走错站点 —— 这是用户在下单失败之前唯一能看到的信号,放在最显眼处。 */}
       {q.data?.subsidiaryMismatch && (
-        <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-[12px]">
+        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-[12px]">
           <ShieldCheck className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
           <div>
             <p className="font-semibold">{t("account.mismatchTitle")}</p>
@@ -62,31 +62,37 @@ function AccountPage() {
 
       {/* 读取失败时横幅已经说明;再摆三张「—」卡片只会占掉手机一整屏 */}
       {!q.isError && (
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <KpiCard
-          icon={User}
-          label={t("account.customerCode")}
-          value={me?.customerCode}
-          sub={me?.nichandle}
-          loading={loading}
-          badge={
-            me && (
-              <Chip tone={me.kycValidated ? "success" : "warning"}>
-                <ShieldCheck className="w-3 h-3" />
-                {me.kycValidated ? t("account.kycValidated") : t("account.kycNotValidated")}
-              </Chip>
-            )
-          }
-        />
-        <KpiCard icon={Mail} label={t("account.email")} value={me?.email} loading={loading} />
-        <KpiCard
-          icon={User}
-          label={t("account.holder")}
-          value={me ? `${me.firstname ?? ""} ${me.name ?? ""}`.trim() : undefined}
-          sub={me?.city && me?.country ? `${me.city}, ${me.country}` : undefined}
-          loading={loading}
-        />
-      </div>
+      <Card className="overflow-hidden">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 divide-y sm:divide-y-0 divide-border">
+          <ProfileField
+            icon={User}
+            label={t("account.customerCode")}
+            value={me?.customerCode}
+            sub={me?.nichandle}
+            loading={loading}
+          />
+          <ProfileField
+            icon={ShieldCheck}
+            label="KYC"
+            loading={loading}
+            value={
+              me && (
+                <Chip tone={me.kycValidated ? "success" : "warning"}>
+                  {me.kycValidated ? t("account.kycValidated") : t("account.kycNotValidated")}
+                </Chip>
+              )
+            }
+          />
+          <ProfileField icon={Mail} label={t("account.email")} value={me?.email} loading={loading} />
+          <ProfileField
+            icon={User}
+            label={t("account.holder")}
+            value={me ? `${me.firstname ?? ""} ${me.name ?? ""}`.trim() || undefined : undefined}
+            sub={me?.city && me?.country ? `${me.city}, ${me.country}` : undefined}
+            loading={loading}
+          />
+        </dl>
+      </Card>
       )}
 
       <Tabs defaultValue="emails">
@@ -113,39 +119,37 @@ function AccountPage() {
   );
 }
 
-function KpiCard({
+/** 账户资料单元格:标签 + 值 + 附注;未读到显示 —,不把空当事实 */
+function ProfileField({
   icon: Icon,
   label,
   value,
   sub,
   loading,
-  badge,
 }: {
   icon: LucideIcon;
   label: string;
-  value?: string;
+  value?: React.ReactNode;
   sub?: string;
   loading?: boolean;
-  badge?: React.ReactNode;
 }) {
   return (
-      <div className="app-card metric metric-s" style={{ padding: "16px 18px", minWidth: 0 }}>
-        <div className="flex items-center justify-between gap-2">
-          <span className="metric-label">
-            <Icon size={13} strokeWidth={1.9} />
-            <span style={{ marginLeft: 6 }}>{label}</span>
-          </span>
-          {badge}
-        </div>
+    <div className="min-w-0 px-4 py-3 sm:[&:nth-child(n+3)]:border-t xl:[&:nth-child(n+3)]:border-t-0 xl:[&:not(:first-child)]:border-l border-border">
+      <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon className="w-3.5 h-3.5" />
+        {label}
+      </dt>
+      <dd className="mt-1 min-w-0">
         {loading ? (
-          <Skeleton className="h-6 w-32 mt-1" />
+          <Skeleton className="h-5 w-32" />
         ) : (
-          <span className="metric-figure" style={{ fontSize: 22, letterSpacing: "-.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={value}>
+          <div className="text-sm font-medium truncate" title={typeof value === "string" ? value : undefined}>
             {value || "—"}
-          </span>
+          </div>
         )}
-        {sub ? <span className="cell-sub">{sub}</span> : null}
-      </div>
+        {sub && <div className="text-[11px] text-muted-foreground truncate">{sub}</div>}
+      </dd>
+    </div>
   );
 }
 
@@ -220,7 +224,7 @@ function EmailsTab() {
       </Card>
 
       <Card>
-        <CardContent className="p-5">
+        <CardContent className="p-4">
           <div className="flex items-center gap-2 mb-4">
             <FileText className="w-4 h-4 text-muted-foreground" />
             <h3 className="text-sm font-semibold">{t("account.emailDetail")}</h3>
@@ -247,7 +251,7 @@ function RefundsTab() {
   const refunds = useRefunds();
   return (
     <Card>
-      <CardContent className="p-5">
+      <CardContent className="p-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold">{t("account.refundsTab")}</h3>
           <Button variant="outline" size="sm" onClick={() => refunds.refetch()} disabled={refunds.isFetching}>
@@ -294,7 +298,7 @@ function RefundsTab() {
                   <p className="text-[11px] text-muted-foreground">{fmtDateTime(r.date)}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-lg font-bold text-success">{r.priceWithTax.text}</p>
+                  <p className="text-sm font-semibold tabular-nums text-success">{r.priceWithTax.text}</p>
                   {r.pdfUrl && (
                     <a href={r.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-foreground hover:underline">
                       {t("account.downloadPdf")}
@@ -317,7 +321,7 @@ function OrdersTab() {
   const orders = useOrders();
   return (
     <Card>
-      <CardContent className="p-5">
+      <CardContent className="p-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold">{t("account.ordersTab")}</h3>
           <Button variant="outline" size="sm" onClick={() => orders.refetch()} disabled={orders.isFetching}>
@@ -383,7 +387,7 @@ function OrderRow({ order, accountId }: { order: OrderRecord; accountId: string 
         <p className="text-[11px] text-muted-foreground">{fmtDateTime(order.date)}</p>
       </div>
       <div className="sm:text-right flex-shrink-0">
-        <p className="text-lg font-bold">{order.priceWithTax?.text || "—"}</p>
+        <p className="text-sm font-semibold tabular-nums">{order.priceWithTax?.text || "—"}</p>
         {order.orderStatus === "notPaid" && <div className="my-2"><OrderPaymentButton accountId={order.accountId || accountId} orderId={order.orderId} managerUrl={order.url} /></div>}
         {order.paymentStatusError && <p className="text-xs text-warning" title={order.paymentStatusError}>{t("account.payment.statusUnknown")}</p>}
         <div className="flex flex-wrap items-center sm:justify-end gap-3">
