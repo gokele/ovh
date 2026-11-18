@@ -55,6 +55,10 @@ func Open(dataDir string) (*DB, error) {
 		return nil, fmt.Errorf("ping sqlite (%s): %w", driverName, err)
 	}
 
+	// Unsafe:结果里有结构体没有的列时忽略,而不是整条查询失败。
+	// 新版本加列后用户回退到旧版本,旧二进制的 SELECT * 不会再因 missing destination name
+	// 读不出历史/订阅/账户(进而拒绝写入、停止调度)。缺列时字段保持零值,本来就不报错。
+	sx = sx.Unsafe()
 	db := &DB{DB: sx, Path: path, Driver: driverName}
 	if err := db.migrate(); err != nil {
 		_ = sx.Close()
