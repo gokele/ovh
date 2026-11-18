@@ -57,7 +57,7 @@ export function NetworkSpecsDialog({
           <DialogDescription>{t("maint.networkSpecs.desc")}</DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-y-auto -mx-6 px-6 space-y-4 flex-1">
+        <div className="overflow-y-auto -mx-4 px-4 sm:-mx-6 sm:px-6 space-y-4 flex-1">
           {q.isPending ? (
             <Skeleton className="h-60 rounded-2xl" />
           ) : q.isError ? (

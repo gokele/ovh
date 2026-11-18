@@ -397,7 +397,7 @@ export function ReinstallDialog({
           <DialogDescription>{t("ctrl.reinstall.desc")}</DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-y-auto flex-1 -mx-6 px-6 space-y-5">
+        <div className="overflow-y-auto flex-1 -mx-4 px-4 sm:-mx-6 sm:px-6 space-y-5">
           {/* 读失败总览 —— 有任何一条就锁住提交,见 blockingErrors 注释 */}
           {blocked && (
             <div className="border border-destructive/40 bg-destructive/5 rounded-2xl p-3 space-y-2">

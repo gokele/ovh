@@ -69,7 +69,7 @@ function Kpi({
   const body = (
     <div className="flex items-start gap-3">
       <div className="min-w-0 flex-1">
-        <div className={cn("text-[13px] truncate", brand ? "text-white/85" : "text-muted-foreground")} title={label}>{label}</div>
+        <div className={cn("text-[13px] leading-snug line-clamp-2 sm:line-clamp-1 break-words", brand ? "text-white/85" : "text-muted-foreground")} title={label}>{label}</div>
         <div
           className={cn(
             "mt-2 text-[28px] leading-8 font-semibold tabular-nums tracking-tight",
@@ -91,7 +91,7 @@ function Kpi({
           </div>
         )}
       </div>
-      <span className={cn("w-11 h-11 rounded-full flex items-center justify-center shrink-0", KPI_TILE[tone])}>{icon}</span>
+      <span className={cn("hidden min-[360px]:flex w-9 h-9 sm:w-11 sm:h-11 rounded-full items-center justify-center shrink-0 [&_svg]:w-4 [&_svg]:h-4 sm:[&_svg]:w-5 sm:[&_svg]:h-5", KPI_TILE[tone])}>{icon}</span>
     </div>
   );
   return (
@@ -102,11 +102,11 @@ function Kpi({
       )}
     >
       {to ? (
-        <Link to={to} className="group block p-5 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Link to={to} className="group block p-4 sm:p-5 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           {body}
         </Link>
       ) : (
-        <div className="p-5">{body}</div>
+        <div className="p-4 sm:p-5">{body}</div>
       )}
     </Card>
   );
@@ -350,8 +350,9 @@ export function DashboardPearl() {
               </Button>
             </div>
           </div>
-          <div className="hidden sm:block shrink-0 -my-2" aria-hidden>
-            <DashboardArt className="w-[220px] lg:w-[260px] h-auto" />
+          {/* 手机:缩小放在右上角,和问候语同一行,不挤压下面的状态和按钮 */}
+          <div className="absolute right-3 top-3 sm:static sm:block shrink-0 sm:-my-2 pointer-events-none" aria-hidden>
+            <DashboardArt className="w-[104px] sm:w-[220px] lg:w-[260px] h-auto" />
           </div>
         </div>
       </Card>

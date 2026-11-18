@@ -867,11 +867,11 @@ function InfoCard({
   icon, label, value,
 }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="border border-border rounded-xl px-3.5 py-3 flex items-center gap-3 min-w-0">
-      <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">{icon}</div>
+    <div className="border border-border rounded-xl px-3 sm:px-3.5 py-3 flex items-center gap-3 min-w-0">
+      <div className="hidden min-[400px]:flex w-9 h-9 rounded-lg bg-secondary items-center justify-center flex-shrink-0">{icon}</div>
       <div className="min-w-0">
         <div className="text-[11px] text-muted-foreground">{label}</div>
-        <div className="text-[13px] font-semibold truncate" title={value}>{value}</div>
+        <div className="text-[13px] font-semibold leading-snug line-clamp-2 break-words min-[400px]:truncate" title={value}>{value}</div>
       </div>
     </div>
   );

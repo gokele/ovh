@@ -178,9 +178,9 @@ function SettingsPage() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr] gap-4">
-        {/* sub-nav:桌面竖向左栏;手机/平板为多列网格,全部可见,不横向滚动 */}
+        {/* sub-nav:桌面竖向左栏;平板多列网格;手机 4 列图标在上、文字在下,全部可见不截断、不横向滚动 */}
         <div className="relative lg:contents">
-        <nav className="lg:space-y-1 grid grid-cols-3 sm:grid-cols-4 lg:flex lg:flex-col gap-1 lg:gap-0">
+        <nav className="lg:space-y-1 grid grid-cols-4 lg:flex lg:flex-col gap-1 lg:gap-0">
           {SECTIONS.map((s) => {
             const Icon = s.icon;
             const a = active === s.id;
@@ -190,7 +190,7 @@ function SettingsPage() {
                 type="button"
                 onClick={() => setActive(s.id)}
                 className={cn(
-                  "flex items-center gap-2 px-2.5 lg:px-3 py-2 rounded-md text-[13px] transition-colors whitespace-nowrap min-w-0",
+                  "flex flex-col sm:flex-row items-center gap-1 sm:gap-2 px-1 sm:px-2.5 lg:px-3 py-2 rounded-md text-[12px] sm:text-[13px] transition-colors min-w-0",
                   "lg:w-full lg:border-l-2",
                   a
                     ? "bg-secondary text-foreground font-medium lg:border-l-foreground"
@@ -198,7 +198,7 @@ function SettingsPage() {
                 )}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                <span className="truncate">{t(s.label)}</span>
+                <span className="text-center sm:text-left leading-tight break-words max-w-full sm:truncate">{t(s.label)}</span>
               </button>
             );
           })}
@@ -1150,7 +1150,7 @@ function LinkCheckDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-1 max-h-[65vh] overflow-y-auto -mx-6 px-6">
+        <div className="space-y-3 py-1 max-h-[65vh] overflow-y-auto -mx-4 px-4 sm:-mx-6 sm:px-6">
           {/* 这一次走的是什么配置。代理地址是打过码的,和编辑框里那份写法一致,可以直接核对 */}
           <div className="rounded-xl border border-border bg-secondary/30 px-3 py-2.5 space-y-1.5">
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -1594,7 +1594,7 @@ function AccountDialog({ acc, onClose }: { acc?: OVHAccount; onClose: () => void
           <DialogTitle>{isEdit ? t("settings.accounts.editAccountTitle", { name: acc!.name }) : t("settings.accounts.addAccountTitle")}</DialogTitle>
           <DialogDescription>{t("settings.accounts.dialogDesc")}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-2 max-h-[65vh] overflow-y-auto -mx-6 px-6">
+        <div className="space-y-4 py-2 max-h-[65vh] overflow-y-auto -mx-4 px-4 sm:-mx-6 sm:px-6">
           <Field label={t("settings.accounts.nameLabel")}>
             <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={t("settings.accounts.namePlaceholder")} autoFocus />
             {isEdit && (

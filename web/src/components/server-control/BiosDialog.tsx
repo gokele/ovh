@@ -34,7 +34,7 @@ export function BiosDialog({
           <DialogDescription>{t("ctrl.bios.desc")}</DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-y-auto -mx-6 px-6 space-y-4">
+        <div className="overflow-y-auto -mx-4 px-4 sm:-mx-6 sm:px-6 space-y-4">
           {q.isPending ? (
             <Skeleton className="h-40 rounded-2xl" />
           ) : q.isError ? (

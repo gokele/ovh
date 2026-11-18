@@ -384,7 +384,7 @@ function PlanGroupHeader({
       onClick={onToggle}
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 min-w-0">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div className="flex items-center gap-3 min-w-0 flex-1 basis-full sm:basis-0">
           <span onClick={(e) => e.stopPropagation()} className="flex">
             <Checkbox
               checked={groupCheckState(group.items, rowProps)}
@@ -499,9 +499,9 @@ function NextAttempt({ item, intervalEditor }: { item: QueueItem; intervalEditor
         <div className="text-[13px] font-semibold tabular-nums">
           {item.retryCount > 0 && last && remaining > 0 ? t("queue.row.nextIn", { s: remaining }) : t("queue.row.soon")}
         </div>
-        <div className="text-[11.5px] text-muted-foreground whitespace-nowrap">
+        <div className="text-[11.5px] text-muted-foreground">
           {t("queue.row.every")} {intervalEditor ?? item.retryInterval} {t("queue.row.sec")}
-          {item.retryCount > 0 && <span> · {t("queue.row.attemptN", { n: item.retryCount + 1 })}</span>}
+          {item.retryCount > 0 && <span className="whitespace-nowrap"> · {t("queue.row.attemptN", { n: item.retryCount + 1 })}</span>}
         </div>
       </div>
     </div>

@@ -407,6 +407,15 @@ html.dark[data-skin="pearl"] table tbody tr:hover { background: rgba(77, 141, 25
 .task-row > .tr-last { grid-area: last; }
 .task-row > .tr-act { grid-area: act; }
 .task-row.task-head { display: none; }
+/* 极窄(小屏手机 + 套餐组缩进):第二、三行不再让出勾选和图标两列,给「下次尝试」留出宽度 */
+@container (max-width: 399px) {
+  .task-row {
+    grid-template-areas:
+      "check icon main main"
+      "next next next act"
+      "last last last last";
+  }
+}
 /* 中间档(平板):第一行 机房+配置 …… 开关;第二行 下次尝试 | 上一轮 并排,每个任务两行 */
 @container (min-width: 560px) {
   .task-row {

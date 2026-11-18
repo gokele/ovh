@@ -43,7 +43,7 @@ export function ResourceSidebar({
   }, [items, query]);
 
   return (
-    <nav aria-label={label} className="flex flex-col min-h-0">
+    <nav aria-label={label} className="flex flex-col min-h-0 max-h-[inherit]">
       <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border">
         <span className="text-[13px] font-medium">{label}</span>
         <span className="text-xs text-muted-foreground tabular-nums">{items.length}</span>
@@ -53,7 +53,7 @@ export function ResourceSidebar({
           <SearchBox value={query} onChange={setQuery} placeholder={searchPlaceholder} />
         </div>
       )}
-      <ul className="overflow-y-auto max-h-[calc(100dvh-220px)] py-1">
+      <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain max-h-[calc(100dvh-220px)] py-1">
         {shown.length === 0 && <li className="px-3 py-6 text-center text-xs text-muted-foreground">{emptyText}</li>}
         {shown.map((it) => {
           const active = it.id === selected;

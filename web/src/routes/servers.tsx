@@ -777,7 +777,7 @@ function DetailContent({
         </div>
       </DialogHeader>
 
-      <div className="overflow-y-auto -mx-6 px-6 space-y-6 flex-1">
+      <div className="overflow-y-auto -mx-4 px-4 sm:-mx-6 sm:px-6 space-y-6 flex-1">
         {preorder && <p className="text-xs text-warning" role="status">{t("queue.preorderHint")}</p>}
         {editing && (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/[.04] px-3.5 py-2.5 text-[12.5px]">
@@ -1012,11 +1012,21 @@ function DetailContent({
             </details>
           </div>
         </div>
+        {/* 手机:底部 sheet 高度有限,自动付款卡片放进可滚动正文末尾,把屏幕留给配置 */}
+        <AutoPayOption
+          className="sm:hidden"
+          checked={autoPay}
+          onChange={setAutoPay}
+          accountIds={orderAccounts}
+          title={t("queue.autoPay")}
+          description={autoPay ? t("queue.autoPayOn") : t("queue.autoPayOff")}
+        />
       </div>
 
       {/* 自动付款:以前藏在底部一行小字里,要先选机房才出现。改成正文里的选项卡片,始终可见。
           checkout 只传 autoPayWithPreferredPaymentMethod,不传 waiveRetractationPeriod(保留 14 天撤回权)。 */}
       <AutoPayOption
+        className="hidden sm:block"
         checked={autoPay}
         onChange={setAutoPay}
         accountIds={orderAccounts}
@@ -1025,8 +1035,9 @@ function DetailContent({
       />
 
       <OrderPrewarm preparation={preparation} />
-      <DialogFooter className="border-t border-border pt-4 -mx-6 px-6">
-        <div className="mr-auto text-[12px] text-muted-foreground">
+      {/* 手机:说明占一整行,下面「加入监控 / 创建」并排一行;关闭交给右上角 × 和下拉手势 */}
+      <DialogFooter className="border-t border-border pt-3 sm:pt-4 -mx-4 px-4 sm:-mx-6 sm:px-6 max-sm:grid max-sm:grid-cols-2 max-sm:gap-2">
+        <div className="mr-auto text-[12px] text-muted-foreground max-sm:col-span-2">
           <div className="mb-1 font-medium text-foreground">{t("orderDuration.label")} · <OrderDurationLabel value={duration} /></div>
           {editing && selectedDCs.length > 0
             ? (selectedDCs.length > 1 ? t("queue.editMultiDcHint", { n: selectedDCs.length - 1 }) : t("servers.detail.editOneDc"))
@@ -1060,11 +1071,12 @@ function DetailContent({
             <span className="block text-[11px] mt-0.5 text-warning">{t("servers.detail.autoPayOn")}</span>
           )}
         </div>
-        <Button variant="outline" onClick={onClose} disabled={create.isPending || update.isPending}>
+        <Button variant="outline" className="max-sm:hidden" onClick={onClose} disabled={create.isPending || update.isPending}>
           {t("servers.detail.close")}
         </Button>
         {editing && (
           <Button
+            className="max-sm:col-span-2"
             disabled={!durationSupported || selectedDCs.length === 0 || update.isPending || create.isPending}
             onClick={async () => {
               // 一个任务对应一个机房:原机房仍勾着就留给原任务,其余每个机房按同样设置各新增一个任务
@@ -1258,13 +1270,13 @@ export function QueueEditDialog({ editing, onClose, onUnavailable }: { editing: 
 
 function SpecCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="border border-border rounded-xl px-3.5 py-3 flex items-center gap-3 min-w-0">
-      <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center text-foreground flex-shrink-0">
+    <div className="border border-border rounded-xl px-3 sm:px-3.5 py-3 flex items-center gap-3 min-w-0">
+      <div className="hidden min-[400px]:flex w-9 h-9 rounded-lg bg-secondary items-center justify-center text-foreground flex-shrink-0">
         {icon}
       </div>
       <div className="min-w-0">
         <div className="text-[11px] text-muted-foreground">{label}</div>
-        <div className="text-[13px] font-semibold truncate" title={value}>{value}</div>
+        <div className="text-[13px] font-semibold leading-snug line-clamp-2 break-words min-[400px]:truncate" title={value}>{value}</div>
       </div>
     </div>
   );

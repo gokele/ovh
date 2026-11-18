@@ -329,11 +329,11 @@ function ServerTabs({
       <Card className="overflow-hidden">
         <div className="relative px-4 sm:px-6 pt-5 pb-4">
           <div className="absolute inset-0 bg-gradient-to-r from-primary/[0.06] via-transparent to-transparent pointer-events-none" aria-hidden />
-          <div className="relative flex items-start gap-4">
+          <div className="relative flex flex-wrap sm:flex-nowrap items-start gap-x-4 gap-y-3">
             <span className="hidden sm:flex w-12 h-12 rounded-xl bg-card ring-1 ring-border shadow-sm items-center justify-center shrink-0">
               <OsIcon templateName={server.os || ""} size={26} />
             </span>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-full sm:basis-auto">
               <div className="flex items-center gap-1.5 min-w-0">
                 {switcher ? (
                   <Popover open={switchOpen} onOpenChange={setSwitchOpen}>
@@ -347,7 +347,7 @@ function ServerTabs({
                         {titleNode}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent align="start" className="w-[min(340px,calc(100vw-32px))] p-0 overflow-hidden" onClick={() => setSwitchOpen(false)}>
+                    <PopoverContent align="start" className="w-[min(340px,calc(100vw-32px))] p-0 overflow-hidden flex flex-col" onClick={() => setSwitchOpen(false)}>
                       {switcher}
                     </PopoverContent>
                   </Popover>
@@ -381,7 +381,7 @@ function ServerTabs({
                 )}
               </div>
             </div>
-            <div className="shrink-0 flex flex-col sm:flex-row items-end sm:items-center gap-1.5">
+            <div className="shrink-0 flex flex-wrap items-center gap-1.5 sm:flex-col sm:items-end lg:flex-row lg:items-center">
               {/* 中奖标记:列表摘要里的 won/tier(详情横幅在「概览」里)。以前挂在左侧列表行上,列表去掉后放到这里 */}
               {server.lottery?.won && (
                 <span

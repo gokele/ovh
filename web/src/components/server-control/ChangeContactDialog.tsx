@@ -102,7 +102,7 @@ export function ChangeContactDialog({
               <TabsTrigger value="requests">{t("maint.contact.tabRequests")}</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="submit" className="overflow-y-auto -mx-6 px-6">
+            <TabsContent value="submit" className="overflow-y-auto -mx-4 px-4 sm:-mx-6 sm:px-6">
               <div className="space-y-3 py-2">
                 {/* OVHcloud US 没有 NIC 联系人体系，后端会直接 400。
                     与其让用户填完再吃一个错误，不如在入口就说清楚并禁掉提交。 */}
@@ -124,7 +124,7 @@ export function ChangeContactDialog({
               </div>
             </TabsContent>
 
-            <TabsContent value="requests" className="overflow-y-auto -mx-6 px-6">
+            <TabsContent value="requests" className="overflow-y-auto -mx-4 px-4 sm:-mx-6 sm:px-6">
               {list.isPending ? (
                 <Skeleton className="h-40 rounded-2xl" />
               ) : list.data?.unsupported ? (
