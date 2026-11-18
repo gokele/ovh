@@ -7,6 +7,8 @@ import { useOrderDurations } from "@/hooks/use-order-durations";
 import { supportsDuration } from "@/lib/order-duration";
 import { QueueStatusFilter, type QueueFilter } from "@/components/queue/QueueStatusFilter";
 import { QueueTable, type QueueRowProps } from "@/components/queue/QueueTable";
+import { FacetFilter, type FacetOption } from "@/components/queue/FacetFilter";
+import { cn } from "@/lib/utils";
 import { OrderPrewarm, StandbyCarts } from "@/components/queue/OrderPrewarm";
 import { useOrderPrewarm } from "@/hooks/use-order-prewarm";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -23,6 +25,8 @@ import {
   Loader2,
   Search,
   RotateCw,
+  Layers,
+  List,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -194,9 +198,25 @@ function QueuePage() {
   // 否则在「运行中」点暂停,任务立刻消失,想撤回还得去「已暂停」里找。
   const [sticky, setSticky] = useState<Set<string>>(() => new Set());
   const keepVisible = (ids: string[]) => setSticky((prev) => new Set([...prev, ...ids]));
+  // 机房 / 账户多选筛选,与状态、搜索叠加
+  const [dcFacet, setDcFacet] = useState<Set<string>>(() => new Set());
+  const [accFacet, setAccFacet] = useState<Set<string>>(() => new Set());
+  const [view, setView] = useState<"grouped" | "flat">(() => {
+    try {
+      return localStorage.getItem("ovh-queue-view") === "flat" ? "flat" : "grouped";
+    } catch {
+      return "grouped";
+    }
+  });
+  const changeView = (v: "grouped" | "flat") => {
+    setView(v);
+    try { localStorage.setItem("ovh-queue-view", v); } catch { /* 隐私模式等读写失败时只在本次生效 */ }
+  };
   const visibleItems = items.filter(
     (item) =>
       (filter === "all" || item.status === filter || (filter === "running" && item.status === "pending") || sticky.has(item.id)) &&
+      (dcFacet.size === 0 || dcFacet.has(item.datacenter.toUpperCase())) &&
+      (accFacet.size === 0 || accFacet.has(item.accountId)) &&
       (!keyword || item.planCode.toLowerCase().includes(keyword) || item.datacenter.toLowerCase().includes(keyword)),
   );
 
@@ -204,6 +224,14 @@ function QueuePage() {
   // 一条 /buy 或一次网页建单最多扇出 60 个任务(MAX_ORDER_FANOUT),
   // 而在这之前只能一个一个点暂停/删除。抢购结束后清理一批失败任务是高频动作,
   // 「清空」又太狠(会把还在跑的一起删掉)。
+  // 筛选项基于当前状态筛选下的任务,数量随状态变化
+  const statusScoped = items.filter((item) => filter === "all" || item.status === filter || (filter === "running" && item.status === "pending") || sticky.has(item.id));
+  const dcOptions: FacetOption[] = [...statusScoped.reduce((m, i) => m.set(i.datacenter.toUpperCase(), (m.get(i.datacenter.toUpperCase()) || 0) + 1), new Map<string, number>())]
+    .sort((a, b) => b[1] - a[1])
+    .map(([value, count]) => ({ value, count, label: <span className="font-mono">{value}</span> }));
+  const accOptions: FacetOption[] = [...statusScoped.reduce((m, i) => m.set(i.accountId, (m.get(i.accountId) || 0) + 1), new Map<string, number>())]
+    .sort((a, b) => b[1] - a[1])
+    .map(([value, count]) => ({ value, count, label: <AccountChip accountId={value} /> }));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchRunning, setBatchRunning] = useState(false);
   const [showBatchDelete, setShowBatchDelete] = useState(false);
@@ -272,7 +300,7 @@ function QueuePage() {
   };
 
   /** 套餐组一键暂停/恢复:逐条执行,汇总成一条提示,同样可撤销 */
-  const groupAction = async (targets: QueueItem[], action: "pause" | "resume", planCode: string) => {
+  const groupAction = async (targets: QueueItem[], action: "pause" | "resume", planCode: string, whole = false) => {
     if (targets.length === 0) return;
     keepVisible(targets.map((i) => i.id));
     setBatchRunning(true);
@@ -289,7 +317,10 @@ function QueuePage() {
     setBatchRunning(false);
     queue.refetch();
     if (done.length === targets.length) {
-      toast.success(t(action === "pause" ? "queue.groupPausedToast" : "queue.groupResumedToast", { plan: planCode, n: done.length }), {
+      const key = whole
+        ? action === "pause" ? "queue.allPausedToast" : "queue.allResumedToast"
+        : action === "pause" ? "queue.groupPausedToast" : "queue.groupResumedToast";
+      toast.success(t(key, { plan: planCode, n: done.length }), {
         action: {
           label: t("queue.undo"),
           onClick: () => {
@@ -305,6 +336,8 @@ function QueuePage() {
   };
 
   const [againItem, setAgainItem] = useState<QueueItem | null>(null);
+  const pausableAll = items.filter((i) => (i.status === "running" || i.status === "pending") && i.stopReason !== "groupComplete");
+  const resumableAll = items.filter((i) => i.status === "paused" && i.stopReason !== "groupComplete");
 
   /** 单行的回调;编辑运行中的任务会先暂停,保存后需要手动恢复 */
   const rowProps = (q: QueueItem): QueueRowProps => ({
@@ -363,6 +396,7 @@ function QueuePage() {
       onSelectAll={() => setSelected(allSelected ? new Set() : new Set(visibleItems.map((i) => i.id)))}
       onGroupAction={(targets, action, plan) => void groupAction(targets, action, plan)}
       busy={batchRunning}
+      view={view}
     />
   );
 
@@ -421,6 +455,21 @@ function QueuePage() {
               <Plus className="w-4 h-4" />
               {t("queue.createTask")}
             </Button>
+            {/* 全局一键暂停 / 恢复:抢购工具最常用的两个按钮,作用于全部任务(不受筛选影响) */}
+            {pausableAll.length > 0 && (
+              <Button variant="outline" disabled={batchRunning} onClick={() => void groupAction(pausableAll, "pause", "", true)}>
+                <PauseCircle className="w-4 h-4" />
+                {t("queue.pauseAllTasks")}
+                <span className="tabular-nums opacity-60">{pausableAll.length}</span>
+              </Button>
+            )}
+            {resumableAll.length > 0 && (
+              <Button variant="outline" className="text-primary border-primary/40" disabled={batchRunning} onClick={() => void groupAction(resumableAll, "resume", "", true)}>
+                <PlayCircle className="w-4 h-4" />
+                {t("queue.resumeAllTasks")}
+                <span className="tabular-nums opacity-70">{resumableAll.length}</span>
+              </Button>
+            )}
             <Button variant="outline" onClick={() => queue.refetch()} disabled={queue.isFetching}>
               <RefreshCw className={`w-4 h-4 ${queue.isFetching ? "animate-spin" : ""}`} />
               {t("queue.refresh")}
@@ -454,10 +503,9 @@ function QueuePage() {
       <QueueStatusFilter items={items} value={filter} onChange={(next) => { setFilter(next); setSelected(new Set()); setSticky(new Set()); }} />
 
       <Card className="overflow-hidden">
-        {/* 工具条:当前筛选 + 搜索 */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 py-3 border-b border-border">
-          <span className="text-[14px] font-semibold">{filter === "all" ? t("queue.allTasks") : t(`queue.status.${filter}`)}</span>
-          <div className="relative sm:ml-auto sm:w-64">
+        {/* 工具条:搜索 + 机房/账户筛选 …… 实时刷新 + 视图切换 */}
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-border">
+          <div className="relative w-full sm:w-60">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" aria-hidden />
             <Input
               value={search}
@@ -466,6 +514,41 @@ function QueuePage() {
               aria-label={t("queue.searchPlaceholder")}
               className="h-8 pl-8 text-[13px]"
             />
+          </div>
+          <FacetFilter title={t("queue.row.facetDc")} options={dcOptions} value={dcFacet} onChange={setDcFacet} />
+          <FacetFilter title={t("queue.row.facetAccount")} options={accOptions} value={accFacet} onChange={setAccFacet} />
+          {(dcFacet.size > 0 || accFacet.size > 0 || search) && (
+            <Button variant="ghost" size="sm" className="h-8 px-2 text-[12.5px]" onClick={() => { setDcFacet(new Set()); setAccFacet(new Set()); setSearch(""); }}>
+              {t("queue.row.reset")}
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          )}
+          <div className="ml-auto flex items-center gap-3">
+            <span className="hidden md:inline-flex items-center gap-1.5 text-[12px] text-muted-foreground" title={t("queue.row.refreshEvery", { s: 5 })}>
+              <span className="relative flex w-2 h-2">
+                <span className="absolute inset-0 rounded-full bg-success/60 animate-ping" />
+                <span className="relative w-2 h-2 rounded-full bg-success" />
+              </span>
+              {queue.isFetching ? t("queue.row.refreshing") : t("queue.row.live")}
+            </span>
+            <div className="inline-flex rounded-lg bg-muted p-[3px]" role="group" aria-label={t("queue.row.viewLabel")}>
+              {(["grouped", "flat"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={view === v}
+                  onClick={() => changeView(v)}
+                  title={t(v === "grouped" ? "queue.row.viewGrouped" : "queue.row.viewFlat")}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12.5px] transition-colors",
+                    view === v ? "bg-card text-primary shadow-sm font-medium" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {v === "grouped" ? <Layers className="w-3.5 h-3.5" /> : <List className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">{t(v === "grouped" ? "queue.row.viewGrouped" : "queue.row.viewFlat")}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         {batchBar}

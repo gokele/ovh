@@ -385,35 +385,32 @@ html.dark[data-skin="pearl"] table tbody tr:hover { background: rgba(77, 141, 25
   [data-skin="pearl"] .rail-brand:hover .brand-mark { transform: none; }
 }
 
-/* ── 抢购任务行(展开后的单个任务):按容器宽度排版,不横向滚动 ──
-   窄:☐ 机房 状态 …… 操作
-       账户
-       配置与设置
-       进度
-   宽:☐ 机房 账户 配置与设置 状态 进度 操作 */
+/* ── 抢购任务行:按容器宽度排版,不横向滚动 ──
+   窄:☐ ◉ 机房+配置(整行)
+           下次尝试 …… 开关 …
+           上一轮
+   宽:☐ ◉ 机房+配置/账户·设置 | 下次尝试 | 上一轮 | 主操作 … */
 .task-row {
   display: grid;
-  grid-template-columns: 20px auto minmax(0, 1fr) auto;
+  grid-template-columns: 20px 20px minmax(0, 1fr) auto;
   grid-template-areas:
-    "check dc status act"
-    ". acc acc acc"
-    ". cfg cfg cfg"
-    ". prog prog prog";
-  gap: 8px 12px;
+    "check icon main main"
+    ". . next act"
+    ". . last last";
+  gap: 10px 12px;
   align-items: start;
 }
 .task-row > .tr-check { grid-area: check; }
-.task-row > .tr-dc { grid-area: dc; }
-.task-row > .tr-acc { grid-area: acc; }
-.task-row > .tr-cfg { grid-area: cfg; }
-.task-row > .tr-status { grid-area: status; }
-.task-row > .tr-prog { grid-area: prog; }
+.task-row > .tr-icon { grid-area: icon; }
+.task-row > .tr-main { grid-area: main; }
+.task-row > .tr-next { grid-area: next; }
+.task-row > .tr-last { grid-area: last; }
 .task-row > .tr-act { grid-area: act; }
 .task-row.task-head { display: none; }
-@container (min-width: 900px) {
+@container (min-width: 860px) {
   .task-row {
-    grid-template-columns: 20px 64px minmax(110px, .7fr) minmax(0, 1.5fr) 118px minmax(0, 1.6fr) auto;
-    grid-template-areas: "check dc acc cfg status prog act";
+    grid-template-columns: 20px 20px minmax(0, 1fr) 170px minmax(170px, .55fr) auto;
+    grid-template-areas: "check icon main next last act";
     gap: 0 16px;
     align-items: center;
   }
