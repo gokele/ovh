@@ -450,6 +450,7 @@ export const watchPagesZh = {
       engagement: "合同期",
       tasks: "任务历史",
       confirmReboot: "确认重启 VPS?",
+      rebootAction: "重启",
     },
     toast: {
       startSubmitted: "启动任务已提交",

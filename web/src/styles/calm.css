@@ -416,3 +416,45 @@ html.dark[data-skin="pearl"] table tbody tr:hover { background: rgba(77, 141, 25
   }
   .task-row.task-head { display: grid; }
 }
+
+/* ── 交互细节:全站统一的指针、焦点、选区、滚动条、提示条 ─────────────── */
+/* Tailwind preflight 把 button 的指针设成了默认箭头:能点的东西一律手形,禁用的显示禁止 */
+[data-skin="pearl"] button:not(:disabled),
+[data-skin="pearl"] [role="button"]:not([aria-disabled="true"]),
+[data-skin="pearl"] [role="switch"]:not(:disabled),
+[data-skin="pearl"] [role="tab"],
+[data-skin="pearl"] label:has(> button[role="switch"], > button[role="checkbox"]),
+[data-skin="pearl"] summary,
+[data-skin="pearl"] select { cursor: pointer; }
+[data-skin="pearl"] button:disabled,
+[data-skin="pearl"] [aria-disabled="true"] { cursor: not-allowed; }
+
+/* 键盘焦点:统一蓝色外环(鼠标点击不出现) */
+[data-skin="pearl"] :where(a, button, [role="button"], [role="tab"], [role="switch"], [role="checkbox"], summary):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--blue) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* 文字选区与滚动条 */
+[data-skin="pearl"] ::selection { background: color-mix(in srgb, var(--blue) 22%, transparent); }
+[data-skin="pearl"] * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 18%, transparent) transparent; }
+[data-skin="pearl"] *::-webkit-scrollbar { width: 8px; height: 8px; }
+[data-skin="pearl"] *::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ink) 16%, transparent); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+[data-skin="pearl"] *::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ink) 28%, transparent); }
+[data-skin="pearl"] .content { scroll-behavior: smooth; }
+
+/* 提示条(sonner):圆角、柔和阴影,与卡片同一语言 */
+[data-sonner-toaster] [data-sonner-toast] {
+  border-radius: 12px !important;
+  box-shadow: 0 10px 30px -10px rgba(15, 35, 80, .25), 0 2px 6px rgba(15, 35, 80, .06) !important;
+  font-size: 13px;
+}
+[data-sonner-toaster] [data-sonner-toast] [data-button] {
+  border-radius: 8px !important;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-skin="pearl"] .content { scroll-behavior: auto; }
+}

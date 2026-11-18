@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useConfirm } from "@/components/common/ConfirmDialog";
 import { useTranslation, Trans } from "react-i18next";
 import { terminationLabel } from "@/hooks/use-server-control";
 import { useEffect, useState } from "react";
@@ -320,6 +321,7 @@ function VpsDetail({
   const console_ = useVpsConsoleUrl(server.serviceName);
   const terminate = useTerminateVps();
   const confirmTerm = useConfirmTerminateVps();
+  const [confirmAsk, confirmDialog] = useConfirm();
 
   const [reinstallOpen, setReinstallOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
@@ -380,7 +382,8 @@ function VpsDetail({
     }
   };
   const handleReboot = async () => {
-    if (!confirm(t("vpsList.power.confirmReboot"))) return;
+    const ok = await confirmAsk({ title: t("vpsList.power.confirmReboot"), tone: "danger", confirmText: t("vpsList.power.rebootAction") });
+    if (!ok) return;
     try {
       await reboot.mutateAsync();
       toast.success(t("vpsList.toast.rebootSubmitted"));
@@ -434,6 +437,7 @@ function VpsDetail({
 
   return (
     <>
+      {confirmDialog}
       <Tabs defaultValue="overview">
         {/* 顶部信息条 + 工具按钮 */}
         <div className="flex items-center justify-between gap-3 flex-wrap">

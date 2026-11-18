@@ -269,6 +269,8 @@ export const snipePagesEn = {
     resumeAllTasks: "Resume all",
     allPausedToast: "Paused all {{n}} tasks",
     allResumedToast: "Resumed all {{n}} tasks",
+    deleteOneTitle: "Delete task {{plan}} @ {{dc}}?",
+    deleteOneDesc: "The task stops sniping immediately and cannot be restored. Orders already placed and purchase history are not affected.",
     buyAgain: "Buy one more",
     buyAgainTitle: "Buy one more",
     buyAgainDesc: "Creates a new sniping task with this task's settings. The original task and its order record stay as they are.",

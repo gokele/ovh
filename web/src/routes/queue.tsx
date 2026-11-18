@@ -1,5 +1,5 @@
 import { OrderPurchaseScope, type PurchaseMode } from "@/components/queue/OrderPurchaseScope";
-import { AutoPayStatus } from "@/components/common/AutoPayStatus";
+import { AutoPayOption } from "@/components/common/AutoPayStatus";
 import { hasPreorderHardware } from "@/lib/preorder-options";
 import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { preorderVariantCoversAll, preorderOptions, retainPreorderPlan } from "@/lib/preorder-options";
@@ -8,6 +8,7 @@ import { supportsDuration } from "@/lib/order-duration";
 import { QueueStatusFilter, type QueueFilter } from "@/components/queue/QueueStatusFilter";
 import { QueueTable, type QueueRowProps } from "@/components/queue/QueueTable";
 import { FacetFilter, type FacetOption } from "@/components/queue/FacetFilter";
+import { useConfirm } from "@/components/common/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import { OrderPrewarm, StandbyCarts } from "@/components/queue/OrderPrewarm";
 import { useOrderPrewarm } from "@/hooks/use-order-prewarm";
@@ -336,6 +337,7 @@ function QueuePage() {
   };
 
   const [againItem, setAgainItem] = useState<QueueItem | null>(null);
+  const [confirmAsk, confirmDialog] = useConfirm();
   const pausableAll = items.filter((i) => (i.status === "running" || i.status === "pending") && i.stopReason !== "groupComplete");
   const resumableAll = items.filter((i) => i.status === "paused" && i.stopReason !== "groupComplete");
 
@@ -354,7 +356,15 @@ function QueuePage() {
       setEditingItem({ ...q, status: "paused" });
       setShowCreateDialog(true);
     },
-    onDelete: () => remove.mutate(q.id),
+    onDelete: async () => {
+      const ok = await confirmAsk({
+        title: t("queue.deleteOneTitle", { plan: q.planCode, dc: q.datacenter.toUpperCase() }),
+        description: t("queue.deleteOneDesc"),
+        tone: "danger",
+        confirmText: t("queue.delete"),
+      });
+      if (ok) remove.mutate(q.id);
+    },
     intervalEditor: <IntervalEditor id={q.id} value={q.retryInterval} />,
   });
 
@@ -559,6 +569,7 @@ function QueuePage() {
       </Card>
 
       <BuyAgainDialog item={againItem} onClose={() => setAgainItem(null)} />
+      {confirmDialog}
 
       <Dialog open={showBatchDelete} onOpenChange={setShowBatchDelete}>
         <DialogContent>
@@ -1098,14 +1109,13 @@ function CreateQueueDialog({
             </p>
           </div>
 
-          <label className="flex items-center gap-2 cursor-pointer text-[13px]">
-            <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
-            {t("queue.autoPay")}
-          </label>
-          <p className="text-[11px] text-muted-foreground -mt-2">
-            {autoPay ? t("queue.autoPayOn") : t("queue.autoPayOff")}
-          </p>
-          <AutoPayStatus accountId={accountId} enabled={autoPay} />
+          <AutoPayOption
+            checked={autoPay}
+            onChange={setAutoPay}
+            accountIds={[accountId]}
+            title={t("queue.autoPay")}
+            description={autoPay ? t("queue.autoPayOn") : t("queue.autoPayOff")}
+          />
 
           {/* 可选配置:planCode 在 catalog 里 → 走 chip 选择;
                 planCode 自定义不在 catalog → 走手填。两者互斥不同时存在。 */}

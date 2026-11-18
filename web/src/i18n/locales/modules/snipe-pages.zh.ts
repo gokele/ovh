@@ -269,6 +269,8 @@ export const snipePagesZh = {
     resumeAllTasks: "全部恢复",
     allPausedToast: "已暂停全部 {{n}} 个任务",
     allResumedToast: "已恢复全部 {{n}} 个任务",
+    deleteOneTitle: "删除任务 {{plan}} @ {{dc}}?",
+    deleteOneDesc: "删除后这个任务立即停止抢购,无法恢复。已经下单的订单和抢购历史不受影响。",
     buyAgain: "再抢一单",
     buyAgainTitle: "再抢一单",
     buyAgainDesc: "按这个任务的设置新建一个抢购任务,原任务和订单记录保持不变。",

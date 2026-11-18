@@ -1,5 +1,5 @@
 import { OrderPurchaseScope, type PurchaseMode } from "@/components/queue/OrderPurchaseScope";
-import { AutoPayStatus } from "@/components/common/AutoPayStatus";
+import { AutoPayOption } from "@/components/common/AutoPayStatus";
 import { hasPreorderHardware } from "@/lib/preorder-options";
 import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { preorderVariantCoversAll, preorderOptions, retainPreorderPlan } from "@/lib/preorder-options";
@@ -12,8 +12,8 @@ import { useTranslation, Trans } from "react-i18next";
 import { isOrderable } from "@/lib/availability";
 import {
   Server, RefreshCw, Search, Bell, ShoppingCart, Cpu, MemoryStick, HardDrive, Wifi,
-  Filter, MapPin, Globe, ArrowUpDown, ArrowUpNarrowWide, ArrowDownWideNarrow } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+  Filter, MapPin, Globe, ArrowUpDown, ArrowUpNarrowWide, ArrowDownWideNarrow, ArrowDown } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -566,6 +566,8 @@ function DetailContent({
   const [retryInterval, setRetryInterval] = useState("60");
   // 默认不自动付款:自动扣钱必须是用户显式打开的
   const [autoPay, setAutoPay] = useState(false);
+  const dcSectionRef = useRef<HTMLDivElement>(null);
+  const [dcFlash, setDcFlash] = useState(false);
   const [preorderPlan, setPreorderPlan] = useState(server.prerelease ? server.planCode : "");
   const preorder = !!server.prerelease || preorderPlan === server.planCode;
   const purchaseMode: PurchaseMode = chosenScope || (preorder ? "total" : "perDatacenter");
@@ -785,8 +787,11 @@ function DetailContent({
           />
         )}
 
-        {/* DC 多选（点击切换） + 全选/反选 */}
-        <div>
+        {/* DC 多选（点击切换） + 全选/反选。底部「选择数据中心」会滚到这里并闪一下 */}
+        <div
+          ref={dcSectionRef}
+          className={`scroll-mt-4 rounded-xl transition-shadow duration-500 ${dcFlash ? "ring-2 ring-primary/60 ring-offset-4 ring-offset-background" : ""}`}
+        >
           <div className="flex items-center justify-between mb-2.5 gap-2 flex-wrap">
             <h3 className="text-[13px] font-semibold flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
@@ -926,6 +931,16 @@ function DetailContent({
         </div>
       </div>
 
+      {/* 自动付款:以前藏在底部一行小字里,要先选机房才出现。改成正文里的选项卡片,始终可见。
+          checkout 只传 autoPayWithPreferredPaymentMethod,不传 waiveRetractationPeriod(保留 14 天撤回权)。 */}
+      <AutoPayOption
+        checked={autoPay}
+        onChange={setAutoPay}
+        accountIds={orderAccounts}
+        title={t("queue.autoPay")}
+        description={autoPay ? t("queue.autoPayOn") : t("queue.autoPayOff")}
+      />
+
       <OrderPrewarm preparation={preparation} />
       <DialogFooter className="border-t border-border pt-4 -mx-6 px-6">
         <div className="mr-auto text-[12px] text-muted-foreground">
@@ -941,26 +956,23 @@ function DetailContent({
                     ? t("servers.detail.willCreateExtra", { n: selectedValues.length })
                     : "",
               })
-            : t("servers.detail.pickDc")}
-          {selectedDCs.length > 0 && (
-            // 这里以前写着"下单即放弃 14 天撤销期" —— 那是 checkout 硬传
-            // waiveRetractationPeriod:true 时代的说明。那个参数已经删了
-            // (schema 里 required:false,不传就是不弃权),撤回权现在是保留的,
-            // 机器控制页还专门有撤单入口。留着这句话会让用户以为退不了。
-            <span className="block text-[11px] mt-0.5">
-              {autoPay ? t("servers.detail.autoPayOn") : t("servers.detail.autoPayOff")}
-            </span>
-          )}
-          {selectedDCs.length > 0 && (
-            <label className="flex items-center gap-1.5 mt-1 cursor-pointer text-[11px]">
-              <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
-              {t("servers.detail.autoPayLabel")}
-            </label>
-          )}
+            : (
+              <button
+                type="button"
+                onClick={() => {
+                  dcSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  setDcFlash(true);
+                  window.setTimeout(() => setDcFlash(false), 1400);
+                }}
+                className="inline-flex items-center gap-1 font-medium text-primary hover:underline underline-offset-2"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                {t("servers.detail.pickDc")}
+                <ArrowDown className="w-3.5 h-3.5" />
+              </button>
+            )}
           {selectedDCs.length > 0 && autoPay && (
-            <div className="mt-1 space-y-0.5">
-              {orderAccounts.map((id) => <AutoPayStatus key={id} accountId={id} enabled />)}
-            </div>
+            <span className="block text-[11px] mt-0.5 text-warning">{t("servers.detail.autoPayOn")}</span>
           )}
         </div>
         <Button variant="outline" onClick={onClose} disabled={create.isPending}>

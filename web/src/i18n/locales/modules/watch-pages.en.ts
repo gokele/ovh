@@ -456,6 +456,7 @@ const pack: WatchPagesPack = {
       engagement: "Engagement",
       tasks: "Tasks",
       confirmReboot: "Confirm rebooting this VPS?",
+      rebootAction: "Reboot",
     },
     toast: {
       startSubmitted: "Start task submitted",

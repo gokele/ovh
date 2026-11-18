@@ -88,4 +88,25 @@ func TestAutoPayFollowUp(t *testing.T) {
 	if msgs := sent(); len(msgs) != 1 || !strings.Contains(msgs[0], "已被取消") {
 		t.Fatalf("cancelled order must warn: %v", msgs)
 	}
+
+	// 要求补交资料:不能说成「自动付款没有完成」,单独提醒补交资料
+	state, client, sent = fixture(t, []string{"documentsRequested"})
+	run(state, client, "plan@GRA", "126", "https://example.invalid/order", noSleep)
+	if msgs := sent(); len(msgs) != 1 || !strings.Contains(msgs[0], "补交资料") || strings.Contains(msgs[0], "自动付款没有完成") {
+		t.Fatalf("documentsRequested must ask for documents, not claim unpaid: %v", msgs)
+	}
+
+	// OVH 返回 unknown 后再读到已付:不打扰
+	state, client, sent = fixture(t, []string{"unknown", "delivering"})
+	run(state, client, "plan@GRA", "127", "https://example.invalid/order", noSleep)
+	if len(sent()) != 0 {
+		t.Fatalf("unknown then paid must not notify: %v", sent())
+	}
+
+	// 始终 unknown:按「读不到状态」提醒去订单页核对,不能断言没付上
+	state, client, sent = fixture(t, []string{"unknown"})
+	run(state, client, "plan@GRA", "128", "https://example.invalid/order", noSleep)
+	if msgs := sent(); len(msgs) != 1 || !strings.Contains(msgs[0], "无法读取订单状态") {
+		t.Fatalf("always unknown must ask to verify: %v", msgs)
+	}
 }

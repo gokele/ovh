@@ -5,7 +5,9 @@
 //     默认支付方式(me.payment.PaymentMethod.default=true)不存在或状态不是 VALID 时,
 //     OVH 不会扣款,订单保持 notPaid 并在到期后作废。
 //   - 订单是否已付以 GET /me/order/{orderId}/status(billing.order.OrderStatusEnum)为准:
-//     notPaid 未付;checking / delivering / delivered 表示已进入付款后的处理;cancelled / cancelling 已取消。
+//     notPaid 未付;checking / delivering / delivered 表示已进入付款后的处理;cancelled / cancelling 已取消;
+//     documentsRequested 表示 OVH 要求补交资料才能继续处理(不是「没付上」,另行提醒);
+//     unknown 是 OVH 自己也给不出状态,视同本次没读到,继续等下一次。
 package paycheck
 
 import (
@@ -37,6 +39,9 @@ func run(state *app.State, client *ovhsdk.Client, label, orderID, link string, s
 			state.Logger.Debug(fmt.Sprintf("自动付款核对:读取订单 %s 状态失败: %s", orderID, err.Error()), "purchase")
 			continue
 		}
+		if status == "unknown" {
+			continue
+		}
 		last = status
 		switch status {
 		case "checking", "delivering", "delivered":
@@ -44,6 +49,9 @@ func run(state *app.State, client *ovhsdk.Client, label, orderID, link string, s
 			return
 		case "cancelled", "cancelling":
 			notify.Broadcast(state, fmt.Sprintf("⚠️ %s 的订单 %s 已被取消（状态 %s），自动付款未完成。\n订单页: %s", label, orderID, status, link), nil)
+			return
+		case "documentsRequested":
+			notify.Broadcast(state, fmt.Sprintf("📄 %s 的订单 %s：OVH 要求补交资料后才会继续处理（状态 documentsRequested）。\n请到订单页或 OVH 邮件中按要求提交，付款情况以订单页为准。\n订单页: %s", label, orderID, link), nil)
 			return
 		}
 	}

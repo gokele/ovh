@@ -1,5 +1,5 @@
 import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
-import { AutoPayStatus } from "@/components/common/AutoPayStatus";
+import { AutoPayOption } from "@/components/common/AutoPayStatus";
 import { useOrderDurations } from "@/hooks/use-order-durations";
 import { supportsDuration } from "@/lib/order-duration";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -991,14 +991,14 @@ function AddSubscriptionDialog({
                 <p className="text-[11px] text-muted-foreground mt-1.5">
                   {t("monitor.dialog.qtyHint")}
                 </p>
-                <label className="flex items-center gap-2 mt-2 cursor-pointer text-[12px]">
-                  <Checkbox checked={autoPay} onCheckedChange={(v) => setAutoPay(!!v)} />
-                  {t("monitor.dialog.autoPay")}
-                </label>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {t("monitor.dialog.autoPayHint")}
-                </p>
-                <AutoPayStatus accountId={autoOrderAccountId} enabled={autoPay} />
+                <AutoPayOption
+                  className="mt-2.5"
+                  checked={autoPay}
+                  onChange={setAutoPay}
+                  accountIds={[autoOrderAccountId]}
+                  title={t("monitor.dialog.autoPay")}
+                  description={t("monitor.dialog.autoPayHint")}
+                />
             </div>
             </div>
           )}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useConfirm } from "@/components/common/ConfirmDialog";
 import { Camera, Trash2, RotateCcw, Plus, AlertTriangle, Pencil } from "lucide-react";
 import {
   useVpsSnapshot, useCreateVpsSnapshot, useUpdateVpsSnapshot, useRevertVpsSnapshot, useDeleteVpsSnapshot,
@@ -23,6 +24,7 @@ export function VpsSnapshotPane({ serviceName }: { serviceName: string }) {
   const update = useUpdateVpsSnapshot(serviceName);
   const revert = useRevertVpsSnapshot(serviceName);
   const remove = useDeleteVpsSnapshot(serviceName);
+  const [confirmAsk, confirmDialog] = useConfirm();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createDesc, setCreateDesc] = useState("");
@@ -75,7 +77,8 @@ export function VpsSnapshotPane({ serviceName }: { serviceName: string }) {
   };
 
   const handleDelete = async () => {
-    if (!confirm(t("vps.snapshot.deleteConfirm"))) return;
+    const ok = await confirmAsk({ title: t("vps.snapshot.deleteConfirm"), tone: "danger", confirmText: t("common.delete") });
+    if (!ok) return;
     try {
       await remove.mutateAsync();
       toast.success(t("vps.snapshot.toast.deleted"));
@@ -124,6 +127,8 @@ export function VpsSnapshotPane({ serviceName }: { serviceName: string }) {
 
   const s = snap.data;
   return (
+    <>
+    {confirmDialog}
     <div className="space-y-3">
       <div className="border border-success/40 bg-success/5 rounded-2xl p-4 space-y-2.5">
         <div className="flex items-center gap-2 flex-wrap">
@@ -253,6 +258,7 @@ export function VpsSnapshotPane({ serviceName }: { serviceName: string }) {
         </DialogContent>
       </Dialog>
     </div>
+    </>
   );
 }
 
