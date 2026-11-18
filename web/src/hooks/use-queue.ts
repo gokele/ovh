@@ -14,6 +14,8 @@ export interface QueueItem {
   accountId: string;
   planCode: string;
   orderId?: string;
+  /** 商品名(如 KS-LE-6),后端从该任务所属账户的目录缓存里取;没有则为空 */
+  planName?: string;
   datacenter: string;
   /** 下单成功后用 OVH 默认支付方式自动付款(显式开关,默认关) */
   autoPay?: boolean;

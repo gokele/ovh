@@ -81,6 +81,8 @@ const pack: CommonLayerPack = {
       resumeTasks: "Also resume {{count}} sniping tasks",
       tasksResumed: "Resumed {{count}} sniping tasks",
       tasksResumedPartial: "Resumed {{ok}}/{{total}} sniping tasks; check the queue for the rest",
+      started: "Monitoring started",
+      stoppedWithQueue: "Monitoring stopped; {{count}} related sniping tasks were paused",
       resumedOnly: "Monitoring resumed. Tasks it paused are still paused.",
       saved: "Subscription saved",
       saveFailed: "Failed to save",

@@ -12,7 +12,7 @@ import { useTranslation, Trans } from "react-i18next";
 import { isOrderable } from "@/lib/availability";
 import {
   Server, RefreshCw, Search, Bell, ShoppingCart, Cpu, MemoryStick, HardDrive, Wifi,
-  Filter, MapPin, Globe, ArrowUpDown, ArrowUpNarrowWide, ArrowDownWideNarrow, ArrowDown } from "lucide-react";
+  Filter, MapPin, Globe, ArrowUpDown, ArrowUpNarrowWide, ArrowDownWideNarrow, ArrowDown, ChevronDown, Pencil, Save } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,7 +27,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useServers, useAddToMonitor, type ServerPlan, useCatalogAccountId } from "@/hooks/use-servers";
 import { useAccountInfo } from "@/hooks/use-account";
-import { useCreateQueueItem } from "@/hooks/use-queue";
+import { useCreateQueueItem, useUpdateQueueItem, type QueueItem } from "@/hooks/use-queue";
+import { AccountChip } from "@/components/common/AccountChip";
 import { useCacheInfo } from "@/hooks/use-settings";
 import { useDefaultAccount } from "@/hooks/use-accounts";
 import { useActiveAccount } from "@/hooks/use-active-account";
@@ -50,7 +51,7 @@ import {
 } from "@/hooks/use-availability";
 import { groupOptions, type OptionGroupKey } from "@/lib/option-groups";
 import { OptionGroupSection } from "@/components/common/OptionGroupSection";
-import { lookupDcStatus, datacentersForPlan } from "@/lib/datacenters";
+import { lookupDcStatus, datacentersForPlan, apiDatacenterCode } from "@/lib/datacenters";
 import { OVH_SUBSIDIARIES } from "@/lib/ovh-subsidiaries";
 import { formatMoney, currencyUnknownHint, comparePrices } from "@/lib/money";
 import { useAccounts, findAccountByID } from "@/hooks/use-accounts";
@@ -131,6 +132,7 @@ function ServersPage() {
 
   const [search, setSearch] = useState("");
   const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const [series, setSeries] = useState("");
   // 价格排序:default=目录原序;asc/desc 按 priceMap 的含税月费(无价格的排最后,不消失)
   const [priceSort, setPriceSort] = useState<"default" | "asc" | "desc">("default");
   const [detailPlanCode, setDetailPlanCode] = useState<string | null>(null);
@@ -142,6 +144,7 @@ function ServersPage() {
     if (s) {
       out = out.filter((srv) => matchesServerSearch(srv, s));
     }
+    if (series) out = out.filter((srv) => seriesOf(srv.name) === series);
     if (onlyAvailable) {
       out = out.filter((srv) => {
         const map = availMap[srv.planCode];
@@ -154,7 +157,17 @@ function ServersPage() {
       });
     }
     return out;
-  }, [list, search, onlyAvailable, availMap]);
+  }, [list, search, onlyAvailable, availMap, series]);
+
+  // 系列快捷筛选(KS / SYS / RISE / ADVANCE …):从商品名前缀归类,按数量多少排序
+  const seriesList = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const srv of list) {
+      const k = seriesOf(srv.name);
+      if (k) m.set(k, (m.get(k) || 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [list]);
 
   // 价格排序独立于筛选:目录价格是异步到的,priceMap 更新后顺序自动跟上
   const sorted = useMemo(() => {
@@ -251,6 +264,26 @@ function ServersPage() {
           </div>
         </div>
 
+      {/* 系列快捷筛选:两百多款机型里一点就缩到某个系列,可与搜索、仅显示可用叠加 */}
+      {seriesList.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t("servers.seriesLabel")}>
+          {[["", list.length] as [string, number], ...seriesList].map(([k, n]) => (
+            <button
+              key={k || "all"}
+              type="button"
+              aria-pressed={series === k}
+              onClick={() => setSeries(k)}
+              className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[12.5px] transition-colors ${
+                series === k ? "bg-primary text-primary-foreground font-medium shadow-sm" : "bg-card text-muted-foreground ring-1 ring-border hover:text-foreground hover:ring-primary/40"
+              }`}
+            >
+              {k || t("servers.seriesAll")}
+              <span className="tabular-nums opacity-70 text-[11.5px]">{n}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* 后端 /me 响应上的 X-Subsidiary-Mismatch:账户里配的 zone 跟 OVH 认的 ovhSubsidiary 不一致。
           这一页的机型集合、价格、库存全部由子公司决定,配错了看到的整页都是别的区的东西,
           而且要到下单那一刻才会失败,所以在这里就得说清楚。 */}
@@ -310,8 +343,8 @@ function ServersPage() {
             title={t("servers.notFound")}
             description={list.length === 0 ? t("servers.emptyApi") : t("servers.emptySearch")}
             action={
-              list.length > 0 && (search || onlyAvailable) ? (
-                <Button variant="outline" onClick={() => { setSearch(""); setOnlyAvailable(false); }}>
+              list.length > 0 && (search || onlyAvailable || series) ? (
+                <Button variant="outline" onClick={() => { setSearch(""); setOnlyAvailable(false); setSeries(""); }}>
                   {t("history.clearFilters")}
                 </Button>
               ) : undefined
@@ -516,7 +549,10 @@ function DetailContent({
   catalogIdx,
   subsidiary,
   onClose,
+  editing,
 }: {
+  /** 编辑已有抢购任务:账户与型号固定,保存时更新该任务;多选的其他机房各新增一个任务 */
+  editing?: QueueItem;
   server: ServerPlan;
   realtimeDcMap?: Record<string, string>;
   /** 页面级实时库存接口挂了 */
@@ -536,13 +572,14 @@ function DetailContent({
   const navigate = useNavigate();
   const addMon = useAddToMonitor();
   const create = useCreateQueueItem();
+  const update = useUpdateQueueItem();
   const defaultAcc = useDefaultAccount();
   const { data: accounts } = useAccounts();
 
   // 下单账户 = 左侧菜单栏(手机端在顶栏)选的那个全局账户,这里不再单独选。
   // 拿不到时退回默认账户,避免刚装好还没选就点不了下单。
   const [globalAccountId] = useActiveAccount();
-  const accountId = findAccountByID(accounts, globalAccountId)?.id || defaultAcc?.id || "";
+  const accountId = (editing && findAccountByID(accounts, editing.accountId)?.id) || findAccountByID(accounts, globalAccountId)?.id || defaultAcc?.id || "";
   const activeAccount = findAccountByID(accounts, accountId);
 
   // 这里选的下单账户可能跟页面顶部的活跃账户不是同一个区。
@@ -561,20 +598,23 @@ function DetailContent({
     () => (orderVariants ? variantDcStatus(orderVariants, []) : realtimeDcMap),
     [orderVariants, realtimeDcMap]
   );
-  const [selectedDCs, setSelectedDCs] = useState<string[]>([]);
+  const [selectedDCs, setSelectedDCs] = useState<string[]>(() => (editing ? [editing.datacenter.toLowerCase()] : []));
   const [quantity, setQuantity] = useState("1");
   const [chosenScope, setChosenScope] = useState<PurchaseMode | "">("");
-  const [retryInterval, setRetryInterval] = useState("60");
+  // 重试间隔与购买时长记住上次的选择(只存在本机浏览器);自动付款涉及扣款,不记
+  const [retryInterval, setRetryInterval] = useState(() => (editing ? String(editing.retryInterval || 60) : loadBuyPrefs().retryInterval || "60"));
   // 默认不自动付款:自动扣钱必须是用户显式打开的
-  const [autoPay, setAutoPay] = useState(false);
+  const [autoPay, setAutoPay] = useState(!!editing?.autoPay);
   const dcSectionRef = useRef<HTMLDivElement>(null);
   const [dcFlash, setDcFlash] = useState(false);
   const [preorderPlan, setPreorderPlan] = useState(server.prerelease ? server.planCode : "");
   const preorder = !!server.prerelease || preorderPlan === server.planCode;
-  const purchaseMode: PurchaseMode = chosenScope || (preorder ? "total" : "perDatacenter");
+  // 没手动选过时:选了多个机房默认「合计 N 台」(哪个机房先有货就买哪个,买够即停)。
+  // 以前默认「每个机房各买」,勾 7 个机房就是 7 台 —— 多数人只是想提高抢到的机会,不是想买 7 台。
+  const purchaseMode: PurchaseMode = chosenScope || (preorder || selectedDCs.length > 1 ? "total" : "perDatacenter");
   useEffect(() => setPreorderPlan((previous) => retainPreorderPlan(previous, server.planCode, !!server.prerelease)), [server.planCode, server.prerelease]);
-  const [duration, setDuration] = useState("P1M");
-  const [coupon, setCoupon] = useState("");
+  const [duration, setDuration] = useState(() => editing?.duration || loadBuyPrefs().duration || "P1M");
+  const [coupon, setCoupon] = useState(editing?.coupon || "");
   const [preorderTrigger, setPreorderTrigger] = useState<PreorderTrigger>("onSale");
   // 多账户:默认上次在该型号用过的同区账户,其次是当前账户。
   const [pickedAccounts, setPickedAccounts] = useState<string[]>([]);
@@ -585,12 +625,13 @@ function DetailContent({
         const acc = findAccountByID(accounts, id);
         return !!acc && endpointRegion(acc.endpoint) === orderRegionKey;
       });
+    if (editing) return accountId ? [accountId] : [];
     const chosen = valid(pickedAccounts);
     if (chosen.length > 0) return chosen;
     const remembered = valid(rememberedAccounts(server.planCode));
     if (remembered.length > 0) return remembered;
     return accountId ? [accountId] : [];
-  }, [pickedAccounts, accounts, orderRegionKey, server.planCode, accountId]);
+  }, [pickedAccounts, accounts, orderRegionKey, server.planCode, accountId, editing]);
   const toggleDC = (code: string) =>
     setSelectedDCs((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
   // 和后端同一套上限:界面上先把数量收住,别让用户看到一个建不出来的数字。
@@ -622,11 +663,19 @@ function DetailContent({
     (Object.keys(grouped) as OptionGroupKey[]).forEach((g) => {
       const list = grouped[g];
       if (list.length === 0) return;
-      const def = list.find((o) => defaultValueSet.has(o.value));
+      // 编辑时回填任务当前的配置;没有匹配项的组退回目录默认值
+      const current = editing ? list.find((o) => (editing.options || []).includes(o.value)) : undefined;
+      const def = current || list.find((o) => defaultValueSet.has(o.value));
       if (def) out[g] = def.value;
     });
     return out;
-  }, [grouped, defaultValueSet]);
+  }, [grouped, defaultValueSet, editing]);
+  // 任务上有、但不在目录可选项里的配置码(手填的附加项):编辑保存时原样保留
+  const extraOptions = useMemo(() => {
+    if (!editing) return [] as string[];
+    const known = new Set((Object.keys(grouped) as OptionGroupKey[]).flatMap((g) => grouped[g].map((o) => o.value)));
+    return (editing.options || []).filter((o) => !known.has(o));
+  }, [editing, grouped]);
   const [picked, setPicked] = useState<Partial<Record<OptionGroupKey, string>>>(initialPicked);
 
   // DC 红绿:看"该 DC 在任何 FQN 里有货否",跟卡片外面口径一致。
@@ -639,6 +688,14 @@ function DetailContent({
     () => datacentersForPlan({ [server.planCode]: dcMap }, server.planCode),
     [dcMap, server.planCode]
   );
+
+  useEffect(() => {
+    if (!editing || dialogDCs.length === 0) return;
+    setSelectedDCs((prev) => {
+      const next = prev.map((c) => dialogDCs.find((d) => apiDatacenterCode(d.code) === apiDatacenterCode(c))?.code || c);
+      return next.join() === prev.join() ? prev : next;
+    });
+  }, [editing, dialogDCs]);
 
   const total = dialogDCs.length;
   const ok = dialogDCs.filter((dc) => {
@@ -669,15 +726,20 @@ function DetailContent({
   const selectedValues = useMemo(
     () => {
       const options = Object.values(picked).filter(Boolean) as string[];
-      return preorder ? preorderOptions(options, grouped.cpu.map((option) => option.value)) : options;
+      const base = preorder ? preorderOptions(options, grouped.cpu.map((option) => option.value)) : options;
+      return extraOptions.length ? [...base, ...extraOptions.filter((o) => !base.includes(o))] : base;
     },
-    [picked, preorder, grouped]
+    [picked, preorder, grouped, extraOptions]
   );
   const preorderConfigMismatch = preorder && (!hasPreorderHardware(selectedValues) || (selectedValues.length > 0 &&
     !!orderVariants?.length && !orderVariants.some((v) => preorderVariantCoversAll(v.fqn, selectedValues))));
   const durationOptions = useOrderDurations(accountId, server.planCode, "eco", true);
   const durationSupported = supportsDuration(durationOptions.data, duration);
-  const preparation = useOrderPrewarm(durationSupported && !!accountId && selectedDCs.length > 0 && !preorderConfigMismatch, {
+  // 记住的时长这款机型不支持时,退回 1 个月,不让用户卡在一个选不了的值上
+  useEffect(() => {
+    if (durationOptions.data && !durationSupported && duration !== "P1M") setDuration("P1M");
+  }, [durationOptions.data, durationSupported, duration]);
+  const preparation = useOrderPrewarm(!editing && durationSupported && !!accountId && selectedDCs.length > 0 && !preorderConfigMismatch, {
     account_id: accountId, planCode: server.planCode, datacenters: selectedDCs,
     options: selectedValues, quantity: qty, autoPay, coupon, duration, preorder,
   });
@@ -717,8 +779,16 @@ function DetailContent({
 
       <div className="overflow-y-auto -mx-6 px-6 space-y-6 flex-1">
         {preorder && <p className="text-xs text-warning" role="status">{t("queue.preorderHint")}</p>}
-        {preorder && <PreorderTriggerPicker value={preorderTrigger} onChange={setPreorderTrigger} />}
-        {accounts && accountId && (
+        {editing && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/[.04] px-3.5 py-2.5 text-[12.5px]">
+            <Pencil className="w-3.5 h-3.5 text-primary" />
+            <span className="font-medium">{t("queue.editTitle")}</span>
+            <AccountChip accountId={editing.accountId} />
+            <span className="text-muted-foreground">{t("servers.detail.editHint")}</span>
+          </div>
+        )}
+        {preorder && !editing && <PreorderTriggerPicker value={preorderTrigger} onChange={setPreorderTrigger} />}
+        {accounts && accountId && !editing && (
           <OrderAccountPicker accounts={accounts} primaryId={accountId} selected={orderAccounts} onChange={setPickedAccounts} />
         )}
         {/* 价格 Hero（随下方配置实时变化） */}
@@ -864,17 +934,6 @@ function DetailContent({
             <OrderDurationField value={duration} onChange={setDuration} query={durationOptions} />
 
             <div>
-              <label htmlFor="server-coupon" className="block text-[13px] font-medium mb-1.5">
-                {t("queue.couponLabel")}
-              </label>
-              <Input id="server-coupon" value={coupon} onChange={(e) => setCoupon(e.target.value)}
-                placeholder={t("queue.couponPlaceholder")} autoCapitalize="none" spellCheck={false}
-                aria-describedby="server-coupon-hint" />
-              <p id="server-coupon-hint" className="text-[11px] text-muted-foreground mt-1">
-                {t("queue.couponHint")}
-              </p>
-            </div>
-            <div>
               {/* 当前账户不在这里重复 —— 切换器在顶栏(手机)/侧栏(桌面)始终可见。
                   下面这句留着:它说的不是"账户是谁",而是"这些红绿点是按哪个站点查的",
                   库存判断的口径跟着账户走,这是本页独有的信息。 */}
@@ -896,9 +955,9 @@ function DetailContent({
                 </p>
               )}
             </div>
-            {purchaseMode === "total" && <p className="text-sm font-medium">{t("queue.totalMaximum", { n: qty })}</p>}
-            <OrderPurchaseScope id="server-purchase-scope" value={purchaseMode} onChange={setChosenScope} />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {!editing && purchaseMode === "total" && <p className="text-sm font-medium">{t("queue.totalMaximum", { n: qty })}</p>}
+            {!editing && <OrderPurchaseScope id="server-purchase-scope" value={purchaseMode} onChange={setChosenScope} />}
+            <div className={editing ? "hidden" : "grid grid-cols-1 gap-3"}>
               <div>
                 <label className="block text-[11px] text-muted-foreground mb-1">
                   {t(purchaseMode === "total" ? "queue.qtyTotal" : "servers.detail.qtyPerDc")}
@@ -918,6 +977,28 @@ function DetailContent({
                   </p>
                 )}
               </div>
+            </div>
+            {/* 不常改的两项收起来:优惠码、重试间隔。填了优惠码时保持展开 */}
+            <details className="group rounded-xl border border-border" open={!!coupon || !!editing || undefined}>
+              <summary className="flex items-center justify-between gap-2 px-3.5 py-2.5 text-[13px] font-medium list-none [&::-webkit-details-marker]:hidden">
+                <span>{t("servers.detail.moreOptions")}</span>
+                <span className="flex items-center gap-2 text-[12px] font-normal text-muted-foreground">
+                  {t("servers.detail.moreSummary", { interval: retryInterval || "60" })}
+                  <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" />
+                </span>
+              </summary>
+              <div className="space-y-3 border-t border-border px-3.5 py-3">
+            <div>
+                  <label htmlFor="server-coupon" className="block text-[13px] font-medium mb-1.5">
+                    {t("queue.couponLabel")}
+                  </label>
+                  <Input id="server-coupon" value={coupon} onChange={(e) => setCoupon(e.target.value)}
+                    placeholder={t("queue.couponPlaceholder")} autoCapitalize="none" spellCheck={false}
+                    aria-describedby="server-coupon-hint" />
+                  <p id="server-coupon-hint" className="text-[11px] text-muted-foreground mt-1">
+                    {t("queue.couponHint")}
+                  </p>
+                </div>
               <div>
                 <label className="block text-[11px] text-muted-foreground mb-1">{t("servers.detail.retryInterval")}</label>
                 <Input
@@ -927,7 +1008,8 @@ function DetailContent({
                   onChange={(e) => setRetryInterval(e.target.value)}
                 />
               </div>
-            </div>
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -946,7 +1028,9 @@ function DetailContent({
       <DialogFooter className="border-t border-border pt-4 -mx-6 px-6">
         <div className="mr-auto text-[12px] text-muted-foreground">
           <div className="mb-1 font-medium text-foreground">{t("orderDuration.label")} · <OrderDurationLabel value={duration} /></div>
-          {selectedDCs.length > 0
+          {editing && selectedDCs.length > 0
+            ? (selectedDCs.length > 1 ? t("queue.editMultiDcHint", { n: selectedDCs.length - 1 }) : t("servers.detail.editOneDc"))
+            : selectedDCs.length > 0
             ? t(purchaseMode === "total" ? "queue.totalMaximum" : "servers.detail.willCreate", {
                 n: qty,
                 tasks: totalTasks,
@@ -976,9 +1060,57 @@ function DetailContent({
             <span className="block text-[11px] mt-0.5 text-warning">{t("servers.detail.autoPayOn")}</span>
           )}
         </div>
-        <Button variant="outline" onClick={onClose} disabled={create.isPending}>
+        <Button variant="outline" onClick={onClose} disabled={create.isPending || update.isPending}>
           {t("servers.detail.close")}
         </Button>
+        {editing && (
+          <Button
+            disabled={!durationSupported || selectedDCs.length === 0 || update.isPending || create.isPending}
+            onClick={async () => {
+              // 一个任务对应一个机房:原机房仍勾着就留给原任务,其余每个机房按同样设置各新增一个任务
+              const same = (a: string, b: string) => apiDatacenterCode(a) === apiDatacenterCode(b);
+              const keep = selectedDCs.find((d) => same(d, editing.datacenter)) || selectedDCs[0];
+              const extra = selectedDCs.filter((d) => d !== keep);
+              const interval = Number(retryInterval) || 60;
+              try {
+                await update.mutateAsync({
+                  id: editing.id,
+                  wasRunning: editing.status === "running" || editing.status === "pending",
+                  datacenter: keep,
+                  options: selectedValues,
+                  retryInterval: interval,
+                  autoPay,
+                  coupon: coupon.trim(),
+                  duration,
+                });
+              } catch {
+                return; // 错误已由保存逻辑提示,保留弹窗
+              }
+              if (extra.length > 0) {
+                const r = await create.mutateAsync({
+                  account_id: editing.accountId,
+                  planCode: editing.planCode,
+                  datacenters: extra,
+                  quantity: 1,
+                  purchaseMode: "perDatacenter",
+                  retryInterval: interval,
+                  options: selectedValues,
+                  autoPay,
+                  coupon,
+                  duration,
+                  preorder: !!editing.preorder,
+                });
+                if (r.success > 0) toast.success(t("queue.editExtraCreated", { n: r.success }));
+                if (r.failed > 0) return;
+              }
+              onClose();
+            }}
+          >
+            {update.isPending || create.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {t("queue.save")}
+          </Button>
+        )}
+        {!editing && (<>
         <Button
           variant="outline"
           disabled={addMon.isPending || create.isPending}
@@ -1032,6 +1164,7 @@ function DetailContent({
             });
             if (result.success > 0) {
               rememberAccounts(server.planCode, orderAccounts);
+              saveBuyPrefs({ retryInterval: String(Number(retryInterval) || 60), duration });
               preparation.submitted();
               toast.success(t("servers.toast.created", { success: result.success, total: result.total }), {
                 action: { label: t("servers.toast.viewQueue"), onClick: () => void navigate({ to: "/queue" }) },
@@ -1057,8 +1190,68 @@ function DetailContent({
             </>
           )}
         </Button>
+        </>)}
       </DialogFooter>
     </>
+  );
+}
+
+/**
+ * 抢购队列的「编辑」弹窗:与服务器列表的抢购弹窗同一个界面(价格、规格、带库存的配置与机房),
+ * 数据按任务所属账户读取。目录里找不到这款机型时调用 onUnavailable,由调用方退回简易表单。
+ */
+export function QueueEditDialog({ editing, onClose, onUnavailable }: { editing: QueueItem | null; onClose: () => void; onUnavailable: (item: QueueItem) => void }) {
+  const accounts = useAccounts();
+  const acc = findAccountByID(accounts.data, editing?.accountId || "");
+  const q = useServers(true, editing?.accountId);
+  const availQ = useAvailability(acc?.endpoint || undefined);
+  const subsidiary = (acc?.zone || "IE").toUpperCase();
+  const catalogQ = useOvhCatalog(subsidiary);
+  const catalogIdx = useMemo(() => buildCatalogIndex(catalogQ.data), [catalogQ.data]);
+  const list = useMemo(() => mergeStockPlans(q.data || [], availQ.data), [q.data, availQ.data]);
+  const server = editing ? list.find((s) => s.planCode === editing.planCode) : undefined;
+  const availMap = useMemo(() => buildAvailabilityMap(availQ.data), [availQ.data]);
+  const variantIndex = useMemo(() => buildVariantIndex(availQ.data), [availQ.data]);
+  const defaultPrice = useMemo(
+    () => (server ? computePriceFromOptions(server.planCode, (server.defaultOptions || []).map((o) => o.value).filter(Boolean), catalogIdx) || undefined : undefined),
+    [server, catalogIdx],
+  );
+  const missing = !!editing && !q.isPending && !accounts.isPending && !server;
+  useEffect(() => {
+    if (missing && editing) onUnavailable(editing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missing, editing?.id]);
+  if (!editing || missing) return null;
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="w-[95vw] sm:w-full sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        {server ? (
+          <DetailContent
+            key={editing.id}
+            editing={editing}
+            server={server}
+            realtimeDcMap={availMap[server.planCode]}
+            availError={availQ.isError}
+            variants={variantIndex[server.planCode]}
+            defaultPrice={defaultPrice}
+            priceLoading={catalogQ.isPending}
+            catalogIdx={catalogIdx}
+            subsidiary={subsidiary}
+            onClose={onClose}
+          />
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle className="font-mono text-xl">{editing.planCode}</DialogTitle>
+              <DialogDescription>{"…"}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1118,4 +1311,28 @@ function CacheBadge() {
       {valid ? t("servers.cache.cached") : t("servers.cache.expired")} · {text}
     </span>
   );
+}
+
+/** 商品名 → 系列:"RISE-GAME-1 | AMD Ryzen" → "RISE","KS-LE-6" → "KS";认不出返回空 */
+function seriesOf(name: string): string {
+  const head = (name || "").split("|")[0].trim().toUpperCase();
+  const m = head.match(/^[A-Z]+/);
+  return m ? m[0] : "";
+}
+
+const BUY_PREFS_KEY = "ovh-buy-prefs";
+function loadBuyPrefs(): { retryInterval?: string; duration?: string } {
+  try {
+    const v = JSON.parse(localStorage.getItem(BUY_PREFS_KEY) || "{}");
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {};
+  }
+}
+function saveBuyPrefs(p: { retryInterval: string; duration: string }) {
+  try {
+    localStorage.setItem(BUY_PREFS_KEY, JSON.stringify(p));
+  } catch {
+    /* 隐私模式等写不进去时,只是下次不记得 */
+  }
 }

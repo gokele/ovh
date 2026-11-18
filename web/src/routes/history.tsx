@@ -2,9 +2,9 @@ import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { describeOptionCodes } from "@/lib/option-groups";
 import { OrderDurationLabel } from "@/components/queue/OrderDurationField";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
-import { Clock, RefreshCw, Trash2, AlertCircle, Hourglass, Copy } from "lucide-react";
+import { Clock, RefreshCw, Trash2, AlertCircle, Hourglass, Copy, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -126,6 +126,9 @@ function HistoryPage() {
   const list = useHistory();
   const clear = useClearHistory();
   const refreshStatus = useRefreshOrderStatus();
+  const navigate = useNavigate();
+  const buyAgain = (item: PurchaseHistory) =>
+    void navigate({ to: "/queue", search: { create: item.planCode, options: (item.options || []).join(",") } });
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "success" | "failed" | "uncertain">("all");
   const [confirmClear, setConfirmClear] = useState(false);
@@ -267,12 +270,12 @@ function HistoryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filtered.map((item) => <HistoryRow key={item.id} item={item} now={now} />)}
+                  {filtered.map((item) => <HistoryRow key={item.id} item={item} now={now} onAgain={buyAgain} />)}
                 </tbody>
               </table>
             ) : (
               <div className="divide-y divide-border">
-                {filtered.map((item) => <HistoryCard key={item.id} item={item} now={now} />)}
+                {filtered.map((item) => <HistoryCard key={item.id} item={item} now={now} onAgain={buyAgain} />)}
               </div>
             )}
           </div>
@@ -300,7 +303,7 @@ function HistoryPage() {
   );
 }
 
-function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
+function HistoryRow({ item, now, onAgain }: { item: PurchaseHistory; now: number; onAgain?: (item: PurchaseHistory) => void }) {
   const { t } = useTranslation();
   const st = orderStatusView(item);
   // 倒计时是"付款窗口":付了、取消了、交付了都不再显示
@@ -357,14 +360,14 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
       </td>
       <td className="pl-3 pr-4 py-3 whitespace-nowrap text-right">
         {/* 待付款且未过期:直接在这里付款(复用账户页的预检 + 明确确认流程,不自动重试) */}
-        <HistoryActions item={item} payable={canPay(item, st, isExpired)} />
+        <HistoryActions item={item} payable={canPay(item, st, isExpired)} onAgain={onAgain} />
       </td>
     </tr>
   );
 }
 
 /** 手机端的订单卡片渲染。跟 HistoryRow 字段一一对应,但堆叠成卡片。 */
-function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
+function HistoryCard({ item, now, onAgain }: { item: PurchaseHistory; now: number; onAgain?: (item: PurchaseHistory) => void }) {
   const { t } = useTranslation();
   const st = orderStatusView(item);
   const showCountdown = item.status === "success" && !!item.orderId && !st.paid && !st.closed;
@@ -407,9 +410,7 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
           )}
           <span className="ml-auto inline-flex items-center gap-2.5">
             {item.price?.withTax != null ? <HistoryPrice item={item} strike={isExpired} /> : null}
-            {(canPay(item, st, isExpired) || (item.status !== "success" && !!item.errorMessage)) && (
-              <HistoryActions item={item} payable={canPay(item, st, isExpired)} />
-            )}
+            <HistoryActions item={item} payable={canPay(item, st, isExpired)} onAgain={onAgain} />
           </span>
         </div>
     </div>
@@ -468,11 +469,21 @@ function canPay(item: PurchaseHistory, st: { paid: boolean; closed: boolean }, i
 }
 
 /** 操作列:只放要做的事 —— 待付款显示「支付」,失败显示「错误」详情,其余为「—」。 */
-function HistoryActions({ item, payable }: { item: PurchaseHistory; payable: boolean }) {
+function HistoryActions({ item, payable, onAgain }: { item: PurchaseHistory; payable: boolean; onAgain?: (item: PurchaseHistory) => void }) {
   const { t } = useTranslation();
-  if (item.status !== "success") {
-    return item.errorMessage ? <ErrorDetail message={item.errorMessage} label={t("history.errorLink")} /> : <span className="text-muted-foreground">—</span>;
-  }
-  if (!payable) return <span className="text-muted-foreground">—</span>;
-  return <OrderPaymentButton compact accountId={item.accountId} orderId={Number(item.orderId)} managerUrl={item.orderUrl} />;
+  // 再抢一单:带着这条记录的型号和配置打开新建任务弹窗(机房、数量在弹窗里确认),不直接下单。
+  // 跳转由页面传入,这一行本身不依赖路由。
+  const again = onAgain ? (
+    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={() => onAgain(item)} title={t("queue.buyAgain")} aria-label={t("queue.buyAgain")}>
+      <RotateCw className="w-3.5 h-3.5" />
+    </Button>
+  ) : null;
+  return (
+    <span className="inline-flex items-center justify-end gap-1.5">
+      {item.status !== "success"
+        ? item.errorMessage && <ErrorDetail message={item.errorMessage} label={t("history.errorLink")} />
+        : payable && <OrderPaymentButton compact accountId={item.accountId} orderId={Number(item.orderId)} managerUrl={item.orderUrl} />}
+      {again}
+    </span>
+  );
 }

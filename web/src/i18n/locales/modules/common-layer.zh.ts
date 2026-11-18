@@ -75,6 +75,8 @@ export const commonLayerZh = {
       resumeTasks: "同时恢复 {{count}} 个抢购任务",
       tasksResumed: "已恢复 {{count}} 个抢购任务",
       tasksResumedPartial: "已恢复 {{ok}}/{{total}} 个抢购任务,其余请到队列查看",
+      started: "监控已启动",
+      stoppedWithQueue: "监控已停止,同时暂停了 {{count}} 个关联抢购任务",
       resumedOnly: "监控已恢复；被它暂停的抢购任务仍保持暂停",
       saved: "订阅已保存",
       saveFailed: "保存失败",

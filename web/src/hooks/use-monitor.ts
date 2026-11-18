@@ -247,3 +247,21 @@ export function useSetMonitorInterval() {
     onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.monitor.intervalSetFailed")),
   });
 }
+
+/** 全局启动 / 停止监控。停止会同时暂停所有订阅关联的抢购任务,且重启后不自动恢复。 */
+export function useToggleMonitor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (on: boolean) =>
+      (await api.post<{ message?: string; pausedTasks?: number }>(on ? "/monitor/start" : "/monitor/stop")).data,
+    onSuccess: (data, on) => {
+      toast.success(on ? i18n.t("hooksMsg.monitor.started") : i18n.t("hooksMsg.monitor.stoppedWithQueue", { count: data?.pausedTasks || 0 }));
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: qk.monitor.status() });
+      qc.invalidateQueries({ queryKey: qk.queue.list() });
+      qc.invalidateQueries({ queryKey: qk.stats() });
+    },
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.monitor.updateFailed")),
+  });
+}

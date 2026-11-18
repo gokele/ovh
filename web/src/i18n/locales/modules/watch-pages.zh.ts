@@ -18,6 +18,10 @@ export const watchPagesZh = {
     addAction: "添加订阅",
     clearAll: "清空全部",
     status: {
+      switchAria: "启动或停止监控",
+      stopTitle: "停止监控?",
+      stopDesc: "停止后不再检查库存,所有订阅关联的抢购任务也会暂停;重启程序不会自动恢复,需要再手动启动。",
+      stopConfirm: "停止监控",
       title: "监控状态",
       loading: "读取中…",
       unknown: "状态未知",

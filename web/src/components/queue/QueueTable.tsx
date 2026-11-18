@@ -714,12 +714,15 @@ export function QueueTable({
   const catalog = useServers(true);
   const names = useMemo(() => {
     const m = new Map<string, string>();
+    // 优先用后端按任务所属账户给的商品名;当前账户目录只作补充(老版本后端没有 planName)
+    for (const it of items) if (it.planName) m.set(it.planCode, it.planName);
     for (const p of catalog.data || []) {
+      if (m.has(p.planCode)) continue;
       const n = (p.name || "").split("|")[0].trim();
       if (n && n !== p.planCode) m.set(p.planCode, n);
     }
     return m;
-  }, [catalog.data]);
+  }, [catalog.data, items]);
 
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
   const isOpen = (g: PlanGroup) => openMap[g.planCode] ?? true;

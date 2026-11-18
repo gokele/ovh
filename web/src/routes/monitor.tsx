@@ -1,3 +1,5 @@
+import { Switch } from "@/components/ui/switch";
+import { useConfirm } from "@/components/common/ConfirmDialog";
 import { OrderDurationField, OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { AutoPayOption } from "@/components/common/AutoPayStatus";
 import { useOrderDurations } from "@/hooks/use-order-durations";
@@ -45,6 +47,7 @@ import {
 import {
   useMonitorList,
   useMonitorStatus,
+  useToggleMonitor,
   useRemoveMonitorSubscription,
   useClearMonitor,
   useCreateMonitorSubscription,
@@ -75,6 +78,8 @@ function MonitorPage() {
   const list = useMonitorList();
   const events = useStockEvents(list.data, "server");
   const status = useMonitorStatus();
+  const toggleMonitor = useToggleMonitor();
+  const [confirmAsk, confirmDialog] = useConfirm();
   const remove = useRemoveMonitorSubscription();
   const pause = usePauseMonitorSubscription();
   const clear = useClearMonitor();
@@ -183,7 +188,28 @@ function MonitorPage() {
               )}
             </div>
           </div>
-          <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
+            {/* 全局开关:以前网页上没有,监控被 Telegram 停掉后只能回 Telegram 才能启动 */}
+            {!status.isPending && !status.isError && (
+              <Switch
+                checked={running}
+                disabled={toggleMonitor.isPending}
+                aria-label={t("monitor.status.switchAria")}
+                className="data-[state=checked]:bg-success data-[state=unchecked]:bg-input"
+                onCheckedChange={async (on) => {
+                  if (!on) {
+                    const ok = await confirmAsk({
+                      title: t("monitor.status.stopTitle"),
+                      description: t("monitor.status.stopDesc"),
+                      tone: "danger",
+                      confirmText: t("monitor.status.stopConfirm"),
+                    });
+                    if (!ok) return;
+                  }
+                  toggleMonitor.mutate(on);
+                }}
+              />
+            )}
             <Stat label={t("monitor.status.subsCount")} value={statNum(status.data?.subscriptions_count)} />
             <IntervalStat
               current={status.isError ? undefined : status.data?.check_interval}
@@ -315,6 +341,7 @@ function MonitorPage() {
         </div>
       )}
 
+      {confirmDialog}
       {/* 添加订阅 Dialog */}
       <AddSubscriptionDialog
         open={openAdd}

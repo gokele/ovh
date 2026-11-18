@@ -1,5 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, Bell, Bot, CheckCircle2, Link2, ListChecks, Plus, Server, XCircle } from "lucide-react";
+import { ArrowRight, Bell, Bot, CheckCircle2, CreditCard, Hourglass, Link2, ListChecks, Plus, Server, XCircle } from "lucide-react";
+import { useHistory } from "@/hooks/use-history";
+import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { fmtDateTime } from "@/i18n/format";
@@ -212,6 +214,71 @@ function CountUp({ value }: { value: number }) {
   return <>{shown}</>;
 }
 
+const ORDER_VALIDITY_MS = 15 * 24 * 60 * 60 * 1000;
+
+/**
+ * 待付款订单:抢到但还没付款的订单会在到期后作废,这是最不能错过的一件事。
+ * 直接在仪表盘列出来并提供「支付」(与抢购历史同一套预检 + 确认流程);没有待付款订单时不显示。
+ */
+function UnpaidOrders() {
+  const { t } = useTranslation();
+  const history = useHistory();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const rows = (history.data || [])
+    .filter((h) => h.status === "success" && Number(h.orderId) > 0 && !!h.accountId && (!h.orderStatus || h.orderStatus === "notPaid"))
+    .map((h) => ({ h, left: (h.expirationTime ? new Date(h.expirationTime).getTime() : new Date(h.purchaseTime).getTime() + ORDER_VALIDITY_MS) - now }))
+    .filter((r) => r.left > 0)
+    .sort((a, b) => a.left - b.left);
+  if (rows.length === 0) return null;
+  const fmtLeft = (ms: number) => {
+    const m = Math.floor(ms / 60_000);
+    const d = Math.floor(m / 1440);
+    const hh = Math.floor((m % 1440) / 60);
+    if (d > 0) return t("history.countdown.dhm", { d, h: hh, m: m % 60 });
+    if (hh > 0) return t("history.countdown.hm", { h: hh, m: m % 60 });
+    return t("history.countdown.m", { m });
+  };
+  return (
+    <Card className="min-w-0 overflow-hidden ring-1 ring-warning/30">
+      <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-border bg-warning/[.06]">
+        <span className="inline-flex items-center gap-2 text-[14px] font-semibold">
+          <CreditCard className="w-4 h-4 text-warning" />
+          {t("dashboard.unpaidTitle", { n: rows.length })}
+        </span>
+        <Link to="/history" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          {t("dashboard.viewAll")} <ArrowRight className="w-3 h-3" />
+        </Link>
+      </div>
+      <ul className="divide-y divide-border">
+        {rows.slice(0, 5).map(({ h, left }) => (
+          <li key={h.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-2.5 min-w-0">
+            <span className="font-mono text-[13px] font-semibold">{h.planCode}</span>
+            <span className="font-mono text-[11px] text-muted-foreground uppercase">{h.datacenter}</span>
+            <AccountChip accountId={h.accountId} className="hidden sm:inline-flex" />
+            <span className={cn("inline-flex items-center gap-1 text-[12px] whitespace-nowrap", left < 24 * 3600_000 ? "text-destructive font-medium" : "text-muted-foreground")}>
+              <Hourglass className="w-3 h-3" />
+              {fmtLeft(left)}
+            </span>
+            <span className="ml-auto inline-flex items-center gap-3">
+              {h.price?.withTax != null && (
+                <span className="text-[13px] font-medium tabular-nums whitespace-nowrap">
+                  {h.price.withTax}
+                  {h.price.currencyCode ? ` ${h.price.currencyCode}` : ""}
+                </span>
+              )}
+              <OrderPaymentButton compact accountId={h.accountId} orderId={Number(h.orderId)} managerUrl={h.orderUrl} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function greetingKey(h: number): string {
   if (h < 5) return "dashboard.greetNight";
   if (h < 12) return "dashboard.greetMorning";
@@ -288,6 +355,8 @@ export function DashboardPearl() {
           </div>
         </div>
       </Card>
+
+      <UnpaidOrders />
 
       <div className="bw-stagger grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
         <Kpi tone="brand" icon={<ListChecks className="w-5 h-5" />} label={t("dashboard.kpi.activeQueues")} value={num(s?.activeQueues)} sub={t("dashboard.kpi.viewQueue")} to="/queue" />

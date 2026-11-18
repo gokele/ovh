@@ -21,6 +21,10 @@ const pack: WatchPagesPack = {
     addAction: "Add subscription",
     clearAll: "Clear all",
     status: {
+      switchAria: "Start or stop monitoring",
+      stopTitle: "Stop monitoring?",
+      stopDesc: "Stock checks stop and every sniping task tied to a subscription is paused; restarting the app does not resume them until you start monitoring again.",
+      stopConfirm: "Stop monitoring",
       title: "Monitor status",
       loading: "Loading…",
       unknown: "Status unknown",

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -546,6 +547,20 @@ func getNumOrFloat(v interface{}) (float64, bool) {
 		return float64(x), true
 	case int64:
 		return float64(x), true
+	case json.Number:
+		// 长轮询用 UseNumber 解析(保住大整数 id 的精度),数字到这里是 json.Number。
+		// 以前不认这个类型,message_id / user_id 一律读成 0:
+		// 菜单按钮点了之后去编辑「第 0 条消息」,Telegram 拒绝,表现就是按钮没反应。
+		if i, err := x.Int64(); err == nil {
+			return float64(i), true
+		}
+		if f, err := x.Float64(); err == nil {
+			return f, true
+		}
+	case string:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(x), 64); err == nil {
+			return f, true
+		}
 	}
 	return 0, false
 }
