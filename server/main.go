@@ -572,6 +572,7 @@ func main() {
 		api.GET("/ovh/account/orders", handlers.GetAccountOrders(state))
 		api.GET("/ovh/account/orders/:order_id/payment", handlers.GetOrderPaymentOptions(state))
 		api.POST("/ovh/account/orders/:order_id/pay", handlers.PayAccountOrder(state))
+		api.POST("/ovh/account/orders/:order_id/pay-balance", handlers.PayAccountOrderWithBalance(state))
 		api.GET("/ovh/account/credit-balance", handlers.GetCreditBalance(state))
 		api.GET("/ovh/account/default-payment-method", handlers.GetDefaultPaymentMethod(state))
 		api.GET("/ovh/account/email-history", handlers.GetEmailHistory(state))

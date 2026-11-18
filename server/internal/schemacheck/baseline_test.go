@@ -124,6 +124,7 @@ var usedEndpoints = []string{
 	"GET /me/payment/method",
 	"GET /me/payment/method/{paymentMethodId}",
 	"POST /me/order/{orderId}/pay",
+	"POST /me/order/{orderId}/balance",
 
 	// —— 独服 ——
 	"GET /dedicated/server",
@@ -271,6 +272,7 @@ var usedEndpoints = []string{
 	"GET /me",
 	"GET /me/bill",
 	"GET /me/credit/balance",
+	"GET /me/credit/balance/{balanceName}",
 	"GET /me/notification/email/history",
 	"GET /me/order",
 	"GET /me/order/{orderId}",

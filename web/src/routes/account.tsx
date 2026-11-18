@@ -2,10 +2,10 @@ import { OfficialChat } from "@/components/support/OfficialChat";
 import { SupportTickets } from "@/components/support/SupportTickets";
 import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
 import { createFileRoute } from "@tanstack/react-router";
-import { User, Mail, RefreshCw, FileText, Inbox, ShieldCheck, ShoppingBag, ExternalLink, type LucideIcon } from "lucide-react";
+import { User, Mail, RefreshCw, FileText, Inbox, ShieldCheck, ShoppingBag, ExternalLink, Wallet, MapPin, Globe, type LucideIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { fmtDateTime } from "@/i18n/format";
+import { fmtDate, fmtDateTime, fmtMoney } from "@/i18n/format";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PartialNotice } from "@/components/common/PartialNotice";
 import { LoadFailed, LoadFailedBanner } from "@/components/common/LoadFailed";
-import { useAccountInfo, useAccountScope, useRefunds, useEmails, useOrders, type EmailHistoryEntry, type OrderRecord } from "@/hooks/use-account";
+import { useAccountInfo, useAccountScope, useCreditBalances, useRefunds, useEmails, useOrders, type AccountInfo, type CreditBalance, type EmailHistoryEntry, type OrderRecord } from "@/hooks/use-account";
 
 /** 账户管理：顶部账户资料条 + Tabs (邮件 / 订单 / 退款 / 工单 / 在线客服) */
 export const Route = createFileRoute("/account")({
@@ -61,39 +61,12 @@ function AccountPage() {
       )}
 
       {/* 读取失败时横幅已经说明;再摆三张「—」卡片只会占掉手机一整屏 */}
+      {/* 账户总览:左侧身份卡(持有人 / 邮箱 / KYC + 客户代码、所在地、子公司),右侧蓝色钱包卡(可用余额) */}
       {!q.isError && (
-      <Card className="overflow-hidden">
-        <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 divide-y sm:divide-y-0 divide-border">
-          <ProfileField
-            icon={User}
-            label={t("account.customerCode")}
-            value={me?.customerCode}
-            // 美区账户的 NIC 就是邮箱,与右侧邮箱重复时不再显示
-            sub={me?.nichandle && me.nichandle !== me?.email ? me.nichandle : undefined}
-            loading={loading}
-          />
-          <ProfileField
-            icon={ShieldCheck}
-            label="KYC"
-            loading={loading}
-            value={
-              me && (
-                <Chip tone={me.kycValidated ? "success" : "warning"}>
-                  {me.kycValidated ? t("account.kycValidated") : t("account.kycNotValidated")}
-                </Chip>
-              )
-            }
-          />
-          <ProfileField icon={Mail} label={t("account.email")} value={me?.email} loading={loading} />
-          <ProfileField
-            icon={User}
-            label={t("account.holder")}
-            value={me ? `${me.firstname ?? ""} ${me.name ?? ""}`.trim() || undefined : undefined}
-            sub={me?.city && me?.country ? `${me.city}, ${me.country}` : undefined}
-            loading={loading}
-          />
-        </dl>
-      </Card>
+        <div className="grid gap-3 sm:gap-4 xl:grid-cols-[minmax(0,1fr)_360px] items-stretch">
+          <IdentityCard me={me} loading={loading} />
+          <WalletCard currency={me?.currency?.code} />
+        </div>
       )}
 
       <Tabs defaultValue="emails">
@@ -121,36 +94,194 @@ function AccountPage() {
 }
 
 /** 账户资料单元格:标签 + 值 + 附注;未读到显示 —,不把空当事实 */
-function ProfileField({
+/** 身份卡:头像首字母 + 持有人 + 邮箱 + KYC,下方三格客户代码 / 所在地 / 子公司 */
+function IdentityCard({ me, loading }: { me?: AccountInfo; loading: boolean }) {
+  const { t } = useTranslation();
+  const holder = me ? `${me.firstname ?? ""} ${me.name ?? ""}`.trim() : "";
+  const initials = (holder || me?.email || "?")
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  return (
+    <Card className="overflow-hidden flex flex-col">
+      <div className="relative flex-1 flex items-center px-4 sm:px-6 pt-5 pb-4">
+        <div className="absolute inset-0 bg-gradient-to-r from-primary/[0.06] via-transparent to-transparent pointer-events-none" aria-hidden />
+        <div className="relative flex items-center gap-3.5 min-w-0 w-full">
+          {loading ? (
+            <Skeleton className="w-12 h-12 rounded-full shrink-0" />
+          ) : (
+            <span className="w-12 h-12 rounded-full bg-primary/10 text-primary ring-1 ring-primary/20 flex items-center justify-center text-[16px] font-semibold shrink-0" aria-hidden>
+              {initials}
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            {loading ? (
+              <>
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-4 w-52 mt-1.5" />
+              </>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                  <span className="text-[18px] font-semibold tracking-tight truncate">{holder || me?.email || "—"}</span>
+                  {me && (
+                    <Chip tone={me.kycValidated ? "success" : "warning"}>
+                      <ShieldCheck className="w-3 h-3" aria-hidden />
+                      {me.kycValidated ? t("account.kycValidated") : t("account.kycNotValidated")}
+                    </Chip>
+                  )}
+                </div>
+                <div className="mt-0.5 flex items-center gap-1.5 text-[13px] text-muted-foreground min-w-0">
+                  <Mail className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                  <span className="truncate" title={me?.email}>{me?.email || "—"}</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      <dl className="grid grid-cols-2 sm:grid-cols-3 border-t border-border divide-x divide-border [&>*:nth-child(3)]:max-sm:col-span-2 [&>*:nth-child(3)]:max-sm:border-l-0 [&>*:nth-child(3)]:max-sm:border-t">
+        <InfoCell
+          icon={User}
+          label={t("account.customerCode")}
+          value={me?.customerCode}
+          // 美区账户的 NIC 就是邮箱,与邮箱重复时不再显示
+          sub={me?.nichandle && me.nichandle !== me?.email ? me.nichandle : undefined}
+          loading={loading}
+          mono
+        />
+        <InfoCell icon={MapPin} label={t("account.location")} value={me?.city && me?.country ? `${me.city}, ${me.country}` : me?.country} loading={loading} />
+        <InfoCell icon={Globe} label={t("account.subsidiary")} value={me?.ovhSubsidiary} sub={me?.currency?.code} loading={loading} mono />
+      </dl>
+    </Card>
+  );
+}
+
+function InfoCell({
   icon: Icon,
   label,
   value,
   sub,
   loading,
+  mono,
 }: {
   icon: LucideIcon;
   label: string;
   value?: React.ReactNode;
   sub?: string;
   loading?: boolean;
+  mono?: boolean;
 }) {
   return (
-    <div className="min-w-0 px-4 py-3 sm:[&:nth-child(n+3)]:border-t xl:[&:nth-child(n+3)]:border-t-0 xl:[&:not(:first-child)]:border-l border-border">
-      <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Icon className="w-3.5 h-3.5" />
+    <div className="min-w-0 px-4 sm:px-6 py-3">
+      <dt className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+        <Icon className="w-3.5 h-3.5" aria-hidden />
         {label}
       </dt>
       <dd className="mt-1 min-w-0">
         {loading ? (
-          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-5 w-24" />
         ) : (
-          <div className="text-sm font-medium truncate" title={typeof value === "string" ? value : undefined}>
+          <div className={`text-[14px] font-semibold truncate ${mono ? "font-mono" : ""}`} title={typeof value === "string" ? value : undefined}>
             {value || "—"}
           </div>
         )}
-        {sub && <div className="text-[11px] text-muted-foreground truncate">{sub}</div>}
+        {sub && <div className="text-[11.5px] text-muted-foreground truncate">{sub}</div>}
       </dd>
     </div>
+  );
+}
+
+/** 钱包卡(只读):可用余额合计 + 各项余额(预付款 / 代金券 / 赠送额度 / 押金)+ 即将过期提醒。
+ *  付款弹窗里可直接选足额余额付清订单。 */
+function WalletCard({ currency }: { currency?: string }) {
+  const { t } = useTranslation();
+  const q = useCreditBalances();
+  const money = (a?: CreditBalance["amount"]) =>
+    a?.value != null && Number.isFinite(a.value) && a.currencyCode ? fmtMoney(a.value, a.currencyCode) : a?.text || "—";
+  const list = q.data?.list || [];
+  // 合计只算可用余额,按币种分组;最多的币种做主数字,其它币种列在下面
+  const totals = new Map<string, number>();
+  for (const b of list) {
+    const v = b.amount?.value;
+    if (b.usable && v != null && Number.isFinite(v) && b.amount?.currencyCode) totals.set(b.amount.currencyCode, (totals.get(b.amount.currencyCode) || 0) + v);
+  }
+  const groups = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+  return (
+    // 不用 Card:全局卡片样式会把背景盖成白色;这里自己画蓝色渐变
+    <section
+      aria-label={t("account.balance.title")}
+      className="relative overflow-hidden rounded-xl text-white flex flex-col xl:min-h-[180px] shadow-[0_10px_24px_-10px_rgba(31,107,255,.6)]"
+      style={{ background: "linear-gradient(135deg, #4c8dff 0%, #1f5fe6 100%)" }}
+    >
+      {/* 装饰:右上两个半透明圆,呼应钱包/卡片的质感 */}
+      <span className="absolute -top-10 -right-8 w-36 h-36 rounded-full bg-white/10 pointer-events-none" aria-hidden />
+      <span className="absolute top-10 -right-14 w-28 h-28 rounded-full bg-white/[.07] pointer-events-none" aria-hidden />
+      <div className="relative px-5 pt-5 pb-4">
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 text-[13px] text-white/85">
+            <Wallet className="w-4 h-4" aria-hidden />
+            {t("account.balance.title")}
+          </span>
+          <button
+            type="button"
+            onClick={() => q.refetch()}
+            disabled={q.isFetching}
+            className="w-7 h-7 -mr-1.5 rounded-full inline-flex items-center justify-center text-white/80 hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+            aria-label={t("account.balance.reload")}
+            title={t("account.balance.reload")}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${q.isFetching ? "animate-spin motion-reduce:animate-none" : ""}`} aria-hidden />
+          </button>
+        </div>
+        {q.isPending ? (
+          <div className="mt-2 h-9 w-40 rounded-lg bg-white/20 animate-pulse motion-reduce:animate-none" />
+        ) : q.isError ? (
+          <div className="mt-2 text-[13px] text-white/90">
+            {t("account.balance.loadFailed")}
+            <button type="button" onClick={() => q.refetch()} className="ml-2 underline underline-offset-2 hover:text-white">{t("common.retry")}</button>
+          </div>
+        ) : (
+          <>
+            <div className="mt-1 text-[32px] leading-10 font-semibold tracking-tight tabular-nums">
+              {groups.length ? fmtMoney(groups[0][1], groups[0][0]) : currency ? fmtMoney(0, currency) : "0"}
+            </div>
+            {groups.slice(1).map(([cur, v]) => (
+              <div key={cur} className="text-[13px] text-white/85 tabular-nums">+ {fmtMoney(v, cur)}</div>
+            ))}
+            <div className="mt-0.5 text-[12px] text-white/75">{list.length ? t("account.balance.hint") : t("account.balance.empty")}</div>
+          </>
+        )}
+      </div>
+      {list.length > 0 && (
+        <ul className="relative mt-auto mx-3 mb-3 rounded-xl bg-white/[.12] backdrop-blur-sm divide-y divide-white/10">
+          {list.map((b) => {
+            const soon = (b.expiring || [])
+              .filter((e) => e.expirationDate)
+              .sort((x, y) => String(x.expirationDate).localeCompare(String(y.expirationDate)))[0];
+            return (
+              <li key={b.balanceName} className="px-3.5 py-2.5">
+                <div className="flex items-center justify-between gap-3 text-[13px]">
+                  <span className="truncate text-white/90">
+                    {t(`account.payment.balanceType.${b.type}`, { defaultValue: b.type })}
+                    {!b.usable && <span className="ml-1.5 text-[11px] rounded-full bg-white/20 px-1.5 py-0.5">{t("account.balance.unusable")}</span>}
+                  </span>
+                  <span className={`font-semibold tabular-nums ${b.usable ? "" : "text-white/60"}`}>{money(b.amount)}</span>
+                </div>
+                {soon && (
+                  <div className="mt-0.5 text-[11.5px] text-amber-200">
+                    {t("account.balance.expiring", { amount: money(soon.amount), date: fmtDate(soon.expirationDate as string) })}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {q.data && q.data.failed > 0 && <p className="relative px-5 pb-3 text-[12px] text-amber-200">{t("account.balance.partial", { n: q.data.failed })}</p>}
+    </section>
   );
 }
 

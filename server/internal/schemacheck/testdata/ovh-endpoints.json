@@ -1764,6 +1764,29 @@
       ]
     }
   },
+  "GET /me/credit/balance/{balanceName}": {
+    "CA": {
+      "status": "PRODUCTION",
+      "response": "me.credit.Balance",
+      "params": [
+        "path:balanceName:string:true"
+      ]
+    },
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "me.credit.Balance",
+      "params": [
+        "path:balanceName:string:true"
+      ]
+    },
+    "US": {
+      "status": "PRODUCTION",
+      "response": "me.credit.Balance",
+      "params": [
+        "path:balanceName:string:true"
+      ]
+    }
+  },
   "GET /me/notification/email/history": {
     "CA": {
       "status": "PRODUCTION",
@@ -3498,6 +3521,32 @@
         "body:ipReverse:ip:true",
         "body:reverse:string:true",
         "path:ip:ipBlock:true"
+      ]
+    }
+  },
+  "POST /me/order/{orderId}/balance": {
+    "CA": {
+      "status": "BETA",
+      "response": "billing.CreditBalance",
+      "params": [
+        "body:balanceName:string:true",
+        "path:orderId:long:true"
+      ]
+    },
+    "EU": {
+      "status": "BETA",
+      "response": "billing.CreditBalance",
+      "params": [
+        "body:balanceName:string:true",
+        "path:orderId:long:true"
+      ]
+    },
+    "US": {
+      "status": "BETA",
+      "response": "billing.order.credit.Balance",
+      "params": [
+        "body::billing.order.BalanceCreate:true",
+        "path:orderId:long:true"
       ]
     }
   },

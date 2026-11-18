@@ -39,6 +39,23 @@ func paymentFixture(t *testing.T, region, status, expiry string, code int) (*app
 			body = `{"registered":[7],"paymentMethods":[{"paymentMethodId":7,"paymentType":"CREDIT_CARD","label":"Saved card","status":"VALID","default":true},{"paymentMethodId":8,"paymentType":"CREDIT_CARD","status":"INVALID"}]}`
 		case strings.HasSuffix(r.URL.Path, "/order/123/availablePaymentMethod"):
 			body = `[{"id":7,"type":"CREDIT_CARD"}]`
+		case strings.HasSuffix(r.URL.Path, "/credit/balance/PREPAID_ACCOUNT"):
+			body = `{"balanceName":"PREPAID_ACCOUNT","type":"PREPAID_ACCOUNT","usable":true,"amount":{"value":50,"currencyCode":"EUR","text":"€50.00"}}`
+		case strings.HasSuffix(r.URL.Path, "/credit/balance/VOUCHER-1"):
+			body = `{"balanceName":"VOUCHER-1","type":"VOUCHER","usable":true,"amount":{"value":10,"currencyCode":"EUR","text":"€10.00"}}`
+		case strings.HasSuffix(r.URL.Path, "/credit/balance/BONUS-1"):
+			body = `{"balanceName":"BONUS-1","type":"BONUS","usable":false,"amount":{"value":100,"currencyCode":"EUR","text":"€100.00"}}`
+		case strings.HasSuffix(r.URL.Path, "/credit/balance"):
+			body = `["PREPAID_ACCOUNT","VOUCHER-1","BONUS-1"]`
+		case strings.HasSuffix(r.URL.Path, "/order/123/balance"):
+			calls.Add(1)
+			b, _ := io.ReadAll(r.Body)
+			payload.Store(string(b))
+			responseCode = code
+			body = `{"message":"test rejection"}`
+			if code == 200 {
+				body = `{"balanceName":"PREPAID_ACCOUNT","amount":{"value":39.98,"currencyCode":"EUR","text":"€39.98"}}`
+			}
 		case strings.HasSuffix(r.URL.Path, "/order/123/pay"):
 			calls.Add(1)
 			b, _ := io.ReadAll(r.Body)
@@ -58,6 +75,7 @@ func paymentFixture(t *testing.T, region, status, expiry string, code int) (*app
 	router := gin.New()
 	router.GET("/orders/:order_id/payment", GetOrderPaymentOptions(st))
 	router.POST("/orders/:order_id/pay", PayAccountOrder(st))
+	router.POST("/orders/:order_id/pay-balance", PayAccountOrderWithBalance(st))
 	return st, router, calls, payload
 }
 
@@ -268,5 +286,61 @@ func TestOrderListPinsResolvedAccount(t *testing.T) {
 	}
 	if orders[0]["accountId"] != "pay" || orders[0]["orderStatus"] != "notPaid" || calls.Load() != 0 {
 		t.Fatalf("wrong account/status: %v", orders)
+	}
+}
+
+// 余额付款:预检列出可用余额并标明是否够付;只接受足够且同币种的余额,发一次 POST /me/order/{id}/balance,
+// 与绑定方式共用订单付款登记,之后两种方式都不能再发。
+func TestOrderPaymentWithBalance(t *testing.T) {
+	_, router, calls, payload := paymentFixture(t, "EU", "notPaid", "", 200)
+	w := payRequest(router, "GET", "/orders/123/payment?account=pay", "")
+	var info struct {
+		Balances []orderPaymentBalance `json:"balances"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &info) != nil {
+		t.Fatalf("preflight %d %s", w.Code, w.Body.String())
+	}
+	if len(info.Balances) != 2 || info.Balances[0].Name != "PREPAID_ACCOUNT" || !info.Balances[0].Enough || info.Balances[1].Enough {
+		t.Fatalf("balances %+v", info.Balances)
+	}
+	// 不够付清的代金券不发请求
+	if w := payRequest(router, "POST", "/orders/123/pay-balance?account=pay", `{"confirm":true,"balanceName":"VOUCHER-1","amount":39.98,"currency":"EUR"}`); w.Code != 409 || calls.Load() != 0 {
+		t.Fatalf("insufficient balance: %d calls=%d", w.Code, calls.Load())
+	}
+	// 未勾选确认不发请求
+	if w := payRequest(router, "POST", "/orders/123/pay-balance?account=pay", `{"confirm":false,"balanceName":"PREPAID_ACCOUNT","amount":39.98,"currency":"EUR"}`); w.Code != 400 || calls.Load() != 0 {
+		t.Fatalf("unconfirmed: %d", w.Code)
+	}
+	if w := payRequest(router, "POST", "/orders/123/pay-balance?account=pay", `{"confirm":true,"balanceName":"PREPAID_ACCOUNT","amount":39.98,"currency":"EUR"}`); w.Code != 200 || calls.Load() != 1 {
+		t.Fatalf("balance pay: %d %s calls=%d", w.Code, w.Body.String(), calls.Load())
+	}
+	if got, _ := payload.Load().(string); got != `{"balanceName":"PREPAID_ACCOUNT"}` {
+		t.Fatalf("payload %s", got)
+	}
+	// 已登记:再用余额或绑定方式都不会发第二次
+	if w := payRequest(router, "POST", "/orders/123/pay-balance?account=pay", `{"confirm":true,"balanceName":"PREPAID_ACCOUNT","amount":39.98,"currency":"EUR"}`); w.Code != 409 {
+		t.Fatalf("duplicate balance pay: %d", w.Code)
+	}
+	if w := payRequest(router, "POST", "/orders/123/pay?account=pay", validPayment); w.Code != 409 || calls.Load() != 1 {
+		t.Fatalf("method pay after balance: %d calls=%d", w.Code, calls.Load())
+	}
+}
+
+// 余额付款结果不明确(5xx)保留登记不重发;明确 4xx 拒绝允许重新确认。
+func TestOrderBalancePaymentAmbiguousAndRejected(t *testing.T) {
+	body := `{"confirm":true,"balanceName":"PREPAID_ACCOUNT","amount":39.98,"currency":"EUR"}`
+	_, router, calls, _ := paymentFixture(t, "EU", "notPaid", "", 503)
+	if w := payRequest(router, "POST", "/orders/123/pay-balance?account=pay", body); w.Code != 409 {
+		t.Fatalf("ambiguous: %d", w.Code)
+	}
+	if w := payRequest(router, "POST", "/orders/123/pay-balance?account=pay", body); w.Code != 409 || calls.Load() != 1 {
+		t.Fatalf("ambiguous retry sent again: calls=%d", calls.Load())
+	}
+	_, router, calls, _ = paymentFixture(t, "EU", "notPaid", "", 400)
+	if w := payRequest(router, "POST", "/orders/123/pay-balance?account=pay", body); w.Code != 502 {
+		t.Fatalf("rejected: %d", w.Code)
+	}
+	if w := payRequest(router, "POST", "/orders/123/pay-balance?account=pay", body); w.Code != 502 || calls.Load() != 2 {
+		t.Fatalf("rejected should allow fresh confirmation: %d calls=%d", w.Code, calls.Load())
 	}
 }
