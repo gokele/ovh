@@ -1,8 +1,10 @@
+import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { describeOptionCodes } from "@/lib/option-groups";
 import { OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { Link } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
-import { Clock, RefreshCw, Trash2, ExternalLink, AlertCircle, Hourglass } from "lucide-react";
+import { Clock, RefreshCw, Trash2, AlertCircle, Hourglass, Copy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -309,23 +311,24 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
   const isUrgent = showCountdown && !isExpired && remainingMs < 24 * 60 * 60 * 1000;
   return (
     <tr className={`text-[13px] hover:bg-muted/40 align-top ${isExpired ? "opacity-55" : ""}`}>
-      <td className="pl-4 pr-3 py-3 min-w-[200px]">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono font-semibold whitespace-nowrap">{item.planCode}</span>
+      <td className="pl-4 pr-3 py-3 whitespace-nowrap">
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-semibold">{item.planCode}</span>
           <AccountChip accountId={item.accountId} />
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-          <span className="whitespace-nowrap"><OrderDurationLabel value={item.duration} /></span>
+      </td>
+      <td className="px-3 py-3 whitespace-nowrap font-mono text-[12px]">{item.datacenter.toUpperCase()}</td>
+      {/* 配置列最宽:第一行配置,第二行周期 · 耗时 · 派发 · 等待,整条记录最多两行 */}
+      <td className="px-3 py-3 w-full max-w-0">
+        <div className="truncate text-[12px] text-foreground/80" title={item.options?.join("\n")}>
+          {item.options && item.options.length > 0 ? describeOptionCodes(item.options) : t("history.defaultOptions")}
+        </div>
+        <div className="mt-1 flex items-center gap-x-3 text-[11px] text-muted-foreground overflow-hidden whitespace-nowrap">
+          <span><OrderDurationLabel value={item.duration} /></span>
           <TimingChip totalMs={item.totalMs} phases={item.timing} />
           <OrderSpeed detectionToWriteUs={item.detectionToWriteUs} prewarmed={item.prewarmed} connectionReused={item.connectionReused} waitMs={item.waitMs} />
         </div>
-        {item.couponWarning && <p className="mt-1 text-[11px] text-warning break-words" role="status">{item.couponWarning}</p>}
-      </td>
-      <td className="px-3 py-3 whitespace-nowrap font-mono text-[12px]">{item.datacenter.toUpperCase()}</td>
-      <td className="px-3 py-3 w-full max-w-0">
-        <div className="truncate text-[12px] text-muted-foreground" title={item.options?.join("\n")}>
-          {item.options && item.options.length > 0 ? describeOptionCodes(item.options) : t("history.defaultOptions")}
-        </div>
+        {item.couponWarning && <p className="mt-1 text-[11px] text-warning break-words whitespace-normal" role="status">{item.couponWarning}</p>}
       </td>
       <td className="px-3 py-3 whitespace-nowrap text-right">
         <HistoryPrice item={item} strike={isExpired} />
@@ -353,29 +356,8 @@ function HistoryRow({ item, now }: { item: PurchaseHistory; now: number }) {
         )}
       </td>
       <td className="pl-3 pr-4 py-3 whitespace-nowrap text-right">
-        {item.status === "success" && item.orderUrl ? (
-          <a
-            href={item.orderUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-disabled={isExpired}
-            className={`inline-flex items-center gap-1 text-foreground hover:underline text-[12px] ${
-              isExpired ? "pointer-events-none opacity-50" : ""
-            }`}
-          >
-            <ExternalLink className="w-3 h-3" />
-            {t("history.orderLink")}
-          </a>
-        ) : item.status !== "success" && item.errorMessage ? (
-          <button
-            type="button"
-            onClick={() => toast.info(item.errorMessage)}
-            className="inline-flex items-center gap-1 text-destructive hover:underline text-[12px]"
-          >
-            <AlertCircle className="w-3 h-3" />
-            {t("history.errorLink")}
-          </button>
-        ) : "—"}
+        {/* 待付款且未过期:直接在这里付款(复用账户页的预检 + 明确确认流程,不自动重试) */}
+        <HistoryActions item={item} payable={canPay(item, st, isExpired)} />
       </td>
     </tr>
   );
@@ -427,26 +409,9 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
               {formatCountdown(remainingMs, t)}
             </Chip>
           ) : <span />}
-          {item.status === "success" && item.orderUrl ? (
-            <a
-              href={item.orderUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`inline-flex items-center gap-1 text-foreground hover:underline text-[12px] ${isExpired ? "pointer-events-none opacity-50" : ""}`}
-            >
-              <ExternalLink className="w-3 h-3" />
-              {t("history.orderLink")}
-            </a>
-          ) : item.status !== "success" && item.errorMessage ? (
-            <button
-              type="button"
-              onClick={() => toast.info(item.errorMessage)}
-              className="inline-flex items-center gap-1 text-destructive hover:underline text-[12px]"
-            >
-              <AlertCircle className="w-3 h-3" />
-              {t("history.errorDetail")}
-            </button>
-          ) : null}
+          {(canPay(item, st, isExpired) || (item.status !== "success" && !!item.errorMessage)) && (
+            <HistoryActions item={item} payable={canPay(item, st, isExpired)} />
+          )}
         </div>
     </div>
   );
@@ -454,3 +419,61 @@ function HistoryCard({ item, now }: { item: PurchaseHistory; now: number }) {
 
 /** 历史表格完整显示所需的最小宽度;不足时改用紧凑列表。 */
 const HISTORY_TABLE_MIN_WIDTH = 940;
+
+/** 失败原因:点开小卡片看全文,可复制;不再用几秒就消失的提示条 */
+function ErrorDetail({ message, label }: { message: string; label: string }) {
+  const { t } = useTranslation();
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className="inline-flex items-center gap-1 text-destructive hover:underline text-[12px]">
+          <AlertCircle className="w-3 h-3" />
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[min(380px,calc(100vw-32px))] p-3">
+        <div className="flex items-center gap-1.5 text-[12px] font-semibold text-destructive">
+          <AlertCircle className="w-3.5 h-3.5" />
+          {t("history.errorTitle")}
+        </div>
+        <p className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-foreground/90">{message}</p>
+        <div className="mt-2.5 flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 text-[12px]"
+            onClick={() => void navigator.clipboard?.writeText(message).then(() => toast.success(t("history.errorCopied")))}
+          >
+            <Copy className="w-3.5 h-3.5" />
+            {t("history.errorCopy")}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** 可在历史里直接付款:已下单、订单号有效、OVH 状态是待付款(或尚未读到状态)、未过付款期 */
+function canPay(item: PurchaseHistory, st: { paid: boolean; closed: boolean }, isExpired: boolean): boolean {
+  const id = Number(item.orderId);
+  return (
+    item.status === "success" &&
+    Number.isFinite(id) &&
+    id > 0 &&
+    !st.paid &&
+    !st.closed &&
+    !isExpired &&
+    (!item.orderStatus || item.orderStatus === "notPaid") &&
+    !!item.accountId
+  );
+}
+
+/** 操作列:只放要做的事 —— 待付款显示「支付」,失败显示「错误」详情,其余为「—」。 */
+function HistoryActions({ item, payable }: { item: PurchaseHistory; payable: boolean }) {
+  const { t } = useTranslation();
+  if (item.status !== "success") {
+    return item.errorMessage ? <ErrorDetail message={item.errorMessage} label={t("history.errorLink")} /> : <span className="text-muted-foreground">—</span>;
+  }
+  if (!payable) return <span className="text-muted-foreground">—</span>;
+  return <OrderPaymentButton compact accountId={item.accountId} orderId={Number(item.orderId)} managerUrl={item.orderUrl} />;
+}

@@ -9,18 +9,31 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export function useContainerWide<T extends HTMLElement = HTMLDivElement>(minWidth: number) {
   const [wide, setWide] = useState(false);
   const observer = useRef<ResizeObserver | null>(null);
+  const offResize = useRef<(() => void) | null>(null);
   const ref = useCallback(
     (el: T | null) => {
       observer.current?.disconnect();
       observer.current = null;
+      offResize.current?.();
+      offResize.current = null;
       if (!el) return;
       const update = () => setWide(el.clientWidth >= minWidth);
       update();
       observer.current = new ResizeObserver(update);
       observer.current.observe(el);
+      // 保险:窗口尺寸变化时也重测一次(个别环境下 ResizeObserver 会漏掉一次变化,停在窄版布局)
+      const onResize = () => window.requestAnimationFrame(update);
+      window.addEventListener("resize", onResize);
+      offResize.current = () => window.removeEventListener("resize", onResize);
     },
     [minWidth],
   );
-  useEffect(() => () => observer.current?.disconnect(), []);
+  useEffect(
+    () => () => {
+      observer.current?.disconnect();
+      offResize.current?.();
+    },
+    [],
+  );
   return [ref, wide] as const;
 }

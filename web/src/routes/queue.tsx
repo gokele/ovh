@@ -27,6 +27,7 @@ import {
   Loader2,
   Search,
   RotateCw,
+  AlertTriangle,
   Layers,
   List,
   ChevronDown,
@@ -186,12 +187,15 @@ function QueuePage() {
   const [prefillOptions, setPrefillOptions] = useState<string>("");
 
   // 从其它页跳到 /queue?create=KS-A-1&options=...，自动打开新建对话框并预填
+  // ?create= 不带型号(例如仪表盘的「创建抢购任务」)也打开空白对话框;打开后清掉参数,刷新不会再弹
   useEffect(() => {
-    if (createPlanCode) {
+    if (createPlanCode !== undefined) {
       setPrefillPlanCode(createPlanCode);
       setPrefillOptions(createOptions || "");
       setShowCreateDialog(true);
+      void navigate({ to: "/queue", search: {}, replace: true });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createPlanCode, createOptions]);
 
   const items = queue.data || [];
@@ -854,6 +858,20 @@ function CreateQueueDialog({
     const options = matchedServer ? [...new Set([...(Object.values(picked).filter(Boolean) as string[]), ...splitList(extraInput)])] : splitList(extraInput);
     return preorder ? preorderOptions(options, grouped?.cpu.map((option) => option.value)) : options;
   }, [matchedServer, picked, extraInput, preorder, grouped]);
+  const queueAll = useQueueList();
+  const duplicates = useMemo(() => {
+    if (editing || !planCode.trim() || datacenters.length === 0) return [];
+    const want = [...parsedOptions].sort().join("|");
+    const dcs = new Set(datacenters.map((d) => apiDatacenterCode(d)));
+    return (queueAll.data || []).filter(
+      (q) =>
+        (q.status === "running" || q.status === "pending" || q.status === "paused") &&
+        q.accountId === accountId &&
+        q.planCode === planCode.trim() &&
+        dcs.has(apiDatacenterCode(q.datacenter)) &&
+        [...(q.options || [])].sort().join("|") === want,
+    );
+  }, [editing, planCode, datacenters, parsedOptions, queueAll.data, accountId]);
 
   // option chip 的绿/红点:跟服务器列表对话框同一套逻辑
   const variants = matchedServer ? variantIndex[matchedServer.planCode] : undefined;
@@ -1255,6 +1273,20 @@ function CreateQueueDialog({
 
 
           {/* 汇总提示 */}
+          {/* 同账户已有相同型号 + 机房 + 配置的进行中任务:再建会额外多买,先说清楚 */}
+          {duplicates.length > 0 && (
+            <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/[.07] px-3 py-2.5 text-[12.5px]" role="status">
+              <AlertTriangle className="w-4 h-4 mt-px shrink-0 text-warning" />
+              <span>
+                {t("queue.duplicateHint", {
+                  n: duplicates.length,
+                  dcs: [...duplicates.reduce((m, d) => m.set(d.datacenter.toUpperCase(), (m.get(d.datacenter.toUpperCase()) || 0) + 1), new Map<string, number>())]
+                    .map(([dc, n]) => `${dc} ×${n}`)
+                    .join(" · "),
+                })}
+              </span>
+            </div>
+          )}
           {!editing && datacenters.length > 0 && (
             <div className="border border-border rounded-2xl p-3 text-[12px] text-muted-foreground">
               <Trans

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { fmtMoney } from "@/i18n/format";
 import { useTranslation } from "react-i18next";
-import { CreditCard, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CreditCard, ExternalLink, Info, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -27,10 +27,13 @@ export function OrderPaymentButton({
   accountId,
   orderId,
   managerUrl,
+  compact,
 }: {
   accountId: string;
   orderId: number;
   managerUrl?: string;
+  /** 表格里用的小号按钮(抢购历史操作列) */
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -99,9 +102,14 @@ export function OrderPaymentButton({
   };
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => changeOpen(true)}>
+      <Button
+        variant={compact ? "default" : "outline"}
+        size="sm"
+        className={compact ? "h-7 px-2.5 gap-1 text-[12px]" : undefined}
+        onClick={() => changeOpen(true)}
+      >
         <CreditCard className="w-3.5 h-3.5" />
-        {t("account.payment.open")}
+        {compact ? t("history.pay") : t("account.payment.open")}
       </Button>
       <Dialog open={open} onOpenChange={changeOpen}>
         <DialogContent className="sm:max-w-md">
@@ -114,9 +122,10 @@ export function OrderPaymentButton({
             </DialogDescription>
           </DialogHeader>
           {info.isPending ? (
-            <p role="status" className="text-sm text-muted-foreground">
+            <div role="status" className="flex items-center gap-2 rounded-xl bg-muted/50 px-4 py-6 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" />
               {t("account.payment.loading")}
-            </p>
+            </div>
           ) : info.isError ? (
             <LoadFailed
               title={t("account.payment.loadFailed")}
@@ -127,91 +136,74 @@ export function OrderPaymentButton({
           ) : (
             data && (
               <div className="space-y-4">
-                <dl className="space-y-4 border-b border-border pb-5 text-sm">
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">
-                      {t("account.payment.account")}
-                    </dt>
-                    <dd className="break-all">
-                      {data.accountName || data.accountId}
-                    </dd>
+                {/* 金额卡:金额是这一步最要紧的信息;刷新收成右上角的小图标 */}
+                <div className="rounded-xl border border-border bg-muted/40 px-4 py-3.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12.5px] text-muted-foreground">{t("account.payment.amount")}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 -mr-1.5"
+                      onClick={() => info.refetch()}
+                      disabled={info.isFetching || pay.isPending || pay.isSuccess}
+                      aria-label={t("account.payment.reload")}
+                      title={t("account.payment.reload")}
+                    >
+                      <RefreshCw
+                        aria-hidden="true"
+                        className={`w-3.5 h-3.5 ${info.isFetching ? "animate-spin motion-reduce:animate-none" : ""}`}
+                      />
+                    </Button>
                   </div>
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-muted-foreground">
-                      {t("account.payment.amount")}
-                    </dt>
-                    <dd className="text-xl font-semibold tabular-nums">
-                      {displayAmount}
-                    </dd>
+                  <div className="mt-0.5 text-[26px] leading-8 font-semibold tracking-tight tabular-nums">{displayAmount}</div>
+                  <div className="mt-2 flex items-center justify-between gap-3 text-[12.5px]">
+                    <span className="text-muted-foreground">{t("account.payment.account")}</span>
+                    <span className="font-medium break-all text-right">{data.accountName || data.accountId}</span>
                   </div>
-                </dl>
-                <Button
-                  className="h-11"
-                  variant="outline"
-                  onClick={() => info.refetch()}
-                  disabled={info.isFetching || pay.isPending || pay.isSuccess}
-                >
-                  <RefreshCw
-                    aria-hidden="true"
-                    className={
-                      info.isFetching
-                        ? "animate-spin motion-reduce:animate-none"
-                        : ""
-                    }
-                  />
-                  {t("common.refresh")}
-                </Button>
+                </div>
+
                 {data.status !== "notPaid" ? (
-                  <p role="status" className="text-sm">
-                    {t("account.payment.notPayable")}
-                  </p>
+                  <Notice tone="muted">{t("account.payment.notPayable")}</Notice>
                 ) : data.attempted ? (
-                  <p role="status" className="text-sm text-warning">
-                    {t("account.payment.attempted")}
-                  </p>
+                  <Notice tone="warning">{t("account.payment.attempted")}</Notice>
                 ) : !methods.length ? (
-                  <p role="status" className="text-sm text-warning">
-                    {t("account.payment.noMethods")}
-                  </p>
+                  <Notice tone="warning">{t("account.payment.noMethods")}</Notice>
                 ) : (
-                  <div className="space-y-2">
-                    <label
-                      htmlFor={`payment-method-${orderId}`}
-                      className="text-sm font-medium"
-                    >
-                      {t("account.payment.method")}
-                    </label>
-                    <Select
-                      value={method ? methodKey(method) : ""}
-                      onValueChange={(v) => {
-                        setSelected(v);
-                        setConfirmedQuote("");
-                      }}
-                      disabled={pay.isPending || pay.isSuccess}
-                    >
-                      <SelectTrigger
-                        className="h-11"
-                        id={`payment-method-${orderId}`}
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <label htmlFor={`payment-method-${orderId}`} className="text-[13px] font-medium">
+                        {t("account.payment.method")}
+                      </label>
+                      <Select
+                        value={method ? methodKey(method) : ""}
+                        onValueChange={(v) => {
+                          setSelected(v);
+                          setConfirmedQuote("");
+                        }}
+                        disabled={pay.isPending || pay.isSuccess}
                       >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {methods.map((m) => (
-                          <SelectItem key={methodKey(m)} value={methodKey(m)}>
-                            {m.label} · #{m.id}
-                            {m.default
-                              ? ` · ${t("account.payment.default")}`
-                              : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border p-4 text-sm leading-6">
+                        <SelectTrigger className="h-10" id={`payment-method-${orderId}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {methods.map((m) => (
+                            <SelectItem key={methodKey(m)} value={methodKey(m)}>
+                              {m.label} · #{m.id}
+                              {m.default ? ` · ${t("account.payment.default")}` : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <label
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 text-[13px] leading-5 transition-colors ${
+                        confirmed ? "border-primary/50 bg-primary/[.05]" : "border-border hover:bg-muted/40"
+                      }`}
+                    >
                       <Checkbox
+                        className="mt-0.5"
                         checked={confirmed}
-                        onCheckedChange={(v) =>
-                          setConfirmedQuote(v === true ? quote : "")
-                        }
+                        onCheckedChange={(v) => setConfirmedQuote(v === true ? quote : "")}
                         disabled={!ready}
                       />
                       {t("account.payment.confirm")}
@@ -221,49 +213,47 @@ export function OrderPaymentButton({
               </div>
             )
           )}
-          {pay.isError && (
-            <p role="alert" className="text-sm text-destructive break-words">
-              {errorMessage(pay.error)}
-            </p>
-          )}
-          {pay.isSuccess && (
-            <p role="status" className="text-sm text-success">
-              {t("account.payment.submitted")}
-            </p>
-          )}
-          {managerUrl && (
-            <a
-              href={managerUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm underline underline-offset-4"
-            >
-              {t("account.orderOpenManager")}
-            </a>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => changeOpen(false)}
-              disabled={pay.isPending}
-            >
+          {pay.isError && <Notice tone="danger">{errorMessage(pay.error)}</Notice>}
+          {pay.isSuccess && <Notice tone="success">{t("account.payment.submitted")}</Notice>}
+          <DialogFooter className="sm:items-center gap-2">
+            {managerUrl && (
+              <a
+                href={managerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="sm:mr-auto inline-flex items-center gap-1 text-[12.5px] text-muted-foreground hover:text-foreground"
+              >
+                {t("account.orderOpenManager")}
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+            <Button variant="outline" onClick={() => changeOpen(false)} disabled={pay.isPending}>
               {t("common.close")}
             </Button>
-            <Button
-              className="h-11"
-              onClick={submit}
-              disabled={!ready || !confirmed}
-            >
-              {pay.isPending && (
-                <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" />
-              )}
-              {pay.isPending
-                ? t("account.payment.submitting")
-                : t("account.payment.pay", { amount: displayAmount })}
+            <Button onClick={submit} disabled={!ready || !confirmed}>
+              {pay.isPending && <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" />}
+              {pay.isPending ? t("account.payment.submitting") : t("account.payment.pay", { amount: displayAmount })}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** 弹窗里的状态提示条:图标 + 文字,按语气着色 */
+function Notice({ tone, children }: { tone: "muted" | "warning" | "danger" | "success"; children: React.ReactNode }) {
+  const cls = {
+    muted: "border-border bg-muted/40 text-foreground/80",
+    warning: "border-warning/40 bg-warning/[.07] text-warning",
+    danger: "border-destructive/40 bg-destructive/[.06] text-destructive",
+    success: "border-success/40 bg-success/[.07] text-success",
+  }[tone];
+  const Icon = tone === "success" ? CheckCircle2 : tone === "muted" ? Info : AlertTriangle;
+  return (
+    <div role={tone === "danger" ? "alert" : "status"} className={`flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[13px] leading-5 break-words ${cls}`}>
+      <Icon className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
+      <span className="min-w-0">{children}</span>
+    </div>
   );
 }

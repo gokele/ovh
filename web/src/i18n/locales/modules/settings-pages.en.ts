@@ -384,6 +384,7 @@ const pack: SettingsPagesPack = {
   },
   account: {
     payment: {
+      reload: "Reload order",
       open: "Pay order",
       title: "Pay order #{{id}}",
       description: "Use a registered payment method eligible for this order. Review before confirming.",

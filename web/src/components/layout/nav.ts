@@ -31,6 +31,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/servers", icon: Server, label: "nav.servers" },
       { to: "/queue", icon: ClipboardList, label: "nav.queue" },
+      // 抢购历史属于抢购流程(下单结果、付款),和队列放在一起
+      { to: "/history", icon: Clock, label: "nav.history" },
     ],
   },
   {
@@ -51,7 +53,6 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: "nav.group.system",
     items: [
-      { to: "/history", icon: Clock, label: "nav.history" },
       { to: "/logs", icon: FileText, label: "nav.logs" },
       { to: "/settings", icon: Settings, label: "nav.settings" },
     ],

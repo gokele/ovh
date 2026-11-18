@@ -350,6 +350,7 @@ export const settingsPagesZh = {
   },
   account: {
     payment: {
+      reload: "重新读取订单",
       open: "发起支付",
       title: "支付订单 #{{id}}",
       description: "使用该账户已绑定且适用于此订单的支付方式。请核对后确认。",

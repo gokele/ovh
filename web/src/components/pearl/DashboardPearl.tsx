@@ -270,7 +270,7 @@ export function DashboardPearl() {
             </ul>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button asChild size="sm">
-                <Link to="/queue">
+                <Link to="/queue" search={{ create: "" }}>
                   <Plus className="w-4 h-4" />
                   {t("dashboard.createTask")}
                 </Link>
