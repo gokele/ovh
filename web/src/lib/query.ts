@@ -97,6 +97,7 @@ export const qk = {
     rescue: (serviceName: string) => ["server-control", "rescue", serviceName] as const,
     spla: (serviceName: string) => ["server-control", "spla", serviceName] as const,
     serviceInfo: (serviceName: string) => ["server-control", "service-info", serviceName] as const,
+    pricing: (serviceName: string) => ["server-control", "pricing", serviceName] as const,
     ips: (serviceName: string) => ["server-control", "ips", serviceName] as const,
     interventions: (serviceName: string) => ["server-control", "interventions", serviceName] as const,
     networkInterfaces: (serviceName: string) => ["server-control", "network", serviceName] as const,

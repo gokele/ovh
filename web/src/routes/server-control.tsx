@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2, PartyPopper, Pencil, ChevronsUpDown, ChevronRight, Copy } from "lucide-react";
+import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2, PartyPopper, Pencil, ChevronsUpDown, ChevronRight, Copy, Receipt } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card } from "@/components/ui/card";
@@ -11,10 +11,11 @@ import { StatusDot } from "@/components/common/StatusDot";
 import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadFailed, errorMessage } from "@/components/common/LoadFailed";
-import { fmtDate, fmtDateTime } from "@/i18n/format";
+import { fmtDate, fmtDateTime, fmtMoney } from "@/i18n/format";
 import {
   useOwnedServers,
   useServerServiceInfo,
+  useServerPricing,
   useServerMonitoring,
   useToggleMonitoring,
   useRetraction,
@@ -281,6 +282,7 @@ function ServerTabs({
 }) {
   const { t } = useTranslation();
   const info = useServerServiceInfo(server.serviceName);
+  const pricing = useServerPricing(server.serviceName);
   // 14 天无理由撤单的资格。只有 OVH 明确说还在窗口内才会渲染入口 ——
   // 判据是它返回的 retractionDate,不是自己算"开通不到 14 天":
   // v0.1.24 之前下的单在结账时就弃权了,自己算会给它们显示一个必然失败的按钮。
@@ -405,9 +407,9 @@ function ServerTabs({
         </div>
 
         {/* 关键信息:能点的(续费、系统)带箭头;到期快到时变色;监控用开关 */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 border-t border-border divide-x divide-y lg:divide-y-0 divide-border [&>*:nth-child(2n+1)]:border-l-0 lg:[&>*:nth-child(2n+1)]:border-l">
+        <div className="grid grid-cols-2 lg:grid-cols-5 border-t border-border divide-x divide-y lg:divide-y-0 divide-border [&>*:nth-child(2n+1)]:border-l-0 lg:[&>*:nth-child(2n+1):not(:first-child)]:border-l">
           {info.isPending ? (
-            Array.from({ length: 4 }).map((_, i) => (
+            Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="px-4 sm:px-6 py-3.5">
                 <Skeleton className="h-3 w-12 mb-2" />
                 <Skeleton className="h-4 w-24" />
@@ -421,6 +423,7 @@ function ServerTabs({
                 value={info.data ? formatRenewal(t, info.data) : "—"}
                 onClick={info.data ? () => setRenewalOpen(true) : undefined}
               />
+              <PriceCell pricing={pricing} />
               <FactCell
                 icon={<Terminal className="w-3.5 h-3.5" />}
                 label={t("serverList.hero.os")}
@@ -435,7 +438,7 @@ function ServerTabs({
                 sub={daysLeft === null ? undefined : daysLeft < 0 ? t("serverList.hero.expired") : t("serverList.hero.daysLeft", { n: daysLeft })}
                 tone={expTone}
               />
-              <div className="px-4 sm:px-6 py-3.5 min-w-0">
+              <div className="col-span-2 lg:col-span-1 px-4 sm:px-6 py-3.5 min-w-0">
                 <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
                   <Activity className="w-3.5 h-3.5" />
                   {t("serverList.hero.monitor")}
@@ -572,11 +575,13 @@ function FactCell({
   onClick,
   tone,
   mono,
+  title,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   sub?: string;
+  title?: string;
   onClick?: () => void;
   tone?: FactTone;
   mono?: boolean;
@@ -602,12 +607,53 @@ function FactCell({
     </>
   );
   return onClick ? (
-    <button type="button" onClick={onClick} className="group px-4 sm:px-6 py-3.5 min-w-0 text-left hover:bg-primary/[.035] transition-colors">
+    <button type="button" onClick={onClick} title={title} className="group px-4 sm:px-6 py-3.5 min-w-0 text-left hover:bg-primary/[.035] transition-colors">
       {body}
     </button>
   ) : (
-    <div className="px-4 sm:px-6 py-3.5 min-w-0">{body}</div>
+    <div className="px-4 sm:px-6 py-3.5 min-w-0" title={title}>{body}</div>
   );
+}
+
+/** "P1M" → "/ 月";"P12M" → "/ 12 个月";"P1Y" → "/ 年" */
+function perPeriod(t: (k: string, o?: Record<string, unknown>) => string, duration: string): string {
+  const m = /^P(\d+)([MY])$/.exec(duration || "");
+  if (!m) return "";
+  const n = Number(m[1]);
+  if (m[2] === "Y") return n === 1 ? t("serverList.hero.perYear") : t("serverList.hero.perYears", { n });
+  if (n === 12) return t("serverList.hero.perYear");
+  return n === 1 ? t("serverList.hero.perMonth") : t("serverList.hero.perMonths", { n });
+}
+
+/** 费用格:续费价格(主机 + 附加选项,不含税)+ 目录安装费;悬停说明来源与口径 */
+function PriceCell({ pricing }: { pricing: ReturnType<typeof useServerPricing> }) {
+  const { t } = useTranslation();
+  const d = pricing.data;
+  const r = d?.renewal;
+  const inst = d?.installation;
+  const value = pricing.isPending
+    ? t("serverList.hero.loading")
+    : r
+      ? `${r.partial ? "≈ " : ""}${fmtMoney(r.amount, r.currency)} ${perPeriod(t, r.duration)}`.trim()
+      : "—";
+  const sub =
+    inst?.ok && inst.amount != null && inst.currency
+      ? t("serverList.hero.setup", { amount: `${inst.partial ? "≈ " : ""}${fmtMoney(inst.amount, inst.currency)}` })
+      : d
+        ? t("serverList.hero.setupUnknown")
+        : undefined;
+  const title = pricing.isError
+    ? t("serverList.hero.priceFailed", { detail: errorMessage(pricing.error) })
+    : [
+        t("serverList.hero.priceTitle", {
+          options: r && r.options > 0 ? t("serverList.hero.priceOptions", { n: r.options }) : "",
+          withTax: inst?.ok && inst.amount != null && inst.currency ? fmtMoney(inst.amount + (inst.tax || 0), inst.currency) : "—",
+        }),
+        r?.partial ? t("serverList.hero.pricePartial") : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+  return <FactCell icon={<Receipt className="w-3.5 h-3.5" />} label={t("serverList.hero.price")} value={value} sub={sub} title={title} />;
 }
 
 /**

@@ -170,6 +170,25 @@ export function useServerHardware(serviceName: string | null) {
 }
 
 
+/** 续费价格(主机 + 附加选项,不含税)与目录安装费(只读) */
+export interface ServerPricing {
+  planCode?: string;
+  renewal?: { amount: number; currency: string; duration: string; interval: number; base: number; options: number; partial: boolean };
+  installation?: { ok: boolean; amount?: number; tax?: number; currency?: string; reason?: string; partial?: boolean };
+}
+
+export function useServerPricing(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
+  return useQuery({
+    queryKey: accountQueryKey(qk.serverControl.pricing(serviceName || ""), accountId),
+    queryFn: async () => (await api.get<ServerPricing>(`/server-control/${serviceName}/pricing`)).data,
+    enabled: !!serviceName,
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+}
+
 /** 服务信息（后端返回 { success, serviceInfo: {...} }） */
 export function useServerServiceInfo(serviceName: string | null) {
   const accountId = useAccountScope();

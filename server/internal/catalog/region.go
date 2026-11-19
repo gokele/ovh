@@ -771,3 +771,35 @@ func PriceForOptions(state *app.State, accountID, planCode string, options []str
 	}
 	return out, nil
 }
+
+// ConfigSetupFee 目录里一套配置的安装费:plan 自身 + 每个附加选项(内存/硬盘/带宽等)各自的安装费,
+// 不含税 / 税额分开。目录里查不到的选项(额外 IP、备份空间等不属于硬件配置的服务)不计入,数量记在 skipped。
+// 只是当前公开目录价,不代表这台已交付服务器当初实际付的安装费。
+func ConfigSetupFee(state *app.State, accountID, planCode string, addonCodes []string) (fee PriceParts, currency string, skipped int, err error) {
+	acc, _ := state.FindAccount(accountID)
+	subsidiary := SubsidiaryOfAccount(acc)
+	cat, err := loadSubsidiaryCatalog(state, subsidiary)
+	if err != nil {
+		return PriceParts{}, "", 0, err
+	}
+	pc, ok := cat.plans[planCode]
+	if !ok {
+		return PriceParts{}, "", 0, fmt.Errorf("%w: %s(子公司 %s)", ErrPlanNotInCatalog, planCode, subsidiary)
+	}
+	fee = PriceParts{OK: true}
+	if pc.install.OK {
+		fee.Price, fee.Tax = pc.install.Price, pc.install.Tax
+	}
+	for _, code := range addonCodes {
+		a, ok := cat.addons[code]
+		if !ok {
+			skipped++
+			continue
+		}
+		if a.install.OK {
+			fee.Price += a.install.Price
+			fee.Tax += a.install.Tax
+		}
+	}
+	return fee, cat.currency, skipped, nil
+}

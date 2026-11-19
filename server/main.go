@@ -383,6 +383,7 @@ func main() {
 			sc.POST("/:service_name/reverse", handlers.SetReverseDNS(state))
 			sc.DELETE("/:service_name/reverse/:ip", handlers.DeleteReverseDNS(state))
 			sc.GET("/:service_name/serviceinfo", handlers.GetServiceInfo(state))
+			sc.GET("/:service_name/pricing", handlers.GetServerPricing(state))
 			sc.PUT("/:service_name/serviceinfo/renewal", handlers.UpdateServiceRenewal(state))
 
 			// engagement(合同期切换)
