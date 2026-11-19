@@ -1960,6 +1960,32 @@
       ]
     }
   },
+  "GET /me/ovhAccount": {
+    "CA": {
+      "status": "PRODUCTION",
+      "response": "string[]"
+    },
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "string[]"
+    }
+  },
+  "GET /me/ovhAccount/{ovhAccountId}": {
+    "CA": {
+      "status": "PRODUCTION",
+      "response": "billing.OvhAccount",
+      "params": [
+        "path:ovhAccountId:string:true"
+      ]
+    },
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "billing.OvhAccount",
+      "params": [
+        "path:ovhAccountId:string:true"
+      ]
+    }
+  },
   "GET /me/payment/method": {
     "CA": {
       "status": "PRODUCTION",
@@ -3524,6 +3550,29 @@
       ]
     }
   },
+  "POST /me/credit/code": {
+    "CA": {
+      "status": "PRODUCTION",
+      "response": "me.credit.balance.Movement",
+      "params": [
+        "body::me.credit.code.Redeem:true"
+      ]
+    },
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "me.credit.balance.Movement",
+      "params": [
+        "body::me.credit.code.Redeem:true"
+      ]
+    },
+    "US": {
+      "status": "PRODUCTION",
+      "response": "me.credit.balance.Movement",
+      "params": [
+        "body::me.credit.code.Redeem:true"
+      ]
+    }
+  },
   "POST /me/order/{orderId}/balance": {
     "CA": {
       "status": "BETA",
@@ -3593,6 +3642,24 @@
         "body:comment:text:false",
         "body:reason:billing.order.RetractionReasonEnum:true",
         "path:orderId:long:true"
+      ]
+    }
+  },
+  "POST /me/ovhAccount/{ovhAccountId}/creditOrder": {
+    "CA": {
+      "status": "PRODUCTION",
+      "response": "billing.Order",
+      "params": [
+        "body:amount:long:true",
+        "path:ovhAccountId:string:true"
+      ]
+    },
+    "EU": {
+      "status": "PRODUCTION",
+      "response": "billing.Order",
+      "params": [
+        "body:amount:long:true",
+        "path:ovhAccountId:string:true"
       ]
     }
   },

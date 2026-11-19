@@ -166,6 +166,7 @@ export const qk = {
     emails: (accountId: string) => ["account", "emails", accountId] as const,
     orders: (accountId: string) => ["account", "orders", accountId] as const,
     creditBalance: (accountId: string) => ["account", "credit-balance", accountId] as const,
+    topup: (accountId: string) => ["account", "topup", accountId] as const,
   },
 
   // 账户的出站代理:健康状况 + 最近一次出口 IP 测试。

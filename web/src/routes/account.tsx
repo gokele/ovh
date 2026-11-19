@@ -1,6 +1,7 @@
 import { OfficialChat } from "@/components/support/OfficialChat";
 import { SupportTickets } from "@/components/support/SupportTickets";
 import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
+import { WalletActions } from "@/components/account/WalletActions";
 import { createFileRoute } from "@tanstack/react-router";
 import { User, Mail, RefreshCw, FileText, Inbox, ShieldCheck, ShoppingBag, ExternalLink, Wallet, MapPin, Globe, type LucideIcon } from "lucide-react";
 import { useRef, useState } from "react";
@@ -65,7 +66,7 @@ function AccountPage() {
       {!q.isError && (
         <div className="grid gap-3 sm:gap-4 xl:grid-cols-[minmax(0,1fr)_360px] items-stretch">
           <IdentityCard me={me} loading={loading} />
-          <WalletCard currency={me?.currency?.code} />
+          <WalletCard accountId={accountId} currency={me?.currency?.code} />
         </div>
       )}
 
@@ -196,7 +197,7 @@ function InfoCell({
 
 /** 钱包卡(只读):可用余额合计 + 各项余额(预付款 / 代金券 / 赠送额度 / 押金)+ 即将过期提醒。
  *  付款弹窗里可直接选足额余额付清订单。 */
-function WalletCard({ currency }: { currency?: string }) {
+function WalletCard({ accountId, currency }: { accountId: string; currency?: string }) {
   const { t } = useTranslation();
   const q = useCreditBalances();
   const money = (a?: CreditBalance["amount"]) =>
@@ -254,6 +255,7 @@ function WalletCard({ currency }: { currency?: string }) {
             <div className="mt-0.5 text-[12px] text-white/75">{list.length ? t("account.balance.hint") : t("account.balance.empty")}</div>
           </>
         )}
+        <WalletActions accountId={accountId} />
       </div>
       {list.length > 0 && (
         <ul className="relative mt-auto mx-3 mb-3 rounded-xl bg-white/[.12] backdrop-blur-sm divide-y divide-white/10">
