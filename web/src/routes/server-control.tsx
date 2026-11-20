@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2, PartyPopper, Pencil, ChevronsUpDown, ChevronRight, Copy, Receipt } from "lucide-react";
+import { Terminal, Server, RefreshCw, Eye, EyeOff, CalendarClock, Repeat, Activity, Undo2, PartyPopper, Pencil, ChevronsUpDown, ChevronRight, Copy, Receipt, LifeBuoy, HardDrive, Loader2, Network } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import {
   useOwnedServers,
   useServerServiceInfo,
   useServerPricing,
+  useServerBootState,
   useServerMonitoring,
   useToggleMonitoring,
   useRetraction,
@@ -57,6 +59,7 @@ function ServerControlPage() {
   const { hidden, toggle } = useHideIp();
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [activeAccount, setActiveAccount] = useActiveServerControlAccount();
+  const qc = useQueryClient();
   const accountsQ = useAccounts();
   const accounts = accountsQ.data;
   const servers = q.data || [];
@@ -116,7 +119,17 @@ function ServerControlPage() {
                 {hidden ? t("serverList.hiddenTip") : t("serverList.hideIp")}
               </TooltipContent>
             </Tooltip>
-            <Button variant="outline" onClick={() => q.refetch()} disabled={q.isFetching}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void q.refetch();
+                // 同时刷新当前服务器的标题卡数据(续费/费用/启动状态/监控等)
+                if (selectedName) {
+                  void qc.invalidateQueries({ predicate: (query) => query.queryKey[0] === "server-control" && query.queryKey[2] === selectedName });
+                }
+              }}
+              disabled={q.isFetching}
+            >
               <RefreshCw className={`w-4 h-4 ${q.isFetching ? "animate-spin" : ""}`} />
               {t("common.refresh")}
             </Button>
@@ -385,6 +398,7 @@ function ServerTabs({
             </div>
             <div className="shrink-0 flex flex-wrap items-center gap-1.5 sm:flex-col sm:items-end lg:flex-row lg:items-center">
               {/* 中奖标记:列表摘要里的 won/tier(详情横幅在「概览」里)。以前挂在左侧列表行上,列表去掉后放到这里 */}
+              <BootChip serviceName={server.serviceName} />
               {server.lottery?.won && (
                 <span
                   className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[12.5px] font-semibold text-amber-700 dark:text-amber-300 bg-gradient-to-r from-amber-100 to-yellow-50 dark:from-amber-500/20 dark:to-amber-400/10 ring-1 ring-amber-300/70 dark:ring-amber-400/30"
@@ -612,6 +626,69 @@ function FactCell({
     </button>
   ) : (
     <div className="px-4 sm:px-6 py-3.5 min-w-0" title={title}>{body}</div>
+  );
+}
+
+/** 启动状态标签:救援模式 / 正常启动,以及是否已生效(重启中、待重启、未确认);悬停看说明 */
+function BootChip({ serviceName }: { serviceName: string }) {
+  const { t } = useTranslation();
+  const q = useServerBootState(serviceName);
+  if (q.isPending) return null;
+  if (q.isError || !q.data) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[12.5px] font-medium bg-muted text-muted-foreground"
+        title={t("serverList.hero.boot.failed", { detail: q.isError ? errorMessage(q.error) : "—" })}
+      >
+        <HardDrive className="w-3.5 h-3.5" aria-hidden />
+        {t("serverList.hero.boot.unknownLabel")}
+      </span>
+    );
+  }
+  const d = q.data;
+  const rescue = d.bootType === "rescue";
+  const disk = d.bootType === "harddisk";
+  const typeName =
+    d.bootType === "network" ? t("serverList.hero.boot.typeNetwork")
+    : d.bootType === "internal" ? t("serverList.hero.boot.typeInternal")
+    : d.bootType === "power" ? t("serverList.hero.boot.typePower")
+    : d.bootType || "?";
+  let label: string;
+  if (d.effect === "rebooting") label = rescue ? t("serverList.hero.boot.rebootingRescue") : t("serverList.hero.boot.rebootingNormal");
+  else if (d.effect === "pending") label = rescue ? t("serverList.hero.boot.pendingRescue") : disk ? t("serverList.hero.boot.pendingNormal") : t("serverList.hero.boot.pendingOther", { type: typeName });
+  else if (d.effect === "unknown" && rescue) label = t("serverList.hero.boot.unknownRescue");
+  else label = rescue ? t("serverList.hero.boot.rescue") : disk ? t("serverList.hero.boot.normal") : t("serverList.hero.boot.other", { type: typeName });
+
+  const tone = rescue
+    ? "bg-amber-100 text-amber-800 ring-1 ring-amber-300/70 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-400/30"
+    : d.effect === "rebooting" || d.effect === "pending"
+      ? "bg-primary/10 text-primary"
+      : "bg-muted text-muted-foreground";
+  const Icon = d.effect === "rebooting" ? Loader2 : rescue ? LifeBuoy : disk ? HardDrive : Network;
+  const explain =
+    d.effect === "rebooting" ? t("serverList.hero.boot.titleRebooting")
+    : d.effect === "pending" ? t("serverList.hero.boot.titlePending")
+    : d.effect === "unknown" ? t("serverList.hero.boot.titleUnknown")
+    : d.changedAt ? t("serverList.hero.boot.titleActive")
+    : disk ? t("serverList.hero.boot.titleActiveDefault")
+    : t("serverList.hero.boot.titleUnknown");
+  const title = [
+    explain,
+    d.description ? t("serverList.hero.boot.titleNext", { desc: d.description }) : "",
+    d.reboot?.status
+      ? t("serverList.hero.boot.titleLastReboot", {
+          status: d.reboot.status,
+          date: d.reboot.doneDate ? fmtDateTime(d.reboot.doneDate) : d.reboot.startDate ? fmtDateTime(d.reboot.startDate) : "",
+        })
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return (
+    <span className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[12.5px] font-medium cursor-help ${tone}`} title={title} role="status">
+      <Icon className={`w-3.5 h-3.5 ${d.effect === "rebooting" ? "animate-spin motion-reduce:animate-none" : ""}`} aria-hidden />
+      {label}
+    </span>
   );
 }
 

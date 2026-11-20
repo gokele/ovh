@@ -218,6 +218,7 @@ func EnterRescue(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
+		recordBootChange(state, c, svc, bootID)
 
 		// 必须重启才生效。手动操作时漏掉这步是最常见的错误 ——
 		// 改完 netboot 以为就进救援了,其实机器还在正常系统里。
@@ -320,6 +321,7 @@ func ExitRescue(state *app.State) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": ovh.Explain(err)})
 			return
 		}
+		recordBootChange(state, c, svc, bootID)
 		var task map[string]interface{}
 		if err := client.Post("/dedicated/server/"+svc+"/reboot", nil, &task); err != nil {
 			if ovh.IsRebootAlreadyRequested(err) {

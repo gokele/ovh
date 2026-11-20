@@ -136,6 +136,7 @@ func SetBootConfig(state *app.State) gin.HandlerFunc {
 			respondOVHError(c, err)
 			return
 		}
+		recordBootChange(state, c, svc, bootID)
 		state.Logger.Info(fmt.Sprintf("服务器 %s 启动模式已设置为 %d", svc, bootID), "server_control")
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "启动模式已更新，重启后生效", "code": "EDC39F7DF"})
 	}
@@ -350,6 +351,7 @@ func ChangeBootMode(state *app.State) gin.HandlerFunc {
 			respondOVHError(c, err)
 			return
 		}
+		recordBootChange(state, c, svc, body.BootID)
 		state.Logger.Info("[Boot] 启动模式切换成功，需要重启服务器生效", "server_control")
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,

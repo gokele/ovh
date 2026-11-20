@@ -189,6 +189,36 @@ export function useServerPricing(serviceName: string | null) {
   });
 }
 
+/** 启动状态:救援模式还是正常启动,以及设置是否已在运行中生效(只读) */
+export interface BootState {
+  bootId: number;
+  bootType: string;
+  description?: string;
+  powerState?: string;
+  state?: string;
+  /** rebooting 正在重启 / active 已生效 / pending 已改但未重启 / unknown 无法确认 */
+  effect: "rebooting" | "active" | "pending" | "unknown";
+  reboot?: { status?: string; startDate?: string; doneDate?: string };
+  changedAt?: string;
+}
+
+export function useServerBootState(serviceName: string | null) {
+  const accountId = useAccountScope();
+  const api = useAccountApi(accountId);
+  return useQuery({
+    queryKey: accountQueryKey(qk.serverControl.bootState(serviceName || ""), accountId),
+    queryFn: async () => (await api.get<BootState>(`/server-control/${encodeURIComponent(serviceName!)}/boot-state`)).data,
+    enabled: !!serviceName,
+    staleTime: 30_000,
+    retry: false,
+    // 正在重启或等待重启时每 20 秒刷新,重启完成后自动变成已生效
+    refetchInterval: (q) => {
+      const e = (q.state.data as BootState | undefined)?.effect;
+      return e === "rebooting" || e === "pending" ? 20_000 : false;
+    },
+  });
+}
+
 /** 服务信息（后端返回 { success, serviceInfo: {...} }） */
 export function useServerServiceInfo(serviceName: string | null) {
   const accountId = useAccountScope();
@@ -607,6 +637,7 @@ export function useSetServerBootMode() {
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.bootModes(vars.serviceName), accountId) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.bootState(vars.serviceName), accountId) });
     },
   });
 }
@@ -1678,10 +1709,15 @@ export function useScheduleTask() {
 export function useRebootServer() {
   const accountId = useAccountScope();
   const api = useAccountApi(accountId);
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (serviceName: string) => {
       const res = await api.post(`/server-control/${serviceName}/reboot`);
       return res.data;
+    },
+    // 重启后启动状态会变成「重启中」→「已生效」
+    onSuccess: (_d, serviceName) => {
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.bootState(serviceName), accountId) });
     },
   });
 }
@@ -1796,6 +1832,7 @@ export function useEnterRescue(serviceName: string, accountId: string) {
     onSuccess: (d: any) => {
       // netboot 切换改变 bootModes 的 active 标记
       qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.bootModes(serviceName), accountId) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.bootState(serviceName), accountId) });
       toast.success(bodyMessage(d) || i18n.t("hooksMsg.server.rescueEntered"));
       qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.rescue(serviceName), accountId) });
     },
@@ -1814,6 +1851,7 @@ export function useExitRescue(serviceName: string, accountId: string) {
     onSuccess: (d: any) => {
       // netboot 切换改变 bootModes 的 active 标记
       qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.bootModes(serviceName), accountId) });
+      qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.bootState(serviceName), accountId) });
       toast.success(bodyMessage(d) || i18n.t("hooksMsg.server.rescueExited"));
       qc.invalidateQueries({ queryKey: accountQueryKey(qk.serverControl.rescue(serviceName), accountId) });
     },
