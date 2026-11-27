@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/common/Skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadFailed, errorMessage } from "@/components/common/LoadFailed";
 import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
+import { OrderTimeline } from "@/components/account/OrderTimeline";
 import { fmtDateTime, fmtMoney } from "@/i18n/format";
 import { qk } from "@/lib/query";
 import { cn } from "@/lib/utils";
@@ -170,9 +171,6 @@ function OrderCard({ order, accountId }: { order: OrderRecord; accountId: string
   // 标题行只数商品本身,安装费等费用行放到展开明细里
   const mainProducts = products.filter((d) => d.detailType !== "INSTALLATION");
   const steps = deriveSteps(data, status);
-  const history = (data?.steps || [])
-    .flatMap((s) => s.history.map((h) => ({ ...h, step: s.step })))
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (
     <Card className="overflow-hidden">
@@ -233,7 +231,7 @@ function OrderCard({ order, accountId }: { order: OrderRecord; accountId: string
         {track.isError && (
           <p className="mt-1 text-[12px] text-destructive">{t("orderTrack.trackFailed", { detail: errorMessage(track.error) })}</p>
         )}
-        {data?.followUpError && (
+        {!open && data?.followUpError && (
           <p className="mt-1 text-[12px] text-muted-foreground">{t("orderTrack.followUpFailed", { detail: data.followUpError })}</p>
         )}
       </div>
@@ -251,22 +249,7 @@ function OrderCard({ order, accountId }: { order: OrderRecord; accountId: string
         <div className="border-t border-border bg-muted/20 px-4 sm:px-5 py-3">
           {track.isPending ? (
             <Skeleton className="h-16 w-full" />
-          ) : history.length === 0 ? (
-            <p className="text-[12.5px] text-muted-foreground">{t("orderTrack.noTimeline")}</p>
-          ) : (
-            <ol className="relative space-y-3 before:absolute before:left-[5px] before:top-1.5 before:bottom-1.5 before:w-px before:bg-border">
-              {history.map((h, i) => (
-                <li key={i} className="relative pl-5">
-                  <span className={cn("absolute left-0 top-1.5 w-[11px] h-[11px] rounded-full ring-2 ring-background", i === 0 ? "bg-primary" : "bg-muted-foreground/40")} />
-                  <div className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
-                    <span className="font-medium">{t(`orderTrack.label.${h.label}`, { defaultValue: h.label })}</span>
-                    <span className="text-[11.5px] text-muted-foreground tabular-nums">{h.date ? fmtDateTime(h.date) : ""}</span>
-                  </div>
-                  {h.description && <p className="text-[12px] text-muted-foreground break-words">{h.description}</p>}
-                </li>
-              ))}
-            </ol>
-          )}
+          ) : data ? <OrderTimeline data={data} /> : null}
           {products.length > 1 && (
             <ul className="mt-3 pt-3 border-t border-border space-y-1 text-[12.5px]">
               {products.map((p, i) => (

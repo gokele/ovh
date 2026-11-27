@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { StatusDot } from "@/components/common/StatusDot";
 import { AccountChip } from "@/components/common/AccountChip";
+import { OrderTrackingButton } from "@/components/account/OrderTrackingButton";
 import { TimingChip } from "@/components/common/TimingChip";
 import { OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { describeOptionCodes } from "@/lib/option-groups";
@@ -91,6 +92,18 @@ function SettingsCell({ item }: { item: QueueItem }) {
   );
 }
 
+function CompletedOrderLinks({ item }: { item: QueueItem }) {
+  const { t } = useTranslation();
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2">
+      <Link to="/history" className="font-medium underline-offset-4 hover:underline">
+        {item.orderId ? t("queue.orderRecord", { id: item.orderId }) : t("queue.viewHistory")}
+      </Link>
+      <OrderTrackingButton accountId={item.accountId} orderId={item.orderId} />
+    </span>
+  );
+}
+
 /** 进度:下一次尝试 / 终态说明,加上一轮结论、派发耗时与失败次数。 */
 function ProgressCell({ item, timing, intervalEditor }: { item: QueueItem; timing?: PurchaseTiming; intervalEditor?: ReactNode }) {
   const { t } = useTranslation();
@@ -98,9 +111,7 @@ function ProgressCell({ item, timing, intervalEditor }: { item: QueueItem; timin
     item.status === "failed" ? (
       t("queue.stoppedRetrying")
     ) : item.status === "completed" ? (
-      <Link to="/history" className="font-medium text-foreground underline-offset-4 hover:underline">
-        {item.orderId ? t("queue.orderRecord", { id: item.orderId }) : t("queue.viewHistory")}
-      </Link>
+      <CompletedOrderLinks item={item} />
     ) : item.status === "paused" ? (
       t(item.stopReason ? `queue.${item.stopReason}` : "queue.waitingResume")
     ) : item.orderPhase === "waitingQuota" ? (
@@ -363,9 +374,7 @@ function ProgressMain({ item, intervalEditor }: { item: QueueItem; intervalEdito
     item.status === "failed" ? (
       t("queue.stoppedRetrying")
     ) : item.status === "completed" ? (
-      <Link to="/history" className="font-medium text-primary underline-offset-4 hover:underline">
-        {item.orderId ? t("queue.orderRecord", { id: item.orderId }) : t("queue.viewHistory")}
-      </Link>
+      <CompletedOrderLinks item={item} />
     ) : item.status === "paused" ? (
       t(item.stopReason ? `queue.${item.stopReason}` : "queue.waitingResume")
     ) : item.orderPhase === "waitingQuota" ? (

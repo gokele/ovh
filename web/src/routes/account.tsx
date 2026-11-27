@@ -1,6 +1,7 @@
 import { OfficialChat } from "@/components/support/OfficialChat";
 import { SupportTickets } from "@/components/support/SupportTickets";
 import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
+import { OrderTrackingButton } from "@/components/account/OrderTrackingButton";
 import { WalletActions } from "@/components/account/WalletActions";
 import { createFileRoute } from "@tanstack/react-router";
 import { User, Mail, RefreshCw, FileText, Inbox, ShieldCheck, ShoppingBag, ExternalLink, Wallet, MapPin, Globe, type LucideIcon } from "lucide-react";
@@ -533,6 +534,7 @@ function OrderRow({ order, accountId }: { order: OrderRecord; accountId: string 
         {order.orderStatus === "notPaid" && <div className="my-2"><OrderPaymentButton accountId={order.accountId || accountId} orderId={order.orderId} managerUrl={order.url} /></div>}
         {order.paymentStatusError && <p className="text-xs text-warning" title={order.paymentStatusError}>{t("account.payment.statusUnknown")}</p>}
         <div className="flex flex-wrap items-center sm:justify-end gap-3">
+          <OrderTrackingButton accountId={order.accountId} orderId={order.orderId} />
           {order.url && (
             <a href={order.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-[11px] text-foreground hover:underline">
               <ExternalLink className="w-3 h-3" />

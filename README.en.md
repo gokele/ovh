@@ -32,6 +32,8 @@ docker pull ghcr.io/gokele/ovh:latest
 
 Successful purchase tasks remain in the queue as Ordered, with status filters and a link to purchase history. Ordered tasks cannot run or resume; create a new task for another purchase. Tasks already removed by earlier versions remain in purchase history and are not restored to the active queue.
 
+To track one order, click its status badge in purchase history or **Track order** in a completed task's details or the account's order records. The dialog reads from the account that placed the order. If a task has more than one order, select the specific one in purchase history.
+
 Account order records offer payment for orders OVH confirms as unpaid. Review the account, tax-inclusive amount and eligible saved payment method, then explicitly confirm. Expired orders and unavailable methods cannot be paid. Payment requests never retry automatically; check OVH Manager if the result is uncertain or bank verification is required. Credentials need order/payment-method read access and `POST /me/order/*/pay` access.
 
 Confirmation is bound to the account, order, amount, currency and payment method reviewed. Changes after refresh require confirmation again. Switching accounts clears the previous account's selected email and payment dialog.
