@@ -1,4 +1,5 @@
 import { OrderPaymentButton } from "@/components/account/OrderPaymentButton";
+import { OrderTrackingButton } from "@/components/account/OrderTrackingButton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { describeOptionCodes } from "@/lib/option-groups";
 import { OrderDurationLabel } from "@/components/queue/OrderDurationField";
@@ -573,9 +574,9 @@ function HistoryRow({ item, now, onAgain }: { item: PurchaseHistory; now: number
       </td>
       <td className="px-3 py-3 whitespace-nowrap">
         {item.status === "success" ? (
-          <Chip tone={st.tone} title={t(st.titleKey)}>
-            {t(st.labelKey)}
-          </Chip>
+          <OrderTrackingButton accountId={item.accountId} orderId={item.orderId}>
+            <Chip tone={st.tone} title={t(st.titleKey)}>{t(st.labelKey)}</Chip>
+          </OrderTrackingButton>
         ) : (
           <Chip tone={item.status === "uncertain" ? "warning" : "danger"}>{t(item.status === "uncertain" ? "history.uncertain" : "history.failed")}</Chip>
         )}
@@ -619,9 +620,9 @@ function HistoryCard({ item, now, onAgain }: { item: PurchaseHistory; now: numbe
             <AccountChip accountId={item.accountId} />
           </div>
           {item.status === "success" ? (
-            <Chip tone={st.tone} title={t(st.titleKey)}>
-            {t(st.labelKey)}
-          </Chip>
+            <OrderTrackingButton accountId={item.accountId} orderId={item.orderId}>
+              <Chip tone={st.tone} title={t(st.titleKey)}>{t(st.labelKey)}</Chip>
+            </OrderTrackingButton>
           ) : (
             <Chip tone={item.status === "uncertain" ? "warning" : "danger"}>{t(item.status === "uncertain" ? "history.uncertain" : "history.failed")}</Chip>
           )}

@@ -246,12 +246,12 @@ export interface OrderTracking {
 }
 
 /** 进行中的订单每分钟刷新一次;已交付/已取消的不轮询 */
-export function useOrderTracking(accountId: string, orderId: number, enabled: boolean) {
+export function useOrderTracking(accountId: string, orderId: number | string, enabled: boolean) {
   return useQuery({
     queryKey: qk.account.orderTracking(accountId, orderId),
-    queryFn: async () =>
-      (await api.get<OrderTracking>(`/ovh/account/orders/${orderId}/tracking`, { params: { account: accountId } })).data,
-    enabled: enabled && !!accountId && orderId > 0,
+    queryFn: async ({ signal }) =>
+      (await api.get<OrderTracking>(`/ovh/account/orders/${orderId}/tracking`, { params: { account: accountId }, signal })).data,
+    enabled: enabled && trackingOrderId(accountId, orderId) !== undefined,
     staleTime: 30_000,
     retry: false,
     refetchInterval: (q) => {
@@ -259,6 +259,14 @@ export function useOrderTracking(accountId: string, orderId: number, enabled: bo
       return s && ["delivered", "cancelled"].includes(s) ? false : 60_000;
     },
   });
+}
+
+/** Historical IDs are decimal int64 strings. Never round, trim or fall back to the active account. */
+export function trackingOrderId(accountId: string | undefined, orderId: number | string | undefined): string | undefined {
+  if (!accountId || accountId.trim() !== accountId) return;
+  if (typeof orderId === "number" && !Number.isSafeInteger(orderId)) return;
+  const id = typeof orderId === "number" ? String(orderId) : orderId;
+  if (id && /^[1-9]\d{0,18}$/.test(id) && (id.length < 19 || id <= "9223372036854775807")) return id;
 }
 
 /** 打开付款窗口时只读取可用方式,不产生付款请求。 */

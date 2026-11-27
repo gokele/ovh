@@ -17,14 +17,16 @@ func TestInContainerEnvFlag(t *testing.T) {
 	}
 	for v, want := range cases {
 		t.Setenv("OVH_IN_CONTAINER", v)
-		got := InContainer()
-		// 空串和显式否定时会落到文件/cgroup 判据上，
-		// 本机跑测试时那些都不该命中
-		if want && !got {
-			t.Errorf("OVH_IN_CONTAINER=%q 应当判为容器内", v)
+		if got := InContainer(); got != (want || detectContainerRuntime()) {
+			t.Errorf("InContainer() did not honor OVH_IN_CONTAINER=%q or runtime detection", v)
 		}
-		if !want && got {
-			t.Errorf("OVH_IN_CONTAINER=%q 不该判为容器内（会无故停掉裸机的自更新）", v)
+		// 0/false 不是强制裸机：有运行时标记时仍须禁用容器内自更新。
+		for _, marker := range []bool{false, true} {
+			called := false
+			got := inContainer(v, func() bool { called = true; return marker })
+			if got != (want || marker) || called == want {
+				t.Errorf("flag=%q marker=%v: container=%v detectionCalled=%v", v, marker, got, called)
+			}
 		}
 	}
 }
