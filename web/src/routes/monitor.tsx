@@ -455,7 +455,11 @@ function SubRow({
           {/* 盯全部配置 vs 只盯一套,是「会不会一次触发好几单」的分水岭,
               必须在列表上一眼看得出来 */}
           {sub.options && sub.options.length > 0 ? (
-            <Chip tone="default" title={sub.options.join("\n")}>
+            <Chip
+              tone="default"
+              className="h-auto min-h-[22px] min-w-0 max-w-full whitespace-normal py-1 leading-tight [overflow-wrap:anywhere]"
+              title={sub.options.join("\n")}
+            >
               {t("monitor.row.watchOnly", { options: describeOptionCodes(sub.options) })}
             </Chip>
           ) : (
@@ -481,7 +485,7 @@ function SubRow({
                   {sub.autoPay ? t("monitor.row.autoPaySuffix") : ""}
                 </Chip>
                 <span className="text-[11px] text-muted-foreground">→</span>
-                <AccountChip accountId={sub.autoOrderAccountId} />
+                <AccountChip accountId={sub.autoOrderAccountId} className="min-w-0 max-w-full whitespace-normal [overflow-wrap:anywhere]" />
               </>
             ) : sub.autoOrder ? (
               <Chip tone="warning">{t("monitor.row.autoNoAccount")}</Chip>
