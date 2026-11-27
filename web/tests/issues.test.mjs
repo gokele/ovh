@@ -631,7 +631,7 @@ test("queue status summary retains ordered tasks and accurate active counts", as
     const items = ["running", "pending", "paused", "completed", "completed", "failed"].map((status, n) => ({ id: String(n), status }));
     const html = renderToStaticMarkup(createElement(QueueStatusFilter, { items, value: "all", onChange() {} }));
     assert.match(html, /All tasks<\/span><span[^>]*>6/);
-    assert.match(html, /Running<\/span><span[^>]*>2/);
+    assert.match(html, /Sniping<\/span><span[^>]*>2/);
     assert.match(html, /Ordered<\/span><span[^>]*>2/);
     assert.match(html, /will not purchase again/);
   } finally { await i18n.changeLanguage(original); }
@@ -874,15 +874,15 @@ test("ambiguous checkout history is labeled as needing verification in both lang
   } finally { await i18n.changeLanguage(language); client.clear(); }
 });
 
-test("a delayed 401 cannot erase a newly entered API key", async () => {
+test("a delayed 401 cannot erase a newly issued session token", async () => {
   const { api, onAuthFailure } = await server.ssrLoadModule("/src/lib/api.ts");
   const originalAdapter = api.defaults.adapter, originalWindow = globalThis.window;
   let key = "old-key", expired = 0, rejectResponse, entered;
   const ready = new Promise(resolve => { entered = resolve; });
-  globalThis.window = { localStorage: { getItem: name => name === "ovh_sniper_api_key" ? key : null, removeItem: () => { key = null; } } };
+  globalThis.window = { localStorage: { getItem: name => name === "ovh_sniper_session" ? key : null, removeItem: () => { key = null; } } };
   const unregister = onAuthFailure(() => { expired++; });
   api.defaults.adapter = config => new Promise((resolve, reject) => {
-    rejectResponse = () => reject(Object.assign(new Error("expired request"), { config, response: { status: 401, data: { code: "INVALID_API_KEY" } } }));
+    rejectResponse = () => reject(Object.assign(new Error("expired request"), { config, response: { status: 401, data: { code: "INVALID_SESSION" } } }));
     entered();
   });
   try {
@@ -893,7 +893,7 @@ test("a delayed 401 cannot erase a newly entered API key", async () => {
     await assert.rejects(request, /expired request/);
     assert.equal(key, "new-key");
     assert.equal(expired, 0);
-    api.defaults.adapter = async config => { throw Object.assign(new Error("current request rejected"), { config, response: { status: 401, data: { code: "INVALID_API_KEY" } } }); };
+    api.defaults.adapter = async config => { throw Object.assign(new Error("current request rejected"), { config, response: { status: 401, data: { code: "INVALID_SESSION" } } }); };
     await assert.rejects(api.get("/ovh/account/info"), /current request rejected/);
     assert.equal(expired, 1);
     assert.equal(key, null);

@@ -124,3 +124,6 @@ app/OvhConsole/**/xcuserdata/
 /tools/
 /app/
 /packages/
+
+# 本机 Claude Code 配置(含本地测试密钥与服务器地址)
+.claude/

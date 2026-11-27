@@ -130,8 +130,12 @@ func processQueueLoop(loopCtx context.Context, state *app.State, purchase func(c
 	type worker struct {
 		cancel context.CancelFunc
 		done   chan struct{}
+		wake   chan struct{}
+		size   int
 	}
-	active := map[string]worker{}
+	// active 的键:单独调度的任务用任务 ID,同配置合并的组用 "g:"+合并键
+	active := map[string]*worker{}
+	busy := &inFlight{}
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	nextRestore := time.Time{}
@@ -152,55 +156,81 @@ func processQueueLoop(loopCtx context.Context, state *app.State, purchase func(c
 				}
 				return items[i].CreatedAt > items[j].CreatedAt
 			})
-			running := map[string]bool{}
 			allIDs := map[string]bool{}
+			wanted := map[string]types.QueueItem{} // 键 → 代表任务
+			sizes := map[string]int{}
+			var order []string
 			for _, item := range items {
 				allIDs[item.ID] = true
-				if item.Status == "running" {
-					running[item.ID] = true
+				if item.Status != "running" || state.IsTaskDeleted(item.ID) {
+					continue
 				}
+				k := item.ID
+				if g := groupKey(state, item); g != "" {
+					k = "g:" + g
+				}
+				if _, ok := wanted[k]; !ok {
+					wanted[k] = item
+					order = append(order, k)
+				}
+				sizes[k]++
 			}
-			for id, w := range active {
+			for k, w := range active {
 				select {
 				case <-w.done:
-					delete(active, id)
+					delete(active, k)
 				default:
-					if !running[id] {
+					if _, ok := wanted[k]; !ok {
 						w.cancel()
+					} else if w.wake != nil && sizes[k] != w.size {
+						w.size = sizes[k]
+						select {
+						case w.wake <- struct{}{}:
+						default:
+						}
 					}
 				}
 			}
 			state.DeletedTaskIDsMu.Lock()
 			for id := range state.DeletedTaskIDs {
-				if _, busy := active[id]; !allIDs[id] && !busy {
+				if _, held := busy.m.Load(id); !allIDs[id] && !held {
 					delete(state.DeletedTaskIDs, id)
 				}
 			}
 			state.DeletedTaskIDsMu.Unlock()
-			// 一次下单最多扇出 60 个任务;64 个独立 worker 覆盖整批且限制资源占用。
-			for _, item := range items {
-				if !running[item.ID] || state.IsTaskDeleted(item.ID) {
-					continue
-				}
-				if _, ok := active[item.ID]; ok {
+			// 上限按 worker 计:同配置的任务合成一个组只占一个
+			for _, k := range order {
+				if _, ok := active[k]; ok {
 					continue
 				}
 				if len(active) >= maxConcurrentTasks {
 					break
 				}
+				item := wanted[k]
 				workerCtx, stop := context.WithCancel(ctx)
-				done := make(chan struct{})
-				active[item.ID] = worker{stop, done}
+				w := &worker{cancel: stop, done: make(chan struct{}), size: sizes[k]}
+				if strings.HasPrefix(k, "g:") {
+					w.wake = make(chan struct{}, 1)
+				}
+				active[k] = w
 				wg.Add(1)
-				go func(item types.QueueItem) {
+				go func(k string, item types.QueueItem, w *worker) {
 					defer wg.Done()
-					defer close(done)
-					defer stop()
+					defer close(w.done)
+					defer w.cancel()
 					if !item.Preorder || item.PreorderWaitStock {
 						defer stocks.subscribe(stockWatchAccount(state, item.AccountID), item.PlanCode)()
 					}
+					if w.wake != nil {
+						groupWorker(workerCtx, state, strings.TrimPrefix(k, "g:"), stockWatchAccount(state, item.AccountID), item.PlanCode, purchase, busy, w.wake)
+						return
+					}
+					if !busy.acquire(item.ID) {
+						return // 该任务上一组的尝试还没结束,下个调度周期再起
+					}
+					defer busy.release(item.ID)
 					taskWorker(workerCtx, state, item, purchase, sales)
-				}(item)
+				}(k, item, w)
 			}
 		} else {
 			for _, w := range active {

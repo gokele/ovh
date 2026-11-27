@@ -42,7 +42,7 @@ server/
 ```bash
 cd server
 cp .env.example .env
-# 编辑 .env：OVH AppKey/AppSecret/ConsumerKey、API_KEY（前端访问凭据）等
+# 编辑 .env：ADMIN_USERNAME / ADMIN_PASSWORD（管理员登录账号）等
 
 go mod tidy
 go run .
@@ -56,8 +56,10 @@ go run .
 
 | 变量 | 说明 |
 |---|---|
-| `API_KEY` | 前端访问后端的 X-API-Key。前端 localStorage 里也存这个值 |
-| `API_KEY_ENABLED` | 是否启用 API Key 校验（默认 true） |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 管理员账号。还没有账号时首次启动自动创建;已有账号时忽略 |
+| `ADMIN_PASSWORD_RESET` | 设为 1 时用上面的值覆盖现有密码并退出所有设备(忘记密码用,用完删掉) |
+| `API_SECRET_KEY` | 网页创建账号时的初始化密钥(旧版的访问密钥)。空 = 自动生成到数据目录 `.api-secret` |
+| `ENABLE_AUTH` | 是否要求登录（默认 true;旧名 `ENABLE_API_KEY_AUTH` 仍有效） |
 | `OVH_APPLICATION_KEY` / `OVH_APPLICATION_SECRET` / `OVH_CONSUMER_KEY` | OVH API 凭据，可在前端"API 设置"页面填，也可写入 .env |
 | `OVH_ENDPOINT` | `ovh-eu` / `ovh-us` / `ovh-ca`，决定 OVH API host |
 | `DATA_DIR` | 持久化目录（队列、订阅、历史、缓存），默认 `./data` |
@@ -66,7 +68,14 @@ go run .
 
 ## 鉴权
 
-所有 `/api/*` 路径（除 `/api/health` 等少数白名单）都要求 `X-API-Key` 请求头。前端 [AuthGate](../web/src/components/common/AuthGate.tsx) 在挂载时探测一次 `/api/stats`，401 直接弹登录窗。
+用户名 + 密码登录(bcrypt 存在 SQLite kv `auth-admin`)。登录成功返回 30 天会话令牌(使用中自动顺延),浏览器每次请求带 `X-Auth-Token` 头;服务端只存令牌的 SHA-256。App 继续用配对得到的 `Authorization: Bearer` 设备令牌。
+
+- `GET /api/auth/status` → `{authEnabled, setupRequired}`(免登录)
+- `POST /api/auth/setup` `{setupKey, username, password}`:仅在还没有管理员时可用,`setupKey` 即 `API_SECRET_KEY` / `.api-secret`
+- `POST /api/auth/login` `{username, password}` → `{token}`;`POST /api/auth/logout`;`GET /api/auth/me`
+- `POST /api/auth/password` `{currentPassword, newPassword}`:改密后其他会话全部失效
+
+旧的 `X-API-Key` 请求头不再能登录(返回 `API_KEY_RETIRED`)。登录、初始化与令牌错误共用按 IP 的失败限流。前端 [AuthGate](../web/src/components/common/AuthGate.tsx) 负责初始化与登录页。
 
 ## 主要路由
 

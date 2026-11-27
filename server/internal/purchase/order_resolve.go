@@ -137,9 +137,12 @@ func runOrderResolver(state *app.State, target resolveTarget, schedule []time.Du
 	if !resolverStillNeeded(state, target.item.ID) {
 		return
 	}
-	notify.Broadcast(state, buildUnresolvedMessage(target, lastCandidates, us), map[string]interface{}{"inline_keyboard": [][]map[string]interface{}{{
-		telegram.TaskButton("确认 OVH 没有这笔订单，恢复任务", target.item.ID, telegram.TaskResume),
-	}}})
+	notices.add(state, noticeUnresolved, pendingNotice{
+		item: target.item, text: buildUnresolvedMessage(target, lastCandidates, us), candidates: lastCandidates,
+		markup: map[string]interface{}{"inline_keyboard": [][]map[string]interface{}{{
+			telegram.TaskButton("确认 OVH 没有这笔订单，恢复任务", target.item.ID, telegram.TaskResume),
+		}}},
+	})
 }
 
 // resolverStillNeeded 任务仍处于暂停且结账登记仍在,才需要继续核对。
@@ -336,7 +339,7 @@ func autoResumeTask(state *app.State, target resolveTarget) bool {
 		return false
 	}
 	state.Logger.Info(fmt.Sprintf("任务 %s 结账被限流(429),%s 内账户没有新订单,已自动恢复", target.item.ID, autoResumeAfter), "purchase")
-	notify.Broadcast(state, fmt.Sprintf("🔁 %s@%s 结账时被 OVH 限流（429）。\n结账后 1 分钟内账户里没有任何新订单，确认未下单，任务已自动恢复继续抢购。",
-		target.item.PlanCode, strings.ToUpper(target.item.Datacenter)), nil)
+	notices.add(state, noticeAutoResumed, pendingNotice{item: target.item, text: fmt.Sprintf("🔁 %s@%s 结账时被 OVH 限流（429）。\n结账后 1 分钟内账户里没有任何新订单，确认未下单，任务已自动恢复继续抢购。",
+		target.item.PlanCode, strings.ToUpper(target.item.Datacenter))})
 	return true
 }

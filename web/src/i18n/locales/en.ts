@@ -50,6 +50,7 @@ const pack: LangPack = {
     vpsControl: "VPS Control",
     account: "Accounts",
     history: "Order History",
+    orders: "Order Status",
     logs: "Logs",
     settings: "API Settings",
     home: "Home",

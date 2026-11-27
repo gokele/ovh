@@ -24,7 +24,7 @@ const pack: SettingsPagesPack = {
     loadFailedTitle: "Failed to load settings",
     checking: "Checking…",
     sections: {
-      password: "Access password",
+      password: "Sign-in account",
       appearance: "Appearance",
       accounts: "OVH accounts",
       purchase: "Sniping",
@@ -33,11 +33,18 @@ const pack: SettingsPagesPack = {
       app: "App pairing",
       cache: "Cache management",
     },
-    passwordSection: {
-      title: "Access password / API Secret Key",
-      label: "Access password *",
-      hint: "The API_SECRET_KEY from the backend's .env; kept locally in localStorage only",
-      placeholder: "Enter the access password",
+    account: {
+      title: "Sign-in account",
+      signedInAs: "Signed in as",
+      logout: "Sign out",
+      changeTitle: "Change password",
+      current: "Current password",
+      new: "New password",
+      save: "Change password",
+      changed: "Password changed. Other devices will need to sign in again",
+      badCurrent: "The current password is wrong",
+      failed: "Could not change the password",
+      revokeNote: "Other signed-in devices will be signed out",
     },
     purchase: {
       title: "Sniping parameters",

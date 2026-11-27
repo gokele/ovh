@@ -221,6 +221,73 @@ func UpdateQueueItem(state *app.State) gin.HandlerFunc {
 	}
 }
 
+// UpdateQueueBundle PUT /api/queue/bundle:整单修改配置与数量(见 app.UpdateQueueBundle)。
+func UpdateQueueBundle(state *app.State) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body struct {
+			IDs           []string       `json:"ids"`
+			Options       []string       `json:"options"`
+			Duration      *string        `json:"duration"`
+			RetryInterval int            `json:"retryInterval"`
+			AutoPay       bool           `json:"autoPay"`
+			Coupon        string         `json:"coupon"`
+			Quantities    map[string]int `json:"quantities"`
+			Total         int            `json:"total"`
+			Datacenters   []string       `json:"datacenters"`
+		}
+		if err := bindOrderJSON(c, &body); err != nil || len(body.IDs) == 0 || len(body.IDs) > 2000 ||
+			(body.RetryInterval != 0 && (body.RetryInterval < types.MinRetryInterval || body.RetryInterval > types.MaxRetryInterval)) {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "请求无效:请检查任务和重试间隔"})
+			return
+		}
+		if body.Duration != nil {
+			if _, err := orderterm.Normalize(*body.Duration); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": err.Error()})
+				return
+			}
+		}
+		res, err := state.UpdateQueueBundle(app.BundleUpdate{
+			IDs: body.IDs, Options: body.Options, Duration: body.Duration, RetryInterval: body.RetryInterval,
+			AutoPay: body.AutoPay, Coupon: body.Coupon, Quantities: body.Quantities, Total: body.Total, Datacenters: body.Datacenters,
+		})
+		if err != nil {
+			status := http.StatusInternalServerError
+			switch {
+			case errors.Is(err, app.ErrQueueNotFound):
+				status = http.StatusNotFound
+			case errors.Is(err, app.ErrBundleMixed), errors.Is(err, app.ErrBundleNoTarget), errors.Is(err, app.ErrBundleTooLarge):
+				status = http.StatusBadRequest
+			}
+			c.JSON(status, gin.H{"status": "error", "error": err.Error()})
+			return
+		}
+		state.Logger.Info(fmt.Sprintf("整单修改:更新 %d、新增 %d、删除 %d", res.Updated, res.Added, res.Removed), "queue")
+		c.JSON(http.StatusOK, gin.H{"status": "success", "updated": res.Updated, "added": res.Added, "removed": res.Removed})
+	}
+}
+
+// UpdateQueueAutoPay PUT /api/queue/autopay  body: { "ids": [...], "autoPay": true|false }
+// 只切换自动付款,不动其他配置;已下单的任务忽略。
+func UpdateQueueAutoPay(state *app.State) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body struct {
+			IDs     []string `json:"ids"`
+			AutoPay *bool    `json:"autoPay"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || body.AutoPay == nil || len(body.IDs) == 0 || len(body.IDs) > 1000 {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "请选择任务并指定是否自动付款"})
+			return
+		}
+		n, err := state.SetQueueAutoPay(body.IDs, *body.AutoPay)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": err.Error()})
+			return
+		}
+		state.Logger.Info(fmt.Sprintf("%d 个任务自动付款改为 %v", n, *body.AutoPay), "queue")
+		c.JSON(http.StatusOK, gin.H{"status": "success", "updated": n})
+	}
+}
+
 // UpdateQueueInterval PUT /api/queue/:id/interval  body: { "retryInterval": 秒 }
 // 改一条正在跑的任务的重试间隔。处理器每轮都读 item 上的值,所以改完下一轮就生效。
 func UpdateQueueInterval(state *app.State) gin.HandlerFunc {

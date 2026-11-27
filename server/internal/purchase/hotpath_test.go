@@ -19,10 +19,11 @@ import (
 )
 
 // 独立 worker 应同时派发整批,第一个慢任务不能挡住第 11 个及之后的任务。
+// 各任务机房不同(不同配置),每个各自成组;同配置合并见 group_worker_test.go。
 func TestQueueDoesNotWaitForBatchBarrier(t *testing.T) {
 	state := queueCompletionState(t)
 	for i := 0; i < 16; i++ {
-		state.Queue = append(state.Queue, types.QueueItem{ID: fmt.Sprint(i), PlanCode: "plan", Datacenter: "gra", Status: "running", RetryInterval: 60})
+		state.Queue = append(state.Queue, types.QueueItem{ID: fmt.Sprint(i), PlanCode: "plan", Datacenter: fmt.Sprint("dc", i), Status: "running", RetryInterval: 60})
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

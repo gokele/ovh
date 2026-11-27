@@ -58,7 +58,7 @@ func main() {
 	//
 	// 实测踩到过:容器重启两次,/data/.env 里就有两行 OVH_DB_KEY。
 	clearEmptyEnv(
-		"OVH_DB_KEY", "API_SECRET_KEY", "TG_ALLOWED_USER_IDS",
+		"OVH_DB_KEY", "API_SECRET_KEY", "ADMIN_USERNAME", "ADMIN_PASSWORD", "ADMIN_PASSWORD_RESET", "TG_ALLOWED_USER_IDS",
 		"CORS_ALLOWED_ORIGINS", "TRUSTED_PROXIES", "OVH_UPDATE_API",
 		"LISTEN_HOST", "PORT", "DATA_DIR", "CACHE_DIR", "LOGS_DIR",
 	)
@@ -128,8 +128,28 @@ func main() {
 		os.Exit(1)
 	}
 	state.APIKey = apiKey
-	if generatedAPIKey {
-		console.Info("已生成随机 API 密钥,请从数据目录的 .api-secret 文件读取后登录", "dataDir", paths.DataDir)
+	// 账户密码登录。旧 API 密钥只剩「首次创建账号的初始化密钥」这个用途。
+	accounts, err := auth.LoadAccounts(sqliteDB, apiKey)
+	if err != nil {
+		console.Error("读取登录账号失败,已停止启动", "err", err)
+		os.Exit(1)
+	}
+	// .env 里给了 ADMIN_USERNAME / ADMIN_PASSWORD:没有账号时直接创建(免去网页初始化),
+	// 配合 ADMIN_PASSWORD_RESET=1 可以在忘记密码时重置。已有账号且没要求重置时忽略。
+	if created, reset, serr := accounts.SeedFromEnv(os.Getenv("ADMIN_USERNAME"), os.Getenv("ADMIN_PASSWORD"), isTrue(os.Getenv("ADMIN_PASSWORD_RESET"))); serr != nil {
+		console.Error("ADMIN_USERNAME / ADMIN_PASSWORD 无效,已忽略", "err", serr)
+	} else if created {
+		console.Info("已按 .env 创建管理员账号", "username", accounts.Username())
+	} else if reset {
+		console.Warn("已按 .env 重置管理员密码,所有已登录设备需要重新登录。请删掉 ADMIN_PASSWORD_RESET 再重启", "username", accounts.Username())
+	}
+	if accounts.SetupRequired() {
+		if os.Getenv("API_SECRET_KEY") != "" {
+			console.Warn("首次使用:打开网页创建管理员账号,初始化密钥为 .env 里的 API_SECRET_KEY")
+		} else {
+			// 只在还没有账号时打印。账号建好后这把钥匙就没用了
+			console.Warn("首次使用:打开网页创建管理员账号,初始化密钥(也保存在数据目录 .api-secret):", "setupKey", apiKey, "generated", generatedAPIKey)
+		}
 	}
 	state.Port = os.Getenv("PORT")
 	if state.Port == "" {
@@ -220,16 +240,16 @@ func main() {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins: allowedOrigins(state.Port),
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders: []string{"Content-Type", "Authorization", "X-API-Key", "X-Request-Time"},
+		AllowHeaders: []string{"Content-Type", "Authorization", auth.SessionHeader, "X-API-Key", "X-Request-Time"},
 		// X-Partial-Failures:部分明细拉取失败的计数(账单/退款/邮件等走响应头下发),
 		// 跨源部署时不列进 ExposeHeaders 浏览器就读不到,前端的"部分失败"提示会恒不显示
 		ExposeHeaders:    []string{"X-Cache-Warning", "X-Partial-Failures", "X-Cache-Age-Seconds", "X-Subsidiary-Mismatch"},
 		AllowCredentials: false,
 	}))
 
-	enableAuth := !strings.EqualFold(os.Getenv("ENABLE_API_KEY_AUTH"), "false")
+	enableAuth := !strings.EqualFold(os.Getenv("ENABLE_API_KEY_AUTH"), "false") && !strings.EqualFold(os.Getenv("ENABLE_AUTH"), "false")
 	r.Use(auth.Middleware(auth.Config{
-		APIKey:         state.APIKey,
+		Accounts:       accounts,
 		Enabled:        enableAuth,
 		WhitelistPaths: auth.DefaultWhitelist(),
 		// App 设备令牌校验(Bearer)。nil 安全:配对表不存在时走不到这条分支
@@ -242,6 +262,9 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.GET("/health", handlers.Health())
+
+		// 登录 / 首次初始化 / 改密
+		auth.RegisterRoutes(api, accounts, enableAuth)
 
 		// Settings
 		api.GET("/settings", handlers.GetSettings(state))
@@ -265,6 +288,8 @@ func main() {
 		api.DELETE("/purchase/prewarm/:id", handlers.CancelOrderPrewarm(state))
 		api.DELETE("/queue/clear", handlers.ClearQueue(state))
 		api.DELETE("/queue/:id", handlers.RemoveQueueItem(state))
+		api.PUT("/queue/autopay", handlers.UpdateQueueAutoPay(state))
+		api.PUT("/queue/bundle", handlers.UpdateQueueBundle(state))
 		api.PUT("/queue/:id", handlers.UpdateQueueItem(state))
 		api.PUT("/queue/:id/status", handlers.UpdateQueueStatus(state))
 		api.PUT("/queue/:id/interval", handlers.UpdateQueueInterval(state))
@@ -573,6 +598,7 @@ func main() {
 		api.POST("/ovh/support/tickets/:ticket_id", handlers.UpdateSupportTicket(state))
 		api.GET("/ovh/account/orders", handlers.GetAccountOrders(state))
 		api.GET("/ovh/account/orders/:order_id/payment", handlers.GetOrderPaymentOptions(state))
+		api.GET("/ovh/account/orders/:order_id/tracking", handlers.GetOrderTracking(state))
 		api.POST("/ovh/account/orders/:order_id/pay", handlers.PayAccountOrder(state))
 		api.POST("/ovh/account/orders/:order_id/pay-balance", handlers.PayAccountOrderWithBalance(state))
 		api.GET("/ovh/account/credit-balance", handlers.GetCreditBalance(state))
@@ -655,12 +681,9 @@ func main() {
 	// 「默认密钥 123456」+「LISTEN_HOST 空 = 所有网卡」组合起来,
 	// 装完就是一台任何人都能操作 OVH 账户的机器,而启动日志一个字都不提。
 	if !enableAuth {
-		console.Error("⚠️  API 密钥校验已关闭(ENABLE_API_KEY_AUTH=false):任何人都能调用全部接口,包括下单和重装。仅限本地调试")
-	} else if state.APIKey == "123456" {
-		console.Error("⚠️  正在使用默认 API 密钥 123456 —— 请立刻在 .env 里设置 API_SECRET_KEY")
-		if host == "" {
-			console.Error("⚠️  并且监听所有网卡(LISTEN_HOST 为空):同网段任何人都能用默认密钥操作你的 OVH 账户")
-		}
+		console.Error("⚠️  登录校验已关闭(ENABLE_AUTH=false):任何人都能调用全部接口,包括下单和重装。仅限本地调试")
+	} else if accounts.SetupRequired() && len(state.APIKey) < 16 {
+		console.Error("⚠️  初始化密钥太短,别人可能抢先创建管理员账号 —— 请尽快打开网页完成初始化,或在 .env 里设置 ADMIN_USERNAME / ADMIN_PASSWORD")
 	}
 	srv := &http.Server{Addr: addr, Handler: r, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute}
 

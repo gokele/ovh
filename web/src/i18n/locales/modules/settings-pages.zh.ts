@@ -16,7 +16,7 @@ export const settingsPagesZh = {
     loadFailedTitle: "配置读取失败",
     checking: "检测中…",
     sections: {
-      password: "访问密码",
+      password: "登录账号",
       appearance: "外观",
       accounts: "OVH 账户",
       purchase: "抢购",
@@ -25,11 +25,18 @@ export const settingsPagesZh = {
       app: "App 配对",
       cache: "缓存管理",
     },
-    passwordSection: {
-      title: "访问密码 / API Secret Key",
-      label: "访问密码 *",
-      hint: "后端 .env 中的 API_SECRET_KEY，本地仅保存在 localStorage",
-      placeholder: "输入访问密码",
+    account: {
+      title: "登录账号",
+      signedInAs: "当前登录",
+      logout: "退出登录",
+      changeTitle: "修改密码",
+      current: "当前密码",
+      new: "新密码",
+      save: "修改密码",
+      changed: "密码已修改,其他设备需要重新登录",
+      badCurrent: "当前密码不正确",
+      failed: "修改失败",
+      revokeNote: "修改后其他已登录的设备会被退出",
     },
     purchase: {
       title: "抢购参数",

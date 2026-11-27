@@ -5,20 +5,32 @@ import i18n from "@/i18n";
 /**
  * 统一 HTTP Client：
  * - 同源 /api 基础路径（dev 由 Vite 代理到 Go 19998，prod 由 Go 同源 serve）
- * - 通过 X-API-Key header 传递 API 密钥（与 Go backend 现有协议保持一致）
- * - 401 统一弹 toast 引导用户去 /settings
+ * - 账户密码登录后拿到会话令牌,通过 X-Auth-Token header 传递
+ * - 鉴权层 401 统一通知 AuthGate 重新弹登录
  */
 
-const API_KEY_STORAGE = "ovh_sniper_api_key";
+const SESSION_STORAGE = "ovh_sniper_session";
+// 旧版的 API 密钥。只在首次初始化时拿来当「初始化密钥」,老用户升级后不用再去找它
+const LEGACY_API_KEY_STORAGE = "ovh_sniper_api_key";
 // 全局唯一的「当前账户」。以前叫 server_control_account,只管服务器控制页;
 // 现在整站共用一个 —— 左侧菜单栏切一次,列表 / 抢购 / 监控 / 控制台全部跟着走。
 // key 沿用旧名字是为了让老用户升级后不用重选账户。
 const ACTIVE_ACCOUNT_KEY = "ovh_active_server_control_account_id";
 
-/** 读取 API 密钥；当前后端走 header 鉴权，未来若改 Cookie 这里换成空实现即可 */
-export function getApiSecretKey(): string | null {
+/** 读取会话令牌 */
+export function getSessionToken(): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(API_KEY_STORAGE);
+  return window.localStorage.getItem(SESSION_STORAGE);
+}
+
+/** 旧版保存在浏览器里的 API 密钥(迁移用) */
+export function getLegacyApiKey(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(LEGACY_API_KEY_STORAGE);
+}
+
+export function clearLegacyApiKey(): void {
+  window.localStorage.removeItem(LEGACY_API_KEY_STORAGE);
 }
 
 /** 全站当前账户。所有依赖账户的请求都会自动带上 ?account=xxx */
@@ -36,14 +48,14 @@ export function setActiveAccount(id: string): void {
   window.dispatchEvent(new Event("ovh-active-account-changed"));
 }
 
-/** 写入 API 密钥 */
-export function setApiSecretKey(key: string): void {
-  window.localStorage.setItem(API_KEY_STORAGE, key);
+/** 写入会话令牌 */
+export function setSessionToken(token: string): void {
+  window.localStorage.setItem(SESSION_STORAGE, token);
 }
 
-/** 清除 API 密钥（登出或鉴权失败时调用） */
-export function clearApiSecretKey(): void {
-  window.localStorage.removeItem(API_KEY_STORAGE);
+/** 清除会话令牌（登出或鉴权失败时调用） */
+export function clearSessionToken(): void {
+  window.localStorage.removeItem(SESSION_STORAGE);
 }
 
 /**
@@ -72,10 +84,23 @@ export function onAuthFailure(fn: AuthFailureHandler): () => void {
 function notifyAuthFailure(): void {
   // 固定 id：并发的十几个 401 只会留下一条 toast，而不是叠成一屏
   toast.error(i18n.t("commons.authExpired"), { id: "auth-expired" });
-  // 清掉失效的密钥：留着的话 AuthGate 重新挂载时又会拿它去探测，白跑一次
-  clearApiSecretKey();
+  // 清掉失效的令牌：留着的话 AuthGate 重新挂载时又会拿它去探测，白跑一次
+  clearSessionToken();
   authFailureHandler?.();
 }
+
+export const SESSION_HEADER = "X-Auth-Token";
+
+/** 鉴权中间件自己发出的 401 code */
+const AUTH_LEVEL_CODES = new Set([
+  "NO_SESSION",
+  "INVALID_SESSION",
+  "SETUP_REQUIRED",
+  "API_KEY_RETIRED",
+  "INVALID_DEVICE_TOKEN",
+  "NO_API_KEY",
+  "INVALID_API_KEY",
+]);
 
 /** 创建 axios 实例，附带请求/响应拦截 */
 function createApiClient(): AxiosInstance {
@@ -86,9 +111,9 @@ function createApiClient(): AxiosInstance {
 
   // 请求拦截：自动注入 API 密钥;以及给 /server-control/* / /ovh/account/* 请求自动带上活跃账户
   client.interceptors.request.use((config) => {
-    const key = getApiSecretKey();
-    if (key) {
-      config.headers.set("X-API-Key", key);
+    const token = getSessionToken();
+    if (token) {
+      config.headers.set(SESSION_HEADER, token);
     }
     // 自动注入当前账户。
     //
@@ -113,8 +138,8 @@ function createApiClient(): AxiosInstance {
   });
 
   // 响应拦截：401 = 会话失效，通知 AuthGate 重新接管。
-  // 但只有 auth 中间件的 401 才算 —— 它带专属 code(NO_API_KEY / INVALID_API_KEY /
-  // INVALID_DEVICE_TOKEN)。OVH 侧 401(某个账户的 ConsumerKey 被吊销,被后端
+  // 但只有 auth 中间件的 401 才算 —— 它带专属 code(NO_SESSION / INVALID_SESSION /
+  // SETUP_REQUIRED / INVALID_DEVICE_TOKEN …)。OVH 侧 401(某个账户的 ConsumerKey 被吊销,被后端
   // respondOVHError 原样透传)不该把拿着有效 App 密钥的用户整个登出
   client.interceptors.response.use(
     (res) => res,
@@ -122,10 +147,11 @@ function createApiClient(): AxiosInstance {
       if (error.response?.status === 401) {
         const code = error.response.data?.code;
         const isAuthLevel =
-          code === "NO_API_KEY" || code === "INVALID_API_KEY" || code === "INVALID_DEVICE_TOKEN" ||
+          (!!code && AUTH_LEVEL_CODES.has(code)) ||
           error.response.data?.success === undefined; // 非业务 JSON(反向代理/基础认证)也按会话失效处理
-        const sentKey = error.config?.headers?.get?.("X-API-Key") ?? "";
-        if (isAuthLevel && sentKey === (getApiSecretKey() ?? "")) {
+        // 迟到的旧请求不能把刚登录拿到的新令牌清掉
+        const sentToken = error.config?.headers?.get?.(SESSION_HEADER) ?? "";
+        if (isAuthLevel && sentToken === (getSessionToken() ?? "")) {
           notifyAuthFailure();
         }
       }

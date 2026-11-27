@@ -152,11 +152,21 @@ function HistoryPage() {
   const items = list.data || [];
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return items.filter((i) => {
-      if (statusFilter !== "all" && i.status !== statusFilter) return false;
-      if (s && !`${i.planCode} ${i.datacenter} ${i.orderId || ""}`.toLowerCase().includes(s)) return false;
-      return true;
-    });
+    // 最新的在最上面;时间解析不了的排最后
+    const ts = (v: string) => {
+      const n = new Date(v).getTime();
+      return Number.isFinite(n) ? n : -Infinity;
+    };
+    return items
+      .filter((i) => {
+        if (statusFilter !== "all" && i.status !== statusFilter) return false;
+        if (s && !`${i.planCode} ${i.datacenter} ${i.orderId || ""}`.toLowerCase().includes(s)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const d = ts(b.purchaseTime) - ts(a.purchaseTime);
+        return Number.isNaN(d) ? 0 : d;
+      });
   }, [items, search, statusFilter]);
 
   const counts = useMemo(() => {

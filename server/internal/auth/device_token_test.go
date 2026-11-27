@@ -18,10 +18,15 @@ func TestDeviceTokenAuth(t *testing.T) {
 		id      int64
 		revoked bool
 	}
+	accounts, _ := LoadAccounts(newMemKV(), "setup-key-0123456789")
+	session, err := accounts.Setup("setup-key-0123456789", "admin", "password123", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var mu sync.Mutex
 	devices := map[string]dev{} // token → 设备
 	cfg := Config{
-		APIKey:         "master-key",
+		Accounts:       accounts,
 		Enabled:        true,
 		WhitelistPaths: DefaultWhitelist(),
 		DeviceTokenValid: func(token string) (int64, bool) {
@@ -62,8 +67,8 @@ func TestDeviceTokenAuth(t *testing.T) {
 		t.Fatalf("已吊销令牌应 401,得 %d —— 吊销不生效等于没有吊销功能", got)
 	}
 	// 坏 Bearer 头(非 Bearer 前缀)回落到密钥路径
-	if got := do(map[string]string{"Authorization": "Basic abc", "X-API-Key": "master-key"}); got != 200 {
-		t.Fatalf("密钥 + 无关 Authorization 应放行,得 %d", got)
+	if got := do(map[string]string{"Authorization": "Basic abc", SessionHeader: session}); got != 200 {
+		t.Fatalf("会话 + 无关 Authorization 应放行,得 %d", got)
 	}
 	// 配对兑换端点在白名单(免密钥)
 	req := httptest.NewRequest(http.MethodPost, "/api/app/pair", nil)

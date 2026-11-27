@@ -183,6 +183,48 @@ export function useToggleQueueItem() {
 
 /** 删除单个任务 */
 /** 改单条任务的重试间隔。处理器每轮都读任务上的值，所以下一轮就生效 */
+export interface BundleUpdateBody {
+  ids: string[];
+  options: string[];
+  duration?: string;
+  retryInterval: number;
+  autoPay: boolean;
+  coupon: string;
+  /** 按机房模式:机房 → 还要抢几台 */
+  quantities?: Record<string, number>;
+  /** 合计模式:合计几台(含已下单)+ 参与的机房 */
+  total?: number;
+  datacenters?: string[];
+}
+
+/** 整单修改:配置原地应用到这一单所有未下单任务,数量按机房增删;已下单的不动 */
+export function useUpdateQueueBundle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: BundleUpdateBody) =>
+      (await api.put<{ updated: number; added: number; removed: number }>("/queue/bundle", body)).data,
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: qk.queue.list() });
+      toast.success(i18n.t("hooksMsg.queue.bundleSaved", { updated: r?.updated ?? 0, added: r?.added ?? 0, removed: r?.removed ?? 0 }));
+    },
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.queue.bundleFailed")),
+  });
+}
+
+/** 批量切换自动付款(只改这一项,已下单的任务后端会忽略) */
+export function useSetQueueAutoPay() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ ids, autoPay }: { ids: string[]; autoPay: boolean }) =>
+      (await api.put<{ updated: number }>("/queue/autopay", { ids, autoPay })).data,
+    onSuccess: (data, vars) => {
+      qc.invalidateQueries({ queryKey: qk.queue.list() });
+      toast.success(i18n.t(vars.autoPay ? "hooksMsg.queue.autoPayOn" : "hooksMsg.queue.autoPayOff", { n: data?.updated ?? vars.ids.length }));
+    },
+    onError: (e: any) => toast.error(apiMessage(e) || i18n.t("hooksMsg.queue.autoPayFailed")),
+  });
+}
+
 export function useUpdateQueueInterval() {
   const qc = useQueryClient();
   return useMutation({

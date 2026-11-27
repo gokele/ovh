@@ -6,6 +6,8 @@ import { preorderVariantCoversAll, preorderOptions, retainPreorderPlan } from "@
 import { useOrderDurations } from "@/hooks/use-order-durations";
 import { supportsDuration } from "@/lib/order-duration";
 import { QueueStatusFilter, type QueueFilter } from "@/components/queue/QueueStatusFilter";
+import { UnpaidBanner } from "@/components/queue/UnpaidBanner";
+import { QueueOverview } from "@/components/queue/QueueOverview";
 import { QueueTable, type QueueRowProps } from "@/components/queue/QueueTable";
 import { FacetFilter, type FacetOption } from "@/components/queue/FacetFilter";
 import { useConfirm } from "@/components/common/ConfirmDialog";
@@ -36,6 +38,7 @@ import {
   ChevronDown,
   CheckCircle2,
   XCircle,
+  CreditCard,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -64,6 +67,7 @@ import {
   useToggleQueueItem,
   useRemoveQueueItem,
   useUpdateQueueInterval,
+  useSetQueueAutoPay,
   useClearQueue,
   useCreateQueueItem,
   useUpdateQueueItem,
@@ -210,7 +214,7 @@ function QueuePage() {
 
   const items = queue.data || [];
   // 默认看「运行中」:打开队列最关心的是正在抢的任务;已下单/失败记录在其它筛选里
-  const [filter, setFilter] = useState<QueueFilter>("running");
+  const [filter, setFilter] = useState<QueueFilter>("all");
   const [search, setSearch] = useState("");
   const keyword = search.trim().toLowerCase();
   // 刚在本页暂停/恢复过的任务留在当前筛选里,直到切换筛选:
@@ -220,17 +224,6 @@ function QueuePage() {
   // 机房 / 账户多选筛选,与状态、搜索叠加
   const [dcFacet, setDcFacet] = useState<Set<string>>(() => new Set());
   const [accFacet, setAccFacet] = useState<Set<string>>(() => new Set());
-  const [view, setView] = useState<"grouped" | "flat">(() => {
-    try {
-      return localStorage.getItem("ovh-queue-view") === "flat" ? "flat" : "grouped";
-    } catch {
-      return "grouped";
-    }
-  });
-  const changeView = (v: "grouped" | "flat") => {
-    setView(v);
-    try { localStorage.setItem("ovh-queue-view", v); } catch { /* 隐私模式等读写失败时只在本次生效 */ }
-  };
   const visibleItems = items.filter(
     (item) =>
       (filter === "all" || item.status === filter || (filter === "running" && item.status === "pending") || sticky.has(item.id)) &&
@@ -302,6 +295,7 @@ function QueuePage() {
     queue.refetch();
   };
 
+  const setAutoPay = useSetQueueAutoPay();
   const [confirmAsk, confirmDialog] = useConfirm();
 
   /** 单条暂停/恢复:任务留在当前列表,提示条带「撤销」 */
@@ -377,7 +371,8 @@ function QueuePage() {
   };
 
   const [againItem, setAgainItem] = useState<QueueItem | null>(null);
-  const [richEdit, setRichEdit] = useState<QueueItem | null>(null);
+  // 编辑的永远是一整单(同配置的全部任务);单台任务就是只有一台的一单
+  const [richEdit, setRichEdit] = useState<QueueItem[] | null>(null);
   const completedAll = items.filter((i) => i.status === "completed");
   const failedAll = items.filter((i) => i.status === "failed");
   const [clearMenuOpen, setClearMenuOpen] = useState(false);
@@ -395,7 +390,7 @@ function QueuePage() {
     // 运行中的任务可以直接改:保存时后端中断旧配置那一轮,任务继续按新配置抢,不用先暂停再恢复
     // 编辑用与服务器列表相同的抢购弹窗(价格、规格、带库存的配置与机房);
     // 目录里没有这款机型(手填型号等)时,QueueEditDialog 会回调,退回简易表单
-    onEdit: () => setRichEdit(q),
+    onEdit: () => setRichEdit([q]),
     onDelete: async () => {
       const ok = await confirmAsk({
         title: t("queue.deleteOneTitle", { plan: q.planCode, dc: q.datacenter.toUpperCase() }),
@@ -446,7 +441,11 @@ function QueuePage() {
       onSelectAll={() => setSelected(allSelected ? new Set() : new Set(visibleItems.map((i) => i.id)))}
       onGroupAction={(targets, action, plan) => void groupAction(targets, action, plan)}
       busy={batchRunning}
-      view={view}
+      onBundleDelete={(targets) => {
+        setSelected(new Set(targets.map((i) => i.id)));
+        setShowBatchDelete(true);
+      }}
+      onBundleEdit={(targets) => setRichEdit(targets)}
     />
   );
 
@@ -479,6 +478,33 @@ function QueuePage() {
         >
           <PlayCircle className="w-3.5 h-3.5" />{t("queue.resume")}
         </Button>
+        {/* 自动付款一键切换:选中的未下单任务全部开 / 全部关;开之前确认一次 */}
+        {(() => {
+          const open = selectedItems.filter((i) => i.status !== "completed");
+          if (open.length === 0) return null;
+          const allOn = open.every((i) => !!i.autoPay);
+          return (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={batchRunning || setAutoPay.isPending}
+              onClick={async () => {
+                if (!allOn) {
+                  const ok = await confirmAsk({
+                    title: t("queue.autoPayToggle.confirmTitle"),
+                    description: t("queue.autoPayToggle.confirmDesc", { n: open.length }),
+                    confirmText: t("queue.autoPayToggle.confirmOk"),
+                  });
+                  if (!ok) return;
+                }
+                setAutoPay.mutate({ ids: open.map((i) => i.id), autoPay: !allOn });
+              }}
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              {t(allOn ? "queue.autoPayToggle.batchOff" : "queue.autoPayToggle.batchOn")}
+            </Button>
+          );
+        })()}
         {/* 删除是不可逆的,单独走二次确认,不能和暂停放同一个手势层级 */}
         <Button size="sm" variant="destructive" disabled={batchRunning} onClick={() => setShowBatchDelete(true)}>
           {batchRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
@@ -523,7 +549,6 @@ function QueuePage() {
       <PageHeader
         icon={ClipboardList}
         title={t("queue.title")}
-        description={t("queue.description")}
         action={
           // 必须 flex-wrap:PageHeader 外层允许换行,内层不换的话整排按钮保持
           // max-content 宽度,在 390px 上会被挤出左边界(实测 left=-19px)。
@@ -532,24 +557,8 @@ function QueuePage() {
               <Plus className="w-4 h-4" />
               {t("queue.createTask")}
             </Button>
-            {/* 全局一键暂停 / 恢复:抢购工具最常用的两个按钮,作用于全部任务(不受筛选影响) */}
-            {pausableAll.length > 0 && (
-              <Button variant="outline" disabled={batchRunning} onClick={() => void groupAction(pausableAll, "pause", "", true)}>
-                <PauseCircle className="w-4 h-4" />
-                {t("queue.pauseAllTasks")}
-                <span className="tabular-nums opacity-60">{pausableAll.length}</span>
-              </Button>
-            )}
-            {resumableAll.length > 0 && (
-              <Button variant="outline" className="text-primary border-primary/40" disabled={batchRunning} onClick={() => void groupAction(resumableAll, "resume", "", true)}>
-                <PlayCircle className="w-4 h-4" />
-                {t("queue.resumeAllTasks")}
-                <span className="tabular-nums opacity-70">{resumableAll.length}</span>
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => queue.refetch()} disabled={queue.isFetching}>
+            <Button variant="outline" size="icon" onClick={() => queue.refetch()} disabled={queue.isFetching} aria-label={t("queue.refresh")} title={t("queue.refresh")}>
               <RefreshCw className={`w-4 h-4 ${queue.isFetching ? "animate-spin" : ""}`} />
-              {t("queue.refresh")}
             </Button>
             {/* 清空分三种:已下单(抢成功)/ 失败 / 全部。前两种只删对应状态,不动正在抢和已暂停的 */}
             <Popover open={clearMenuOpen} onOpenChange={setClearMenuOpen}>
@@ -618,12 +627,22 @@ function QueuePage() {
 
       <StandbyCarts />
 
-      {/* 状态卡片兼筛选 */}
-      <QueueStatusFilter items={items} value={filter} onChange={(next) => { setFilter(next); setSelected(new Set()); setSticky(new Set()); }} />
+      <UnpaidBanner />
+      <QueueOverview
+        items={items}
+        updatedAt={queue.dataUpdatedAt}
+        fetching={queue.isFetching}
+        busy={batchRunning}
+        onPauseAll={(targets) => void groupAction(targets, "pause", "", true)}
+        onResumeAll={(targets) => void groupAction(targets, "resume", "", true)}
+      />
 
       <Card className="overflow-hidden">
         {/* 工具条:搜索 + 机房/账户筛选 …… 实时刷新 + 视图切换 */}
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-border">
+        <div className="flex flex-wrap items-center gap-2 px-4 pt-3.5 pb-1">
+          <QueueStatusFilter items={items} value={filter} onChange={(next) => { setFilter(next); setSelected(new Set()); setSticky(new Set()); }} />
+        </div>
+        <div className="flex flex-wrap items-center gap-2 px-4 pt-2 pb-3 border-b border-border">
           <div className="relative w-full sm:w-60">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" aria-hidden />
             <Input
@@ -642,33 +661,6 @@ function QueuePage() {
               <X className="w-3.5 h-3.5" />
             </Button>
           )}
-          <div className="ml-auto flex items-center gap-3">
-            <span className="hidden md:inline-flex items-center gap-1.5 text-[12px] text-muted-foreground" title={t("queue.row.refreshEvery", { s: 5 })}>
-              <span className="relative flex w-2 h-2">
-                <span className="absolute inset-0 rounded-full bg-success/60 animate-ping" />
-                <span className="relative w-2 h-2 rounded-full bg-success" />
-              </span>
-              {queue.isFetching ? t("queue.row.refreshing") : t("queue.row.live")}
-            </span>
-            <div className="inline-flex rounded-lg bg-muted p-[3px]" role="group" aria-label={t("queue.row.viewLabel")}>
-              {(["grouped", "flat"] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  aria-pressed={view === v}
-                  onClick={() => changeView(v)}
-                  title={t(v === "grouped" ? "queue.row.viewGrouped" : "queue.row.viewFlat")}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12.5px] transition-colors",
-                    view === v ? "bg-card text-primary shadow-sm font-medium" : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {v === "grouped" ? <Layers className="w-3.5 h-3.5" /> : <List className="w-3.5 h-3.5" />}
-                  <span className="hidden sm:inline">{t(v === "grouped" ? "queue.row.viewGrouped" : "queue.row.viewFlat")}</span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
         {batchBar}
         {queueBody}
@@ -679,7 +671,7 @@ function QueuePage() {
 
       <BuyAgainDialog item={againItem} onClose={() => setAgainItem(null)} />
       <QueueEditDialog
-        editing={richEdit}
+        bundle={richEdit}
         onClose={() => setRichEdit(null)}
         onUnavailable={(item) => {
           setRichEdit(null);

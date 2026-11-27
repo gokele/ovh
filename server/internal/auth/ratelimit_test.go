@@ -10,10 +10,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var validSession string
+
 func testRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
+	accounts, _ := LoadAccounts(newMemKV(), testSetupKey)
+	validSession, _ = accounts.Setup(testSetupKey, "admin", "password123", "")
 	r := gin.New()
-	r.Use(Middleware(Config{APIKey: "correct-key", Enabled: true, WhitelistPaths: DefaultWhitelist()}))
+	r.Use(Middleware(Config{Accounts: accounts, Enabled: true, WhitelistPaths: DefaultWhitelist()}))
 	r.GET("/api/stats", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	r.GET("/api/health", func(c *gin.Context) { c.String(http.StatusOK, "health") })
 	return r
@@ -22,8 +26,11 @@ func testRouter() *gin.Engine {
 func req(r *gin.Engine, key, ip string) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	q := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
+	if key == "correct-key" {
+		key = validSession
+	}
 	if key != "" {
-		q.Header.Set("X-API-Key", key)
+		q.Header.Set(SessionHeader, key)
 	}
 	q.RemoteAddr = ip + ":12345"
 	r.ServeHTTP(w, q)

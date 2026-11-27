@@ -132,7 +132,7 @@ ENV OVH_ENV_FILE=/data/.env
 
 ENV PORT=20000
 # 容器内监听所有网卡由 Docker 的端口映射来收口；
-# 真正的访问控制靠 API_SECRET_KEY（见 README，别用默认值）
+# 真正的访问控制靠用户名密码登录（见 README）
 ENV LISTEN_HOST=0.0.0.0
 ENV TZ=Asia/Shanghai
 

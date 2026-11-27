@@ -108,7 +108,7 @@ docker pull ghcr.io/gokele/ovh:latest
 ### 方式 A:Docker(推荐)
 
 ```bash
-# 拿一份 docker-compose.yml,改掉里面的 API_SECRET_KEY,然后:
+# 拿一份 docker-compose.yml 和 .env.example(cp 成 .env,填好 ADMIN_USERNAME / ADMIN_PASSWORD),然后:
 docker compose up -d
 
 # 更新
@@ -121,7 +121,8 @@ docker compose pull && docker compose up -d
 docker run -d --name ovh-console \
   -p 127.0.0.1:20000:20000 \
   -v "$PWD/data:/data" \
-  -e API_SECRET_KEY=换成你自己的随机串 \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD=换成你自己的密码 \
   --restart unless-stopped \
   ghcr.io/gokele/ovh:latest
 ```
@@ -185,7 +186,11 @@ npm run dev             # 默认 :19997, /api/* 自动反代到 19998
 
 打开浏览器后会依次出现两层全屏遮罩,都过了才能进主界面:
 
-1. **AuthGate**:输入 `.env` 里设置的 `API_SECRET_KEY`(没设的话用默认值,见下)
+1. **登录**:用户名 + 密码。
+   - `.env` 写了 `ADMIN_USERNAME` / `ADMIN_PASSWORD`:首次启动自动建好账号,直接登录。
+   - 没写:首次打开会进「创建管理员账号」页,填用户名、密码和**初始化密钥**(= `API_SECRET_KEY`;没设时自动生成,在启动日志和数据目录 `.api-secret` 里)。
+   - 从旧版(API 密钥登录)升级:不用改 `.env`。用过旧版的浏览器会自动带上旧密钥,只需设置用户名和密码;之后旧密钥不再能登录。
+   - 改密码 / 退出:设置 → 登录账号。忘记密码:`.env` 写 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 并加 `ADMIN_PASSWORD_RESET=1`,重启一次后删掉。
 2. **OvhCredsGate**:无任何 OVH 账户时强制弹出。填**账户名称** + OVH 子公司(Zone) + `APP KEY / APP SECRET / CONSUMER KEY`,`Endpoint` / `IAM` 自动派生。后端 `POST /api/accounts` 落 `ovh_accounts` 表并真去 OVH 验一次,通过才放行。
 
 凭据通过后,前端立刻在后台 prefetch 三件套(服务器目录 / catalog / 可用性),用户切到服务器列表页**直接出数据,不会再走"加载中"**。
@@ -197,10 +202,12 @@ npm run dev             # 默认 :19997, /api/* 自动反代到 19998
 `server/.env.example` → 复制成 `server/.env` 改:
 
 ```bash
-API_SECRET_KEY=...               # 前端访问后端的密钥, 必须改
+ADMIN_USERNAME=admin             # 首次启动自动创建的管理员(可选, 不写就网页上创建)
+ADMIN_PASSWORD=...               # 至少 8 位; 账号建好后在网页改密码, 这里不会覆盖
+API_SECRET_KEY=                  # 网页创建账号时的初始化密钥; 空 = 自动生成到 .api-secret
 PORT=19998                       # 后端监听端口
 LISTEN_HOST=                     # 空 = 所有网卡(IPv4+IPv6); 127.0.0.1 锁回环; 0.0.0.0 公网
-ENABLE_API_KEY_AUTH=true         # 关掉的话所有 /api/* 不验证密钥, 仅本地调试用
+ENABLE_AUTH=true                 # 关掉的话所有 /api/* 不用登录, 仅本地调试用
 GIN_MODE=release                 # debug | release
 DEBUG=false                      # true 时启用 debug 日志
 
@@ -528,14 +535,13 @@ SSH 登录后挂载硬盘修东西。救援系统是网络启动的独立临时 
 修完回到同一个入口点「退出救援模式」切回正常系统 ——
 不切回去的话每次重启都会再进救援。
 
-### 提示「密钥连续错误次数过多」进不去了
+### 提示「错误次数过多」进不去了
 
-从 v0.1.32 起,同一来源连续 10 次密钥错误会被暂时拒绝 5 分钟 ——
+同一来源连续 10 次密码(或初始化密钥)错误会被暂时拒绝 5 分钟 ——
 这是为了挡住爆破(这个服务能用你的 OVH 账户下单,不设阻力的话端口可达就能一秒试几千次)。
 
-密钥就是后端 `.env` 里的 `API_SECRET_KEY`;从没设置过的话默认是 `123456`
-(强烈建议改掉,启动日志里也会红字提醒)。
 等冷却结束再输一次正确的即可,**输对之后计数立刻清零**。
+真的忘了密码:`.env` 写 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 并加 `ADMIN_PASSWORD_RESET=1`,重启一次后删掉这几行。
 限流按来源 IP 分开算,不会因为别人试错把你挡在外面。
 
 ### 停止 / 重启容器时日志好像少了一段

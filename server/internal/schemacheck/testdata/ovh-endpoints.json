@@ -1914,6 +1914,29 @@
       ]
     }
   },
+  "GET /me/order/{orderId}/followUp": {
+    "CA": {
+      "status": "BETA",
+      "response": "billing.order.FollowUp[]",
+      "params": [
+        "path:orderId:long:true"
+      ]
+    },
+    "EU": {
+      "status": "BETA",
+      "response": "billing.order.FollowUp[]",
+      "params": [
+        "path:orderId:long:true"
+      ]
+    },
+    "US": {
+      "status": "BETA",
+      "response": "billing.order.FollowUp[]",
+      "params": [
+        "path:orderId:long:true"
+      ]
+    }
+  },
   "GET /me/order/{orderId}/paymentMethods": {
     "CA": {
       "status": "BETA",

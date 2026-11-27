@@ -284,6 +284,7 @@ var usedEndpoints = []string{
 	"GET /me/order/{orderId}/details/{orderDetailId}",
 	"POST /me/order/{orderId}/retraction",
 	"GET /me/order/{orderId}/status",
+	"GET /me/order/{orderId}/followUp",
 	"GET /me/subAccount",
 	"GET /me/task/contactChange",
 	"GET /me/task/contactChange/{id}",

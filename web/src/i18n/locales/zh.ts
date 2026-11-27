@@ -46,6 +46,7 @@ export const zh = {
     vpsControl: "VPS 控制",
     account: "账户管理",
     history: "抢购历史",
+    orders: "订单状态",
     logs: "详细日志",
     settings: "API 设置",
     home: "首页",

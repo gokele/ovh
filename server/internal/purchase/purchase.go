@@ -281,6 +281,12 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			break
 		}
 	}
+	if foundAvailable {
+		// 同配置合并组的探测任务:一看到货就让组里其余任务同时开始,不等本任务结账结束
+		if notify, ok := ctx.Value(stockFoundKey{}).(func()); ok {
+			notify()
+		}
+	}
 	if !foundAvailable {
 		for _, av := range candidates {
 			dcs, _ := av["datacenters"].([]interface{})
@@ -459,15 +465,15 @@ func PurchaseServer(ctx context.Context, state *app.State, item *types.QueueItem
 			_ = state.DB.MarkQueueOrder(*item, "uncertain")
 			recordFailureStatus(state, item, errMsg, "uncertain")
 			state.Logger.Warn("checkout 结果未能确认,暂停任务等待人工确认(防重复下单)", "purchase")
-			notify.Broadcast(state, fmt.Sprintf(
+			notices.add(state, noticeUncertain, pendingNotice{item: *item, text: fmt.Sprintf(
 				"⚠️ 抢购 %s@%s 结账结果不明确,无法确认订单是否已创建\n\n"+
 					"任务已暂停,正在自动核对 OVH 账户里的新订单(约 5 分钟),核实后会再通知。\n"+
 					"也可以直接到 OVH 订单页查看:\n"+
 					"- 有:等付款即可,任务不需要恢复\n"+
 					"- 没有:点下面的按钮或在队列页恢复运行", item.PlanCode, item.Datacenter),
-				map[string]interface{}{"inline_keyboard": [][]map[string]interface{}{{
+				markup: map[string]interface{}{"inline_keyboard": [][]map[string]interface{}{{
 					telegram.TaskButton("确认 OVH 没有这笔订单，恢复任务", item.ID, telegram.TaskResume),
-				}}})
+				}}}})
 			var apiErr *ovhsdk.APIError
 			rateLimited := errors.As(err, &apiErr) && apiErr.Code == http.StatusTooManyRequests
 			startOrderResolver(state, resolveTarget{item: *item, account: cart.account, apiDC: apiDC, duration: cart.duration, sentAt: sentAt, autoResume: rateLimited})

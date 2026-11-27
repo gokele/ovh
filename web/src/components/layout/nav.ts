@@ -1,5 +1,5 @@
 import {
-  BarChart3, Server, ClipboardList, Bell, Cloud, Terminal, User, Clock, FileText, Settings,
+  BarChart3, Server, ClipboardList, Bell, Cloud, Terminal, User, Clock, FileText, Settings, PackageCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -33,6 +33,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/queue", icon: ClipboardList, label: "nav.queue" },
       // 抢购历史属于抢购流程(下单结果、付款),和队列放在一起
       { to: "/history", icon: Clock, label: "nav.history" },
+      { to: "/orders", icon: PackageCheck, label: "nav.orders" },
     ],
   },
   {

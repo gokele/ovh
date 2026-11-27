@@ -105,7 +105,7 @@ See [server/README.md](server/README.md) for detailed backend documentation.
 ### Option A: Docker (recommended)
 
 ```bash
-# Grab a docker-compose.yml, change the API_SECRET_KEY inside, then:
+# Grab docker-compose.yml and .env.example (copy it to .env, set ADMIN_USERNAME / ADMIN_PASSWORD), then:
 docker compose up -d
 
 # Updating
@@ -118,7 +118,8 @@ Or run directly:
 docker run -d --name ovh-console \
   -p 127.0.0.1:20000:20000 \
   -v "$PWD/data:/data" \
-  -e API_SECRET_KEY=your-own-random-string \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD=your-own-password \
   --restart unless-stopped \
   ghcr.io/gokele/ovh:latest
 ```
@@ -176,7 +177,11 @@ Open `http://localhost:19997` in the browser.
 
 Two full-screen gates appear in sequence before the main UI:
 
-1. **AuthGate**: enter the `API_SECRET_KEY` from `.env` (or the default if unset, see below)
+1. **Sign in**: username + password.
+   - With `ADMIN_USERNAME` / `ADMIN_PASSWORD` in `.env`, the account is created on first start; just sign in.
+   - Without them, the first visit shows "Create the admin account": username, password and the **setup key** (= `API_SECRET_KEY`; generated if unset, printed in the startup log and saved to `.api-secret` in the data directory).
+   - Upgrading from API-key login: no `.env` change needed. A browser that used the old version sends the old key automatically, so you only choose a username and password; afterwards the old key no longer signs in.
+   - Change password / sign out: Settings → Sign-in account. Forgot it: set `ADMIN_USERNAME` / `ADMIN_PASSWORD` plus `ADMIN_PASSWORD_RESET=1` in `.env`, restart once, then remove them.
 2. **OvhCredsGate**: forced when no OVH account exists. Fill in an **account name** + OVH subsidiary (Zone) + `APP KEY / APP SECRET / CONSUMER KEY`; `Endpoint` / `IAM` are derived automatically. The backend `POST /api/accounts` persists to the `ovh_accounts` table and actually verifies against OVH before letting you through.
 
 After credentials pass, the frontend immediately prefetches three things in the background (server catalog / catalog / availability), so switching to the server list page **shows data directly — no "loading" state**.
@@ -188,10 +193,12 @@ Add more accounts later under "Settings → OVH Accounts". Each account has inde
 Copy `server/.env.example` → `server/.env` and edit:
 
 ```bash
-API_SECRET_KEY=...               # key for frontend→backend access, must change
+ADMIN_USERNAME=admin             # admin created on first start (optional; otherwise create it in the browser)
+ADMIN_PASSWORD=...               # 8+ characters; once the account exists, change it in the UI — this won't overwrite it
+API_SECRET_KEY=                  # setup key for creating the account in the browser; empty = generated into .api-secret
 PORT=19998                       # backend listen port
 LISTEN_HOST=                     # empty = all interfaces (IPv4+IPv6); 127.0.0.1 loopback only; 0.0.0.0 public
-ENABLE_API_KEY_AUTH=true         # when off, no key check on /api/* — local debugging only
+ENABLE_AUTH=true                 # when off, /api/* needs no sign-in — local debugging only
 GIN_MODE=release                 # debug | release
 DEBUG=false                      # true enables debug logging
 
@@ -497,11 +504,11 @@ The step people miss manually is the **final reboot** — netboot changed but no
 
 Inside: after ~3–5 minutes the root password arrives at the email you set (empty = the OVH account's contact email); SSH in and mount the disk to fix things. The rescue system is an independent temporary Linux booted from the network — **it does not touch disk data**. When done, use the same entry to click "exit rescue mode" — otherwise every reboot lands in rescue again.
 
-### "Too many consecutive key errors" and locked out
+### "Too many failed attempts" and locked out
 
-Since v0.1.32, 10 consecutive wrong keys from one source triggers a 5-minute refusal — this blocks brute force (this service can order servers with your OVH account; with no friction, anyone who can reach the port gets thousands of guesses per second).
+10 consecutive wrong passwords (or setup keys) from one source trigger a 5-minute refusal — this blocks brute force (this service can order servers with your OVH account; with no friction, anyone who can reach the port gets thousands of guesses per second).
 
-The key is `API_SECRET_KEY` in the backend `.env`; the default is `123456` if never set (strongly recommended to change; the startup log warns in red). Wait out the cooldown and enter the correct one — **a correct entry resets the counter immediately**. Rate limits are per source IP; someone else's mistakes won't lock you out.
+Wait out the cooldown and enter the correct one — **a correct entry resets the counter immediately**. If you really forgot the password, set `ADMIN_USERNAME` / `ADMIN_PASSWORD` plus `ADMIN_PASSWORD_RESET=1` in `.env`, restart once, then remove those lines. Rate limits are per source IP; someone else's mistakes won't lock you out.
 
 ### Logs seem to be missing a chunk when stopping / restarting the container
 

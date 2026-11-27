@@ -1,6 +1,8 @@
 package db
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/ovh-buy/server/internal/types"
@@ -91,4 +93,25 @@ func (db *DB) MarkQueueOrder(item types.QueueItem, state string) error {
 	}
 	_, err := db.Exec(`UPDATE queue_order_claims SET state=? WHERE task_id=? AND group_id=? AND state!='ordered'`, state, item.ID, item.OrderGroup)
 	return err
+}
+
+// SetOrderGroupLimit 整单编辑改了「合计几台」时同步已登记的上限。
+// ClaimQueueOrder 要求任务上的 GroupLimit 与这里一致,不同步的话之后每次结账都会报「上限已变」。
+// 返回原来的值(没有登记过时 ok=false),用于落库失败时回滚。
+func (db *DB) SetOrderGroupLimit(group string, limit int) (previous int, ok bool, err error) {
+	if group == "" {
+		return 0, false, nil
+	}
+	if limit < 1 || limit > types.MaxOrderFanout {
+		return 0, false, fmt.Errorf("invalid total order limit")
+	}
+	err = db.Get(&previous, `SELECT max_orders FROM queue_order_groups WHERE id=?`, group)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, false, nil // 还没有任何结账登记,首次结账时会按新值登记
+		}
+		return 0, false, err
+	}
+	_, err = db.Exec(`UPDATE queue_order_groups SET max_orders=? WHERE id=?`, limit, group)
+	return previous, true, err
 }

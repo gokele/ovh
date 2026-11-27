@@ -610,6 +610,45 @@ func (s *State) UpdateQueueItem(id, datacenter string, options []string, retryIn
 	return ErrQueueNotFound
 }
 
+// SetQueueAutoPay 批量切换自动付款,只改这一项;已下单的任务不动。返回实际改动的数量。
+// 运行中的任务中断本轮(结账发出前),下一轮按新设置下单;已发出的结账不受影响。
+func (s *State) SetQueueAutoPay(ids []string, autoPay bool) (int, error) {
+	if err := s.SaveBlocked("queue"); err != nil {
+		return 0, err
+	}
+	want := map[string]bool{}
+	for _, id := range ids {
+		want[id] = true
+	}
+	s.saveQueueMu.Lock()
+	defer s.saveQueueMu.Unlock()
+	s.QueueMu.Lock()
+	defer s.QueueMu.Unlock()
+	next := append([]types.QueueItem(nil), s.Queue...)
+	var changed []string
+	for i := range next {
+		if !want[next[i].ID] || next[i].Status == "completed" || next[i].AutoPay == autoPay {
+			continue
+		}
+		next[i].AutoPay = autoPay
+		next[i].OrderPhase = ""
+		next[i].UpdatedAt = types.NowISO()
+		changed = append(changed, next[i].ID)
+	}
+	if len(changed) == 0 {
+		return 0, nil
+	}
+	if err := s.DB.ReplaceQueue(next); err != nil {
+		return 0, err
+	}
+	s.Queue = next
+	for _, id := range changed {
+		s.UnregisterTaskCancel(id)
+	}
+	s.WakeQueue()
+	return len(changed), nil
+}
+
 // MarkTaskDeleted 标记删除并中断本轮下单,所有删除入口统一调用。
 func (s *State) MarkTaskDeleted(id string) {
 	s.DeletedTaskIDsMu.Lock()

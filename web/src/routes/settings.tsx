@@ -28,7 +28,7 @@ import {
   useTelegramPoller,
   type SettingsConfig,
 } from "@/hooks/use-settings";
-import { getApiSecretKey, setApiSecretKey } from "@/lib/api";
+import { AccountSecuritySection } from "@/components/settings/AccountSecuritySection";
 import { useNotifyChannels, useTestNotification } from "@/hooks/use-notify-channels";
 import { cn } from "@/lib/utils";
 import { OVH_SUBSIDIARIES, subsidiaryLabel } from "@/lib/ovh-subsidiaries";
@@ -87,14 +87,12 @@ function SettingsPage() {
   const save = useSaveSettings();
   const [active, setActive] = useState<typeof SECTIONS[number]["id"]>("password");
   const [form, setForm] = useState<SettingsConfig>({});
-  const [apiKey, setApiKey] = useState("");
   // 配置到底有没有读到手。没读到就绝不能保存 —— 见 onSave 里的说明。
   const [loaded, setLoaded] = useState(false);
 
   // baseline:上次从后端读到的配置。后台重新读取时,只有用户没改动才用新值覆盖表单,
   // 否则保留正在编辑的内容(以前每次读回来都会直接覆盖,没保存的修改会被悄悄冲掉)。
   const [baseline, setBaseline] = useState<SettingsConfig | null>(null);
-  const [apiKeyBaseline, setApiKeyBaseline] = useState("");
   useEffect(() => {
     if (!cfg.data) return;
     setForm((prev) => (!baseline || stableJson(prev) === stableJson(baseline) ? cfg.data! : prev));
@@ -103,16 +101,9 @@ function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg.data]);
 
-  useEffect(() => {
-    const k = getApiSecretKey() || "";
-    setApiKey(k);
-    setApiKeyBaseline(k);
-  }, []);
-
-  const dirty = (loaded && !!baseline && stableJson(form) !== stableJson(baseline)) || apiKey !== apiKeyBaseline;
+  const dirty = (loaded && !!baseline && stableJson(form) !== stableJson(baseline));
   const discard = () => {
     if (baseline) setForm(baseline);
-    setApiKey(apiKeyBaseline);
   };
   // 有未保存的修改时,关闭或刷新页面前让浏览器提醒
   useEffect(() => {
@@ -134,11 +125,6 @@ function SettingsPage() {
     // 这时候按保存,等于拿一份空配置去覆盖后端真实的 Telegram Token / Chat ID /
     // Webhook。这不是显示错误,是直接把用户的配置删了,而且他自己看不出来
     // (界面本来就显示空,保存完还是空)。所以读失败时这个按钮必须是禁用的。
-    // 访问密码只写 localStorage,不经过后端配置,配置读失败也照存不误
-    if (apiKey) {
-      setApiSecretKey(apiKey);
-      setApiKeyBaseline(apiKey);
-    }
     if (!loaded) {
       toast.error(t("settings.notLoadedToast"));
       return;
@@ -222,16 +208,7 @@ function SettingsPage() {
                 compact
               />
             ) : active === "password" ? (
-              <Section title={t("settings.passwordSection.title")}>
-                <Field label={t("settings.passwordSection.label")} hint={t("settings.passwordSection.hint")}>
-                  <Input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={t("settings.passwordSection.placeholder")}
-                  />
-                </Field>
-              </Section>
+              <AccountSecuritySection />
             ) : active === "appearance" ? (
               <AppearanceSection />
             ) : active === "app" ? (

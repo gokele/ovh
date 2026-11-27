@@ -131,11 +131,31 @@ func accountOrderStatuses(ctx context.Context, state *app.State, accountID strin
 			if err := client.GetWithContext(ctx, "/me/order/"+idToString(item["orderId"])+"/status", &status); err != nil {
 				item["paymentStatusError"] = ovh.Explain(err)
 			} else {
-				item["orderStatus"] = status
+				item["orderStatus"] = effectiveOrderStatus(status, item["expirationDate"], time.Now())
 			}
 		}(order)
 	}
 	wg.Wait()
+}
+
+// effectiveOrderStatus 过了付款期限的未付款订单返回 "expired"。
+//
+// OVH 对没付款就过期的订单,/status 仍然返回 notPaid(实测 EU 独服订单 15 分钟就过期),
+// 官方控制台把它们显示为已取消。照搬 notPaid 会让列表一直挂着「待付款 / 支付」,
+// 点进去预检又因过期拒绝 —— 所以列表层直接按 expirationDate 换成 expired。
+// 读不出期限时保持原状态,不猜。
+func effectiveOrderStatus(status string, expiration interface{}, now time.Time) string {
+	if status != "notPaid" {
+		return status
+	}
+	raw, _ := expiration.(string)
+	if raw == "" {
+		return status
+	}
+	if expiry, ok := parseOVHTime(raw); ok && !expiry.After(now) {
+		return "expired"
+	}
+	return status
 }
 
 // loadOrderPayment 只读取订单和已绑定方式,绝不发起扣款。

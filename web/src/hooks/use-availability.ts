@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { isOrderable } from "@/lib/availability";
 import axios from "axios";
 import { api } from "@/lib/api";
@@ -462,4 +462,29 @@ export function computePriceFromOptions(
 export function formatPrice(p: PriceInfo | undefined | null): string {
   if (!p) return "—";
   return `${formatMoney(p.price, p.currency)} ${i18n.t("commons.perMonthShort")}`;
+}
+
+/** 多个站点一起查库存(抢购队列里不同账户可能在不同大区);同大区共用一份缓存。 */
+export function useAvailabilityByEndpoints(endpoints: string[], refetchInterval?: number) {
+  const regions = [...new Set(endpoints.filter(Boolean).map((e) => endpointRegion(e)))];
+  const byRegion = new Map(endpoints.filter(Boolean).map((e) => [endpointRegion(e), e] as const));
+  const results = useQueries({
+    queries: regions.map((region) => ({
+      queryKey: qk.availability.all(region),
+      queryFn: async () => {
+        const res = await axios.get<AvailabilityItem[]>(
+          `${apiBaseUrlForEndpoint(byRegion.get(region) || "")}/v1/dedicated/server/datacenter/availabilities`,
+          { timeout: 30000 }
+        );
+        return res.data;
+      },
+      staleTime: 60_000,
+      refetchInterval,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    })),
+  });
+  const out = new Map<string, AvailabilityItem[] | undefined>();
+  regions.forEach((r, i) => out.set(r, results[i]?.data));
+  return out;
 }

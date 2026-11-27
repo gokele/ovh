@@ -1,7 +1,7 @@
 # OVH 控制台 —— Docker 部署
 #
 #   1. cp .env.example .env
-#   2. 编辑 .env，至少把 API_SECRET_KEY 换成你自己的随机串
+#   2. 编辑 .env，填好 ADMIN_USERNAME / ADMIN_PASSWORD（或首次打开网页时再创建账号）
 #   3. docker compose up -d
 #
 # 更新： docker compose pull && docker compose up -d
@@ -29,9 +29,13 @@ services:
       - ./data:/data
 
     environment:
-      # 访问密码。没设的话 compose 会直接报错不让起 ——
-      # 默认值 123456 等于门没锁，而这扇门后面能花你的钱。
-      API_SECRET_KEY: ${API_SECRET_KEY:?请先 cp .env.example .env 并设置 API_SECRET_KEY}
+      # 登录账号。写了就在首次启动时自动创建；不写就首次打开网页时创建，
+      # 那时要输入初始化密钥 = API_SECRET_KEY（留空会自动生成，见 docker compose logs）。
+      # 空值由程序当作"没设"处理（见 main.go clearEmptyEnv），所以这里可以用 ${KEY:-}。
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_PASSWORD_RESET: ${ADMIN_PASSWORD_RESET:-}
+      API_SECRET_KEY: ${API_SECRET_KEY:-}
 
       # 数据库加密密钥。留空会自动生成并写进 ./data/.env（跟着卷走，不会丢）。
       # 显式提供的好处是换机器/迁移/k8s secret 时更可控。

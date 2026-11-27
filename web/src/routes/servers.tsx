@@ -27,13 +27,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useServers, useAddToMonitor, type ServerPlan, useCatalogAccountId } from "@/hooks/use-servers";
 import { useAccountInfo } from "@/hooks/use-account";
-import { useCreateQueueItem, useUpdateQueueItem, type QueueItem } from "@/hooks/use-queue";
+import { useCreateQueueItem, useUpdateQueueBundle, type QueueItem } from "@/hooks/use-queue";
 import { AccountChip } from "@/components/common/AccountChip";
 import { useCacheInfo } from "@/hooks/use-settings";
 import { useDefaultAccount } from "@/hooks/use-accounts";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Minus, Plus } from "lucide-react";
 import {
   useAvailability,
   buildAvailabilityMap,
@@ -550,9 +550,11 @@ function DetailContent({
   subsidiary,
   onClose,
   editing,
+  bundle,
 }: {
-  /** 编辑已有抢购任务:账户与型号固定,保存时更新该任务;多选的其他机房各新增一个任务 */
+  /** 编辑已有的一单:账户与型号固定。editing 是这一单的代表任务,bundle 是这一单全部任务 */
   editing?: QueueItem;
+  bundle?: QueueItem[];
   server: ServerPlan;
   realtimeDcMap?: Record<string, string>;
   /** 页面级实时库存接口挂了 */
@@ -572,7 +574,7 @@ function DetailContent({
   const navigate = useNavigate();
   const addMon = useAddToMonitor();
   const create = useCreateQueueItem();
-  const update = useUpdateQueueItem();
+  const updateBundle = useUpdateQueueBundle();
   const defaultAcc = useDefaultAccount();
   const { data: accounts } = useAccounts();
 
@@ -598,7 +600,22 @@ function DetailContent({
     () => (orderVariants ? variantDcStatus(orderVariants, []) : realtimeDcMap),
     [orderVariants, realtimeDcMap]
   );
-  const [selectedDCs, setSelectedDCs] = useState<string[]>(() => (editing ? [editing.datacenter.toLowerCase()] : []));
+  // 整单编辑:这一单未下单的任务按机房计数;已下单的不参与修改
+  const bundleOpen = useMemo(() => (bundle || []).filter((i) => i.status !== "completed"), [bundle]);
+  const bundleDone = (bundle || []).length - bundleOpen.length;
+  const bundleShared = !!bundle?.some((i) => (i.groupLimit || 0) > 0);
+  const initialDcCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const i of bundleOpen) m[i.datacenter.toLowerCase()] = (m[i.datacenter.toLowerCase()] || 0) + 1;
+    return m;
+  }, [bundleOpen]);
+  const [dcQty, setDcQty] = useState<Record<string, number>>(initialDcCounts);
+  const [bundleTotal, setBundleTotal] = useState(() => Math.max(1, ...(bundle || []).map((i) => i.groupLimit || 0)));
+  const [selectedDCs, setSelectedDCs] = useState<string[]>(() => {
+    if (!editing) return [];
+    const dcs = Object.keys(initialDcCounts);
+    return dcs.length > 0 ? dcs : [editing.datacenter.toLowerCase()];
+  });
   const [quantity, setQuantity] = useState("1");
   const [chosenScope, setChosenScope] = useState<PurchaseMode | "">("");
   // 重试间隔与购买时长记住上次的选择(只存在本机浏览器);自动付款涉及扣款,不记
@@ -634,6 +651,19 @@ function DetailContent({
   }, [pickedAccounts, accounts, orderRegionKey, server.planCode, accountId, editing]);
   const toggleDC = (code: string) =>
     setSelectedDCs((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
+  // 整单编辑里每个机房的数量;新勾的机房默认 1 台
+  const qtyOf = (code: string) => {
+    const key = Object.keys(dcQty).find((k) => apiDatacenterCode(k) === apiDatacenterCode(code));
+    return key !== undefined ? dcQty[key] : 1;
+  };
+  const setQtyOf = (code: string, n: number) =>
+    setDcQty((prev) => {
+      const key = Object.keys(prev).find((k) => apiDatacenterCode(k) === apiDatacenterCode(code)) ?? code;
+      return { ...prev, [key]: Math.max(1, Math.min(MAX_ORDER_QUANTITY, n)) };
+    });
+  // 发给后端的机房名:已有任务的机房沿用原写法,避免同一机房因大小写/别名被当成两个
+  const storedDc = (code: string) => Object.keys(initialDcCounts).find((k) => apiDatacenterCode(k) === apiDatacenterCode(code)) ?? code;
+  const bundleSummary = selectedDCs.map((c) => `${c.toUpperCase()} ×${bundleShared ? Math.max(0, bundleTotal - bundleDone) : qtyOf(c)}`).join(" · ");
   // 和后端同一套上限:界面上先把数量收住,别让用户看到一个建不出来的数字。
   // 真正的闸门在后端 EnqueueItems,这里只是提前说清楚。
   const orderPlan = clampOrderPlan(selectedDCs.length * Math.max(1, orderAccounts.length), Number(quantity) || 1);
@@ -782,7 +812,7 @@ function DetailContent({
         {editing && (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/[.04] px-3.5 py-2.5 text-[12.5px]">
             <Pencil className="w-3.5 h-3.5 text-primary" />
-            <span className="font-medium">{t("queue.editTitle")}</span>
+            <span className="font-medium">{bundle ? t("queue.bundleEdit.title", { n: bundleOpen.length }) : t("queue.editTitle")}</span>
             <AccountChip accountId={editing.accountId} />
             <span className="text-muted-foreground">{t("servers.detail.editHint")}</span>
           </div>
@@ -955,6 +985,17 @@ function DetailContent({
                 </p>
               )}
             </div>
+            {editing && bundle && (
+              <BundleQuantityEditor
+                shared={bundleShared}
+                dcs={selectedDCs}
+                qtyOf={qtyOf}
+                setQtyOf={setQtyOf}
+                total={bundleTotal}
+                setTotal={(n) => setBundleTotal(Math.max(Math.max(1, bundleDone), Math.min(MAX_ORDER_QUANTITY, n)))}
+                done={bundleDone}
+              />
+            )}
             {!editing && purchaseMode === "total" && <p className="text-sm font-medium">{t("queue.totalMaximum", { n: qty })}</p>}
             {!editing && <OrderPurchaseScope id="server-purchase-scope" value={purchaseMode} onChange={setChosenScope} />}
             <div className={editing ? "hidden" : "grid grid-cols-1 gap-3"}>
@@ -1040,7 +1081,7 @@ function DetailContent({
         <div className="mr-auto text-[12px] text-muted-foreground max-sm:col-span-2">
           <div className="mb-1 font-medium text-foreground">{t("orderDuration.label")} · <OrderDurationLabel value={duration} /></div>
           {editing && selectedDCs.length > 0
-            ? (selectedDCs.length > 1 ? t("queue.editMultiDcHint", { n: selectedDCs.length - 1 }) : t("servers.detail.editOneDc"))
+            ? t("queue.bundleEdit.footer", { summary: bundleSummary, n: bundleOpen.length })
             : selectedDCs.length > 0
             ? t(purchaseMode === "total" ? "queue.totalMaximum" : "servers.detail.willCreate", {
                 n: qty,
@@ -1071,54 +1112,40 @@ function DetailContent({
             <span className="block text-[11px] mt-0.5 text-warning">{t("servers.detail.autoPayOn")}</span>
           )}
         </div>
-        <Button variant="outline" className="max-sm:hidden" onClick={onClose} disabled={create.isPending || update.isPending}>
+        <Button variant="outline" className="max-sm:hidden" onClick={onClose} disabled={create.isPending || updateBundle.isPending}>
           {t("servers.detail.close")}
         </Button>
-        {editing && (
+        {editing && bundle && (
           <Button
             className="max-sm:col-span-2"
-            disabled={!durationSupported || selectedDCs.length === 0 || update.isPending || create.isPending}
+            disabled={!durationSupported || selectedDCs.length === 0 || updateBundle.isPending}
             onClick={async () => {
-              // 一个任务对应一个机房:原机房仍勾着就留给原任务,其余每个机房按同样设置各新增一个任务
-              const same = (a: string, b: string) => apiDatacenterCode(a) === apiDatacenterCode(b);
-              const keep = selectedDCs.find((d) => same(d, editing.datacenter)) || selectedDCs[0];
-              const extra = selectedDCs.filter((d) => d !== keep);
               const interval = Number(retryInterval) || 60;
+              const base = {
+                ids: bundle.map((i) => i.id),
+                options: selectedValues,
+                duration,
+                retryInterval: interval,
+                autoPay,
+                coupon: coupon.trim(),
+              };
               try {
-                await update.mutateAsync({
-                  id: editing.id,
-                  wasRunning: editing.status === "running" || editing.status === "pending",
-                  datacenter: keep,
-                  options: selectedValues,
-                  retryInterval: interval,
-                  autoPay,
-                  coupon: coupon.trim(),
-                  duration,
-                });
+                if (bundleShared) {
+                  await updateBundle.mutateAsync({ ...base, total: bundleTotal, datacenters: selectedDCs.map(storedDc) });
+                } else {
+                  // 没勾的机房数量为 0(删除这一单在该机房未下单的任务)
+                  const quantities: Record<string, number> = {};
+                  for (const k of Object.keys(initialDcCounts)) quantities[k] = 0;
+                  for (const c of selectedDCs) quantities[storedDc(c)] = qtyOf(c);
+                  await updateBundle.mutateAsync({ ...base, quantities });
+                }
               } catch {
-                return; // 错误已由保存逻辑提示,保留弹窗
-              }
-              if (extra.length > 0) {
-                const r = await create.mutateAsync({
-                  account_id: editing.accountId,
-                  planCode: editing.planCode,
-                  datacenters: extra,
-                  quantity: 1,
-                  purchaseMode: "perDatacenter",
-                  retryInterval: interval,
-                  options: selectedValues,
-                  autoPay,
-                  coupon,
-                  duration,
-                  preorder: !!editing.preorder,
-                });
-                if (r.success > 0) toast.success(t("queue.editExtraCreated", { n: r.success }));
-                if (r.failed > 0) return;
+                return; // 错误已提示,保留弹窗
               }
               onClose();
             }}
           >
-            {update.isPending || create.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {updateBundle.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {t("queue.save")}
           </Button>
         )}
@@ -1212,7 +1239,9 @@ function DetailContent({
  * 抢购队列的「编辑」弹窗:与服务器列表的抢购弹窗同一个界面(价格、规格、带库存的配置与机房),
  * 数据按任务所属账户读取。目录里找不到这款机型时调用 onUnavailable,由调用方退回简易表单。
  */
-export function QueueEditDialog({ editing, onClose, onUnavailable }: { editing: QueueItem | null; onClose: () => void; onUnavailable: (item: QueueItem) => void }) {
+/** 编辑一整单(同账户同型号同配置的全部任务)。目录里找不到这款机型时回调 onUnavailable */
+export function QueueEditDialog({ bundle, onClose, onUnavailable }: { bundle: QueueItem[] | null; onClose: () => void; onUnavailable: (item: QueueItem) => void }) {
+  const editing = bundle ? bundle.find((i) => i.status !== "completed") || bundle[0] || null : null;
   const accounts = useAccounts();
   const acc = findAccountByID(accounts.data, editing?.accountId || "");
   const q = useServers(true, editing?.accountId);
@@ -1241,6 +1270,7 @@ export function QueueEditDialog({ editing, onClose, onUnavailable }: { editing: 
           <DetailContent
             key={editing.id}
             editing={editing}
+            bundle={bundle || undefined}
             server={server}
             realtimeDcMap={availMap[server.planCode]}
             availError={availQ.isError}
@@ -1267,6 +1297,57 @@ export function QueueEditDialog({ editing, onClose, onUnavailable }: { editing: 
   );
 }
 
+
+function QtyStepper({ value, onChange, min, label }: { value: number; onChange: (n: number) => void; min: number; label: string }) {
+  const { t } = useTranslation();
+  return (
+    <div className="inline-flex items-center rounded-lg border border-border" role="group" aria-label={label}>
+      <button type="button" className="h-8 w-8 grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-40" disabled={value <= min} onClick={() => onChange(value - 1)} aria-label={t("queue.bundleEdit.less", { label })}>
+        <Minus className="w-3.5 h-3.5" />
+      </button>
+      <span className="w-8 text-center text-[13px] font-semibold tabular-nums" aria-live="polite">{value}</span>
+      <button type="button" className="h-8 w-8 grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-40" disabled={value >= MAX_ORDER_QUANTITY} onClick={() => onChange(value + 1)} aria-label={t("queue.bundleEdit.more", { label })}>
+        <Plus className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+/** 整单编辑的数量:按机房模式每个机房一个步进器;合计模式一个「合计几台」 */
+function BundleQuantityEditor({ shared, dcs, qtyOf, setQtyOf, total, setTotal, done }: {
+  shared: boolean;
+  dcs: string[];
+  qtyOf: (code: string) => number;
+  setQtyOf: (code: string, n: number) => void;
+  total: number;
+  setTotal: (n: number) => void;
+  done: number;
+}) {
+  const { t } = useTranslation();
+  if (dcs.length === 0) return <p className="text-[12px] text-muted-foreground">{t("queue.bundleEdit.pickDc")}</p>;
+  if (shared) {
+    return (
+      <div className="rounded-xl border border-border px-3.5 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[13px] font-medium">{t("queue.bundleEdit.totalLabel")}</div>
+          <div className="text-[11.5px] text-muted-foreground">{t("queue.bundleEdit.totalHint", { dcs: dcs.length, done })}</div>
+        </div>
+        <QtyStepper value={total} onChange={setTotal} min={Math.max(1, done)} label={t("queue.bundleEdit.totalLabel")} />
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-border divide-y divide-border">
+      <div className="px-3.5 py-2 text-[12px] text-muted-foreground">{t("queue.bundleEdit.perDcLabel")}</div>
+      {dcs.map((c) => (
+        <div key={c} className="px-3.5 py-2 flex items-center justify-between gap-3">
+          <span className="font-mono text-[13px] font-semibold">{c.toUpperCase()}</span>
+          <QtyStepper value={qtyOf(c)} onChange={(n) => setQtyOf(c, n)} min={1} label={c.toUpperCase()} />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function SpecCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
