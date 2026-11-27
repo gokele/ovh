@@ -19,10 +19,18 @@ import (
 //
 // 容器的更新方式只有一个：拉新镜像、重建容器。数据在卷上，不受影响。
 func InContainer() bool {
+	return inContainer(os.Getenv("OVH_IN_CONTAINER"), detectContainerRuntime)
+}
+
+func inContainer(flag string, detect func() bool) bool {
 	// 我们自己的镜像里显式设了这个 —— 最可靠
-	if v := strings.TrimSpace(os.Getenv("OVH_IN_CONTAINER")); v != "" && v != "0" && !strings.EqualFold(v, "false") {
+	if v := strings.TrimSpace(flag); v != "" && v != "0" && !strings.EqualFold(v, "false") {
 		return true
 	}
+	return detect()
+}
+
+func detectContainerRuntime() bool {
 	// Docker 会在容器根目录放这个文件
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		return true
