@@ -4,14 +4,14 @@ import { describeOptionCodes } from "@/lib/option-groups";
 import { OrderDurationLabel } from "@/components/queue/OrderDurationField";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
-import { Clock, RefreshCw, Trash2, AlertCircle, Hourglass, Copy, RotateCw } from "lucide-react";
+import { Clock, RefreshCw, Trash2, AlertCircle, Hourglass, Copy, RotateCw, ArrowUp, ArrowDown, ArrowUpDown, Filter, Check } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { fmtDateTime } from "@/i18n/format";
 import { PageHeader } from "@/components/common/PageHeader";
-import { ListToolbar, SearchBox, Segmented } from "@/components/common/ListToolbar";
+import { ListToolbar, SearchBox } from "@/components/common/ListToolbar";
 import { useContainerWide } from "@/hooks/use-container-wide";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -70,7 +70,188 @@ function orderStatusView(item: PurchaseHistory): {
       return { labelKey: "history.st.notFound.label", tone: "default", paid: false, closed: false, titleKey: "history.st.notFound.title" };
   }
 }
-import { currencyUnknownHint } from "@/lib/money";
+import { comparePrices, currencyUnknownHint } from "@/lib/money";
+
+const HISTORY_STATUS_ORDER = [
+  "history.st.notPaid.label", "history.st.documentsRequested.label", "history.st.checking.label",
+  "history.st.delivering.label", "history.st.delivered.label", "history.uncertain",
+  "history.st.cancelling.label", "history.st.cancelled.label", "history.failed",
+  "history.st.unknown.label", "history.st.notFound.label",
+];
+
+type HistorySortField = "model" | "dc" | "price" | "status" | "time" | "remaining";
+type HistorySort = `${HistorySortField}${"Asc" | "Desc"}`;
+
+export function nextHistorySort(current: HistorySort, field: HistorySortField): HistorySort {
+  if (current.startsWith(field)) return `${field}${current.endsWith("Asc") ? "Desc" : "Asc"}`;
+  return `${field}${field === "time" ? "Desc" : "Asc"}`;
+}
+
+function historyStatusRank(key: string): number {
+  const rank = HISTORY_STATUS_ORDER.indexOf(key);
+  return rank < 0 ? HISTORY_STATUS_ORDER.length : rank;
+}
+
+export function toggleHistoryFilterValue(current: string[], value: string): string[] {
+  return current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+}
+
+export function normalizeHistoryDc(dc?: string): string {
+  return (dc || "").trim().toUpperCase();
+}
+
+export function normalizeHistoryModel(planCode?: string): string {
+  return (planCode || "").trim();
+}
+
+export function getAvailableStatusOptions(items: PurchaseHistory[], selected: string[]) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = historyStatusKey(item);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  for (const value of selected) if (!counts.has(value)) counts.set(value, 0);
+  return [...counts].sort(([a], [b]) => historyStatusRank(a) - historyStatusRank(b))
+    .map(([key, count]) => ({ value: key, labelKey: key, count }));
+}
+
+export function getAvailableModelOptions(items: PurchaseHistory[], selected: string[]) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const value = normalizeHistoryModel(item.planCode);
+    if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  for (const model of selected) {
+    const value = normalizeHistoryModel(model);
+    if (value && !counts.has(value)) counts.set(value, 0);
+  }
+  return [...counts].sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+    .map(([value, count]) => ({ value, label: value, count }));
+}
+
+export function getAvailableDcOptions(items: PurchaseHistory[], selected: string[]) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const value = normalizeHistoryDc(item.datacenter);
+    if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  for (const dc of selected) {
+    const value = normalizeHistoryDc(dc);
+    if (value && !counts.has(value)) counts.set(value, 0);
+  }
+  return [...counts].sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+    .map(([value, count]) => ({ value, label: value, count }));
+}
+
+function parseTimeMs(value?: string): number | null {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function compareTimestamps(aMs: number | null, bMs: number | null, dir: "asc" | "desc"): number {
+  if (aMs === null || bMs === null) return aMs === null ? (bMs === null ? 0 : 1) : -1;
+  return dir === "asc" ? aMs - bMs : bMs - aMs;
+}
+
+export function filterAndSortHistory(
+  items: PurchaseHistory[],
+  { search, statusFilter, modelFilter = [], dcFilter = [], sort }: {
+    search: string; statusFilter: string[]; modelFilter?: string[]; dcFilter?: string[]; sort: HistorySort;
+  },
+): PurchaseHistory[] {
+  const query = search.trim().toLowerCase();
+  return items.filter((item) => {
+    if (statusFilter.length > 0 && !statusFilter.includes(historyStatusKey(item))) return false;
+    if (modelFilter.length > 0 && !modelFilter.includes(normalizeHistoryModel(item.planCode))) return false;
+    if (dcFilter.length > 0 && !dcFilter.includes(normalizeHistoryDc(item.datacenter))) return false;
+    return !query || `${item.planCode} ${item.datacenter} ${item.orderId || ""}`.toLowerCase().includes(query);
+  }).sort((a, b) => {
+    const aMs = parseTimeMs(a.purchaseTime);
+    const bMs = parseTimeMs(b.purchaseTime);
+    const newestFirst = compareTimestamps(aMs, bMs, "desc");
+    const dir = sort.endsWith("Asc") ? "asc" : "desc";
+    if (sort === "timeAsc") return compareTimestamps(aMs, bMs, "asc");
+    if (sort === "timeDesc") return newestFirst;
+    if (sort.startsWith("price")) return comparePrices(a.price?.withTax, b.price?.withTax, dir) || newestFirst;
+    if (sort.startsWith("remaining")) {
+      return compareTimestamps(getCountdownExpirationMs(a), getCountdownExpirationMs(b), dir) || newestFirst;
+    }
+    const byField = sort.startsWith("status")
+      ? historyStatusRank(historyStatusKey(a)) - historyStatusRank(historyStatusKey(b))
+      : (sort.startsWith("model") ? normalizeHistoryModel(a.planCode) : normalizeHistoryDc(a.datacenter))
+        .localeCompare(sort.startsWith("model") ? normalizeHistoryModel(b.planCode) : normalizeHistoryDc(b.datacenter), undefined, { numeric: true, sensitivity: "base" });
+    return (dir === "asc" ? byField : -byField) || newestFirst;
+  });
+}
+
+function historyStatusKey(item: PurchaseHistory): string {
+  return item.status === "success" ? orderStatusView(item).labelKey : `history.${item.status}`;
+}
+
+function ColumnMultiFilter({ label, allLabel, totalCount, options, selected, onToggle, onClear }: {
+  label: string;
+  allLabel: string;
+  totalCount: number;
+  options: { value: string; label: string; count: number }[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  onClear: () => void;
+}) {
+  const selectedLabels = selected.map((value) => options.find((option) => option.value === value)?.label ?? value);
+  const singleLabel = selectedLabels[0];
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1 rounded-sm px-1 py-0.5 text-[11px] leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected.length > 0 ? "text-primary" : "hover:text-foreground"}`}
+          aria-label={label}
+          title={selected.length > 0 ? selectedLabels.join(", ") : label}
+        >
+          <Filter className="h-3 w-3 shrink-0" aria-hidden />
+          {selected.length === 1 && <span className="max-w-[7rem] truncate normal-case">{singleLabel}</span>}
+          {selected.length >= 2 && <span className="tabular-nums normal-case">{selected.length}</span>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-1.5" align="start">
+        <button
+          type="button"
+          aria-pressed={selected.length === 0}
+          onClick={onClear}
+          className={`flex w-full items-center gap-2 rounded-sm px-2 py-2 sm:py-1.5 text-sm sm:text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected.length === 0 ? "bg-accent text-primary" : ""}`}
+        >
+          <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${selected.length === 0 ? "border-primary bg-primary text-primary-foreground" : "border-input"}`} aria-hidden>
+            {selected.length === 0 && <Check className="h-3 w-3" />}
+          </span>
+          <span className="flex-1 text-left">{allLabel}</span>
+          <span className="tabular-nums text-muted-foreground">{totalCount}</span>
+        </button>
+        <div className="my-1 h-px bg-border" />
+        <div className="max-h-64 overflow-y-auto">
+          {options.map((option) => {
+            const checked = selected.includes(option.value);
+            return (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={checked}
+                onClick={() => onToggle(option.value)}
+                className={`flex w-full items-center gap-2 rounded-sm px-2 py-2 sm:py-1.5 text-sm sm:text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${checked ? "bg-accent text-primary" : ""}`}
+              >
+                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${checked ? "border-primary bg-primary text-primary-foreground" : "border-input"}`} aria-hidden>
+                  {checked && <Check className="h-3 w-3" />}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-left">{option.label}</span>
+                <span className="tabular-nums text-muted-foreground">{option.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /** 抢购历史：表格 + 搜索 + 状态过滤 */
 export const Route = createFileRoute("/history")({
@@ -116,9 +297,15 @@ function formatCountdown(remainingMs: number, t: TFunction): string {
   return t("history.countdown.m", { m: minutes });
 }
 
-function getExpirationMs(item: PurchaseHistory): number {
-  if (item.expirationTime) return new Date(item.expirationTime).getTime();
-  return new Date(item.purchaseTime).getTime() + ORDER_VALIDITY_MS;
+function getExpirationMs(item: PurchaseHistory): number | null {
+  const purchaseMs = parseTimeMs(item.purchaseTime);
+  return parseTimeMs(item.expirationTime) ?? (purchaseMs !== null ? purchaseMs + ORDER_VALIDITY_MS : null);
+}
+
+function getCountdownExpirationMs(item: PurchaseHistory): number | null {
+  const st = orderStatusView(item);
+  if (item.status !== "success" || !item.orderId || st.paid || st.closed) return null;
+  return getExpirationMs(item);
 }
 
 function HistoryPage() {
@@ -139,7 +326,10 @@ function HistoryPage() {
       },
     });
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "success" | "failed" | "uncertain">("all");
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [modelFilter, setModelFilter] = useState<string[]>([]);
+  const [dcFilter, setDcFilter] = useState<string[]>([]);
+  const [sort, setSort] = useState<HistorySort>("timeDesc");
   const [confirmClear, setConfirmClear] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -150,49 +340,74 @@ function HistoryPage() {
   }, []);
 
   const items = list.data || [];
-  const filtered = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    // 最新的在最上面;时间解析不了的排最后
-    const ts = (v: string) => {
-      const n = new Date(v).getTime();
-      return Number.isFinite(n) ? n : -Infinity;
-    };
-    return items
-      .filter((i) => {
-        if (statusFilter !== "all" && i.status !== statusFilter) return false;
-        if (s && !`${i.planCode} ${i.datacenter} ${i.orderId || ""}`.toLowerCase().includes(s)) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        const d = ts(b.purchaseTime) - ts(a.purchaseTime);
-        return Number.isNaN(d) ? 0 : d;
-      });
-  }, [items, search, statusFilter]);
-
-  const counts = useMemo(() => {
-    const c = { all: items.length, success: 0, failed: 0, uncertain: 0 };
-    for (const i of items) if (i.status in c) c[i.status as "success" | "failed" | "uncertain"]++;
-    return c;
-  }, [items]);
+  const filtered = useMemo(() => filterAndSortHistory(items, { search, statusFilter, modelFilter, dcFilter, sort }), [items, search, statusFilter, modelFilter, dcFilter, sort]);
+  const statusOptions = useMemo(() => getAvailableStatusOptions(items, statusFilter), [items, statusFilter]);
+  const modelOptions = useMemo(() => getAvailableModelOptions(items, modelFilter), [items, modelFilter]);
+  const dcOptions = useMemo(() => getAvailableDcOptions(items, dcFilter), [items, dcFilter]);
   const [tableRef, wide] = useContainerWide(HISTORY_TABLE_MIN_WIDTH);
-  const toolbar = (
-    <ListToolbar
-      end={<SearchBox value={search} onChange={setSearch} placeholder={t("history.searchPlaceholder")} className="w-full sm:w-64" />}
-    >
-      <Segmented<"all" | "success" | "failed" | "uncertain">
-        label={t("history.allStatuses")}
-        value={statusFilter}
-        onChange={setStatusFilter}
-        options={[
-          { value: "all", label: t("history.allStatuses"), count: counts.all },
-          { value: "success", label: t("history.success"), count: counts.success },
-          { value: "failed", label: t("history.failed"), count: counts.failed },
-          ...(counts.uncertain > 0 || statusFilter === "uncertain"
-            ? [{ value: "uncertain" as const, label: t("history.uncertain"), count: counts.uncertain }]
-            : []),
-        ]}
+  const sortHeader = (field: HistorySortField, label: string) => {
+    const active = sort.startsWith(field);
+    const ascending = active && sort.endsWith("Asc");
+    const next = nextHistorySort(sort, field);
+    const clickToSort = t("history.sort.clickToSort", { next: t(`history.sort.${next}`) });
+    const Icon = active ? (ascending ? ArrowUp : ArrowDown) : ArrowUpDown;
+    return (
+      <button
+        type="button"
+        className={`inline-flex items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${active ? "text-primary" : "hover:text-foreground"}`}
+        onClick={() => setSort(next)}
+        aria-label={t(`history.sort.${next}`)}
+        title={field === "price" ? `${clickToSort} · ${t("history.sort.priceHint")}` : field === "remaining" ? `${clickToSort} · ${t("history.col.remainingTitle")}` : clickToSort}
+      >
+        {label}<Icon className="h-3 w-3" aria-hidden />
+      </button>
+    );
+  };
+  const sortAria = (field: HistorySortField) =>
+    sort.startsWith(field) ? (sort.endsWith("Asc") ? "ascending" as const : "descending" as const) : "none" as const;
+  const statusHeader = (
+    <div className="inline-flex items-center gap-1">
+      {sortHeader("status", t("history.col.status"))}
+      <ColumnMultiFilter
+        label={t("history.filterStatus")} allLabel={t("history.allStatuses")} totalCount={items.length}
+        options={statusOptions.map((option) => ({ ...option, label: t(option.labelKey) }))} selected={statusFilter}
+        onToggle={(value) => setStatusFilter((current) => toggleHistoryFilterValue(current, value))}
+        onClear={() => setStatusFilter([])}
       />
-    </ListToolbar>
+    </div>
+  );
+  const modelHeader = (
+    <div className="inline-flex items-center gap-1">
+      {sortHeader("model", t("history.col.model"))}
+      <ColumnMultiFilter
+        label={t("history.filterModel")} allLabel={t("history.allModels")} totalCount={items.length}
+        options={modelOptions} selected={modelFilter}
+        onToggle={(value) => setModelFilter((current) => toggleHistoryFilterValue(current, value))}
+        onClear={() => setModelFilter([])}
+      />
+    </div>
+  );
+  const dcHeader = (
+    <div className="inline-flex items-center gap-1">
+      {sortHeader("dc", t("history.col.dc"))}
+      <ColumnMultiFilter
+        label={t("history.filterDc")} allLabel={t("history.allDcs")} totalCount={items.length}
+        options={dcOptions} selected={dcFilter}
+        onToggle={(value) => setDcFilter((current) => toggleHistoryFilterValue(current, value))}
+        onClear={() => setDcFilter([])}
+      />
+    </div>
+  );
+  const emptyResults = (
+    <EmptyState
+      illustration="search"
+      title={t("history.emptyTitle")}
+      action={
+        <Button variant="outline" onClick={() => { setSearch(""); setStatusFilter([]); setModelFilter([]); setDcFilter([]); }}>
+          {t("history.clearFilters")}
+        </Button>
+      }
+    />
   );
 
   return (
@@ -260,41 +475,41 @@ function HistoryPage() {
         </Card>
       ) : (
         <Card className="overflow-hidden">
-          {toolbar}
+          <ListToolbar
+            end={<SearchBox value={search} onChange={setSearch} placeholder={t("history.searchPlaceholder")} className="w-full sm:w-64" />}
+          />
           <div ref={tableRef}>
-            {filtered.length === 0 ? (
-              <EmptyState
-                illustration="search"
-                title={t("history.emptyTitle")}
-                action={
-                  <Button variant="outline" onClick={() => { setSearch(""); setStatusFilter("all"); }}>
-                    {t("history.clearFilters")}
-                  </Button>
-                }
-              />
-            ) : wide ? (
+            {wide ? (
               <table className="w-full">
                 <thead>
                   <tr className="text-left text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-b border-border whitespace-nowrap">
-                    <th className="pl-4 pr-3 py-2.5">{t("history.col.model")}</th>
-                    <th className="px-3 py-2.5">{t("history.col.dc")}</th>
+                    <th className="pl-4 pr-3 py-2.5" aria-sort={sortAria("model")}>{modelHeader}</th>
+                    <th className="px-3 py-2.5" aria-sort={sortAria("dc")}>{dcHeader}</th>
                     <th className="px-3 py-2.5">{t("history.col.options")}</th>
-                    <th className="px-3 py-2.5 text-right">{t("history.col.price")}</th>
-                    <th className="px-3 py-2.5">{t("history.col.status")}</th>
-                    <th className="px-3 py-2.5">{t("history.col.time")}</th>
-                    <th className="px-3 py-2.5" title={t("history.col.remainingTitle")}>
-                      {t("history.col.remaining")}
-                    </th>
+                    <th className="px-3 py-2.5 text-right" aria-sort={sortAria("price")}>{sortHeader("price", t("history.col.price"))}</th>
+                    <th className="px-3 py-2.5" aria-sort={sortAria("status")}>{statusHeader}</th>
+                    <th className="px-3 py-2.5" aria-sort={sortAria("time")}>{sortHeader("time", t("history.col.time"))}</th>
+                    <th className="px-3 py-2.5" aria-sort={sortAria("remaining")}>{sortHeader("remaining", t("history.col.remaining"))}</th>
                     <th className="pl-3 pr-4 py-2.5 text-right">{t("history.col.action")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filtered.map((item) => <HistoryRow key={item.id} item={item} now={now} onAgain={buyAgain} />)}
+                  {filtered.length === 0
+                    ? <tr><td colSpan={8}>{emptyResults}</td></tr>
+                    : filtered.map((item) => <HistoryRow key={item.id} item={item} now={now} onAgain={buyAgain} />)}
                 </tbody>
               </table>
             ) : (
               <div className="divide-y divide-border">
-                {filtered.map((item) => <HistoryCard key={item.id} item={item} now={now} onAgain={buyAgain} />)}
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1 bg-muted/40 px-4 py-2 text-[11px] font-medium text-muted-foreground">
+                  {modelHeader}
+                  {dcHeader}
+                  {sortHeader("price", t("history.col.price"))}
+                  {statusHeader}
+                  {sortHeader("time", t("history.col.time"))}
+                  {sortHeader("remaining", t("history.col.remaining"))}
+                </div>
+                {filtered.length === 0 ? emptyResults : filtered.map((item) => <HistoryCard key={item.id} item={item} now={now} onAgain={buyAgain} />)}
               </div>
             )}
           </div>
@@ -326,8 +541,9 @@ function HistoryRow({ item, now, onAgain }: { item: PurchaseHistory; now: number
   const { t } = useTranslation();
   const st = orderStatusView(item);
   // 倒计时是"付款窗口":付了、取消了、交付了都不再显示
-  const showCountdown = item.status === "success" && !!item.orderId && !st.paid && !st.closed;
-  const remainingMs = showCountdown ? getExpirationMs(item) - now : 0;
+  const expirationMs = getCountdownExpirationMs(item);
+  const showCountdown = expirationMs !== null;
+  const remainingMs = expirationMs !== null ? expirationMs - now : 0;
   const isExpired = showCountdown && remainingMs <= 0;
   // 24 小时内进入告警色
   const isUrgent = showCountdown && !isExpired && remainingMs < 24 * 60 * 60 * 1000;
@@ -389,8 +605,9 @@ function HistoryRow({ item, now, onAgain }: { item: PurchaseHistory; now: number
 function HistoryCard({ item, now, onAgain }: { item: PurchaseHistory; now: number; onAgain?: (item: PurchaseHistory) => void }) {
   const { t } = useTranslation();
   const st = orderStatusView(item);
-  const showCountdown = item.status === "success" && !!item.orderId && !st.paid && !st.closed;
-  const remainingMs = showCountdown ? getExpirationMs(item) - now : 0;
+  const expirationMs = getCountdownExpirationMs(item);
+  const showCountdown = expirationMs !== null;
+  const remainingMs = expirationMs !== null ? expirationMs - now : 0;
   const isExpired = showCountdown && remainingMs <= 0;
   const isUrgent = showCountdown && !isExpired && remainingMs < 24 * 60 * 60 * 1000;
   return (

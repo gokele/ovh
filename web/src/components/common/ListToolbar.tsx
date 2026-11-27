@@ -73,7 +73,7 @@ export function SearchBox({
 export function ListToolbar({ children, end }: { children?: ReactNode; end?: ReactNode }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-2 px-4 py-3 border-b border-border">
-      <div className="min-w-0 flex flex-wrap items-center gap-2">{children}</div>
+      {children && <div className="min-w-0 flex flex-wrap items-center gap-2">{children}</div>}
       {end && <div className="sm:ml-auto flex items-center gap-2 min-w-0">{end}</div>}
     </div>
   );
