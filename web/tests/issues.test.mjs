@@ -118,6 +118,43 @@ test("an unknown model's diagnostic does not crash the monitor page or hide dele
   }
 });
 
+test("monitor subscription bounds and wraps long configuration and account chips without hiding row actions", () => {
+  const client = new QueryClient();
+  const longOption = `custom${"Configuration".repeat(18)}`;
+  const longAccount = `account${"Label".repeat(36)}`;
+  client.setQueryData(["accounts", "list"], [{ id: "eu", endpoint: "ovh-eu", zone: "IE", name: longAccount }]);
+  client.setQueryData(["monitor", "list"], [{
+    planCode: "27skle01-v1",
+    datacenters: ["gra"],
+    options: ["softraid-2x480ssd-24sk60", longOption],
+    autoOrder: true,
+    autoOrderAccountId: "eu",
+    lastStatus: {},
+    createdAt: "2026-10-19T00:00:00Z",
+  }]);
+  try {
+    const html = renderToStaticMarkup(createElement(QueryClientProvider, { client },
+      createElement(Route.options.component)));
+    const optionChip = html.match(new RegExp(`<span class="([^"]+)" title="softraid-2x480ssd-24sk60\\s+${longOption}"`));
+    const accountChip = html.match(new RegExp(`<span class="([^"]+)"[^>]*>${longAccount} · IE</span>`));
+    for (const chip of [optionChip, accountChip]) {
+      assert.ok(chip, "full configuration/account label is present");
+      const classes = chip[1].split(/\s+/);
+      for (const utility of ["min-w-0", "max-w-full", "whitespace-normal", "[overflow-wrap:anywhere]"]) {
+        assert.ok(classes.includes(utility), `chip is missing ${utility}`);
+      }
+      assert.ok(!classes.includes("whitespace-nowrap"));
+    }
+    assert.match(optionChip[1], /(?:^| )h-auto(?: |$)/);
+    assert.match(html, /自动下单|Auto-order/);
+    const actions = html.match(/<div class="lr-act[^>]*>(.*?)<\/div>/s);
+    assert.ok(actions);
+    assert.equal([...actions[1].matchAll(/<button\b/g)].length, 4);
+  } finally {
+    client.clear();
+  }
+});
+
 for (const region_issues of [[], undefined]) {
   test(`monitor page renders without diagnostics (${JSON.stringify(region_issues)})`, () => {
     const client = new QueryClient();
