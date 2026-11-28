@@ -19,6 +19,9 @@ type Config struct {
 	// 补货监控的全部价值就是"有货那一刻你能收到消息",单通道意味着 Telegram 一挂就全盲。
 	NotifyWebhookURL string `json:"notifyWebhookUrl,omitempty"`
 
+	// NotifyOrderUpdates 是否开启订单更新推送(默认开启;nil 视为 true)。
+	NotifyOrderUpdates *bool `json:"notifyOrderUpdates,omitempty"`
+
 	// DefaultRetryInterval 新建抢购任务的默认重试间隔(秒)。
 	// 网页弹窗、TG /buy、上架通知里的一键下单按钮不显式指定时都用它。
 	// 以前四条入队路径各写各的(30 / 30 / 30,前端弹窗还显示 60),用户既改不了也对不上。
@@ -76,6 +79,11 @@ func ClampRetryInterval(v, fallback int) int {
 		return MaxRetryInterval
 	}
 	return v
+}
+
+// OrderUpdateNotifyEnabled 返回是否开启订单更新推送；未显式配置（nil）时默认开启。
+func (c Config) OrderUpdateNotifyEnabled() bool {
+	return c.NotifyOrderUpdates == nil || *c.NotifyOrderUpdates
 }
 
 // DefaultConfig 默认配置

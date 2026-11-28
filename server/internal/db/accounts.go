@@ -219,6 +219,12 @@ func (db *DB) DeleteAccount(id string) error {
 	if _, err := tx.Exec(`DELETE FROM server_aliases WHERE account_id = ?`, id); err != nil {
 		return fmt.Errorf("cascade delete server_aliases: %w", err)
 	}
+	if _, err := tx.Exec(`DELETE FROM order_watch_orders WHERE account_id = ?`, id); err != nil {
+		return fmt.Errorf("cascade delete order_watch_orders: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM order_watch_accounts WHERE account_id = ?`, id); err != nil {
+		return fmt.Errorf("cascade delete order_watch_accounts: %w", err)
+	}
 	if _, err := tx.Exec(`DELETE FROM ovh_accounts WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("delete account: %w", err)
 	}

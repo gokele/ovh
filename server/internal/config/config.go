@@ -94,6 +94,14 @@ func (s *Store) QuickOrderRetryInterval() int {
 	return types.ClampRetryInterval(v, types.DefaultQuickRetryInterval)
 }
 
+// OrderUpdateNotifyEnabled 返回是否开启订单状态更新推送。
+func (s *Store) OrderUpdateNotifyEnabled() bool {
+	s.mu.RLock()
+	enabled := s.cfg.OrderUpdateNotifyEnabled()
+	s.mu.RUnlock()
+	return enabled
+}
+
 // Get 返回配置的副本（调用方不能修改后影响存储）
 func (s *Store) Get() types.Config {
 	s.mu.RLock()

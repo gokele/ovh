@@ -15,6 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/common/Skeleton";
 import { Chip } from "@/components/common/Chip";
 import { StatusDot } from "@/components/common/StatusDot";
@@ -398,7 +399,7 @@ function NotifySection({
   set,
 }: {
   form: SettingsConfig;
-  set: (k: keyof SettingsConfig, v: string) => void;
+  set: <K extends keyof SettingsConfig>(k: K, v: SettingsConfig[K]) => void;
 }) {
   const { t } = useTranslation();
   const channels = useNotifyChannels(true);
@@ -471,6 +472,18 @@ function NotifySection({
           {t("settings.notify.webhookHintPost")}
         </p>
       </Field>
+
+      <div className="rounded-2xl border border-border p-4 flex items-start justify-between gap-4">
+        <div className="space-y-1 min-w-0">
+          <div className="text-[13px] font-medium">{t("settings.notify.orderUpdatesLabel")}</div>
+          <p className="text-[11.5px] text-muted-foreground">{t("settings.notify.orderUpdatesHint")}</p>
+        </div>
+        <Switch
+          checked={form.notifyOrderUpdates ?? true}
+          onCheckedChange={(v) => set("notifyOrderUpdates", v)}
+          aria-label={t("settings.notify.orderUpdatesLabel")}
+        />
+      </div>
 
       <div>
         <Button

@@ -84,6 +84,9 @@ export const settingsPagesZh = {
       sending: "发送中…",
       sendTest: "发一条测试通知",
       testHint: "会往所有已配置的通道各发一条。先保存设置再测 —— 测的是已保存的配置，不是输入框里的",
+      orderUpdatesLabel: "订单状态更新推送",
+      orderUpdatesHint:
+        "每分钟自动检查所有 OVH 账户的订单进度，出现新订单、已付款、已验证、开始交付、已交付、需补资料、已取消或过期等变化时，推送到已配置的 Telegram / Webhook 通道。",
     },
     telegram: {
       title: "Telegram 通知",

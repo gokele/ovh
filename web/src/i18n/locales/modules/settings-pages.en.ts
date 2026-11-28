@@ -93,6 +93,9 @@ const pack: SettingsPagesPack = {
       sendTest: "Send a test notification",
       testHint:
         "Sends one message to every configured channel. Save settings before testing — the test uses the saved config, not what's in the input boxes",
+      orderUpdatesLabel: "Order update notifications",
+      orderUpdatesHint:
+        "Checks order progress across all OVH accounts every minute and pushes updates (new order, paid, validated, delivering, delivered, documents requested, cancelled, expired) to configured Telegram / Webhook channels.",
     },
     telegram: {
       title: "Telegram notifications",
