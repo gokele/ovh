@@ -28,6 +28,7 @@ import (
 	"github.com/ovh-buy/server/internal/logger"
 	"github.com/ovh-buy/server/internal/monitor"
 	"github.com/ovh-buy/server/internal/netfp"
+	"github.com/ovh-buy/server/internal/orderwatch"
 	"github.com/ovh-buy/server/internal/proxyguard"
 	"github.com/ovh-buy/server/internal/purchase"
 	"github.com/ovh-buy/server/internal/secret"
@@ -647,6 +648,9 @@ func main() {
 	state.OVH.SetLogf(func(format string, args ...interface{}) {
 		state.Logger.Warn(fmt.Sprintf(format, args...), "proxy")
 	})
+
+	// 订单状态与交付进度后台监听(新订单/已付款/已验证/开始交付/已交付/补资料/取消/过期等)
+	go orderwatch.Loop(state)
 
 	// 长轮询:配了 Token 就拉起来。
 	// 内部会先 deleteWebhook —— 老版本可能在 Telegram 那边注册过 webhook,

@@ -220,3 +220,28 @@ CREATE TABLE IF NOT EXISTS app_pairing_codes (
   expires_at TEXT NOT NULL,
   used_at    TEXT
 );
+
+-- ===========================================
+-- order_watch_accounts / order_watch_orders: 订单状态与交付进度监听快照
+-- ===========================================
+CREATE TABLE IF NOT EXISTS order_watch_accounts (
+  account_id TEXT PRIMARY KEY,
+  seeded_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS order_watch_orders (
+  account_id      TEXT NOT NULL,
+  order_id        TEXT NOT NULL,
+  order_date      TEXT NOT NULL DEFAULT '',
+  expiration_date TEXT NOT NULL DEFAULT '',
+  order_url       TEXT NOT NULL DEFAULT '',
+  summary         TEXT NOT NULL DEFAULT '',
+  price_text      TEXT NOT NULL DEFAULT '',
+  status          TEXT NOT NULL DEFAULT '',
+  steps_json      TEXT NOT NULL DEFAULT '{}',
+  events_json     TEXT NOT NULL DEFAULT '[]',
+  terminal        INTEGER NOT NULL DEFAULT 0,
+  updated_at      TEXT NOT NULL,
+  PRIMARY KEY (account_id, order_id)
+);
+CREATE INDEX IF NOT EXISTS idx_order_watch_orders_active ON order_watch_orders(account_id, terminal);
