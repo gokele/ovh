@@ -19,8 +19,12 @@ type Config struct {
 	// 补货监控的全部价值就是"有货那一刻你能收到消息",单通道意味着 Telegram 一挂就全盲。
 	NotifyWebhookURL string `json:"notifyWebhookUrl,omitempty"`
 
-	// NotifyOrderUpdates 是否开启订单更新推送(默认开启;nil 视为 true)。
+	// NotifyOrderUpdates 是否推送订单状态与交付进度变化(默认关闭;nil 视为 false)。
+	// 默认关:升级后不该突然多出一整类消息,用户在设置里自己打开。
 	NotifyOrderUpdates *bool `json:"notifyOrderUpdates,omitempty"`
+	// NotifyOrderExpiry 订单更新推送里是否包含「过期未付款」(默认关闭)。
+	// 抢购常常留下不打算付的单,EU 15 分钟就过期,逐单提醒只会刷屏;队列页已有待付款倒计时。
+	NotifyOrderExpiry *bool `json:"notifyOrderExpiry,omitempty"`
 
 	// DefaultRetryInterval 新建抢购任务的默认重试间隔(秒)。
 	// 网页弹窗、TG /buy、上架通知里的一键下单按钮不显式指定时都用它。
@@ -81,9 +85,14 @@ func ClampRetryInterval(v, fallback int) int {
 	return v
 }
 
-// OrderUpdateNotifyEnabled 返回是否开启订单更新推送；未显式配置（nil）时默认开启。
+// OrderUpdateNotifyEnabled 返回是否开启订单更新推送；未显式配置（nil）时关闭。
 func (c Config) OrderUpdateNotifyEnabled() bool {
-	return c.NotifyOrderUpdates == nil || *c.NotifyOrderUpdates
+	return c.NotifyOrderUpdates != nil && *c.NotifyOrderUpdates
+}
+
+// OrderExpiryNotifyEnabled 订单更新推送是否包含过期未付款提醒;未显式配置时关闭。
+func (c Config) OrderExpiryNotifyEnabled() bool {
+	return c.NotifyOrderExpiry != nil && *c.NotifyOrderExpiry
 }
 
 // DefaultConfig 默认配置

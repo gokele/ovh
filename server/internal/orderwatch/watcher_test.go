@@ -54,6 +54,8 @@ type mockOrder struct {
 
 func newTestState(t *testing.T, acc types.OVHAccount, mock *mockOrderState) (*app.State, *[]string, *sync.Mutex) {
 	t.Helper()
+	resetThrottle()
+	t.Cleanup(resetThrottle)
 	dir := t.TempDir()
 	database, err := db.Open(dir)
 	if err != nil {
@@ -78,7 +80,8 @@ func newTestState(t *testing.T, acc types.OVHAccount, mock *mockOrderState) (*ap
 	t.Cleanup(wh.Close)
 
 	cfg := config.New(database)
-	if err := cfg.Set(types.Config{NotifyWebhookURL: wh.URL}); err != nil {
+	on := true
+	if err := cfg.Set(types.Config{NotifyWebhookURL: wh.URL, NotifyOrderUpdates: &on, NotifyOrderExpiry: &on}); err != nil {
 		t.Fatalf("set config: %v", err)
 	}
 	lg := logger.New(dir, nil)
@@ -479,7 +482,7 @@ func TestOrderWatchUSRegionConfigToggleAndAccountDelete(t *testing.T) {
 	}
 }
 
-func TestSettingsPreserveNotifyOrderUpdates(t *testing.T) {
+func TestSettingsDefaultOffAndPreserveNotifyOrderUpdates(t *testing.T) {
 	dir := t.TempDir()
 	database, err := db.Open(dir)
 	if err != nil {
@@ -488,18 +491,26 @@ func TestSettingsPreserveNotifyOrderUpdates(t *testing.T) {
 	defer database.Close()
 
 	cfgStore := config.New(database)
-	if !cfgStore.OrderUpdateNotifyEnabled() {
-		t.Fatal("default config must enable order update notifications")
+	if cfgStore.OrderUpdateNotifyEnabled() || cfgStore.OrderExpiryNotifyEnabled() {
+		t.Fatal("order update and expiry notifications must be off by default")
 	}
-	f := false
+	on := true
 	c := cfgStore.Get()
-	c.NotifyOrderUpdates = &f
+	c.NotifyOrderUpdates = &on
 	if err := cfgStore.Set(c); err != nil {
 		t.Fatal(err)
 	}
 	reloaded := config.New(database)
-	if reloaded.OrderUpdateNotifyEnabled() {
-		t.Fatal("reloaded config must preserve disabled state")
+	if !reloaded.OrderUpdateNotifyEnabled() || reloaded.OrderExpiryNotifyEnabled() {
+		t.Fatal("reloaded config must preserve the enabled switch and keep expiry off")
 	}
 	_ = atomic.Int32{}
+}
+
+// resetThrottle 节流时间按账户/订单记在包级变量里,各测试互不影响。
+func resetThrottle() {
+	throttle.Lock()
+	throttle.listed = map[string]time.Time{}
+	throttle.polled = map[string]time.Time{}
+	throttle.Unlock()
 }

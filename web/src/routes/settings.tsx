@@ -479,11 +479,24 @@ function NotifySection({
           <p className="text-[11.5px] text-muted-foreground">{t("settings.notify.orderUpdatesHint")}</p>
         </div>
         <Switch
-          checked={form.notifyOrderUpdates ?? true}
+          checked={form.notifyOrderUpdates ?? false}
           onCheckedChange={(v) => set("notifyOrderUpdates", v)}
           aria-label={t("settings.notify.orderUpdatesLabel")}
         />
       </div>
+      {form.notifyOrderUpdates && (
+        <div className="rounded-2xl border border-border p-4 flex items-start justify-between gap-4 -mt-2">
+          <div className="space-y-1 min-w-0">
+            <div className="text-[13px] font-medium">{t("settings.notify.orderExpiryLabel")}</div>
+            <p className="text-[11.5px] text-muted-foreground">{t("settings.notify.orderExpiryHint")}</p>
+          </div>
+          <Switch
+            checked={form.notifyOrderExpiry ?? false}
+            onCheckedChange={(v) => set("notifyOrderExpiry", v)}
+            aria-label={t("settings.notify.orderExpiryLabel")}
+          />
+        </div>
+      )}
 
       <div>
         <Button

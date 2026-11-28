@@ -95,7 +95,9 @@ const pack: SettingsPagesPack = {
         "Sends one message to every configured channel. Save settings before testing — the test uses the saved config, not what's in the input boxes",
       orderUpdatesLabel: "Order update notifications",
       orderUpdatesHint:
-        "Checks order progress across all OVH accounts every minute and pushes updates (new order, paid, validated, delivering, delivered, documents requested, cancelled, expired) to configured Telegram / Webhook channels.",
+        "Checks the last 30 days of orders across all OVH accounts in the background and pushes changes (new order, paid, validated, delivering, delivered, documents requested, cancelled) to configured channels. Several changes on one account in a round become one message, and anything the sniper already announced isn't sent again. Orders in delivery are checked every minute, unpaid ones every 5 minutes. Off by default.",
+      orderExpiryLabel: "Include expired-unpaid alerts",
+      orderExpiryHint: "Also notify when an order passes its payment deadline unpaid. Sniping often leaves orders you don't plan to pay, so this is off by default; the unpaid countdown is on the snipe queue page.",
     },
     telegram: {
       title: "Telegram notifications",

@@ -20,6 +20,8 @@ export interface SettingsConfig {
   notifyWebhookUrl?: string;
   /** 是否开启订单状态更新推送（默认开启） */
   notifyOrderUpdates?: boolean;
+  /** 订单更新推送是否包含过期未付款提醒(默认关) */
+  notifyOrderExpiry?: boolean;
   /** 新建抢购任务的默认重试间隔（秒）。网页弹窗 / TG /buy / 一键下单按钮都用它 */
   defaultRetryInterval?: number;
   /** 监控触发的自动下单用的重试间隔（秒）。货刚出现那一刻窗口很窄，默认比普通任务激进 */

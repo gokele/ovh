@@ -102,6 +102,14 @@ func (s *Store) OrderUpdateNotifyEnabled() bool {
 	return enabled
 }
 
+// OrderExpiryNotifyEnabled 返回订单更新推送是否包含过期未付款提醒。
+func (s *Store) OrderExpiryNotifyEnabled() bool {
+	s.mu.RLock()
+	enabled := s.cfg.OrderExpiryNotifyEnabled()
+	s.mu.RUnlock()
+	return enabled
+}
+
 // Get 返回配置的副本（调用方不能修改后影响存储）
 func (s *Store) Get() types.Config {
 	s.mu.RLock()
